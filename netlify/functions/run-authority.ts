@@ -268,6 +268,13 @@ var handler: Handler = async function(event) {
     var findingsResult = await supabase.from("findings").select("*").eq("case_id", caseId);
     var allFindings = findingsResult.data || [];
 
+    // Normalize: use label ("undercut") as finding_type, not generic ("Discontinuity")
+    for (var nf = 0; nf < allFindings.length; nf++) {
+      if (allFindings[nf].label) {
+        allFindings[nf].finding_type = allFindings[nf].label.toLowerCase().replace(/ /g, "_");
+      }
+    }
+
     // Load measurements
     var measResult = await supabase.from("case_measurements").select("*").eq("case_id", caseId);
     var measurements = measResult.data || [];
