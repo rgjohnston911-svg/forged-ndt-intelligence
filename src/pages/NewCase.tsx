@@ -1,12 +1,11 @@
 /**
- * DEPLOY43 — NewCase.tsx
+ * DEPLOY46 — NewCase.tsx
  * src/pages/NewCase.tsx
  *
- * Updated Step 2 to include:
- *   - Lifecycle Stage
- *   - Industry Sector
- *   - Asset Type
- * alongside existing Material Class, Family, Surface, Environment.
+ * After successful case creation, automatically calls:
+ *   1. run-universal-route (material/damage engine routing)
+ *   2. run-code-applicability (governing code routing)
+ * Then navigates to the case detail page with routing already done.
  *
  * CONSTRAINT: No backtick template literals
  */
@@ -34,15 +33,15 @@ var API_BASE = "/.netlify/functions";
 export default function NewCase() {
   var navigate = useNavigate();
 
-  /* ---- step tracking ---- */
   var [step, setStep] = useState(1);
   var [loading, setLoading] = useState(false);
+  var [loadingMsg, setLoadingMsg] = useState("");
   var [error, setError] = useState("");
 
-  /* ---- Step 1: Inspection Context ---- */
+  /* Step 1 */
   var [inspectionContext, setInspectionContext] = useState("");
 
-  /* ---- Step 2: Material + Surface + Environment + Lifecycle + Industry + Asset ---- */
+  /* Step 2 */
   var [materialClass, setMaterialClass] = useState("");
   var [materialFamily, setMaterialFamily] = useState("");
   var [surfaceType, setSurfaceType] = useState("");
@@ -51,34 +50,28 @@ export default function NewCase() {
   var [industrySector, setIndustrySector] = useState("");
   var [assetType, setAssetType] = useState("");
 
-  /* ---- Step 3: NDT Method ---- */
+  /* Step 3 */
   var [method, setMethod] = useState("");
 
-  /* ---- Step 4: Component ---- */
+  /* Step 4 */
   var [component, setComponent] = useState("");
 
-  /* ---- Step 5: Welding Process (only if context = WELD) ---- */
+  /* Step 5 (weld only) */
   var [weldProcess, setWeldProcess] = useState("");
   var [weldPosition, setWeldPosition] = useState("");
   var [heatInput, setHeatInput] = useState("");
   var [travelSpeed, setTravelSpeed] = useState("");
 
-  /* ---- Step 6: Code ---- */
+  /* Step 6 */
   var [selectedCode, setSelectedCode] = useState("");
 
-  /* ---- Determine if weld step is needed ---- */
   var isWeld = inspectionContext === "WELD";
   var totalSteps = isWeld ? 6 : 5;
 
-  /* ---- Reset material family when class changes ---- */
-  useEffect(function() {
-    setMaterialFamily("");
-  }, [materialClass]);
+  useEffect(function() { setMaterialFamily(""); }, [materialClass]);
 
-  /* ---- Families for selected class ---- */
   var familyOptions = MATERIAL_FAMILY_OPTIONS[materialClass] || [];
 
-  /* ---- Step labels ---- */
   function getStepLabel(s: number): string {
     if (s === 1) return "Inspection Context";
     if (s === 2) return "Material, Environment & Classification";
@@ -88,7 +81,6 @@ export default function NewCase() {
     return "Code / Standard";
   }
 
-  /* ---- Navigation ---- */
   function canNext(): boolean {
     if (step === 1) return inspectionContext !== "";
     if (step === 2) return materialClass !== "";
@@ -98,15 +90,9 @@ export default function NewCase() {
     return true;
   }
 
-  function handleNext() {
-    if (step < totalSteps) setStep(step + 1);
-  }
+  function handleNext() { if (step < totalSteps) setStep(step + 1); }
+  function handleBack() { if (step > 1) setStep(step - 1); }
 
-  function handleBack() {
-    if (step > 1) setStep(step - 1);
-  }
-
-  /* ---- Code options ---- */
   var CODE_OPTIONS = [
     { value: "AWS_D1.1", label: "AWS D1.1 — Structural Welding Code" },
     { value: "AWS_D1.5", label: "AWS D1.5 — Bridge Welding Code" },
@@ -127,10 +113,11 @@ export default function NewCase() {
     { value: "OTHER", label: "Other" }
   ];
 
-  /* ---- Submit ---- */
+  /* ---- Submit + auto-route ---- */
   async function handleSubmit() {
     setLoading(true);
     setError("");
+    setLoadingMsg("Creating case...");
 
     try {
       var sessionRes = await supabase.auth.getSession();
@@ -161,12 +148,10 @@ export default function NewCase() {
         processContext: processContext
       };
 
+      /* 1. Create case */
       var res = await fetch(API_BASE + "/create-case", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + token
-        },
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
         body: JSON.stringify(payload)
       });
 
@@ -175,14 +160,49 @@ export default function NewCase() {
       if (!res.ok || !data.caseId) {
         setError(data.detail || data.error || "Failed to create case");
         setLoading(false);
+        setLoadingMsg("");
         return;
       }
 
-      navigate("/cases/" + data.caseId);
+      var caseId = data.caseId;
+
+      /* 2. Auto-run Universal Inspection Context Router */
+      setLoadingMsg("Running inspection context router...");
+      try {
+        await fetch(API_BASE + "/run-universal-route", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+          body: JSON.stringify({ caseId: caseId })
+        });
+      } catch (e) {
+        console.log("universal-route call failed (non-blocking): " + String(e));
+      }
+
+      /* 3. Auto-run Code Applicability Router */
+      setLoadingMsg("Running code applicability router...");
+      try {
+        await fetch(API_BASE + "/run-code-applicability", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+          body: JSON.stringify({
+            caseId: caseId,
+            lifecycleStage: lifecycleStage || null,
+            industrySector: industrySector || null,
+            assetType: assetType || null,
+            educationalMode: lifecycleStage === "EDUCATIONAL_TRAINING"
+          })
+        });
+      } catch (e) {
+        console.log("code-applicability call failed (non-blocking): " + String(e));
+      }
+
+      /* 4. Navigate to case */
+      navigate("/cases/" + caseId);
 
     } catch (err: any) {
       setError(String(err));
       setLoading(false);
+      setLoadingMsg("");
     }
   }
 
@@ -234,9 +254,7 @@ export default function NewCase() {
     );
   }
 
-  /* ---- Step content ---- */
   function renderStep() {
-    /* Step 1: Inspection Context */
     if (step === 1) {
       return (
         <div className="step-content">
@@ -246,9 +264,7 @@ export default function NewCase() {
           </p>
           {renderOptionGrid(INSPECTION_CONTEXT_OPTIONS, inspectionContext, setInspectionContext)}
           {inspectionContext === "WELD" && (
-            <div className="step-note info">
-              Weld context selected — welding process step will be included.
-            </div>
+            <div className="step-note info">Weld context selected — welding process step will be included.</div>
           )}
           {inspectionContext && inspectionContext !== "WELD" && inspectionContext !== "UNKNOWN" && (
             <div className="step-note info">
@@ -259,41 +275,28 @@ export default function NewCase() {
       );
     }
 
-    /* Step 2: Material + Environment + Lifecycle + Industry + Asset */
     if (step === 2) {
       return (
         <div className="step-content">
           <h3 className="step-title">Material, Environment & Classification</h3>
           <p className="step-desc">
             Identify the material, environment, lifecycle stage, industry sector, and asset type.
-            These drive both the damage engine and code applicability routing.
           </p>
-
           <div className="form-field">
             <label className="form-label">Material Class</label>
             {renderOptionGrid(MATERIAL_CLASS_OPTIONS, materialClass, setMaterialClass)}
           </div>
-
-          {materialClass && familyOptions.length > 0 && (
-            renderSelect("Material Family", materialFamily, setMaterialFamily, familyOptions, "Select family...")
-          )}
-
+          {materialClass && familyOptions.length > 0 && renderSelect("Material Family", materialFamily, setMaterialFamily, familyOptions, "Select family...")}
           {renderSelect("Surface / Component Type", surfaceType, setSurfaceType, SURFACE_TYPE_OPTIONS, "Select surface type...")}
-
           {renderSelect("Service Environment", serviceEnvironment, setServiceEnvironment, SERVICE_ENVIRONMENT_OPTIONS, "Select environment...")}
-
           <div className="form-divider"></div>
-
           {renderSelect("Lifecycle Stage", lifecycleStage, setLifecycleStage, LIFECYCLE_STAGE_OPTIONS, "Select lifecycle stage...")}
-
           {renderSelect("Industry Sector", industrySector, setIndustrySector, INDUSTRY_SECTOR_OPTIONS, "Select industry sector...")}
-
           {renderSelect("Asset Type", assetType, setAssetType, ASSET_TYPE_OPTIONS, "Select asset type...")}
         </div>
       );
     }
 
-    /* Step 3: NDT Method */
     if (step === 3) {
       return (
         <div className="step-content">
@@ -304,7 +307,6 @@ export default function NewCase() {
       );
     }
 
-    /* Step 4: Component */
     if (step === 4) {
       return (
         <div className="step-content">
@@ -323,16 +325,12 @@ export default function NewCase() {
       );
     }
 
-    /* Step 5: Welding Process (only if isWeld) */
     if (isWeld && step === 5) {
       return (
         <div className="step-content">
           <h3 className="step-title">Welding Process</h3>
-          <p className="step-desc">
-            Providing welding process details dramatically improves convergence accuracy.
-          </p>
+          <p className="step-desc">Providing welding process details dramatically improves convergence accuracy.</p>
           {renderOptionGrid(WELDING_PROCESSES, weldProcess, setWeldProcess)}
-
           {weldProcess && (
             <div className="weld-details-grid">
               {renderSelect("Weld Position", weldPosition, setWeldPosition, WELD_POSITIONS, "Select position...")}
@@ -344,76 +342,52 @@ export default function NewCase() {
       );
     }
 
-    /* Final step: Code / Standard */
     return (
       <div className="step-content">
         <h3 className="step-title">Governing Code / Standard</h3>
-        <p className="step-desc">
-          Select the code or standard governing this inspection. This controls acceptance criteria and disposition authority.
-        </p>
+        <p className="step-desc">Select the code or standard governing this inspection.</p>
         {renderOptionGrid(CODE_OPTIONS, selectedCode, setSelectedCode)}
       </div>
     );
   }
 
-  /* ---- Progress indicator ---- */
   function renderProgress() {
     var dots = [];
     for (var i = 1; i <= totalSteps; i++) {
       dots.push(
-        <div
-          key={i}
-          className={"progress-dot" + (i === step ? " active" : "") + (i < step ? " done" : "")}
-        >
-          {i}
-        </div>
+        <div key={i} className={"progress-dot" + (i === step ? " active" : "") + (i < step ? " done" : "")}>{i}</div>
       );
     }
     return <div className="progress-dots">{dots}</div>;
   }
 
-  /* ---- Main render ---- */
   return (
     <div className="new-case-page">
       <div className="new-case-header">
         <h2>New Inspection Case</h2>
-        <p className="step-indicator">
-          Step {step} of {totalSteps}: {getStepLabel(step)}
-        </p>
+        <p className="step-indicator">Step {step} of {totalSteps}: {getStepLabel(step)}</p>
       </div>
 
       {renderProgress()}
 
       {error && <div className="error-banner">{error}</div>}
 
+      {loading && loadingMsg && (
+        <div className="loading-banner">{loadingMsg}</div>
+      )}
+
       {renderStep()}
 
       <div className="step-nav">
         {step > 1 && (
-          <button type="button" className="btn-secondary" onClick={handleBack} disabled={loading}>
-            Back
-          </button>
+          <button type="button" className="btn-secondary" onClick={handleBack} disabled={loading}>Back</button>
         )}
-
         {step < totalSteps && (
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={handleNext}
-            disabled={!canNext()}
-          >
-            Next
-          </button>
+          <button type="button" className="btn-primary" onClick={handleNext} disabled={!canNext()}>Next</button>
         )}
-
         {step === totalSteps && (
-          <button
-            type="button"
-            className="btn-primary submit-btn"
-            onClick={handleSubmit}
-            disabled={loading || !method || !component.trim()}
-          >
-            {loading ? "Creating..." : "Create Case"}
+          <button type="button" className="btn-primary submit-btn" onClick={handleSubmit} disabled={loading || !method || !component.trim()}>
+            {loading ? "Routing..." : "Create Case"}
           </button>
         )}
       </div>
