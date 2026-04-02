@@ -1,17 +1,12 @@
 /**
- * DEPLOY37 — NewCase.tsx
+ * DEPLOY43 — NewCase.tsx
  * src/pages/NewCase.tsx
  *
- * Updated case creation form with universal inspection context routing.
- * Now 6 steps:
- *   Step 1: Inspection Context — "What are you inspecting?"
- *   Step 2: Material Class + Family + Surface Type + Service Environment
- *   Step 3: NDT Method
- *   Step 4: Component
- *   Step 5: Welding Process (ONLY if context = WELD)
- *   Step 6: Code Selection
- *
- * If context != WELD, step 5 is skipped automatically.
+ * Updated Step 2 to include:
+ *   - Lifecycle Stage
+ *   - Industry Sector
+ *   - Asset Type
+ * alongside existing Material Class, Family, Surface, Environment.
  *
  * CONSTRAINT: No backtick template literals
  */
@@ -28,7 +23,10 @@ import {
   MATERIAL_CLASS_OPTIONS,
   MATERIAL_FAMILY_OPTIONS,
   SURFACE_TYPE_OPTIONS,
-  SERVICE_ENVIRONMENT_OPTIONS
+  SERVICE_ENVIRONMENT_OPTIONS,
+  LIFECYCLE_STAGE_OPTIONS,
+  INDUSTRY_SECTOR_OPTIONS,
+  ASSET_TYPE_OPTIONS
 } from "../lib/constants";
 
 var API_BASE = "/.netlify/functions";
@@ -44,11 +42,14 @@ export default function NewCase() {
   /* ---- Step 1: Inspection Context ---- */
   var [inspectionContext, setInspectionContext] = useState("");
 
-  /* ---- Step 2: Material + Surface + Environment ---- */
+  /* ---- Step 2: Material + Surface + Environment + Lifecycle + Industry + Asset ---- */
   var [materialClass, setMaterialClass] = useState("");
   var [materialFamily, setMaterialFamily] = useState("");
   var [surfaceType, setSurfaceType] = useState("");
   var [serviceEnvironment, setServiceEnvironment] = useState("");
+  var [lifecycleStage, setLifecycleStage] = useState("");
+  var [industrySector, setIndustrySector] = useState("");
+  var [assetType, setAssetType] = useState("");
 
   /* ---- Step 3: NDT Method ---- */
   var [method, setMethod] = useState("");
@@ -80,17 +81,11 @@ export default function NewCase() {
   /* ---- Step labels ---- */
   function getStepLabel(s: number): string {
     if (s === 1) return "Inspection Context";
-    if (s === 2) return "Material & Environment";
+    if (s === 2) return "Material, Environment & Classification";
     if (s === 3) return "NDT Method";
     if (s === 4) return "Component";
     if (isWeld && s === 5) return "Welding Process";
     return "Code / Standard";
-  }
-
-  /* ---- Actual step number mapping (skip weld step if not weld) ---- */
-  function getActualStep(): number {
-    if (!isWeld && step >= 5) return step + 1;
-    return step;
   }
 
   /* ---- Navigation ---- */
@@ -111,13 +106,14 @@ export default function NewCase() {
     if (step > 1) setStep(step - 1);
   }
 
-  /* ---- Code options (simplified from DEPLOY30) ---- */
+  /* ---- Code options ---- */
   var CODE_OPTIONS = [
     { value: "AWS_D1.1", label: "AWS D1.1 — Structural Welding Code" },
     { value: "AWS_D1.5", label: "AWS D1.5 — Bridge Welding Code" },
     { value: "ASME_SEC_VIII", label: "ASME Section VIII — Pressure Vessels" },
     { value: "ASME_SEC_V", label: "ASME Section V — NDE" },
     { value: "ASME_B31.3", label: "ASME B31.3 — Process Piping" },
+    { value: "ASME_B31.1", label: "ASME B31.1 — Power Piping" },
     { value: "API_1104", label: "API 1104 — Pipeline Welding" },
     { value: "API_510", label: "API 510 — Pressure Vessel Inspection" },
     { value: "API_570", label: "API 570 — Piping Inspection" },
@@ -159,6 +155,9 @@ export default function NewCase() {
         materialFamily: materialFamily || null,
         surfaceType: surfaceType || null,
         serviceEnvironment: serviceEnvironment || null,
+        lifecycleStage: lifecycleStage || null,
+        industrySector: industrySector || null,
+        assetType: assetType || null,
         processContext: processContext
       };
 
@@ -174,7 +173,7 @@ export default function NewCase() {
       var data = await res.json();
 
       if (!res.ok || !data.caseId) {
-        setError(data.error || "Failed to create case");
+        setError(data.detail || data.error || "Failed to create case");
         setLoading(false);
         return;
       }
@@ -260,13 +259,14 @@ export default function NewCase() {
       );
     }
 
-    /* Step 2: Material + Surface + Environment */
+    /* Step 2: Material + Environment + Lifecycle + Industry + Asset */
     if (step === 2) {
       return (
         <div className="step-content">
-          <h3 className="step-title">Material & Environment</h3>
+          <h3 className="step-title">Material, Environment & Classification</h3>
           <p className="step-desc">
-            Identify the material class, family, surface type, and service environment.
+            Identify the material, environment, lifecycle stage, industry sector, and asset type.
+            These drive both the damage engine and code applicability routing.
           </p>
 
           <div className="form-field">
@@ -281,6 +281,14 @@ export default function NewCase() {
           {renderSelect("Surface / Component Type", surfaceType, setSurfaceType, SURFACE_TYPE_OPTIONS, "Select surface type...")}
 
           {renderSelect("Service Environment", serviceEnvironment, setServiceEnvironment, SERVICE_ENVIRONMENT_OPTIONS, "Select environment...")}
+
+          <div className="form-divider"></div>
+
+          {renderSelect("Lifecycle Stage", lifecycleStage, setLifecycleStage, LIFECYCLE_STAGE_OPTIONS, "Select lifecycle stage...")}
+
+          {renderSelect("Industry Sector", industrySector, setIndustrySector, INDUSTRY_SECTOR_OPTIONS, "Select industry sector...")}
+
+          {renderSelect("Asset Type", assetType, setAssetType, ASSET_TYPE_OPTIONS, "Select asset type...")}
         </div>
       );
     }
