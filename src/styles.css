@@ -680,3 +680,257 @@ a:hover { text-decoration: underline; }
   .rc-name { width: 120px; }
   .route-result-header { flex-direction: column; align-items: flex-start; }
 }
+/* DEPLOY51 — APPEND to src/styles.css
+   Closed-Loop Reality Engine (Klein Bottle) display styles */
+
+/* ================================================================
+   REALITY LOOP — ACTION BUTTONS
+================================================================ */
+
+.reality-loop-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 2px solid var(--accent);
+}
+
+.reality-loop-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--dark);
+  margin-bottom: 4px;
+}
+
+.reality-loop-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.reality-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.reality-action-btn {
+  padding: 12px 24px;
+  border-radius: 8px;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.reality-action-btn:hover { border-color: var(--accent); }
+.reality-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.reality-action-btn.action-selected { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); }
+
+.action-repair { border-color: #2E7D32; color: #2E7D32; }
+.action-repair:hover, .action-repair.action-selected { background: #E8F5E9; border-color: #2E7D32; color: #2E7D32; }
+.action-monitor { border-color: #E65100; color: #E65100; }
+.action-monitor:hover, .action-monitor.action-selected { background: #FFF3E0; border-color: #E65100; color: #E65100; }
+.action-noaction { border-color: #616161; color: #616161; }
+.action-noaction:hover, .action-noaction.action-selected { background: #F5F5F5; border-color: #616161; color: #616161; }
+.action-reinspect { border-color: #1565C0; color: #1565C0; }
+.action-reinspect:hover, .action-reinspect.action-selected { background: #E3F2FD; border-color: #1565C0; color: #1565C0; }
+.action-escalate { border-color: #C62828; color: #C62828; }
+.action-escalate:hover, .action-escalate.action-selected { background: #FFEBEE; border-color: #C62828; color: #C62828; }
+
+.run-loop-btn {
+  padding: 12px 32px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.run-loop-btn:hover { background: var(--dark); }
+.run-loop-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ================================================================
+   REALITY LOOP — SCENARIO COMPARISON
+================================================================ */
+
+.scenario-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.scenario-card {
+  background: var(--surface);
+  border: 2px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  text-align: center;
+  transition: border-color 0.2s;
+}
+
+.scenario-card.scenario-active { border-color: var(--accent); box-shadow: var(--shadow-md); }
+.scenario-card.scenario-repair { border-top: 4px solid #2E7D32; }
+.scenario-card.scenario-monitor { border-top: 4px solid #E65100; }
+.scenario-card.scenario-noaction { border-top: 4px solid #616161; }
+
+.scenario-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.scenario-repair .scenario-label { color: #2E7D32; }
+.scenario-monitor .scenario-label { color: #E65100; }
+.scenario-noaction .scenario-label { color: #616161; }
+
+.scenario-risk-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.scenario-risk-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.scenario-risk-value {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.risk-low { color: #2E7D32; }
+.risk-moderate { color: #E65100; }
+.risk-high { color: #C62828; }
+
+.scenario-severity-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* ================================================================
+   REALITY LOOP — NARRATIVE
+================================================================ */
+
+.reality-narrative {
+  background: var(--accent-bg);
+  border-left: 4px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.reality-narrative strong {
+  color: var(--accent);
+}
+
+/* ================================================================
+   REALITY LOOP — STATE TIMELINE
+================================================================ */
+
+.reality-timeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 20px 0;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.timeline-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 100px;
+  position: relative;
+}
+
+.timeline-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  z-index: 1;
+}
+
+.timeline-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-top: 6px;
+  max-width: 90px;
+  line-height: 1.2;
+}
+
+.timeline-connector {
+  flex: 1;
+  height: 2px;
+  background: var(--accent);
+  min-width: 20px;
+  margin-top: -14px;
+}
+
+/* ================================================================
+   REALITY LOOP — FAILURE MODE BADGE
+================================================================ */
+
+.failure-mode-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  background: #FFEBEE;
+  color: #C62828;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+  margin-bottom: 16px;
+}
+
+/* ================================================================
+   REALITY LOOP — LOOP STATUS
+================================================================ */
+
+.loop-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.loop-active { background: #E8F5E9; color: #2E7D32; }
+.loop-pending { background: #FFF3E0; color: #E65100; }
+
+/* ================================================================
+   RESPONSIVE
+================================================================ */
+
+@media (max-width: 768px) {
+  .scenario-grid { grid-template-columns: 1fr; }
+  .reality-actions { flex-direction: column; }
+  .reality-action-btn { width: 100%; text-align: center; }
+}
