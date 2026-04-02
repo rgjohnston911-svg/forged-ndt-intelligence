@@ -1,11 +1,12 @@
 /**
- * DEPLOY61 — voice-incident-plan.ts
+ * DEPLOY61v2 — voice-incident-plan.ts
  * netlify/functions/voice-incident-plan.ts
  *
  * Voice-to-Inspection Plan Engine
- * Accepts spoken transcript, parses incident/finding,
- * generates structured inspection plan.
- * Optionally creates damage_case in DRE if org_id + asset_id provided.
+ * v2: Added speech-to-text error tolerance
+ *   - Phonetic/typo correction map for common misheard words
+ *   - Standalone mph/ft extraction without requiring keyword context
+ *   - Multi-factor auto-detection when multiple numeric fields present
  *
  * POST { transcript, org_id?, asset_id? }
  *
@@ -23,7 +24,98 @@ function getSupabase() {
 }
 
 /* ========================================================================
-   PARSER — Extract structured data from spoken narrative
+   SPEECH-TO-TEXT ERROR CORRECTION
+   Common misheard words from browser SpeechRecognition
+   ======================================================================== */
+
+var SPEECH_CORRECTIONS: Array<{ wrong: string; right: string }> = [
+  /* wind related */
+  { wrong: "wins ", right: "winds " },
+  { wrong: "win speed", right: "wind speed" },
+  { wrong: "steady wins", right: "steady winds" },
+  { wrong: "sustained wins", right: "sustained winds" },
+  { wrong: "gus ", right: "gust " },
+  { wrong: "gusts", right: "gusts" },
+  { wrong: "hearicane", right: "hurricane" },
+  { wrong: "hurrican ", right: "hurricane " },
+  { wrong: "tornato", right: "tornado" },
+  { wrong: "tornadoe", right: "tornado" },
+  /* wave related */
+  { wrong: "waives", right: "waves" },
+  { wrong: "wave hight", right: "wave height" },
+  { wrong: "serge", right: "surge" },
+  { wrong: "currant", right: "current" },
+  /* weather */
+  { wrong: "hale", right: "hail" },
+  { wrong: "lightening", right: "lightning" },
+  { wrong: "lighting strike", right: "lightning strike" },
+  { wrong: "earthquak", right: "earthquake" },
+  { wrong: "earth quake", right: "earthquake" },
+  /* inspection */
+  { wrong: "corrision", right: "corrosion" },
+  { wrong: "corrotion", right: "corrosion" },
+  { wrong: "corosion", right: "corrosion" },
+  { wrong: "pittin", right: "pitting" },
+  { wrong: "crake", right: "crack" },
+  { wrong: "fractur ", right: "fracture " },
+  { wrong: "den ", right: "dent " },
+  { wrong: "gouge", right: "gouge" },
+  { wrong: "coading", right: "coating" },
+  { wrong: "codeing", right: "coating" },
+  { wrong: "coating lost", right: "coating loss" },
+  { wrong: "marine grow", right: "marine growth" },
+  { wrong: "by a fouling", right: "biofouling" },
+  { wrong: "bio fouling", right: "biofouling" },
+  /* assets */
+  { wrong: "plat form", right: "platform" },
+  { wrong: "pipe line", right: "pipeline" },
+  { wrong: "presure", right: "pressure" },
+  { wrong: "pressure vestle", right: "pressure vessel" },
+  { wrong: "pressure vessle", right: "pressure vessel" },
+  { wrong: "bridge support", right: "bridge support" },
+  { wrong: "rudder", right: "rudder" },
+  { wrong: "sadel", right: "saddle" },
+  { wrong: "sadle", right: "saddle" },
+  { wrong: "penstock", right: "penstock" },
+  { wrong: "off shore", right: "offshore" },
+  { wrong: "sub sea", right: "subsea" },
+  { wrong: "splash own", right: "splash zone" },
+  /* units */
+  { wrong: "miles per hour", right: "mph" },
+  { wrong: "mile per hour", right: "mph" },
+  { wrong: "miles an hour", right: "mph" },
+  { wrong: "mile an hour", right: "mph" },
+  { wrong: "feet tall", right: "foot" },
+  { wrong: "foot tall", right: "foot" },
+  { wrong: "foot waves", right: "ft waves" },
+  { wrong: "feet waves", right: "ft waves" },
+  /* misc */
+  { wrong: "it's a stained", right: "it sustained" },
+  { wrong: "its a stained", right: "it sustained" },
+  { wrong: "a stained", right: "sustained" },
+  { wrong: "sustain ", right: "sustained " },
+  { wrong: "debree", right: "debris" },
+  { wrong: "debre", right: "debris" },
+  { wrong: "impacked", right: "impacted" },
+  { wrong: "ancor", right: "anchor" },
+  { wrong: "leek", right: "leak" },
+  { wrong: "weld too", right: "weld toe" },
+];
+
+function correctSpeechErrors(raw: string): string {
+  var text = raw;
+  for (var i = 0; i < SPEECH_CORRECTIONS.length; i++) {
+    var idx = text.toLowerCase().indexOf(SPEECH_CORRECTIONS[i].wrong);
+    while (idx !== -1) {
+      text = text.substring(0, idx) + SPEECH_CORRECTIONS[i].right + text.substring(idx + SPEECH_CORRECTIONS[i].wrong.length);
+      idx = text.toLowerCase().indexOf(SPEECH_CORRECTIONS[i].wrong, idx + SPEECH_CORRECTIONS[i].right.length);
+    }
+  }
+  return text;
+}
+
+/* ========================================================================
+   PARSER
    ======================================================================== */
 
 function lower(text: string): string { return text.toLowerCase().trim(); }
@@ -39,16 +131,101 @@ function findNumberBefore(text: string, units: string[]): number | undefined {
   for (var u = 0; u < units.length; u++) {
     var idx = text.indexOf(units[u]);
     if (idx === -1) continue;
-    var before = text.substring(0, idx).trim();
+    var before = text.substring(Math.max(0, idx - 30), idx).trim();
     var parts = before.split(/\s+/);
-    var last = parts[parts.length - 1];
-    if (last) {
-      var cleaned = last.replace(/[^0-9.]/g, "");
-      var num = parseFloat(cleaned);
-      if (!isNaN(num)) return num;
+    for (var p = parts.length - 1; p >= 0; p--) {
+      var cleaned = parts[p].replace(/[^0-9.]/g, "");
+      if (cleaned.length > 0) {
+        var num = parseFloat(cleaned);
+        if (!isNaN(num) && num > 0) return num;
+      }
     }
   }
   return undefined;
+}
+
+function findAllNumbersWithUnits(text: string): any {
+  var result: any = { wind_mph: null, impact_speed_mph: null, wave_height_ft: null, seismic_magnitude: null, diameter_ft: null, diameter_in: null };
+
+  /* Find all "NUMBER mph" patterns */
+  var mphPattern = /(\d+(?:\.\d+)?)\s*(?:mph|mile)/gi;
+  var mphMatches: Array<{ value: number; index: number }> = [];
+  var match;
+  while ((match = mphPattern.exec(text)) !== null) {
+    mphMatches.push({ value: parseFloat(match[1]), index: match.index });
+  }
+
+  /* Find all "NUMBER ft/foot/feet" patterns for waves */
+  var ftPattern = /(\d+(?:\.\d+)?)\s*(?:ft|foot|feet|')\s*(?:wave|waves|surge|swell)/gi;
+  while ((match = ftPattern.exec(text)) !== null) {
+    result.wave_height_ft = parseFloat(match[1]);
+  }
+
+  /* Find diameter patterns */
+  var diamFtPattern = /(\d+(?:\.\d+)?)\s*(?:ft|foot|feet|')\s*(?:diameter|wide|round)/gi;
+  while ((match = diamFtPattern.exec(text)) !== null) {
+    result.diameter_ft = parseFloat(match[1]);
+  }
+
+  var diamInPattern = /(\d+(?:\.\d+)?)\s*(?:inch|inches|in|")\s/gi;
+  while ((match = diamInPattern.exec(text)) !== null) {
+    result.diameter_in = parseFloat(match[1]);
+  }
+
+  /* Assign mph values based on context */
+  var lt = lower(text);
+  for (var m = 0; m < mphMatches.length; m++) {
+    var val = mphMatches[m].value;
+    var nearby = text.substring(Math.max(0, mphMatches[m].index - 60), mphMatches[m].index + 20).toLowerCase();
+
+    if (includesAny(nearby, ["wind", "winds", "tornado", "hurricane", "gust", "sustained", "steady"])) {
+      result.wind_mph = val;
+    } else if (includesAny(nearby, ["truck", "car", "vehicle", "hit", "struck", "traveling", "travelling", "speed", "impact"])) {
+      result.impact_speed_mph = val;
+    } else if (includesAny(nearby, ["ship", "vessel", "knot"])) {
+      /* skip vessel speed for now */
+    } else {
+      /* If only one mph value and wind context exists anywhere, assign to wind */
+      if (mphMatches.length === 1 && includesAny(lt, ["wind", "winds", "tornado", "hurricane", "storm", "sustained", "steady"])) {
+        result.wind_mph = val;
+      } else if (mphMatches.length === 1 && includesAny(lt, ["hit", "struck", "truck", "car", "impact", "traveling"])) {
+        result.impact_speed_mph = val;
+      } else {
+        /* Assign to wind if > 40 (unlikely impact speed description for vehicles uses mph alone) */
+        if (val >= 40 && !result.wind_mph) result.wind_mph = val;
+        else if (!result.impact_speed_mph) result.impact_speed_mph = val;
+      }
+    }
+  }
+
+  /* Wave height fallback: "NUMBER ft" near wave-like words */
+  if (!result.wave_height_ft) {
+    var ftFallback = /(\d+(?:\.\d+)?)\s*(?:ft|foot|feet)/gi;
+    while ((match = ftFallback.exec(text)) !== null) {
+      var nearbyWave = text.substring(Math.max(0, match.index - 40), match.index + 30).toLowerCase();
+      if (includesAny(nearbyWave, ["wave", "waves", "surge", "swell", "sea", "water"])) {
+        result.wave_height_ft = parseFloat(match[1]);
+      }
+    }
+  }
+
+  /* Diameter fallback for "NUMBER foot diameter" or "NUMBER ft of water" */
+  if (!result.diameter_ft) {
+    var ftDiam = /(\d+(?:\.\d+)?)\s*(?:ft|foot|feet)\s*(?:diameter|of water|deep)/gi;
+    while ((match = ftDiam.exec(text)) !== null) {
+      result.diameter_ft = parseFloat(match[1]);
+    }
+  }
+
+  /* Seismic */
+  if (includesAny(lt, ["magnitude", "richter", "earthquake"])) {
+    var seismic = /(\d+(?:\.\d+)?)\s*(?:magnitude)/gi;
+    while ((match = seismic.exec(text)) !== null) {
+      result.seismic_magnitude = parseFloat(match[1]);
+    }
+  }
+
+  return result;
 }
 
 function inferAssetType(text: string): string {
@@ -57,7 +234,7 @@ function inferAssetType(text: string): string {
   if (includesAny(text, ["cargo ship", "ship", "vessel", "barge", "tanker"]) && includesAny(text, ["rudder"])) return "cargo_ship";
   if (includesAny(text, ["rudder"])) return "rudder";
   if (includesAny(text, ["pressure vessel", "vessel shell", "saddle", "reactor vessel"])) return "pressure_vessel";
-  if (includesAny(text, ["offshore platform", "platform", "jacket"])) return "offshore_platform";
+  if (includesAny(text, ["oil platform", "offshore platform", "platform", "jacket"])) return "offshore_platform";
   if (includesAny(text, ["brace", "node", "splash zone brace"])) return "platform_brace";
   if (includesAny(text, ["subsea pipeline", "subsea line"])) return "subsea_pipeline";
   if (includesAny(text, ["storage tank", "tank farm", "oil tank"])) return "storage_tank";
@@ -70,6 +247,7 @@ function inferAssetType(text: string): string {
   if (includesAny(text, ["dock", "wharf", "pier", "bulkhead"])) return "dock_structure";
   if (includesAny(text, ["exchanger", "heat exchanger"])) return "exchanger";
   if (includesAny(text, ["column", "tower", "distillation"])) return "process_column";
+  if (includesAny(text, ["wind turbine", "monopile", "nacelle", "blade"])) return "wind_turbine";
   return "unknown_asset";
 }
 
@@ -82,17 +260,24 @@ function inferIntakePath(text: string): string {
   return "event_driven";
 }
 
-function inferEventCategory(text: string): string {
+function inferEventCategory(text: string, nums: any): string {
   var flags: string[] = [];
   if (includesAny(text, ["hit", "struck", "collision", "impact", "ran into", "fell on", "dropped", "unknown object", "anchor drag"])) flags.push("impact");
   if (includesAny(text, ["tornado", "wind", "winds", "hurricane", "gust", "straight-line"])) flags.push("wind");
-  if (includesAny(text, ["wave", "surge", "current", "sea state", "swell"])) flags.push("wave_surge");
+  if (includesAny(text, ["wave", "waves", "surge", "current", "sea state", "swell"])) flags.push("wave_surge");
   if (includesAny(text, ["flood", "rain", "inundation", "water intrusion", "washout"])) flags.push("rain_flood");
   if (includesAny(text, ["fire", "blast", "explosion", "overpressure", "flash fire"])) flags.push("fire_blast");
   if (includesAny(text, ["freeze", "cold snap", "ice storm", "low temperature"])) flags.push("extreme_cold");
   if (includesAny(text, ["extreme heat", "overheated", "high temperature"])) flags.push("extreme_heat");
   if (includesAny(text, ["earthquake", "ground movement", "subsidence", "seismic"])) flags.push("earthquake_ground_movement");
   if (includesAny(text, ["lightning", "electrical strike"])) flags.push("lightning_electrical");
+
+  /* Also check extracted numbers to infer categories */
+  if (nums.wind_mph && nums.wind_mph > 0 && flags.indexOf("wind") === -1) flags.push("wind");
+  if (nums.wave_height_ft && nums.wave_height_ft > 0 && flags.indexOf("wave_surge") === -1) flags.push("wave_surge");
+  if (nums.impact_speed_mph && nums.impact_speed_mph > 0 && flags.indexOf("impact") === -1) flags.push("impact");
+  if (nums.seismic_magnitude && nums.seismic_magnitude > 0 && flags.indexOf("earthquake_ground_movement") === -1) flags.push("earthquake_ground_movement");
+
   if (flags.length > 1) return "multi_factor";
   if (flags.length === 1) return flags[0];
   return "unknown_event";
@@ -115,18 +300,17 @@ function inferFindingCategory(text: string): string {
 }
 
 function parseTranscript(rawText: string): any {
-  var text = lower(rawText);
+  /* Step 1: Correct common speech-to-text errors */
+  var corrected = correctSpeechErrors(rawText);
+  var text = lower(corrected);
   var intake = inferIntakePath(text);
   var asset = inferAssetType(text);
-  var eventCat = intake === "event_driven" ? inferEventCategory(text) : null;
-  var findCat = intake === "condition_driven" ? inferFindingCategory(text) : null;
 
-  var windMph = includesAny(text, ["wind", "winds", "tornado", "hurricane"]) ? findNumberBefore(text, ["mph", "mile"]) : undefined;
-  var impactMph = includesAny(text, ["truck", "car", "vehicle", "hit", "struck", "traveling"]) ? findNumberBefore(text, ["mph", "mile"]) : undefined;
-  var diameterFt = includesAny(text, ["diameter", "foot", "feet"]) ? findNumberBefore(text, ["foot", "feet", "ft", "'"]) : undefined;
-  var diameterIn = includesAny(text, ["inch", "in", "\""]) ? findNumberBefore(text, ["inch", "inches", "in", "\""]) : undefined;
-  var waveFt = includesAny(text, ["wave", "surge"]) ? findNumberBefore(text, ["foot", "feet", "ft"]) : undefined;
-  var seismicMag = includesAny(text, ["magnitude", "richter"]) ? findNumberBefore(text, ["magnitude"]) : undefined;
+  /* Step 2: Extract all numeric values with smart context */
+  var nums = findAllNumbersWithUnits(text);
+
+  var eventCat = intake === "event_driven" ? inferEventCategory(text, nums) : null;
+  var findCat = intake === "condition_driven" ? inferFindingCategory(text) : null;
 
   var component = null;
   if (includesAny(text, ["rudder"])) component = "rudder";
@@ -152,7 +336,7 @@ function parseTranscript(rawText: string): any {
   if (includesAny(text, ["bridge"])) envContext.push("civil_infrastructure");
   if (includesAny(text, ["gas pipeline", "pressurized"])) envContext.push("pressurized_service");
   if (includesAny(text, ["cargo ship", "ship", "vessel"])) envContext.push("marine_vessel");
-  if (includesAny(text, ["offshore", "splash zone", "platform"])) envContext.push("marine_exposure");
+  if (includesAny(text, ["offshore", "splash zone", "platform", "gulf"])) envContext.push("marine_exposure");
   if (includesAny(text, ["nuclear", "reactor", "fuel pool"])) envContext.push("nuclear");
   if (includesAny(text, ["dam", "penstock", "lock"])) envContext.push("freshwater_infrastructure");
 
@@ -162,8 +346,15 @@ function parseTranscript(rawText: string): any {
   var conf = 88 - missing.length * 8;
   if (asset === "unknown_asset") conf -= 10;
 
+  /* Corrections applied flag */
+  var corrections: string[] = [];
+  if (corrected !== rawText) {
+    corrections.push("Speech corrections applied");
+  }
+
   return {
     raw_text: rawText,
+    corrected_text: corrected !== rawText ? corrected : null,
     intake_path: intake,
     asset_type: asset,
     component: component,
@@ -171,23 +362,24 @@ function parseTranscript(rawText: string): any {
     finding_category: findCat,
     impact_object: impactObject,
     measured_values: {
-      wind_mph: windMph || null,
-      impact_speed_mph: impactMph || null,
-      wave_height_ft: waveFt || null,
-      seismic_magnitude: seismicMag || null,
+      wind_mph: nums.wind_mph || null,
+      impact_speed_mph: nums.impact_speed_mph || null,
+      wave_height_ft: nums.wave_height_ft || null,
+      seismic_magnitude: nums.seismic_magnitude || null,
     },
     dimensions: {
-      diameter_ft: diameterFt || null,
-      diameter_in: diameterIn || null,
+      diameter_ft: nums.diameter_ft || null,
+      diameter_in: nums.diameter_in || null,
     },
     environment_context: envContext,
     missing_inputs: missing,
+    corrections: corrections,
     confidence: Math.max(0, Math.min(100, conf)),
   };
 }
 
 /* ========================================================================
-   PLAN ENGINE — Build inspection plan from parsed incident
+   PLAN ENGINE
    ======================================================================== */
 
 function buildPlan(p: any): any {
@@ -260,7 +452,7 @@ function buildPlan(p: any): any {
     followUp.push("Was there steering resistance or drift after impact?", "Is the vessel afloat or in drydock?", "Was the strike at the rudder or also hull/propeller?");
   }
 
-  /* === PRESSURE VESSEL IMPACT (tree, object) === */
+  /* === PRESSURE VESSEL IMPACT === */
   if (p.asset_type === "pressure_vessel" && (p.event_category === "impact" || p.impact_object === "tree")) {
     mech.push("localized_yielding", "shell_deformation", "saddle_overload", "coating_damage");
     fail.push("denting", "support_distress", "weld_toe_cracking");
@@ -276,7 +468,7 @@ function buildPlan(p: any): any {
     followUp.push("Was the vessel pressurized at time of impact?", "Is any deformation visible at the impact zone?", "Are saddle supports intact?");
   }
 
-  /* === UNDERWATER CORROSION (diver/rov found) === */
+  /* === UNDERWATER CORROSION === */
   if (p.intake_path === "condition_driven" && (p.finding_category === "corrosion" || p.finding_category === "marine_growth_obscured_condition")) {
     mech.push("active_corrosion", "section_loss_progression", "hidden_damage_beneath_growth");
     fail.push("remaining_strength_reduction", "localized_wall_loss", "underestimated_extent");
@@ -291,7 +483,7 @@ function buildPlan(p: any): any {
     followUp.push("Was marine growth present?", "Was cleaning performed before severity judgment?", "Is the member primary load-carrying?", "What is CP status?");
   }
 
-  /* === DIVER/ROV CRACK FINDING === */
+  /* === CRACK FINDING === */
   if (p.intake_path === "condition_driven" && p.finding_category === "crack_indication") {
     mech.push("fatigue_cracking", "fracture_propagation", "environmental_cracking");
     fail.push("crack_growth_under_load", "through_wall_progression");
@@ -306,7 +498,7 @@ function buildPlan(p: any): any {
     followUp.push("What is the crack orientation relative to the weld?", "Is the member under tension or cyclic loading?", "What material?");
   }
 
-  /* === OFFSHORE PLATFORM / BRACE DAMAGE === */
+  /* === OFFSHORE PLATFORM (event-driven with wind+wave) === */
   if ((p.asset_type === "offshore_platform" || p.asset_type === "platform_brace") && p.event_category) {
     if (methods.length === 0) {
       mech.push("lateral_overstress", "brace_fatigue", "coating_damage", "debris_impact");
@@ -320,11 +512,18 @@ function buildPlan(p: any): any {
       actions.push("Prioritize splash zone and windward faces.", "Check all attachment and connection points.");
       rat.push("Event loading on platforms concentrates at connections, nodes, and splash zone.");
       severity = "high"; disp = "priority_inspection_required";
+
+      /* Escalate based on extracted values */
+      var windVal = p.measured_values.wind_mph || 0;
+      var waveVal = p.measured_values.wave_height_ft || 0;
+      if (windVal >= 100 || waveVal >= 25) { severity = "critical"; disp = "restricted_operation"; }
+      else if (windVal >= 74 || waveVal >= 15) { severity = "high"; disp = "priority_inspection_required"; }
+
       followUp.push("Was the event wind, wave, impact, or combination?", "Any visible member displacement?");
     }
   }
 
-  /* === DAM / FRESHWATER INFRASTRUCTURE === */
+  /* === DAM / FRESHWATER === */
   if (p.asset_type === "dam" || p.asset_type === "penstock" || p.asset_type === "lock_gate" || p.asset_type === "intake_structure") {
     if (methods.length === 0) {
       mech.push("structural_deterioration", "scour", "seepage_progression", "concrete_degradation");
@@ -353,7 +552,6 @@ function buildPlan(p: any): any {
     severity = "moderate"; disp = "targeted_inspection";
   }
 
-  /* Add missing input questions */
   for (var mi = 0; mi < (p.missing_inputs || []).length; mi++) {
     followUp.push("Provide or confirm: " + p.missing_inputs[mi]);
   }
@@ -410,7 +608,6 @@ var handler: Handler = async function(event) {
       return { statusCode: 400, body: JSON.stringify({ error: "transcript is required" }) };
     }
 
-    /* Parse + Plan */
     var parsed = parseTranscript(transcript);
     var plan = buildPlan(parsed);
 
@@ -419,6 +616,7 @@ var handler: Handler = async function(event) {
     if (body.org_id && body.asset_id) {
       try {
         var supabase = getSupabase();
+        var lt = lower(parsed.corrected_text || transcript);
         var record = {
           org_id: body.org_id,
           asset_id: body.asset_id,
@@ -434,22 +632,22 @@ var handler: Handler = async function(event) {
           impact_speed_mph: (parsed.measured_values || {}).impact_speed_mph || null,
           wave_height_ft: (parsed.measured_values || {}).wave_height_ft || null,
           seismic_magnitude: (parsed.measured_values || {}).seismic_magnitude || null,
-          debris_present: includesAny(lower(transcript), ["debris"]),
-          fire_exposure: includesAny(lower(transcript), ["fire", "blast"]),
-          marine_growth_present: includesAny(lower(transcript), ["marine growth", "biofouling"]),
-          crack_like_indication: includesAny(lower(transcript), ["crack"]),
-          coating_loss_present: includesAny(lower(transcript), ["coating loss", "coating failure"]),
-          deformation_present: includesAny(lower(transcript), ["deformation", "dent", "bent"]),
-          wall_loss_suspected: includesAny(lower(transcript), ["wall loss", "section loss", "thinning"]),
-          leak_evidence_present: includesAny(lower(transcript), ["leak", "weeping"]),
-          raw_payload: { voice_transcript: transcript, parsed: parsed },
+          debris_present: includesAny(lt, ["debris"]),
+          fire_exposure: includesAny(lt, ["fire", "blast"]),
+          marine_growth_present: includesAny(lt, ["marine growth", "biofouling"]),
+          crack_like_indication: includesAny(lt, ["crack"]),
+          coating_loss_present: includesAny(lt, ["coating loss", "coating failure"]),
+          deformation_present: includesAny(lt, ["deformation", "dent", "bent"]),
+          wall_loss_suspected: includesAny(lt, ["wall loss", "section loss", "thinning"]),
+          leak_evidence_present: includesAny(lt, ["leak", "weeping"]),
+          raw_payload: { voice_transcript: transcript, corrected_text: parsed.corrected_text, parsed: parsed },
         };
 
         var insertRes = await supabase.from("damage_cases").insert(record).select("*").single();
         if (insertRes.data) {
-          dreResult = { damage_case_id: insertRes.data.id, message: "Damage case created from voice input. Run dre-run-evaluation to get full DRE scoring." };
+          dreResult = { damage_case_id: insertRes.data.id, message: "Damage case created from voice input. Run dre-run-evaluation for full DRE scoring." };
         }
-      } catch (e) { /* DRE insert optional — plan still returns */ }
+      } catch (e) { /* DRE insert optional */ }
     }
 
     return {
