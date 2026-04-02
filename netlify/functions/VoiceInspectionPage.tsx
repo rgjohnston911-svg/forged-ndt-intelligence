@@ -1,10 +1,14 @@
 /**
- * DEPLOY62 — VoiceInspectionPage.tsx
+ * DEPLOY70 — VoiceInspectionPage.tsx v3
  * src/pages/VoiceInspectionPage.tsx
  *
- * Voice-to-Inspection Plan — speak what happened, get an instant plan.
- * Uses browser SpeechRecognition API for mic input.
- * Calls voice-incident-plan function, displays parsed incident + plan.
+ * Voice-to-Inspection Plan with Code Authority Trace Panel.
+ * Speak what happened, get an instant plan with full code citations.
+ *
+ * Changes from DEPLOY62:
+ * - Added codeTrace state + fetchCodeTrace function
+ * - Auto-calls code-trace API after plan generation
+ * - Code Trace Panel renders below plan with expandable sections
  *
  * CONSTRAINT: No backtick template literals — string concatenation only
  */
@@ -44,7 +48,20 @@ export default function VoiceInspectionPage() {
   var [listening, setListening] = useState(false);
   var [loading, setLoading] = useState(false);
   var [result, setResult] = useState<any>(null);
+  var [codeTrace, setCodeTrace] = useState<any>(null);
+  var [codeTraceLoading, setCodeTraceLoading] = useState(false);
+  var [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   var recognitionRef = useRef<any>(null);
+
+  function toggleSection(key: string) {
+    var next: Record<string, boolean> = {};
+    var keys = Object.keys(expandedSections);
+    for (var i = 0; i < keys.length; i++) {
+      next[keys[i]] = expandedSections[keys[i]];
+    }
+    next[key] = !next[key];
+    setExpandedSections(next);
+  }
 
   function startListening() {
     var SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -75,10 +92,160 @@ export default function VoiceInspectionPage() {
     setListening(false);
   }
 
+  async function fetchCodeTrace(planData: any) {
+    setCodeTraceLoading(true);
+    try {
+      var findings: string[] = [];
+      var methods: string[] = [];
+      var disposition = "";
+      var asset_class = "Other";
+      var underwater_contexts: string[] = [];
+
+      var p = planData.plan;
+      var pr = planData.parsed;
+
+      // Extract findings from failure modes and damage mechanisms
+      if (p && p.likely_failure_modes) {
+        for (var i = 0; i < p.likely_failure_modes.length; i++) {
+          findings.push(p.likely_failure_modes[i]);
+        }
+      }
+      if (p && p.probable_damage_mechanisms) {
+        for (var i = 0; i < p.probable_damage_mechanisms.length; i++) {
+          findings.push(p.probable_damage_mechanisms[i]);
+        }
+      }
+
+      // Extract methods
+      if (p && p.recommended_methods) {
+        for (var i = 0; i < p.recommended_methods.length; i++) {
+          var m = p.recommended_methods[i];
+          methods.push(m.method || m.name || m);
+        }
+      }
+
+      // Determine disposition from severity or operational_disposition
+      if (p && p.operational_disposition) {
+        // Map voice dispositions to DRE dispositions
+        var dispMap: Record<string, string> = {
+          continue_normal: "continue_normal",
+          continue_with_monitoring: "continue_monitoring",
+          targeted_inspection: "immediate_inspection",
+          priority_inspection_required: "immediate_inspection",
+          restricted_operation: "restrict_operations",
+          inspection_before_return: "immediate_inspection",
+          shutdown_consideration: "shutdown_consideration"
+        };
+        disposition = dispMap[p.operational_disposition] || "engineering_evaluation";
+      }
+
+      // Asset class from parsed data
+      if (pr && pr.asset_type) {
+        var typeClassMap: Record<string, string> = {
+          bridge_support: "Bridge/Civil",
+          bridge: "Bridge/Civil",
+          pipeline: "Pipeline",
+          gas_pipeline: "Pipeline",
+          oil_pipeline: "Pipeline",
+          cargo_ship: "Marine Vessel",
+          ship: "Marine Vessel",
+          vessel: "Marine Vessel",
+          rudder: "Marine Vessel",
+          pressure_vessel: "Refinery/Process",
+          offshore_platform: "Offshore",
+          platform: "Offshore",
+          jacket_brace: "Offshore",
+          dam: "Dam/Hydro",
+          dam_face: "Dam/Hydro",
+          hydro: "Dam/Hydro",
+          wind_turbine: "Wind Energy",
+          storage_tank: "Storage/Terminal",
+          nuclear: "Nuclear",
+          rail: "Rail",
+          aerospace: "Aerospace"
+        };
+        var assetKey = (pr.asset_type || "").toLowerCase().replace(/[\s\-]+/g, "_");
+        asset_class = typeClassMap[assetKey] || "Other";
+        // Check for partial match
+        if (asset_class === "Other") {
+          var mapKeys = Object.keys(typeClassMap);
+          for (var i = 0; i < mapKeys.length; i++) {
+            if (assetKey.indexOf(mapKeys[i]) >= 0 || mapKeys[i].indexOf(assetKey) >= 0) {
+              asset_class = typeClassMap[mapKeys[i]];
+              break;
+            }
+          }
+        }
+      }
+
+      // Underwater detection
+      if (pr && pr.environment_context) {
+        for (var i = 0; i < pr.environment_context.length; i++) {
+          var env = (pr.environment_context[i] || "").toLowerCase();
+          if (env.indexOf("underwater") >= 0 || env.indexOf("subsea") >= 0 || env.indexOf("diver") >= 0 || env.indexOf("marine") >= 0) {
+            underwater_contexts.push("adci_general");
+            underwater_contexts.push("osha_diving");
+            break;
+          }
+        }
+      }
+      // Also check transcript for underwater keywords
+      var lowerTranscript = transcript.toLowerCase();
+      if (underwater_contexts.length === 0 && (lowerTranscript.indexOf("diver") >= 0 || lowerTranscript.indexOf("underwater") >= 0 || lowerTranscript.indexOf("subsea") >= 0 || lowerTranscript.indexOf("rov") >= 0)) {
+        underwater_contexts.push("adci_general");
+        underwater_contexts.push("osha_diving");
+      }
+      // Offshore underwater
+      if (asset_class === "Offshore" && underwater_contexts.length > 0) {
+        underwater_contexts.push("offshore");
+        underwater_contexts.push("cathodic_protection");
+      }
+      // Dam underwater
+      if (asset_class === "Dam/Hydro" && underwater_contexts.length > 0) {
+        underwater_contexts.push("dam_hydro");
+      }
+      // Nuclear underwater
+      if (asset_class === "Nuclear" && underwater_contexts.length > 0) {
+        underwater_contexts.push("nuclear_underwater");
+      }
+      // Marine
+      if (asset_class === "Marine Vessel") {
+        underwater_contexts.push("marine_vessel");
+      }
+
+      var score_dimensions = [
+        "event_severity", "observed_condition_severity", "hidden_damage_likelihood",
+        "inspection_urgency", "consequence", "overall_risk", "confidence"
+      ];
+
+      var response = await fetch("/api/code-trace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          findings: findings,
+          methods: methods,
+          disposition: disposition,
+          asset_class: asset_class,
+          score_dimensions: score_dimensions,
+          underwater_contexts: underwater_contexts
+        })
+      });
+
+      if (response.ok) {
+        var data = await response.json();
+        setCodeTrace(data);
+      }
+    } catch (err) {
+      console.error("Code trace fetch failed:", err);
+    }
+    setCodeTraceLoading(false);
+  }
+
   async function generatePlan() {
     if (!transcript.trim()) return;
     setLoading(true);
     setResult(null);
+    setCodeTrace(null);
     try {
       var resp = await fetch("/api/voice-incident-plan", {
         method: "POST",
@@ -87,6 +254,10 @@ export default function VoiceInspectionPage() {
       });
       var data = await resp.json();
       setResult(data);
+      // Auto-fetch code trace if plan succeeded
+      if (data && data.plan && !data.error) {
+        fetchCodeTrace(data);
+      }
     } catch (err) {
       setResult({ error: "Failed to generate plan." });
     }
@@ -96,6 +267,7 @@ export default function VoiceInspectionPage() {
   function loadExample(text: string) {
     setTranscript(text);
     setResult(null);
+    setCodeTrace(null);
   }
 
   var plan = result && result.plan ? result.plan : null;
@@ -105,7 +277,7 @@ export default function VoiceInspectionPage() {
     <div className="page">
       <div className="case-header">
         <h1>Voice-to-Inspection Plan</h1>
-        <p className="voice-subtitle">Speak what happened. Get an instant inspection plan.</p>
+        <p className="voice-subtitle">Speak what happened. Get an instant inspection plan with full code authority.</p>
       </div>
 
       {/* MIC + CONTROLS */}
@@ -325,6 +497,214 @@ export default function VoiceInspectionPage() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* CODE TRACE LOADING */}
+      {codeTraceLoading && (
+        <div className="ct-loading">
+          <div className="ct-loading-spinner"></div>
+          Generating code authority trace...
+        </div>
+      )}
+
+      {/* CODE AUTHORITY TRACE PANEL */}
+      {codeTrace && (
+        <div className="ct-panel">
+          <div className="ct-panel-header">
+            <h3 className="ct-title">
+              <span className="ct-icon">{"\u2696"}</span>
+              Code Authority Trace
+            </h3>
+            <span className="ct-family-count">{(codeTrace.applicable_code_families || []).length + " code families"}</span>
+          </div>
+          <p className="ct-subtitle">
+            {"Applicable: " + (codeTrace.applicable_code_families || []).join(", ")}
+          </p>
+
+          {/* FINDING TRACES */}
+          {codeTrace.finding_traces && codeTrace.finding_traces.length > 0 && (
+            <div className="ct-section">
+              <button className="ct-section-toggle" onClick={function() { toggleSection("findings"); }} type="button">
+                <span className="ct-section-title">{"Finding Authority (" + codeTrace.finding_traces.length + ")"}</span>
+                <span className="ct-chevron">{expandedSections["findings"] ? "\u25B2" : "\u25BC"}</span>
+              </button>
+              {expandedSections["findings"] && (
+                <div className="ct-section-body">
+                  {codeTrace.finding_traces.map(function(ft: any, idx: number) {
+                    return (
+                      <div key={"ft-" + idx} className="ct-card">
+                        <div className="ct-card-header">
+                          <span className="ct-finding-name">{ft.display_name}</span>
+                          <span className="ct-ref-count">{ft.references.length + " ref" + (ft.references.length !== 1 ? "s" : "")}</span>
+                        </div>
+                        <div className="ct-physics">{ft.physics_basis}</div>
+                        <div className="ct-rejection">{ft.rejection_basis}</div>
+                        {ft.references.map(function(ref: any, ridx: number) {
+                          return (
+                            <div key={"fref-" + ridx} className="ct-ref">
+                              <div className="ct-ref-header">
+                                <span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span>
+                                <span className="ct-clause">{ref.clause}</span>
+                              </div>
+                              <div className="ct-ref-title">{ref.title}</div>
+                              <div className="ct-ref-detail">
+                                <div>{"Requirement: " + ref.requirement_summary}</div>
+                                <div>{"Acceptance: " + ref.acceptance_criteria}</div>
+                                <div className="ct-rationale">{"Rationale: " + ref.engineering_rationale}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* METHOD TRACES */}
+          {codeTrace.method_traces && codeTrace.method_traces.length > 0 && (
+            <div className="ct-section">
+              <button className="ct-section-toggle" onClick={function() { toggleSection("methods"); }} type="button">
+                <span className="ct-section-title">{"Method Authority (" + codeTrace.method_traces.length + ")"}</span>
+                <span className="ct-chevron">{expandedSections["methods"] ? "\u25B2" : "\u25BC"}</span>
+              </button>
+              {expandedSections["methods"] && (
+                <div className="ct-section-body">
+                  {codeTrace.method_traces.map(function(mt: any, idx: number) {
+                    return (
+                      <div key={"mt-" + idx} className="ct-card">
+                        <div className="ct-card-header">
+                          <span className="ct-method-badge">{mt.method}</span>
+                          <span className="ct-finding-name">{mt.display_name}</span>
+                        </div>
+                        <div className="ct-capability">{"Capability: " + mt.capability_summary}</div>
+                        <div className="ct-limitation">{"Limitation: " + mt.limitation_summary}</div>
+                        {mt.references.map(function(ref: any, ridx: number) {
+                          return (
+                            <div key={"mref-" + ridx} className="ct-ref">
+                              <div className="ct-ref-header">
+                                <span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span>
+                                <span className="ct-clause">{ref.clause}</span>
+                              </div>
+                              <div className="ct-ref-title">{ref.title}</div>
+                              <div className="ct-ref-detail">
+                                <div>{"Requirement: " + ref.requirement_summary}</div>
+                                <div>{"Rationale: " + ref.engineering_rationale}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* DISPOSITION TRACE */}
+          {codeTrace.disposition_trace && (
+            <div className="ct-section">
+              <button className="ct-section-toggle" onClick={function() { toggleSection("disposition"); }} type="button">
+                <span className="ct-section-title">Disposition Authority</span>
+                <span className="ct-chevron">{expandedSections["disposition"] ? "\u25B2" : "\u25BC"}</span>
+              </button>
+              {expandedSections["disposition"] && (
+                <div className="ct-section-body">
+                  <div className="ct-card ct-disp-card">
+                    <div className="ct-card-header">
+                      <span className="ct-disp-badge">{(codeTrace.disposition_trace.disposition || "").replace(/_/g, " ").toUpperCase()}</span>
+                    </div>
+                    <div className="ct-authority-stmt">{codeTrace.disposition_trace.authority_statement}</div>
+                    {codeTrace.disposition_trace.references.map(function(ref: any, ridx: number) {
+                      return (
+                        <div key={"dref-" + ridx} className="ct-ref">
+                          <div className="ct-ref-header">
+                            <span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span>
+                            <span className="ct-clause">{ref.clause}</span>
+                          </div>
+                          <div className="ct-ref-title">{ref.title}</div>
+                          <div className="ct-ref-detail">
+                            <div>{"Requirement: " + ref.requirement_summary}</div>
+                            <div>{"Rationale: " + ref.engineering_rationale}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SCORE DIMENSION TRACES */}
+          {codeTrace.score_traces && codeTrace.score_traces.length > 0 && (
+            <div className="ct-section">
+              <button className="ct-section-toggle" onClick={function() { toggleSection("scores"); }} type="button">
+                <span className="ct-section-title">{"Scoring Basis (" + codeTrace.score_traces.length + " dimensions)"}</span>
+                <span className="ct-chevron">{expandedSections["scores"] ? "\u25B2" : "\u25BC"}</span>
+              </button>
+              {expandedSections["scores"] && (
+                <div className="ct-section-body">
+                  {codeTrace.score_traces.map(function(st: any, idx: number) {
+                    return (
+                      <div key={"st-" + idx} className="ct-card ct-score-card">
+                        <div className="ct-card-header">
+                          <span className="ct-dim-name">{(st.dimension || "").replace(/_/g, " ")}</span>
+                        </div>
+                        <div className="ct-eng-basis">{st.engineering_basis}</div>
+                        {st.references.map(function(ref: any, ridx: number) {
+                          return (
+                            <div key={"sref-" + ridx} className="ct-ref ct-ref-compact">
+                              <span className="ct-code-family">{ref.code_family}</span>
+                              <span className="ct-clause">{ref.clause}</span>
+                              <span className="ct-ref-title-inline">{ref.title}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* UNDERWATER TRACES */}
+          {codeTrace.underwater_traces && codeTrace.underwater_traces.length > 0 && (
+            <div className="ct-section">
+              <button className="ct-section-toggle" onClick={function() { toggleSection("underwater"); }} type="button">
+                <span className="ct-section-title">{"Underwater Regulatory Authority (" + codeTrace.underwater_traces.length + ")"}</span>
+                <span className="ct-chevron">{expandedSections["underwater"] ? "\u25B2" : "\u25BC"}</span>
+              </button>
+              {expandedSections["underwater"] && (
+                <div className="ct-section-body">
+                  {codeTrace.underwater_traces.map(function(ref: any, ridx: number) {
+                    return (
+                      <div key={"uwref-" + ridx} className="ct-ref">
+                        <div className="ct-ref-header">
+                          <span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span>
+                          <span className="ct-clause">{ref.clause}</span>
+                        </div>
+                        <div className="ct-ref-title">{ref.title}</div>
+                        <div className="ct-ref-detail">
+                          <div>{"Requirement: " + ref.requirement_summary}</div>
+                          <div>{"Rationale: " + ref.engineering_rationale}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="ct-footer">
+            {"Trace v" + codeTrace.trace_version + " | " + (codeTrace.applicable_code_families || []).length + " code families | Generated " + new Date(codeTrace.generated_at).toLocaleString()}
+          </div>
         </div>
       )}
     </div>
