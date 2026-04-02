@@ -1,14 +1,13 @@
 /**
- * DEPLOY23_CaseDetail.tsx
- * Deploy to: src/pages/CaseDetail.tsx (REPLACEMENT)
+ * DEPLOY47 — CaseDetail.tsx
+ * src/pages/CaseDetail.tsx
  *
- * Complete case detail page with:
- * - Evidence upload + AI analysis
- * - Measurement input (imperial default, metric toggle)
- * - Formatted physics model (no raw JSON)
- * - Conflict resolution display
- * - Authority Lock decision panel
- * - Teaching placeholder
+ * Adds Route Intelligence display to Overview tab:
+ *   - Universal Inspection Context Route (engine, confidence, conditions)
+ *   - Code Applicability Route (standards, authority, disposition)
+ *   - Inspection Classification (lifecycle, industry, asset, environment)
+ *
+ * CONSTRAINT: No backtick template literals
  */
 
 import { useEffect, useState } from "react";
@@ -20,11 +19,9 @@ import { DISPOSITION_COLORS } from "../lib/constants";
 type TabName = "overview" | "evidence" | "physics" | "findings" | "convergence" | "rules" | "decision" | "teaching";
 type UnitSystem = "imperial" | "metric";
 
-// Unit conversion helpers
 function inToMm(v: number) { return Math.round(v * 25.4 * 100) / 100; }
 function mmToIn(v: number) { return Math.round(v / 25.4 * 10000) / 10000; }
 
-// Measurement field definitions per finding type
 var MEAS_FIELDS: Record<string, Array<{ key: string; label: string; stepI: number; stepM: number; maxI: number }>> = {
   undercut: [{ key: "depth", label: "Undercut Depth", stepI: 0.005, stepM: 0.1, maxI: 0.25 }, { key: "length", label: "Undercut Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
   porosity: [{ key: "diameter", label: "Max Pore Diameter", stepI: 0.01, stepM: 0.25, maxI: 0.5 }, { key: "spacing", label: "Pore Spacing", stepI: 0.0625, stepM: 1, maxI: 6 }],
@@ -38,7 +35,6 @@ var MEAS_FIELDS: Record<string, Array<{ key: string; label: string; stepI: numbe
   hydrogen_cracking: [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
 };
 
-// Code limits for live comparison (imperial)
 var CODE_LIMITS: Record<string, Array<{ code: string; rule: string; limit: number }>> = {
   "undercut:depth": [
     { code: "AWS D1.1", rule: "Static", limit: 0.03125 },
@@ -59,16 +55,16 @@ export default function CaseDetail() {
   var [conflicts, setConflicts] = useState<any[]>([]);
   var [convergence, setConvergence] = useState<any | null>(null);
   var [hypotheses, setHypotheses] = useState<any[]>([]);
+  var [routeRun, setRouteRun] = useState<any | null>(null);
+  var [codeRun, setCodeRun] = useState<any | null>(null);
   var [activeTab, setActiveTab] = useState<TabName>("overview");
   var [loading, setLoading] = useState(true);
 
-  // Evidence upload
   var [uploading, setUploading] = useState(false);
   var [analyzing, setAnalyzing] = useState(false);
   var [runningAuthority, setRunningAuthority] = useState(false);
   var [runningConvergence, setRunningConvergence] = useState(false);
 
-  // Measurements
   var [unitSystem, setUnitSystem] = useState<UnitSystem>("imperial");
   var [measValues, setMeasValues] = useState<Record<string, Record<string, string>>>({});
   var [measSaved, setMeasSaved] = useState(false);
@@ -88,12 +84,7 @@ export default function CaseDetail() {
     setPhysics(pRes.data);
     var eRes = await supabase.from("evidence").select("*").eq("case_id", id).order("created_at", { ascending: true });
     setEvidence(eRes.data || []);
-    // Load conflicts
-    try {
-      var crRes = await supabase.from("conflict_resolutions").select("*").eq("case_id", id);
-      setConflicts(crRes.data || []);
-    } catch (e) { setConflicts([]); }
-    // Load convergence data
+    try { var crRes = await supabase.from("conflict_resolutions").select("*").eq("case_id", id); setConflicts(crRes.data || []); } catch (e) { setConflicts([]); }
     try {
       var convRes = await supabase.from("ndt_reality_runs").select("*").eq("case_id", id).order("created_at", { ascending: false }).limit(1).single();
       if (convRes.data) {
@@ -102,7 +93,19 @@ export default function CaseDetail() {
         setHypotheses(hypRes.data || []);
       }
     } catch (e) { setConvergence(null); setHypotheses([]); }
-    // Load existing measurements
+
+    /* Load universal route run */
+    try {
+      var rrRes = await supabase.from("universal_route_runs").select("*").eq("case_id", id).order("created_at", { ascending: false }).limit(1).single();
+      setRouteRun(rrRes.data || null);
+    } catch (e) { setRouteRun(null); }
+
+    /* Load code applicability run */
+    try {
+      var caRes = await supabase.from("inspection_code_applicability_runs").select("*").eq("case_id", id).order("created_at", { ascending: false }).limit(1).single();
+      setCodeRun(caRes.data || null);
+    } catch (e) { setCodeRun(null); }
+
     try {
       var mRes = await supabase.from("case_measurements").select("*").eq("case_id", id);
       if (mRes.data && mRes.data.length > 0) {
@@ -115,11 +118,10 @@ export default function CaseDetail() {
         setMeasValues(populated);
         setMeasSaved(true);
       }
-    } catch (e) { /* table may not exist yet */ }
+    } catch (e) {}
     setLoading(false);
   }
 
-  // === EVIDENCE UPLOAD ===
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     var files = e.target.files;
     if (!files || files.length === 0 || !id || !caseData) return;
@@ -143,23 +145,14 @@ export default function CaseDetail() {
     loadCase();
   }
 
-  // === RUN AI ANALYSIS ===
   async function runAnalysis() {
     if (!id) return;
     setAnalyzing(true);
-    try {
-      var resp = await fetch("/api/run-analysis", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ case_id: id })
-      });
-      await resp.json();
-    } catch (err) { console.error("Analysis error:", err); }
+    try { var resp = await fetch("/api/run-analysis", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ case_id: id }) }); await resp.json(); } catch (err) { console.error("Analysis error:", err); }
     setAnalyzing(false);
     loadCase();
   }
 
-  // === MEASUREMENT HANDLING ===
   function handleMeasChange(findingType: string, fieldKey: string, val: string) {
     var updated = Object.assign({}, measValues);
     if (!updated[findingType]) updated[findingType] = {};
@@ -210,39 +203,22 @@ export default function CaseDetail() {
     setMeasSaved(true);
   }
 
-  // === RUN AUTHORITY LOCK ===
   async function runAuthorityLock() {
     if (!id) return;
     setRunningAuthority(true);
-    try {
-      var resp = await fetch("/api/run-authority", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ case_id: id })
-      });
-      await resp.json();
-    } catch (err) { console.error("Authority error:", err); }
+    try { var resp = await fetch("/api/run-authority", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ case_id: id }) }); await resp.json(); } catch (err) { console.error("Authority error:", err); }
     setRunningAuthority(false);
     loadCase();
   }
 
-  // === RUN REALITY CONVERGENCE ===
   async function runRealityConvergence() {
     if (!id) return;
     setRunningConvergence(true);
-    try {
-      var resp = await fetch("/api/run-convergence", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ case_id: id })
-      });
-      await resp.json();
-    } catch (err) { console.error("Convergence error:", err); }
+    try { var resp = await fetch("/api/run-convergence", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ case_id: id }) }); await resp.json(); } catch (err) { console.error("Convergence error:", err); }
     setRunningConvergence(false);
     loadCase();
   }
 
-  // === HELPERS ===
   function getPassFail(findingType: string, fieldKey: string, value: number) {
     var impVal = unitSystem === "imperial" ? value : mmToIn(value);
     var limits = CODE_LIMITS[findingType + ":" + fieldKey];
@@ -257,7 +233,6 @@ export default function CaseDetail() {
 
   if (loading || !caseData) return <div className="page-loading">Loading case...</div>;
 
-  // Use label (e.g. "undercut", "slag_inclusion") not finding_type (e.g. "Discontinuity")
   var findingTypes = Array.from(new Set(findings.map(function(f) {
     return (f.label || f.finding_type || "unknown").toLowerCase().replace(/ /g, "_");
   })));
@@ -269,6 +244,9 @@ export default function CaseDetail() {
     { key: "rules", label: "Rules" }, { key: "decision", label: "Decision" },
     { key: "teaching", label: "Teaching" },
   ];
+
+  /* Helper: format route name */
+  function fmtRoute(r: string) { return (r || "").replace(/_/g, " ").replace(/ENGINE/g, "").trim(); }
 
   return (
     <div className="page">
@@ -310,31 +288,160 @@ export default function CaseDetail() {
 
         {/* ========== OVERVIEW ========== */}
         {activeTab === "overview" && (
-          <div className="overview-grid">
-            <div className="detail-section">
-              <h3>Component</h3>
-              <p>{caseData.component_name || "Not specified"}</p>
-              {caseData.weld_id && <p>Weld: {caseData.weld_id}</p>}
-              {caseData.joint_type && <p>Joint: {caseData.joint_type}</p>}
-              {caseData.thickness_mm && <p>Thickness: {caseData.thickness_mm} mm</p>}
+          <div>
+            <div className="overview-grid">
+              <div className="detail-section">
+                <h3>Component</h3>
+                <p>{caseData.component_name || "Not specified"}</p>
+                {caseData.weld_id && <p>Weld: {caseData.weld_id}</p>}
+                {caseData.joint_type && <p>Joint: {caseData.joint_type}</p>}
+                {caseData.thickness_mm && <p>Thickness: {caseData.thickness_mm} mm</p>}
+              </div>
+              <div className="detail-section">
+                <h3>Material &amp; Loading</h3>
+                <p>{caseData.material_class.replace(/_/g, " ")}</p>
+                <p>Load: {caseData.load_condition.replace(/_/g, " ")}</p>
+                {caseData.material_family && <p>Family: {caseData.material_family.replace(/_/g, " ")}</p>}
+              </div>
+              <div className="detail-section">
+                <h3>Code Context</h3>
+                <p>{[caseData.code_family, caseData.code_edition].filter(Boolean).join(" ") || "Not specified"}</p>
+                {caseData.code_section && <p>Section: {caseData.code_section}</p>}
+              </div>
+              <div className="detail-section">
+                <h3>4D Energy Model</h3>
+                <p>Energy: {caseData.energy_type}</p>
+                <p>Interaction: {caseData.interaction_type}</p>
+                <p>Response: {caseData.response_type}</p>
+                <p>Time: {caseData.time_dimension_type}</p>
+              </div>
             </div>
-            <div className="detail-section">
-              <h3>Material &amp; Loading</h3>
-              <p>{caseData.material_class.replace(/_/g, " ")}</p>
-              <p>Load: {caseData.load_condition.replace(/_/g, " ")}</p>
-            </div>
-            <div className="detail-section">
-              <h3>Code Context</h3>
-              <p>{[caseData.code_family, caseData.code_edition].filter(Boolean).join(" ") || "Not specified"}</p>
-              {caseData.code_section && <p>Section: {caseData.code_section}</p>}
-            </div>
-            <div className="detail-section">
-              <h3>4D Energy Model</h3>
-              <p>Energy: {caseData.energy_type}</p>
-              <p>Interaction: {caseData.interaction_type}</p>
-              <p>Response: {caseData.response_type}</p>
-              <p>Time: {caseData.time_dimension_type}</p>
-            </div>
+
+            {/* INSPECTION CLASSIFICATION */}
+            {(caseData.inspection_context || caseData.lifecycle_stage || caseData.industry_sector || caseData.asset_type || caseData.service_environment) && (
+              <div className="route-section">
+                <h3 className="route-section-title">Inspection Classification</h3>
+                <div className="route-chips">
+                  {caseData.inspection_context && <span className="route-chip chip-context">{caseData.inspection_context.replace(/_/g, " ")}</span>}
+                  {caseData.lifecycle_stage && <span className="route-chip chip-lifecycle">{caseData.lifecycle_stage.replace(/_/g, " ")}</span>}
+                  {caseData.industry_sector && <span className="route-chip chip-industry">{caseData.industry_sector.replace(/_/g, " ")}</span>}
+                  {caseData.asset_type && <span className="route-chip chip-asset">{caseData.asset_type.replace(/_/g, " ")}</span>}
+                  {caseData.surface_type && <span className="route-chip chip-surface">{caseData.surface_type.replace(/_/g, " ")}</span>}
+                  {caseData.service_environment && <span className="route-chip chip-env">{caseData.service_environment.replace(/_/g, " ")}</span>}
+                </div>
+              </div>
+            )}
+
+            {/* UNIVERSAL INSPECTION ROUTE */}
+            {routeRun && (
+              <div className="route-section">
+                <h3 className="route-section-title">Inspection Context Route</h3>
+                <div className="route-result-card">
+                  <div className="route-result-header">
+                    <span className="route-engine-name">{fmtRoute(routeRun.route_code)}</span>
+                    <span className={"route-confidence-badge conf-" + (routeRun.confidence_band || "low").toLowerCase()}>
+                      {routeRun.confidence_band || "N/A"}
+                    </span>
+                    {routeRun.primary_locked && <span className="route-locked-badge">LOCKED</span>}
+                  </div>
+                  {routeRun.primary_condition && (
+                    <div className="route-primary-condition">
+                      Primary: {routeRun.primary_condition.replace(/_/g, " ")}
+                    </div>
+                  )}
+                  {routeRun.adjusted_conditions_json && routeRun.adjusted_conditions_json.length > 0 && (
+                    <div className="route-conditions-list">
+                      {routeRun.adjusted_conditions_json.slice(0, 5).map(function(c: any, idx: number) {
+                        return (
+                          <div key={idx} className="route-condition-row">
+                            <span className="rc-name">{(c.code || "").replace(/_/g, " ")}</span>
+                            <div className="rc-bar-wrap">
+                              <div className="rc-bar" style={{ width: Math.round((c.adjustedScore || 0) * 100) + "%" }}></div>
+                            </div>
+                            <span className="rc-score">{Math.round((c.adjustedScore || 0) * 100)}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {routeRun.warnings_json && routeRun.warnings_json.length > 0 && (
+                    <div className="route-warnings">
+                      {routeRun.warnings_json.map(function(w: string, idx: number) {
+                        return <div key={idx} className="route-warning-item">{w}</div>;
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* CODE APPLICABILITY ROUTE */}
+            {codeRun && codeRun.decision_json && (
+              <div className="route-section">
+                <h3 className="route-section-title">Code Applicability Route</h3>
+                <div className="route-result-card">
+                  <div className="route-result-header">
+                    <span className={"route-authority-badge auth-" + (codeRun.decision_json.authorityLevel || "low").toLowerCase()}>
+                      Authority: {codeRun.decision_json.authorityLevel || "N/A"}
+                    </span>
+                    <span className={"route-confidence-badge conf-" + (codeRun.decision_json.routingConfidence || "low").toLowerCase()}>
+                      Confidence: {codeRun.decision_json.routingConfidence || "N/A"}
+                    </span>
+                    {codeRun.decision_json.allowedHardDisposition && (
+                      <span className="route-hard-disp-badge">Hard Disposition Allowed</span>
+                    )}
+                    {!codeRun.decision_json.allowedHardDisposition && (
+                      <span className="route-no-disp-badge">Hard Disposition Blocked</span>
+                    )}
+                  </div>
+
+                  {codeRun.decision_json.primaryStandards && codeRun.decision_json.primaryStandards.length > 0 && (
+                    <div className="route-standards">
+                      <h4>Primary Standards</h4>
+                      {codeRun.decision_json.primaryStandards.map(function(s: any, idx: number) {
+                        return (
+                          <div key={idx} className="standard-card">
+                            <span className="std-label">{s.shortLabel}</span>
+                            <span className="std-name">{s.standardName}</span>
+                            <span className="std-reason">{s.applicabilityReason}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {codeRun.decision_json.secondaryStandards && codeRun.decision_json.secondaryStandards.length > 0 && (
+                    <div className="route-standards secondary">
+                      <h4>Secondary Standards</h4>
+                      {codeRun.decision_json.secondaryStandards.map(function(s: any, idx: number) {
+                        return (
+                          <div key={idx} className="standard-card secondary-std">
+                            <span className="std-label">{s.shortLabel}</span>
+                            <span className="std-name">{s.standardName}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {codeRun.decision_json.rationale && codeRun.decision_json.rationale.length > 0 && (
+                    <div className="route-rationale">
+                      {codeRun.decision_json.rationale.map(function(r: string, idx: number) {
+                        return <span key={idx} className="rationale-chip">{r}</span>;
+                      })}
+                    </div>
+                  )}
+
+                  {codeRun.decision_json.warnings && codeRun.decision_json.warnings.length > 0 && (
+                    <div className="route-warnings">
+                      {codeRun.decision_json.warnings.map(function(w: string, idx: number) {
+                        return <div key={idx} className="route-warning-item">{w}</div>;
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -355,7 +462,6 @@ export default function CaseDetail() {
                 </button>
               )}
             </div>
-
             {evidence.length > 0 && (
               <div className="evidence-grid">
                 {evidence.map(function(ev) {
@@ -372,8 +478,6 @@ export default function CaseDetail() {
                 })}
               </div>
             )}
-
-            {/* MEASUREMENT INPUT SECTION */}
             {findings.length > 0 && (
               <div className="measurements-section">
                 <div className="meas-header">
@@ -382,13 +486,11 @@ export default function CaseDetail() {
                     {unitSystem === "imperial" ? "IN (Imperial)" : "MM (Metric)"}
                   </button>
                 </div>
-
                 {findingTypes.map(function(ft) {
                   var fields = MEAS_FIELDS[ft] || [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }];
                   var maxConf = Math.max.apply(null, findings.filter(function(f) {
                     return (f.label || f.finding_type || "").toLowerCase().replace(/ /g, "_") === ft;
                   }).map(function(f) { return f.confidence || 0; }));
-
                   return (
                     <div key={ft} className="meas-finding-group">
                       <div className="meas-group-header">
@@ -400,7 +502,6 @@ export default function CaseDetail() {
                         var numVal = parseFloat(val);
                         var pf = !isNaN(numVal) && numVal > 0 ? getPassFail(ft, field.key, numVal) : null;
                         var limits = CODE_LIMITS[ft + ":" + field.key] || [];
-
                         return (
                           <div key={field.key} className="meas-field-row">
                             <label className="meas-label">{field.label}</label>
@@ -421,11 +522,7 @@ export default function CaseDetail() {
                             {limits.length > 0 && (
                               <div className="code-limits-row">
                                 {limits.map(function(lim, idx) {
-                                  return (
-                                    <span key={idx} className="code-limit-chip">
-                                      {lim.code}: {unitSystem === "imperial" ? lim.limit + " in" : inToMm(lim.limit) + " mm"} ({lim.rule})
-                                    </span>
-                                  );
+                                  return <span key={idx} className="code-limit-chip">{lim.code}: {unitSystem === "imperial" ? lim.limit + " in" : inToMm(lim.limit) + " mm"} ({lim.rule})</span>;
                                 })}
                               </div>
                             )}
@@ -435,7 +532,6 @@ export default function CaseDetail() {
                     </div>
                   );
                 })}
-
                 <div className="meas-actions">
                   <button className="save-meas-btn" onClick={saveMeasurements} disabled={savingMeas} type="button">
                     {savingMeas ? "Saving..." : measSaved ? "\u2713 Measurements Saved" : "Save Measurements"}
@@ -451,13 +547,13 @@ export default function CaseDetail() {
           </div>
         )}
 
-        {/* ========== PHYSICS MODEL (formatted) ========== */}
+        {/* ========== PHYSICS MODEL ========== */}
         {activeTab === "physics" && (
           <div>
             {physics ? (
               <div className="physics-model">
                 <div className="detail-section">
-                  <h3>Probable Discontinuities (Predicted Before Inspection)</h3>
+                  <h3>Probable Discontinuities</h3>
                   {physics.probable_discontinuities_json && physics.probable_discontinuities_json.length > 0 ? (
                     <div className="predictions-list">
                       {physics.probable_discontinuities_json.map(function(d: any, i: number) {
@@ -472,8 +568,6 @@ export default function CaseDetail() {
                     </div>
                   ) : <p>No predictions generated yet.</p>}
                 </div>
-
-                {/* Formatted Method Capability Map */}
                 {physics.method_capability_map_json && (
                   <div className="detail-section">
                     <h3>Method Capability Map</h3>
@@ -488,58 +582,27 @@ export default function CaseDetail() {
                       )}
                       {["mt_applicable", "pt_applicable", "et_applicable"].map(function(key) {
                         if (physics.method_capability_map_json[key] === undefined) return null;
-                        var method = key.split("_")[0].toUpperCase();
+                        var meth = key.split("_")[0].toUpperCase();
                         return (
                           <div key={key} className="capability-card">
-                            <span className="cap-label">{method} Applicable</span>
+                            <span className="cap-label">{meth} Applicable</span>
                             <span className={"cap-value cap-" + (physics.method_capability_map_json[key] ? "yes" : "no")}>
                               {physics.method_capability_map_json[key] ? "Yes" : "No"}
                             </span>
                           </div>
                         );
                       })}
-                      {physics.method_capability_map_json.ut_notes && (
-                        <div className="capability-note"><strong>UT:</strong> {physics.method_capability_map_json.ut_notes}</div>
-                      )}
-                      {physics.method_capability_map_json.rt_notes && (
-                        <div className="capability-note"><strong>RT:</strong> {physics.method_capability_map_json.rt_notes}</div>
-                      )}
-                      {physics.method_capability_map_json.et_notes && (
-                        <div className="capability-note"><strong>ET:</strong> {physics.method_capability_map_json.et_notes}</div>
-                      )}
                     </div>
                   </div>
                 )}
-
-                {/* Formatted Material Properties */}
                 {physics.material_properties_json && (
                   <div className="detail-section">
                     <h3>Material Properties</h3>
                     <div className="material-grid">
-                      {physics.material_properties_json.material_name && (
-                        <div className="mat-card"><span className="mat-label">Material</span><span className="mat-value">{physics.material_properties_json.material_name}</span></div>
-                      )}
-                      {physics.material_properties_json.density_kg_m3 && (
-                        <div className="mat-card"><span className="mat-label">Density</span><span className="mat-value">{physics.material_properties_json.density_kg_m3} kg/m3</span></div>
-                      )}
-                      {physics.material_properties_json.acoustic_velocity_longitudinal_ms && (
-                        <div className="mat-card"><span className="mat-label">Longitudinal Velocity</span><span className="mat-value">{physics.material_properties_json.acoustic_velocity_longitudinal_ms} m/s</span></div>
-                      )}
-                      {physics.material_properties_json.acoustic_velocity_shear_ms && (
-                        <div className="mat-card"><span className="mat-label">Shear Velocity</span><span className="mat-value">{physics.material_properties_json.acoustic_velocity_shear_ms} m/s</span></div>
-                      )}
-                      {physics.material_properties_json.acoustic_impedance && (
-                        <div className="mat-card"><span className="mat-label">Acoustic Impedance</span><span className="mat-value">{physics.material_properties_json.acoustic_impedance} MRayl</span></div>
-                      )}
-                      {physics.material_properties_json.magnetic_permeability && (
-                        <div className="mat-card"><span className="mat-label">Magnetic Permeability</span><span className="mat-value">{physics.material_properties_json.magnetic_permeability}</span></div>
-                      )}
-                      {physics.material_properties_json.electrical_conductivity_ms_m && (
-                        <div className="mat-card"><span className="mat-label">Electrical Conductivity</span><span className="mat-value">{physics.material_properties_json.electrical_conductivity_ms_m} MS/m</span></div>
-                      )}
-                      {physics.material_properties_json.attenuation_coefficient && (
-                        <div className="mat-card"><span className="mat-label">Attenuation</span><span className="mat-value">{physics.material_properties_json.attenuation_coefficient} dB/mm</span></div>
-                      )}
+                      {physics.material_properties_json.material_name && <div className="mat-card"><span className="mat-label">Material</span><span className="mat-value">{physics.material_properties_json.material_name}</span></div>}
+                      {physics.material_properties_json.density_kg_m3 && <div className="mat-card"><span className="mat-label">Density</span><span className="mat-value">{physics.material_properties_json.density_kg_m3} kg/m3</span></div>}
+                      {physics.material_properties_json.acoustic_velocity_longitudinal_ms && <div className="mat-card"><span className="mat-label">Longitudinal Velocity</span><span className="mat-value">{physics.material_properties_json.acoustic_velocity_longitudinal_ms} m/s</span></div>}
+                      {physics.material_properties_json.acoustic_velocity_shear_ms && <div className="mat-card"><span className="mat-label">Shear Velocity</span><span className="mat-value">{physics.material_properties_json.acoustic_velocity_shear_ms} m/s</span></div>}
                     </div>
                   </div>
                 )}
@@ -548,7 +611,7 @@ export default function CaseDetail() {
           </div>
         )}
 
-        {/* ========== FINDINGS + CONFLICT RESOLUTION ========== */}
+        {/* ========== FINDINGS ========== */}
         {activeTab === "findings" && (
           <div>
             {conflicts.length > 0 && (
@@ -587,12 +650,8 @@ export default function CaseDetail() {
                       <div className="finding-label">{f.label}</div>
                       {f.location_ref && <div className="finding-location">Location: {f.location_ref.replace(/_/g, " ")}</div>}
                       {f.confidence != null && <div className="finding-confidence">Confidence: {Math.round(f.confidence * 100)}%</div>}
-                      {f.structured_json && f.structured_json.reasoning && (
-                        <div className="finding-reasoning">{f.structured_json.reasoning}</div>
-                      )}
-                      {f.structured_json && f.structured_json.possible_causes && (
-                        <div className="finding-causes">Possible causes: {f.structured_json.possible_causes}</div>
-                      )}
+                      {f.structured_json && f.structured_json.reasoning && <div className="finding-reasoning">{f.structured_json.reasoning}</div>}
+                      {f.structured_json && f.structured_json.possible_causes && <div className="finding-causes">Possible causes: {f.structured_json.possible_causes}</div>}
                     </div>
                   );
                 })}
@@ -601,7 +660,7 @@ export default function CaseDetail() {
           </div>
         )}
 
-        {/* ========== CONVERGENCE (Reality Engine) ========== */}
+        {/* ========== CONVERGENCE ========== */}
         {activeTab === "convergence" && (
           <div>
             {convergence ? (
@@ -615,15 +674,11 @@ export default function CaseDetail() {
                     </span>
                   )}
                 </div>
-
-                {/* Summary */}
                 <div className="conv-summary">
                   <div className="conv-what"><h3>WHAT</h3><p>{convergence.summary_what}</p></div>
                   <div className="conv-why"><h3>WHY</h3><p>{convergence.summary_why}</p></div>
                   <div className="conv-how"><h3>HOW</h3><p>{convergence.summary_how}</p></div>
                 </div>
-
-                {/* Why Not - eliminated alternatives */}
                 {convergence.summary_why_not && convergence.summary_why_not.length > 0 && (
                   <div className="conv-why-not">
                     <h3>WHY NOT (Eliminated Alternatives)</h3>
@@ -632,8 +687,6 @@ export default function CaseDetail() {
                     })}
                   </div>
                 )}
-
-                {/* Ranked Hypotheses */}
                 {hypotheses.length > 0 && (
                   <div className="conv-hypotheses">
                     <h3>Ranked Reality Hypotheses ({hypotheses.length} tested)</h3>
@@ -644,70 +697,26 @@ export default function CaseDetail() {
                             <span className="hyp-rank">#{hyp.rank_position}</span>
                             <span className="hyp-type">{hyp.defect_type.replace(/_/g, " ").toUpperCase()}</span>
                             <span className="hyp-score">{(hyp.total_score * 100).toFixed(0)}%</span>
-                            {hyp.plausible ? (
-                              <span className="hyp-badge hyp-plausible-badge">Plausible</span>
-                            ) : (
-                              <span className="hyp-badge hyp-eliminated-badge">Eliminated</span>
-                            )}
+                            {hyp.plausible ? <span className="hyp-badge hyp-plausible-badge">Plausible</span> : <span className="hyp-badge hyp-eliminated-badge">Eliminated</span>}
                           </div>
-
-                          {/* Score breakdown */}
                           <div className="hyp-scores">
-                            <div className="score-bar-group">
-                              <span className="score-label">Evidence</span>
-                              <div className="score-bar"><div className="score-fill" style={{ width: (hyp.evidence_consistency * 100) + "%" }}></div></div>
-                              <span className="score-val">{(hyp.evidence_consistency * 100).toFixed(0)}%</span>
-                            </div>
-                            <div className="score-bar-group">
-                              <span className="score-label">Location</span>
-                              <div className="score-bar"><div className="score-fill" style={{ width: (hyp.location_consistency * 100) + "%" }}></div></div>
-                              <span className="score-val">{(hyp.location_consistency * 100).toFixed(0)}%</span>
-                            </div>
-                            <div className="score-bar-group">
-                              <span className="score-label">Morphology</span>
-                              <div className="score-bar"><div className="score-fill" style={{ width: (hyp.morphology_consistency * 100) + "%" }}></div></div>
-                              <span className="score-val">{(hyp.morphology_consistency * 100).toFixed(0)}%</span>
-                            </div>
-                            <div className="score-bar-group">
-                              <span className="score-label">Process</span>
-                              <div className="score-bar"><div className="score-fill" style={{ width: (hyp.process_consistency * 100) + "%" }}></div></div>
-                              <span className="score-val">{(hyp.process_consistency * 100).toFixed(0)}%</span>
-                            </div>
-                            <div className="score-bar-group">
-                              <span className="score-label">Material</span>
-                              <div className="score-bar"><div className="score-fill" style={{ width: (hyp.material_consistency * 100) + "%" }}></div></div>
-                              <span className="score-val">{(hyp.material_consistency * 100).toFixed(0)}%</span>
-                            </div>
-                            <div className="score-bar-group">
-                              <span className="score-label">Method</span>
-                              <div className="score-bar"><div className="score-fill" style={{ width: (hyp.method_consistency * 100) + "%" }}></div></div>
-                              <span className="score-val">{(hyp.method_consistency * 100).toFixed(0)}%</span>
-                            </div>
-                            {hyp.contradiction_penalty > 0 && (
-                              <div className="score-bar-group penalty">
-                                <span className="score-label">Penalty</span>
-                                <div className="score-bar penalty-bar"><div className="score-fill penalty-fill" style={{ width: (hyp.contradiction_penalty * 100) + "%" }}></div></div>
-                                <span className="score-val">-{(hyp.contradiction_penalty * 100).toFixed(0)}%</span>
-                              </div>
-                            )}
+                            {["evidence_consistency","location_consistency","morphology_consistency","process_consistency","material_consistency","method_consistency"].map(function(sk) {
+                              return (
+                                <div key={sk} className="score-bar-group">
+                                  <span className="score-label">{sk.split("_")[0].charAt(0).toUpperCase() + sk.split("_")[0].slice(1)}</span>
+                                  <div className="score-bar"><div className="score-fill" style={{ width: ((hyp[sk] || 0) * 100) + "%" }}></div></div>
+                                  <span className="score-val">{((hyp[sk] || 0) * 100).toFixed(0)}%</span>
+                                </div>
+                              );
+                            })}
                           </div>
-
-                          {/* Support and rejection reasons */}
                           {hyp.why_it_fits && <div className="hyp-fits"><strong>Why it fits:</strong> {hyp.why_it_fits}</div>}
-                          {hyp.why_it_does_not_fully_fit && <div className="hyp-doesnt-fit"><strong>Why it doesn't fully fit:</strong> {hyp.why_it_does_not_fully_fit}</div>}
-
-                          {hyp.probable_causes && hyp.probable_causes.length > 0 && (
-                            <div className="hyp-causes">
-                              <strong>Probable causes:</strong> {hyp.probable_causes.join(", ")}
-                            </div>
-                          )}
+                          {hyp.probable_causes && hyp.probable_causes.length > 0 && <div className="hyp-causes"><strong>Probable causes:</strong> {hyp.probable_causes.join(", ")}</div>}
                         </div>
                       );
                     })}
                   </div>
                 )}
-
-                {/* Escalation recommendation */}
                 {convergence.recommended_next_method && (
                   <div className="conv-escalation">
                     <strong>Recommended next method:</strong> {convergence.recommended_next_method}
@@ -715,20 +724,14 @@ export default function CaseDetail() {
                   </div>
                 )}
               </div>
-            ) : (
-              <div className="empty-state">
-                <p>Reality convergence not yet run. Click "Run Reality Convergence" on the Evidence tab after AI analysis.</p>
-              </div>
-            )}
+            ) : <div className="empty-state"><p>Reality convergence not yet run.</p></div>}
           </div>
         )}
 
         {/* ========== RULES ========== */}
         {activeTab === "rules" && (
           <div>
-            {rules.length === 0 ? (
-              <div className="empty-state"><p>No rule evaluations yet.</p></div>
-            ) : (
+            {rules.length === 0 ? <div className="empty-state"><p>No rule evaluations yet.</p></div> : (
               <div className="rules-list">
                 {rules.map(function(r) {
                   return (
@@ -736,21 +739,8 @@ export default function CaseDetail() {
                       <div className="rule-header">
                         <span className="rule-status-icon">{r.passed === true ? "\u2713" : r.passed === false ? "\u2717" : "\u2014"}</span>
                         <span className="rule-name">{r.rule_name}</span>
-                        <span className="rule-class">{r.rule_class.replace(/_/g, " ")}</span>
                       </div>
                       <div className="rule-explanation">{r.explanation}</div>
-                      {r.engineering_basis_cited && <div className="rule-basis"><strong>Engineering basis:</strong> {r.engineering_basis_cited}</div>}
-                      {r.output_snapshot_json && r.output_snapshot_json.evidence_chain && (
-                        <div className="rule-chain"><strong>Evidence chain:</strong> {r.output_snapshot_json.evidence_chain}</div>
-                      )}
-                      {r.input_snapshot_json && r.input_snapshot_json.measured_value_imperial != null && (
-                        <div className="rule-measurement">
-                          <strong>Measured:</strong> {r.input_snapshot_json.measured_value_imperial.toFixed(4)} in
-                          {r.input_snapshot_json.threshold_imperial != null && (
-                            <span> | <strong>Limit:</strong> {r.input_snapshot_json.threshold_imperial.toFixed(4)} in</span>
-                          )}
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -759,74 +749,30 @@ export default function CaseDetail() {
           </div>
         )}
 
-        {/* ========== DECISION (Authority Lock) ========== */}
+        {/* ========== DECISION ========== */}
         {activeTab === "decision" && (
           <div>
             {caseData.authority_locked && (
               <div className="authority-locked-banner">
                 <span className="lock-icon">{"\uD83D\uDD12"}</span>
-                <span>DECISION LOCKED by Inspection Authority Engine</span>
-                {caseData.authority_locked_at && (
-                  <span className="lock-time">{new Date(caseData.authority_locked_at).toLocaleString()}</span>
-                )}
+                <span>DECISION LOCKED</span>
+                {caseData.authority_locked_at && <span className="lock-time">{new Date(caseData.authority_locked_at).toLocaleString()}</span>}
               </div>
             )}
             {caseData.truth_engine_summary ? (
               <div className="decision-panel">
-                <div className="decision-what">
-                  <h3>WHAT</h3>
-                  <p>{caseData.truth_engine_summary}</p>
-                </div>
-                <div className="decision-why">
-                  <h3>WHY</h3>
-                  <p>{caseData.final_decision_reason || "No detailed reason available."}</p>
-                </div>
-                <div className="decision-how">
-                  <h3>HOW</h3>
-                  <p>{caseData.final_disposition === "reject"
-                    ? "Repair per governing procedure and code. Re-inspect after repair using the same method and acceptance criteria. Document defect location and type."
-                    : caseData.final_disposition === "review_required"
-                    ? "Enter measurements in the Evidence tab, then click Run Authority Lock to finalize the disposition."
-                    : "Proceed per governing procedure. Archive inspection record with evidence trail."
-                  }</p>
-                </div>
-                {caseData.authority_evidence && (
-                  <div className="authority-evidence-summary">
-                    <h3>Authority Evidence</h3>
-                    <div className="evidence-stats">
-                      <span className="stat">Rules Evaluated: {caseData.authority_evidence.rules_evaluated}</span>
-                      <span className="stat stat-pass">Passed: {caseData.authority_evidence.rules_passed}</span>
-                      <span className="stat stat-fail">Failed: {caseData.authority_evidence.rules_failed}</span>
-                      <span className="stat">N/A: {caseData.authority_evidence.rules_na}</span>
-                      <span className="stat">Measurements: {caseData.authority_evidence.measurements_provided}</span>
-                    </div>
-                  </div>
-                )}
-                {caseData.ai_openai_summary && (
-                  <div className="detail-section" style={{ marginTop: "16px" }}>
-                    <h3>GPT-4o Observation Summary</h3>
-                    <p>{caseData.ai_openai_summary}</p>
-                  </div>
-                )}
-                {caseData.ai_claude_summary && (
-                  <div className="detail-section" style={{ marginTop: "16px" }}>
-                    <h3>Claude Reasoning Summary</h3>
-                    <p>{caseData.ai_claude_summary}</p>
-                  </div>
-                )}
+                <div className="decision-what"><h3>WHAT</h3><p>{caseData.truth_engine_summary}</p></div>
+                <div className="decision-why"><h3>WHY</h3><p>{caseData.final_decision_reason || "No detailed reason available."}</p></div>
+                <div className="decision-how"><h3>HOW</h3><p>{caseData.final_disposition === "reject" ? "Repair per governing procedure." : "Proceed per governing procedure."}</p></div>
+                {caseData.ai_openai_summary && <div className="detail-section" style={{ marginTop: "16px" }}><h3>GPT-4o Summary</h3><p>{caseData.ai_openai_summary}</p></div>}
+                {caseData.ai_claude_summary && <div className="detail-section" style={{ marginTop: "16px" }}><h3>Claude Summary</h3><p>{caseData.ai_claude_summary}</p></div>}
               </div>
-            ) : (
-              <div className="empty-state">
-                <p>Decision not yet generated. Upload evidence and run the AI analysis, then enter measurements and lock the decision.</p>
-              </div>
-            )}
+            ) : <div className="empty-state"><p>Decision not yet generated.</p></div>}
           </div>
         )}
 
         {/* ========== TEACHING ========== */}
-        {activeTab === "teaching" && (
-          <div className="empty-state"><p>Teaching intelligence coming in Phase 2.</p></div>
-        )}
+        {activeTab === "teaching" && <div className="empty-state"><p>Teaching intelligence coming in Phase 2.</p></div>}
 
       </div>
     </div>
