@@ -1,16 +1,12 @@
 /**
- * DEPLOY38 — create-case.ts
+ * DEPLOY38v2 — create-case.ts
  * netlify/functions/create-case.ts
  *
- * Updated to store universal inspection context fields:
- *   - inspection_context
- *   - material_class
- *   - material_family
- *   - surface_type
- *   - service_environment
- *   - universal_route_code (set by run-universal-route later)
- *
- * Retains existing process_context_json for weld cases.
+ * Fixed column names to match actual inspection_cases schema:
+ *   - created_by (not user_id)
+ *   - component_name (not component)
+ *   - code_family (not code)
+ *   - org_id from profiles table
  *
  * CONSTRAINT: No backtick template literals (Git Bash paste corruption)
  */
@@ -68,12 +64,21 @@ var handler: Handler = async function(event) {
 
     var userId = userRes.data.user.id;
 
+    /* ---- Get org_id from profiles ---- */
+    var profileRes = await sb
+      .from("profiles")
+      .select("org_id")
+      .eq("id", userId)
+      .single();
+
+    var orgId = (profileRes.data && profileRes.data.org_id) ? profileRes.data.org_id : null;
+
     /* ---- Parse body ---- */
     var body = JSON.parse(event.body || "{}");
 
     var method = (body.method || "").trim();
-    var component = (body.component || "").trim();
-    var code = (body.code || "").trim() || null;
+    var componentName = (body.component || "").trim();
+    var codeFamily = (body.code || "").trim() || null;
 
     /* Universal context fields */
     var inspectionContext = (body.inspectionContext || "").trim() || null;
@@ -93,7 +98,7 @@ var handler: Handler = async function(event) {
       };
     }
 
-    if (!component) {
+    if (!componentName) {
       return {
         statusCode: 400,
         headers: headers(),
@@ -101,12 +106,17 @@ var handler: Handler = async function(event) {
       };
     }
 
+    /* ---- Generate case number ---- */
+    var caseNumber = "NDT-" + Date.now();
+
     /* ---- Create case ---- */
     var caseRow: Record<string, any> = {
-      user_id: userId,
+      org_id: orgId,
+      created_by: userId,
+      case_number: caseNumber,
       method: method,
-      component: component,
-      code: code,
+      component_name: componentName,
+      code_family: codeFamily,
       status: "open",
       inspection_context: inspectionContext,
       material_class: materialClass,
@@ -122,10 +132,11 @@ var handler: Handler = async function(event) {
       .single();
 
     if (insertRes.error) {
+      console.log("create-case insert error: " + JSON.stringify(insertRes.error));
       return {
         statusCode: 500,
         headers: headers(),
-        body: JSON.stringify({ error: "Failed to create case", detail: insertRes.error })
+        body: JSON.stringify({ error: "Failed to create case", detail: insertRes.error.message || insertRes.error })
       };
     }
 
@@ -155,9 +166,9 @@ var handler: Handler = async function(event) {
       body: JSON.stringify({
         success: true,
         caseId: caseId,
+        caseNumber: caseNumber,
         inspectionContext: inspectionContext,
-        materialClass: materialClass,
-        route: inspectionContext === "WELD" ? "WELD_FABRICATION_ENGINE" : "pending_universal_route"
+        materialClass: materialClass
       })
     };
 
