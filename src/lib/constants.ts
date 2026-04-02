@@ -1,18 +1,44 @@
 /**
- * DEPLOY36 — constants.ts
+ * DEPLOY36v2 — constants.ts
  * src/lib/constants.ts
  *
- * Updated to include universal inspection context router options:
- *   - INSPECTION_CONTEXT_OPTIONS
- *   - MATERIAL_CLASS_OPTIONS
- *   - MATERIAL_FAMILY_OPTIONS
- *   - SURFACE_TYPE_OPTIONS
- *   - SERVICE_ENVIRONMENT_OPTIONS
- *
- * Retains existing welding process arrays from DEPLOY29.
+ * Complete replacement with ALL exports:
+ *   - METHOD_LABELS, METHOD_COLORS, DISPOSITION_COLORS (original)
+ *   - NDE_METHODS, WELDING_PROCESSES, WELD_POSITIONS, etc. (DEPLOY29)
+ *   - INSPECTION_CONTEXT_OPTIONS, MATERIAL_CLASS_OPTIONS, etc. (DEPLOY36)
  *
  * CONSTRAINT: No backtick template literals
  */
+
+/* ================================================================
+   METHOD LABELS + COLORS (used by MethodBadge, Cases, Dashboard, CaseDetail)
+================================================================ */
+
+export var METHOD_LABELS: Record<string, string> = {
+  VT: "Visual Testing",
+  PT: "Liquid Penetrant",
+  MT: "Magnetic Particle",
+  UT: "Ultrasonic Testing",
+  RT: "Radiographic Testing",
+  ET: "Electromagnetic Testing"
+};
+
+export var METHOD_COLORS: Record<string, string> = {
+  VT: "#3b82f6",
+  PT: "#ef4444",
+  MT: "#a855f7",
+  UT: "#06b6d4",
+  RT: "#f59e0b",
+  ET: "#10b981"
+};
+
+export var DISPOSITION_COLORS: Record<string, string> = {
+  ACCEPT: "#059669",
+  REJECT: "#dc2626",
+  REPAIR: "#f59e0b",
+  PENDING: "#6b7280",
+  ESCALATE: "#a855f7"
+};
 
 /* ================================================================
    NDT METHODS (original)
@@ -65,7 +91,7 @@ export var TRAVEL_SPEED_LEVELS = [
 ];
 
 /* ================================================================
-   UNIVERSAL INSPECTION CONTEXT OPTIONS (new — DEPLOY36)
+   UNIVERSAL INSPECTION CONTEXT OPTIONS (DEPLOY36)
 ================================================================ */
 
 export var INSPECTION_CONTEXT_OPTIONS = [
