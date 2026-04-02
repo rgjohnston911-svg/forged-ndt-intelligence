@@ -1,12 +1,8 @@
 /**
- * DEPLOY38v2 — create-case.ts
+ * DEPLOY38v3 — create-case.ts
  * netlify/functions/create-case.ts
  *
- * Fixed column names to match actual inspection_cases schema:
- *   - created_by (not user_id)
- *   - component_name (not component)
- *   - code_family (not code)
- *   - org_id from profiles table
+ * Fixed: added title column (NOT NULL in schema)
  *
  * CONSTRAINT: No backtick template literals (Git Bash paste corruption)
  */
@@ -106,14 +102,16 @@ var handler: Handler = async function(event) {
       };
     }
 
-    /* ---- Generate case number ---- */
+    /* ---- Generate case number and title ---- */
     var caseNumber = "NDT-" + Date.now();
+    var title = method + " - " + componentName;
 
     /* ---- Create case ---- */
     var caseRow: Record<string, any> = {
       org_id: orgId,
       created_by: userId,
       case_number: caseNumber,
+      title: title,
       method: method,
       component_name: componentName,
       code_family: codeFamily,
