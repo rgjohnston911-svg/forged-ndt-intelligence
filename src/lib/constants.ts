@@ -1,11 +1,13 @@
 /**
- * DEPLOY36v2 — constants.ts
+ * DEPLOY42 — constants.ts
  * src/lib/constants.ts
  *
- * Complete replacement with ALL exports:
- *   - METHOD_LABELS, METHOD_COLORS, DISPOSITION_COLORS (original)
- *   - NDE_METHODS, WELDING_PROCESSES, WELD_POSITIONS, etc. (DEPLOY29)
- *   - INSPECTION_CONTEXT_OPTIONS, MATERIAL_CLASS_OPTIONS, etc. (DEPLOY36)
+ * Complete replacement — adds:
+ *   - LIFECYCLE_STAGE_OPTIONS
+ *   - INDUSTRY_SECTOR_OPTIONS
+ *   - ASSET_TYPE_OPTIONS
+ *
+ * Retains all previous exports.
  *
  * CONSTRAINT: No backtick template literals
  */
@@ -227,5 +229,62 @@ export var SERVICE_ENVIRONMENT_OPTIONS = [
   { value: "CYCLIC_PRESSURE", label: "Cyclic Pressure" },
   { value: "UV_EXPOSURE", label: "UV Exposure" },
   { value: "STEAM_SERVICE", label: "Steam Service" },
+  { value: "UNKNOWN", label: "Unknown" }
+];
+
+/* ================================================================
+   CODE APPLICABILITY ROUTER OPTIONS (DEPLOY42 — NEW)
+================================================================ */
+
+export var LIFECYCLE_STAGE_OPTIONS = [
+  { value: "FABRICATION", label: "Fabrication" },
+  { value: "NEW_CONSTRUCTION_ACCEPTANCE", label: "New Construction Acceptance" },
+  { value: "IN_SERVICE", label: "In-Service" },
+  { value: "REPAIR_OR_ALTERATION", label: "Repair / Alteration" },
+  { value: "FITNESS_FOR_SERVICE", label: "Fitness-for-Service" },
+  { value: "FAILURE_ANALYSIS", label: "Failure Analysis" },
+  { value: "EDUCATIONAL_TRAINING", label: "Educational / Training" },
+  { value: "UNKNOWN", label: "Unknown" }
+];
+
+export var INDUSTRY_SECTOR_OPTIONS = [
+  { value: "STRUCTURAL_STEEL", label: "Structural Steel" },
+  { value: "PIPELINE", label: "Pipeline" },
+  { value: "PROCESS_PIPING", label: "Process Piping" },
+  { value: "PRESSURE_VESSEL", label: "Pressure Vessel" },
+  { value: "STORAGE_TANK", label: "Storage Tank" },
+  { value: "POWER_GENERATION", label: "Power Generation" },
+  { value: "SHIPBUILDING_MARINE", label: "Shipbuilding / Marine" },
+  { value: "AEROSPACE", label: "Aerospace" },
+  { value: "AUTOMOTIVE", label: "Automotive" },
+  { value: "GENERAL_MANUFACTURING", label: "General Manufacturing" },
+  { value: "COMMERCIAL_DIVING_MARINE", label: "Commercial Diving / Marine" },
+  { value: "CIVIL_INFRASTRUCTURE", label: "Civil Infrastructure" },
+  { value: "PLASTICS_PROCESSING", label: "Plastics Processing" },
+  { value: "COMPOSITES_MANUFACTURING", label: "Composites Manufacturing" },
+  { value: "UNKNOWN", label: "Unknown" }
+];
+
+export var ASSET_TYPE_OPTIONS = [
+  { value: "WELDMENT", label: "Weldment" },
+  { value: "PIPE", label: "Pipe" },
+  { value: "PIPING_SYSTEM", label: "Piping System" },
+  { value: "PRESSURE_VESSEL", label: "Pressure Vessel" },
+  { value: "STORAGE_TANK", label: "Storage Tank" },
+  { value: "STRUCTURAL_MEMBER", label: "Structural Member" },
+  { value: "PLATE", label: "Plate" },
+  { value: "TUBE", label: "Tube" },
+  { value: "NOZZLE", label: "Nozzle" },
+  { value: "FLANGE", label: "Flange" },
+  { value: "VALVE", label: "Valve" },
+  { value: "CASTING", label: "Casting" },
+  { value: "FORGING", label: "Forging" },
+  { value: "COMPOSITE_PANEL", label: "Composite Panel" },
+  { value: "FRP_TANK", label: "FRP Tank" },
+  { value: "PLASTIC_PIPE", label: "Plastic Pipe" },
+  { value: "COATING", label: "Coating" },
+  { value: "LINER", label: "Liner" },
+  { value: "CIVIL_CONCRETE_MEMBER", label: "Concrete / Civil Member" },
+  { value: "GENERAL_COMPONENT", label: "General Component" },
   { value: "UNKNOWN", label: "Unknown" }
 ];
