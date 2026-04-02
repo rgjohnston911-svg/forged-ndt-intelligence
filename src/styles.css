@@ -849,3 +849,11 @@ a:hover { text-decoration: underline; }
   margin-bottom: 16px;
   font-size: 13px;
 }
+/* DEPLOY45 — APPEND to src/styles.css
+   Form divider between material and classification sections in Step 2 */
+
+.form-divider {
+  height: 1px;
+  background: #334155;
+  margin: 24px 0;
+}
