@@ -41,7 +41,6 @@ export default function CaseDetail() {
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
     if (!files || files.length === 0 || !id || !user) return;
-
     setUploading(true);
 
     for (let i = 0; i < files.length; i++) {
@@ -49,41 +48,25 @@ export default function CaseDetail() {
       const fileExt = file.name.split(".").pop() || "jpg";
       const storagePath = caseData.org_id + "/" + id + "/" + Date.now() + "." + fileExt;
 
-      // Upload to Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from("ndt-evidence")
         .upload(storagePath, file, { contentType: file.type });
 
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
-        continue;
-      }
+      if (uploadError) { console.error("Upload error:", uploadError); continue; }
 
-      // Determine evidence type
       let evidenceType = "image";
       if (file.type.startsWith("video/")) evidenceType = "video";
       else if (file.type === "application/pdf") evidenceType = "document";
 
-      // Record evidence metadata
-      const resp = await fetch("/api/upload-evidence", {
+      await fetch("/api/upload-evidence", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          case_id: id,
-          evidence_type: evidenceType,
-          storage_path: storagePath,
-          mime_type: file.type,
-          filename: file.name,
-          uploaded_by: user.id,
-          capture_source: "web_upload",
-          metadata_json: { original_size: file.size }
+          case_id: id, evidence_type: evidenceType, storage_path: storagePath,
+          mime_type: file.type, filename: file.name, uploaded_by: user.id,
+          capture_source: "web_upload", metadata_json: { original_size: file.size }
         })
       });
-
-      if (!resp.ok) {
-        const errData = await resp.json();
-        console.error("Evidence record error:", errData);
-      }
     }
 
     setUploading(false);
@@ -91,30 +74,57 @@ export default function CaseDetail() {
     loadCase();
   }
 
+  async function callFunction(name: string, body: any) {
+    const resp = await fetch("/api/" + name, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      try {
+        const json = JSON.parse(text);
+        throw new Error(json.error || "Function failed");
+      } catch (e: any) {
+        if (e.message && !e.message.includes("Unexpected token")) throw e;
+        throw new Error(name + " returned status " + resp.status);
+      }
+    }
+    return await resp.json();
+  }
+
   async function runAnalysis() {
     if (!id) return;
     setAnalyzing(true);
-    setAnalysisStatus("Starting AI analysis pipeline...");
 
     try {
-      setAnalysisStatus("Stage 1: GPT-4o observing evidence...");
-
-      const resp = await fetch("/api/run-analysis", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ case_id: id, user_id: user?.id })
-      });
-
-      const data = await resp.json();
-
-      if (data.ok) {
-        setAnalysisStatus("Analysis complete!");
-      } else {
-        setAnalysisStatus("Analysis completed with some issues. Check results.");
+      // Stage 1: GPT-4o Observation
+      setAnalysisStatus("Stage 1/3: GPT-4o observing evidence...");
+      try {
+        await callFunction("observation-layer", { case_id: id });
+      } catch (err: any) {
+        setAnalysisStatus("Observation error: " + err.message + " - continuing...");
       }
 
-      // Reload all case data
+      // Stage 2: Claude Reasoning
+      setAnalysisStatus("Stage 2/3: Claude reasoning from physics...");
+      try {
+        await callFunction("reasoning-layer", { case_id: id });
+      } catch (err: any) {
+        setAnalysisStatus("Reasoning error: " + err.message + " - continuing...");
+      }
+
+      // Stage 3: Deterministic Truth Engine
+      setAnalysisStatus("Stage 3/3: Applying code rules...");
+      try {
+        await callFunction("truth-engine", { case_id: id });
+      } catch (err: any) {
+        setAnalysisStatus("Truth engine error: " + err.message);
+      }
+
+      setAnalysisStatus("Analysis complete!");
       await loadCase();
+      setActiveTab("findings");
     } catch (err: any) {
       setAnalysisStatus("Error: " + (err.message || "Analysis failed"));
     }
@@ -204,19 +214,12 @@ export default function CaseDetail() {
             <div style={{ marginBottom: "20px", display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
               <label className="btn-primary" style={{ cursor: "pointer" }}>
                 {uploading ? "Uploading..." : "Upload Evidence Photos"}
-                <input
-                  type="file"
-                  accept="image/*,video/*,application/pdf"
-                  multiple
-                  onChange={handleFileUpload}
-                  style={{ display: "none" }}
-                  disabled={uploading}
-                />
+                <input type="file" accept="image/*,video/*,application/pdf" multiple
+                  onChange={handleFileUpload} style={{ display: "none" }} disabled={uploading} />
               </label>
 
               {evidence.length > 0 && !analyzing && (
-                <button className="btn-primary" onClick={runAnalysis}
-                  style={{ background: "#2E7D32" }}>
+                <button className="btn-primary" onClick={runAnalysis} style={{ background: "#2E7D32" }}>
                   Run AI Analysis
                 </button>
               )}
@@ -229,37 +232,24 @@ export default function CaseDetail() {
               )}
 
               {!analyzing && analysisStatus && (
-                <span style={{ color: "#2E7D32", fontSize: "14px", fontWeight: "600" }}>{analysisStatus}</span>
+                <span style={{ color: analysisStatus.includes("Error") ? "#C62828" : "#2E7D32", fontSize: "14px", fontWeight: "600" }}>{analysisStatus}</span>
               )}
             </div>
 
             {evidence.length === 0 ? (
-              <div className="empty-state">
-                <p>No evidence uploaded yet. Upload photos of the weld, indication, or inspection screen.</p>
-              </div>
+              <div className="empty-state"><p>No evidence uploaded yet. Upload photos of the weld, indication, or inspection screen.</p></div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: "16px" }}>
                 {evidence.map((ev) => (
-                  <div key={ev.id} style={{
-                    background: "var(--surface)", border: "1px solid var(--border-light)",
-                    borderRadius: "var(--radius-lg)", overflow: "hidden"
-                  }}>
+                  <div key={ev.id} style={{ background: "var(--surface)", border: "1px solid var(--border-light)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
                     {ev.storage_path && ev.evidence_type === "image" && (
-                      <img
-                        src={getEvidenceUrl(ev.storage_path)}
-                        alt={ev.filename || "Evidence"}
-                        style={{ width: "100%", height: "200px", objectFit: "cover" }}
-                      />
+                      <img src={getEvidenceUrl(ev.storage_path)} alt={ev.filename || "Evidence"}
+                        style={{ width: "100%", height: "200px", objectFit: "cover" }} />
                     )}
                     <div style={{ padding: "12px" }}>
-                      <div style={{ fontSize: "13px", fontWeight: "600", color: "var(--dark)" }}>
-                        {ev.filename || "Evidence"}
-                      </div>
+                      <div style={{ fontSize: "13px", fontWeight: "600", color: "var(--dark)" }}>{ev.filename || "Evidence"}</div>
                       <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "4px" }}>
                         Type: {ev.evidence_type} | Source: {ev.capture_source || "upload"}
-                      </div>
-                      <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "2px" }}>
-                        {new Date(ev.created_at).toLocaleString()}
                       </div>
                     </div>
                   </div>
@@ -321,6 +311,11 @@ export default function CaseDetail() {
                         {f.structured_json.reasoning}
                       </div>
                     )}
+                    {f.structured_json && f.structured_json.possible_causes && f.structured_json.possible_causes.length > 0 && (
+                      <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
+                        Possible causes: {f.structured_json.possible_causes.join(", ")}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -358,7 +353,11 @@ export default function CaseDetail() {
               <div className="decision-panel">
                 <div className="decision-what"><h3>WHAT</h3><p>{caseData.truth_engine_summary}</p></div>
                 <div className="decision-why"><h3>WHY</h3><p>{caseData.final_decision_reason || "No detailed reason available."}</p></div>
-                <div className="decision-how"><h3>HOW</h3><p>{caseData.final_disposition === "reject" ? "Repair, re-inspect, or escalate for adjudication per governing procedure and code." : "Proceed per procedure. Archive with evidence trail."}</p></div>
+                <div className="decision-how"><h3>HOW</h3>
+                  <p>{caseData.final_disposition === "reject"
+                    ? "Repair, re-inspect, or escalate for adjudication per governing procedure and code."
+                    : "Proceed per procedure. Archive with evidence trail."}</p>
+                </div>
                 {caseData.ai_openai_summary && (
                   <div className="detail-section" style={{ marginTop: "16px" }}>
                     <h3>GPT-4o Observation Summary</h3>
