@@ -17,7 +17,7 @@ import { supabase } from "../lib/supabase";
 import MethodBadge from "../components/MethodBadge";
 import { DISPOSITION_COLORS } from "../lib/constants";
 
-type TabName = "overview" | "evidence" | "physics" | "findings" | "rules" | "decision" | "teaching";
+type TabName = "overview" | "evidence" | "physics" | "findings" | "convergence" | "rules" | "decision" | "teaching";
 type UnitSystem = "imperial" | "metric";
 
 // Unit conversion helpers
@@ -57,6 +57,8 @@ export default function CaseDetail() {
   var [physics, setPhysics] = useState<any | null>(null);
   var [evidence, setEvidence] = useState<any[]>([]);
   var [conflicts, setConflicts] = useState<any[]>([]);
+  var [convergence, setConvergence] = useState<any | null>(null);
+  var [hypotheses, setHypotheses] = useState<any[]>([]);
   var [activeTab, setActiveTab] = useState<TabName>("overview");
   var [loading, setLoading] = useState(true);
 
@@ -64,6 +66,7 @@ export default function CaseDetail() {
   var [uploading, setUploading] = useState(false);
   var [analyzing, setAnalyzing] = useState(false);
   var [runningAuthority, setRunningAuthority] = useState(false);
+  var [runningConvergence, setRunningConvergence] = useState(false);
 
   // Measurements
   var [unitSystem, setUnitSystem] = useState<UnitSystem>("imperial");
@@ -90,6 +93,15 @@ export default function CaseDetail() {
       var crRes = await supabase.from("conflict_resolutions").select("*").eq("case_id", id);
       setConflicts(crRes.data || []);
     } catch (e) { setConflicts([]); }
+    // Load convergence data
+    try {
+      var convRes = await supabase.from("ndt_reality_runs").select("*").eq("case_id", id).order("created_at", { ascending: false }).limit(1).single();
+      if (convRes.data) {
+        setConvergence(convRes.data);
+        var hypRes = await supabase.from("ndt_reality_hypotheses").select("*").eq("reality_run_id", convRes.data.id).order("rank_position", { ascending: true });
+        setHypotheses(hypRes.data || []);
+      }
+    } catch (e) { setConvergence(null); setHypotheses([]); }
     // Load existing measurements
     try {
       var mRes = await supabase.from("case_measurements").select("*").eq("case_id", id);
@@ -214,6 +226,22 @@ export default function CaseDetail() {
     loadCase();
   }
 
+  // === RUN REALITY CONVERGENCE ===
+  async function runRealityConvergence() {
+    if (!id) return;
+    setRunningConvergence(true);
+    try {
+      var resp = await fetch("/api/run-convergence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ case_id: id })
+      });
+      await resp.json();
+    } catch (err) { console.error("Convergence error:", err); }
+    setRunningConvergence(false);
+    loadCase();
+  }
+
   // === HELPERS ===
   function getPassFail(findingType: string, fieldKey: string, value: number) {
     var impVal = unitSystem === "imperial" ? value : mmToIn(value);
@@ -237,6 +265,7 @@ export default function CaseDetail() {
   var TABS: Array<{ key: TabName; label: string }> = [
     { key: "overview", label: "Overview" }, { key: "evidence", label: "Evidence" },
     { key: "physics", label: "Physics Model" }, { key: "findings", label: "Findings" },
+    { key: "convergence", label: "Convergence" },
     { key: "rules", label: "Rules" }, { key: "decision", label: "Decision" },
     { key: "teaching", label: "Teaching" },
   ];
@@ -270,6 +299,7 @@ export default function CaseDetail() {
               {tab.label}
               {tab.key === "evidence" && evidence.length > 0 && <span className="tab-count">{evidence.length}</span>}
               {tab.key === "findings" && findings.length > 0 && <span className="tab-count">{findings.length}</span>}
+              {tab.key === "convergence" && hypotheses.length > 0 && <span className="tab-count">{hypotheses.length}</span>}
               {tab.key === "rules" && rules.length > 0 && <span className="tab-count">{rules.length}</span>}
             </button>
           );
@@ -319,6 +349,11 @@ export default function CaseDetail() {
               <button className="analyze-btn" onClick={runAnalysis} disabled={analyzing || evidence.length === 0}>
                 {analyzing ? "Analyzing..." : "Run AI Analysis"}
               </button>
+              {findings.length > 0 && (
+                <button className="convergence-btn" onClick={runRealityConvergence} disabled={runningConvergence}>
+                  {runningConvergence ? "Converging..." : "\uD83E\uDDE0 Run Reality Convergence"}
+                </button>
+              )}
             </div>
 
             {evidence.length > 0 && (
@@ -561,6 +596,128 @@ export default function CaseDetail() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ========== CONVERGENCE (Reality Engine) ========== */}
+        {activeTab === "convergence" && (
+          <div>
+            {convergence ? (
+              <div className="convergence-panel">
+                <div className={"convergence-status-banner conv-" + convergence.convergence_status}>
+                  <span className="conv-status-label">{convergence.convergence_status.toUpperCase()}</span>
+                  {convergence.dominant_reality && (
+                    <span className="conv-dominant">
+                      {convergence.dominant_reality.replace(/_/g, " ").toUpperCase()}
+                      {" \u2014 " + (convergence.dominant_score * 100).toFixed(0) + "% confidence"}
+                    </span>
+                  )}
+                </div>
+
+                {/* Summary */}
+                <div className="conv-summary">
+                  <div className="conv-what"><h3>WHAT</h3><p>{convergence.summary_what}</p></div>
+                  <div className="conv-why"><h3>WHY</h3><p>{convergence.summary_why}</p></div>
+                  <div className="conv-how"><h3>HOW</h3><p>{convergence.summary_how}</p></div>
+                </div>
+
+                {/* Why Not - eliminated alternatives */}
+                {convergence.summary_why_not && convergence.summary_why_not.length > 0 && (
+                  <div className="conv-why-not">
+                    <h3>WHY NOT (Eliminated Alternatives)</h3>
+                    {convergence.summary_why_not.map(function(reason: string, idx: number) {
+                      return <div key={idx} className="why-not-item">{reason}</div>;
+                    })}
+                  </div>
+                )}
+
+                {/* Ranked Hypotheses */}
+                {hypotheses.length > 0 && (
+                  <div className="conv-hypotheses">
+                    <h3>Ranked Reality Hypotheses ({hypotheses.length} tested)</h3>
+                    {hypotheses.map(function(hyp: any, idx: number) {
+                      return (
+                        <div key={idx} className={"hypothesis-card hyp-" + (hyp.rank_position === 1 ? "dominant" : hyp.plausible ? "plausible" : "eliminated")}>
+                          <div className="hyp-header">
+                            <span className="hyp-rank">#{hyp.rank_position}</span>
+                            <span className="hyp-type">{hyp.defect_type.replace(/_/g, " ").toUpperCase()}</span>
+                            <span className="hyp-score">{(hyp.total_score * 100).toFixed(0)}%</span>
+                            {hyp.plausible ? (
+                              <span className="hyp-badge hyp-plausible-badge">Plausible</span>
+                            ) : (
+                              <span className="hyp-badge hyp-eliminated-badge">Eliminated</span>
+                            )}
+                          </div>
+
+                          {/* Score breakdown */}
+                          <div className="hyp-scores">
+                            <div className="score-bar-group">
+                              <span className="score-label">Evidence</span>
+                              <div className="score-bar"><div className="score-fill" style={{ width: (hyp.evidence_consistency * 100) + "%" }}></div></div>
+                              <span className="score-val">{(hyp.evidence_consistency * 100).toFixed(0)}%</span>
+                            </div>
+                            <div className="score-bar-group">
+                              <span className="score-label">Location</span>
+                              <div className="score-bar"><div className="score-fill" style={{ width: (hyp.location_consistency * 100) + "%" }}></div></div>
+                              <span className="score-val">{(hyp.location_consistency * 100).toFixed(0)}%</span>
+                            </div>
+                            <div className="score-bar-group">
+                              <span className="score-label">Morphology</span>
+                              <div className="score-bar"><div className="score-fill" style={{ width: (hyp.morphology_consistency * 100) + "%" }}></div></div>
+                              <span className="score-val">{(hyp.morphology_consistency * 100).toFixed(0)}%</span>
+                            </div>
+                            <div className="score-bar-group">
+                              <span className="score-label">Process</span>
+                              <div className="score-bar"><div className="score-fill" style={{ width: (hyp.process_consistency * 100) + "%" }}></div></div>
+                              <span className="score-val">{(hyp.process_consistency * 100).toFixed(0)}%</span>
+                            </div>
+                            <div className="score-bar-group">
+                              <span className="score-label">Material</span>
+                              <div className="score-bar"><div className="score-fill" style={{ width: (hyp.material_consistency * 100) + "%" }}></div></div>
+                              <span className="score-val">{(hyp.material_consistency * 100).toFixed(0)}%</span>
+                            </div>
+                            <div className="score-bar-group">
+                              <span className="score-label">Method</span>
+                              <div className="score-bar"><div className="score-fill" style={{ width: (hyp.method_consistency * 100) + "%" }}></div></div>
+                              <span className="score-val">{(hyp.method_consistency * 100).toFixed(0)}%</span>
+                            </div>
+                            {hyp.contradiction_penalty > 0 && (
+                              <div className="score-bar-group penalty">
+                                <span className="score-label">Penalty</span>
+                                <div className="score-bar penalty-bar"><div className="score-fill penalty-fill" style={{ width: (hyp.contradiction_penalty * 100) + "%" }}></div></div>
+                                <span className="score-val">-{(hyp.contradiction_penalty * 100).toFixed(0)}%</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Support and rejection reasons */}
+                          {hyp.why_it_fits && <div className="hyp-fits"><strong>Why it fits:</strong> {hyp.why_it_fits}</div>}
+                          {hyp.why_it_does_not_fully_fit && <div className="hyp-doesnt-fit"><strong>Why it doesn't fully fit:</strong> {hyp.why_it_does_not_fully_fit}</div>}
+
+                          {hyp.probable_causes && hyp.probable_causes.length > 0 && (
+                            <div className="hyp-causes">
+                              <strong>Probable causes:</strong> {hyp.probable_causes.join(", ")}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Escalation recommendation */}
+                {convergence.recommended_next_method && (
+                  <div className="conv-escalation">
+                    <strong>Recommended next method:</strong> {convergence.recommended_next_method}
+                    {convergence.escalation_reason && <p>{convergence.escalation_reason}</p>}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <p>Reality convergence not yet run. Click "Run Reality Convergence" on the Evidence tab after AI analysis.</p>
               </div>
             )}
           </div>
