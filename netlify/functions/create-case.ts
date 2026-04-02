@@ -133,8 +133,16 @@ export var handler: Handler = async function(event) {
         component_name: body.component_name || null
       },
       process_context_json: {
-        procedure_ref: body.procedure_ref || null,
-        notes: "Process context to be enriched by AI physics model builder"
+        process: body.welding_process || "unknown",
+        joint_type: body.joint_type || "unknown",
+        position: body.weld_position || "unknown",
+        passes: body.passes || null,
+        thickness_mm: body.thickness_mm || null,
+        heat_input_relative: body.heat_input || "unknown",
+        travel_speed_relative: body.travel_speed || "unknown",
+        interpass_cleaning_confirmed: body.interpass_cleaning === "yes" ? true : body.interpass_cleaning === "no" ? false : null,
+        preheat_used: body.preheat_used === "yes" ? true : body.preheat_used === "no" ? false : null,
+        procedure_ref: body.procedure_ref || null
       },
       service_context_json: {
         load_condition: body.load_condition || "unknown"
