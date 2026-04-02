@@ -1188,3 +1188,132 @@ a:hover { text-decoration: underline; }
   .reality-actions { flex-direction: column; }
   .reality-action-btn { width: 100%; text-align: center; }
 }
+/* =============================================
+   DEPLOY63 — Voice Inspection Plan CSS
+   Append to src/styles.css
+   ============================================= */
+
+/* Voice Page */
+.voice-subtitle { color: #94a3b8; margin-top: -8px; font-size: 0.95rem; }
+.voice-controls { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.voice-mic-btn {
+  padding: 12px 24px; border: 2px solid #3b82f6; background: transparent;
+  color: #3b82f6; border-radius: 8px; font-size: 1rem; font-weight: 600;
+  cursor: pointer; transition: all 0.2s;
+}
+.voice-mic-btn:hover { background: #3b82f620; }
+.voice-mic-btn.mic-active {
+  border-color: #ef4444; color: #ef4444; background: #ef444420;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+}
+.voice-generate-btn {
+  padding: 12px 24px; border: none; background: #3b82f6;
+  color: #fff; border-radius: 8px; font-size: 1rem; font-weight: 600;
+  cursor: pointer; transition: all 0.2s;
+}
+.voice-generate-btn:hover { background: #2563eb; }
+.voice-generate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.voice-transcript-input {
+  width: 100%; padding: 14px; border: 1px solid #334155; border-radius: 8px;
+  background: #0f172a; color: #e2e8f0; font-size: 1rem; resize: vertical;
+  font-family: inherit; margin-bottom: 16px;
+}
+.voice-transcript-input::placeholder { color: #64748b; }
+
+/* Examples */
+.voice-examples { margin-bottom: 24px; }
+.voice-examples-label { color: #94a3b8; font-size: 0.85rem; display: block; margin-bottom: 8px; }
+.voice-examples-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.voice-example-btn {
+  padding: 6px 14px; border: 1px solid #334155; background: #1e293b;
+  color: #cbd5e1; border-radius: 6px; font-size: 0.82rem; cursor: pointer;
+  transition: all 0.15s;
+}
+.voice-example-btn:hover { border-color: #3b82f6; color: #3b82f6; background: #1e293b; }
+
+/* Error */
+.voice-error {
+  padding: 12px 16px; background: #7f1d1d40; border: 1px solid #ef4444;
+  border-radius: 8px; color: #fca5a5; margin-bottom: 16px;
+}
+
+/* Parsed Section */
+.voice-parsed-section {
+  background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+  padding: 16px 20px; margin-bottom: 20px;
+}
+.voice-parsed-section h3 { margin: 0 0 12px 0; color: #94a3b8; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.voice-parsed-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+.voice-parsed-item { display: flex; flex-direction: column; gap: 2px; }
+.vp-label { color: #64748b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.vp-value { color: #e2e8f0; font-size: 0.95rem; font-weight: 500; text-transform: capitalize; }
+.voice-env-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+
+/* Plan Section */
+.voice-plan-section {
+  background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+  padding: 20px 24px; margin-bottom: 20px;
+}
+.voice-plan-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.voice-plan-header h2 { margin: 0; font-size: 1.2rem; color: #f1f5f9; }
+.voice-plan-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+.voice-severity-badge {
+  padding: 4px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 700;
+  color: #fff; letter-spacing: 0.05em;
+}
+.voice-disp-badge {
+  padding: 4px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 600;
+  background: #312e81; color: #a5b4fc; text-transform: capitalize;
+}
+.voice-plan-summary { color: #94a3b8; font-size: 0.9rem; margin-bottom: 16px; }
+
+/* Plan Blocks */
+.voice-plan-block { margin-bottom: 20px; }
+.voice-plan-block h3 { margin: 0 0 10px 0; color: #e2e8f0; font-size: 1rem; }
+.voice-action-item {
+  padding: 8px 14px; background: #7f1d1d30; border-left: 3px solid #f59e0b;
+  color: #fde68a; font-size: 0.9rem; margin-bottom: 6px; border-radius: 0 6px 6px 0;
+}
+
+/* Method Cards */
+.voice-methods-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.voice-method-card {
+  background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+  padding: 12px 16px;
+}
+.voice-method-card.priority-1 { border-left: 3px solid #22c55e; }
+.voice-method-card.priority-2 { border-left: 3px solid #3b82f6; }
+.voice-method-card.priority-3 { border-left: 3px solid #64748b; }
+.voice-method-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.voice-method-name { color: #f1f5f9; font-weight: 600; font-size: 0.95rem; }
+.voice-method-priority { color: #64748b; font-size: 0.75rem; font-weight: 600; }
+.voice-method-reason { color: #94a3b8; font-size: 0.85rem; }
+
+/* Chips */
+.voice-chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.voice-mech-chip {
+  padding: 4px 10px; border-radius: 5px; font-size: 0.8rem;
+  background: #7c3aed20; border: 1px solid #7c3aed; color: #c4b5fd; text-transform: capitalize;
+}
+.voice-zone-chip {
+  padding: 4px 10px; border-radius: 5px; font-size: 0.8rem;
+  background: #0891b220; border: 1px solid #0891b2; color: #67e8f9; text-transform: capitalize;
+}
+.voice-fail-chip {
+  padding: 4px 10px; border-radius: 5px; font-size: 0.8rem;
+  background: #dc262620; border: 1px solid #dc2626; color: #fca5a5; text-transform: capitalize;
+}
+
+/* Rationale + Questions */
+.voice-rationale-item {
+  padding: 6px 0; color: #94a3b8; font-size: 0.88rem;
+  border-bottom: 1px solid #1e293b;
+}
+.voice-question-item {
+  padding: 6px 0; color: #a5b4fc; font-size: 0.88rem;
+  border-bottom: 1px solid #1e293b;
+}
