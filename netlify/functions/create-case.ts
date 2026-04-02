@@ -1,14 +1,9 @@
 /**
- * DEPLOY38 FINAL v2 — create-case.ts
+ * DEPLOY44 — create-case.ts
  * netlify/functions/create-case.ts
  *
- * Built from actual schema CSV + CHECK constraint on material_class.
- * material_class CHECK allows: carbon_steel, low_alloy_steel, stainless_steel,
- *   duplex_stainless, aluminum, nickel_alloy, titanium, copper_alloy,
- *   cast_iron, composite, other, unknown
- *
- * Maps materialFamily (from form) -> material_class (lowercase) in DB.
- * Stores universal router materialClass in inspection_context-related logic.
+ * Adds: lifecycle_stage, industry_sector, asset_type columns.
+ * Built from schema CSV + CHECK constraints.
  *
  * CONSTRAINT: No backtick template literals (Git Bash paste corruption)
  */
@@ -27,7 +22,7 @@ function headers() {
   };
 }
 
-/* ---- Map materialFamily to allowed material_class values ---- */
+/* ---- Map materialFamily to allowed material_class CHECK values ---- */
 var ALLOWED_MATERIAL_CLASS = [
   "carbon_steel", "low_alloy_steel", "stainless_steel", "duplex_stainless",
   "aluminum", "nickel_alloy", "titanium", "copper_alloy", "cast_iron",
@@ -35,13 +30,8 @@ var ALLOWED_MATERIAL_CLASS = [
 ];
 
 function mapMaterialClass(materialClassFromForm: string, materialFamilyFromForm: string): string {
-  /* Try materialFamily first (more specific) */
   var familyLower = (materialFamilyFromForm || "").toLowerCase();
-  if (ALLOWED_MATERIAL_CLASS.indexOf(familyLower) !== -1) {
-    return familyLower;
-  }
-
-  /* Map universal router class to closest DB value */
+  if (ALLOWED_MATERIAL_CLASS.indexOf(familyLower) !== -1) return familyLower;
   var classUpper = (materialClassFromForm || "").toUpperCase();
   if (classUpper === "COMPOSITE") return "composite";
   if (classUpper === "METALLIC") return "unknown";
@@ -50,7 +40,6 @@ function mapMaterialClass(materialClassFromForm: string, materialFamilyFromForm:
   if (classUpper === "ELASTOMER") return "other";
   if (classUpper === "CIVIL_MINERAL") return "other";
   if (classUpper === "COATING_LINER") return "other";
-
   return "unknown";
 }
 
@@ -70,133 +59,87 @@ var handler: Handler = async function(event) {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 200, headers: headers(), body: "" };
   }
-
   if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers: headers(),
-      body: JSON.stringify({ error: "Method not allowed" })
-    };
+    return { statusCode: 405, headers: headers(), body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
   try {
-    /* ---- Auth ---- */
     var authHeader = (event.headers["authorization"] || event.headers["Authorization"] || "");
     var token = authHeader.replace("Bearer ", "");
-
     if (!token) {
-      return {
-        statusCode: 401,
-        headers: headers(),
-        body: JSON.stringify({ error: "Missing auth token" })
-      };
+      return { statusCode: 401, headers: headers(), body: JSON.stringify({ error: "Missing auth token" }) };
     }
 
     var sb = createClient(supabaseUrl, supabaseKey);
 
     var userRes = await sb.auth.getUser(token);
     if (userRes.error || !userRes.data.user) {
-      return {
-        statusCode: 401,
-        headers: headers(),
-        body: JSON.stringify({ error: "Invalid auth token" })
-      };
+      return { statusCode: 401, headers: headers(), body: JSON.stringify({ error: "Invalid auth token" }) };
     }
-
     var userId = userRes.data.user.id;
 
-    /* ---- Get org_id from profiles ---- */
-    var profileRes = await sb
-      .from("profiles")
-      .select("org_id")
-      .eq("id", userId)
-      .single();
-
+    var profileRes = await sb.from("profiles").select("org_id").eq("id", userId).single();
     var orgId = (profileRes.data && profileRes.data.org_id) ? profileRes.data.org_id : null;
-
     if (!orgId) {
-      return {
-        statusCode: 400,
-        headers: headers(),
-        body: JSON.stringify({ error: "No org_id found for user profile" })
-      };
+      return { statusCode: 400, headers: headers(), body: JSON.stringify({ error: "No org_id found for user profile" }) };
     }
 
-    /* ---- Parse body ---- */
     var body = JSON.parse(event.body || "{}");
 
     var method = (body.method || "").trim();
     var componentName = (body.component || "").trim();
     var codeFamily = (body.code || "").trim() || null;
 
-    /* Universal context fields from form */
     var inspectionContext = (body.inspectionContext || "").trim() || null;
     var materialClassFromForm = (body.materialClass || "").trim() || "";
     var materialFamilyFromForm = (body.materialFamily || "").trim() || "";
     var surfaceType = (body.surfaceType || "").trim() || null;
     var serviceEnvironment = (body.serviceEnvironment || "").trim() || null;
 
-    /* Process context (weld only) */
+    /* Code applicability router fields */
+    var lifecycleStage = (body.lifecycleStage || "").trim() || null;
+    var industrySector = (body.industrySector || "").trim() || null;
+    var assetType = (body.assetType || "").trim() || null;
+
     var processContext = body.processContext || null;
 
     if (!method) {
-      return {
-        statusCode: 400,
-        headers: headers(),
-        body: JSON.stringify({ error: "method is required" })
-      };
+      return { statusCode: 400, headers: headers(), body: JSON.stringify({ error: "method is required" }) };
     }
-
     if (!componentName) {
-      return {
-        statusCode: 400,
-        headers: headers(),
-        body: JSON.stringify({ error: "component is required" })
-      };
+      return { statusCode: 400, headers: headers(), body: JSON.stringify({ error: "component is required" }) };
     }
 
-    /* ---- Computed values ---- */
     var caseNumber = "NDT-" + Date.now();
     var title = method + " - " + componentName;
     var fourD = get4DDefaults(method);
     var dbMaterialClass = mapMaterialClass(materialClassFromForm, materialFamilyFromForm);
 
-    /* ---- Build row matching ALL not-null columns + CHECK constraints ---- */
     var caseRow: Record<string, any> = {
-      /* required uuid/text, no default */
       org_id: orgId,
       case_number: caseNumber,
       title: title,
       method: method,
       created_by: userId,
-
-      /* 4D columns — NOT NULL, no default */
       energy_type: fourD.energy,
       interaction_type: fourD.interaction,
       response_type: fourD.response,
       time_dimension_type: fourD.time,
-
-      /* has defaults but we set explicitly */
       status: "draft",
       load_condition: "unknown",
-
-      /* material_class — CHECK constraint, must be lowercase allowed value */
       material_class: dbMaterialClass,
-
-      /* nullable — universal context (new columns from DEPLOY33) */
       component_name: componentName,
       code_family: codeFamily,
       inspection_context: inspectionContext,
       material_family: materialFamilyFromForm || null,
       surface_type: surfaceType,
-      service_environment: serviceEnvironment
+      service_environment: serviceEnvironment,
+      lifecycle_stage: lifecycleStage,
+      industry_sector: industrySector,
+      asset_type: assetType
     };
 
-    var insertRes = await sb
-      .from("inspection_cases")
-      .insert([caseRow])
-      .select("id")
-      .single();
+    var insertRes = await sb.from("inspection_cases").insert([caseRow]).select("id").single();
 
     if (insertRes.error) {
       console.log("create-case insert error: " + JSON.stringify(insertRes.error));
@@ -209,24 +152,12 @@ var handler: Handler = async function(event) {
 
     var caseId = insertRes.data.id;
 
-    /* ---- Store process context in physics_reality_models if weld ---- */
     if (processContext && inspectionContext === "WELD") {
-      var physRow = {
-        case_id: caseId,
-        process_context_json: processContext,
-        created_at: new Date().toISOString()
-      };
-
-      var physRes = await sb
-        .from("physics_reality_models")
-        .insert([physRow]);
-
-      if (physRes.error) {
-        console.log("WARNING: failed to insert physics_reality_models: " + JSON.stringify(physRes.error));
-      }
+      var physRow = { case_id: caseId, process_context_json: processContext, created_at: new Date().toISOString() };
+      var physRes = await sb.from("physics_reality_models").insert([physRow]);
+      if (physRes.error) { console.log("WARNING: physics_reality_models insert failed: " + JSON.stringify(physRes.error)); }
     }
 
-    /* ---- Return ---- */
     return {
       statusCode: 200,
       headers: headers(),
@@ -236,17 +167,15 @@ var handler: Handler = async function(event) {
         caseNumber: caseNumber,
         inspectionContext: inspectionContext,
         materialClass: dbMaterialClass,
-        materialFamily: materialFamilyFromForm || null
+        lifecycleStage: lifecycleStage,
+        industrySector: industrySector,
+        assetType: assetType
       })
     };
 
   } catch (err: any) {
     console.log("create-case error: " + String(err));
-    return {
-      statusCode: 500,
-      headers: headers(),
-      body: JSON.stringify({ error: "Internal error", detail: String(err) })
-    };
+    return { statusCode: 500, headers: headers(), body: JSON.stringify({ error: "Internal error", detail: String(err) }) };
   }
 };
 
