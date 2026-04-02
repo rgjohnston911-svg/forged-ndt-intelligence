@@ -1,9 +1,14 @@
 /**
- * DEPLOY38 FINAL — create-case.ts
+ * DEPLOY38 FINAL v2 — create-case.ts
  * netlify/functions/create-case.ts
  *
- * Built from actual inspection_cases schema (59 columns).
- * All NOT NULL columns without defaults are explicitly provided.
+ * Built from actual schema CSV + CHECK constraint on material_class.
+ * material_class CHECK allows: carbon_steel, low_alloy_steel, stainless_steel,
+ *   duplex_stainless, aluminum, nickel_alloy, titanium, copper_alloy,
+ *   cast_iron, composite, other, unknown
+ *
+ * Maps materialFamily (from form) -> material_class (lowercase) in DB.
+ * Stores universal router materialClass in inspection_context-related logic.
  *
  * CONSTRAINT: No backtick template literals (Git Bash paste corruption)
  */
@@ -20,6 +25,33 @@ function headers() {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Content-Type": "application/json"
   };
+}
+
+/* ---- Map materialFamily to allowed material_class values ---- */
+var ALLOWED_MATERIAL_CLASS = [
+  "carbon_steel", "low_alloy_steel", "stainless_steel", "duplex_stainless",
+  "aluminum", "nickel_alloy", "titanium", "copper_alloy", "cast_iron",
+  "composite", "other", "unknown"
+];
+
+function mapMaterialClass(materialClassFromForm: string, materialFamilyFromForm: string): string {
+  /* Try materialFamily first (more specific) */
+  var familyLower = (materialFamilyFromForm || "").toLowerCase();
+  if (ALLOWED_MATERIAL_CLASS.indexOf(familyLower) !== -1) {
+    return familyLower;
+  }
+
+  /* Map universal router class to closest DB value */
+  var classUpper = (materialClassFromForm || "").toUpperCase();
+  if (classUpper === "COMPOSITE") return "composite";
+  if (classUpper === "METALLIC") return "unknown";
+  if (classUpper === "POLYMER") return "other";
+  if (classUpper === "CERAMIC_GLASS") return "other";
+  if (classUpper === "ELASTOMER") return "other";
+  if (classUpper === "CIVIL_MINERAL") return "other";
+  if (classUpper === "COATING_LINER") return "other";
+
+  return "unknown";
 }
 
 /* ---- 4D dimension defaults based on NDT method ---- */
@@ -97,10 +129,10 @@ var handler: Handler = async function(event) {
     var componentName = (body.component || "").trim();
     var codeFamily = (body.code || "").trim() || null;
 
-    /* Universal context fields */
+    /* Universal context fields from form */
     var inspectionContext = (body.inspectionContext || "").trim() || null;
-    var materialClass = (body.materialClass || "").trim() || "unknown";
-    var materialFamily = (body.materialFamily || "").trim() || null;
+    var materialClassFromForm = (body.materialClass || "").trim() || "";
+    var materialFamilyFromForm = (body.materialFamily || "").trim() || "";
     var surfaceType = (body.surfaceType || "").trim() || null;
     var serviceEnvironment = (body.serviceEnvironment || "").trim() || null;
 
@@ -123,19 +155,22 @@ var handler: Handler = async function(event) {
       };
     }
 
-    /* ---- Generate case number, title, 4D defaults ---- */
+    /* ---- Computed values ---- */
     var caseNumber = "NDT-" + Date.now();
     var title = method + " - " + componentName;
     var fourD = get4DDefaults(method);
+    var dbMaterialClass = mapMaterialClass(materialClassFromForm, materialFamilyFromForm);
 
-    /* ---- Build row matching ALL not-null columns ---- */
+    /* ---- Build row matching ALL not-null columns + CHECK constraints ---- */
     var caseRow: Record<string, any> = {
-      /* required, no default */
+      /* required uuid/text, no default */
       org_id: orgId,
       case_number: caseNumber,
       title: title,
       method: method,
       created_by: userId,
+
+      /* 4D columns — NOT NULL, no default */
       energy_type: fourD.energy,
       interaction_type: fourD.interaction,
       response_type: fourD.response,
@@ -143,14 +178,16 @@ var handler: Handler = async function(event) {
 
       /* has defaults but we set explicitly */
       status: "open",
-      material_class: materialClass,
       load_condition: "unknown",
 
-      /* nullable — universal context */
+      /* material_class — CHECK constraint, must be lowercase allowed value */
+      material_class: dbMaterialClass,
+
+      /* nullable — universal context (new columns from DEPLOY33) */
       component_name: componentName,
       code_family: codeFamily,
       inspection_context: inspectionContext,
-      material_family: materialFamily,
+      material_family: materialFamilyFromForm || null,
       surface_type: surfaceType,
       service_environment: serviceEnvironment
     };
@@ -198,7 +235,8 @@ var handler: Handler = async function(event) {
         caseId: caseId,
         caseNumber: caseNumber,
         inspectionContext: inspectionContext,
-        materialClass: materialClass
+        materialClass: dbMaterialClass,
+        materialFamily: materialFamilyFromForm || null
       })
     };
 
