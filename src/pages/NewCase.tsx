@@ -1,264 +1,414 @@
-import { useState } from "react";
+/**
+ * DEPLOY37 — NewCase.tsx
+ * src/pages/NewCase.tsx
+ *
+ * Updated case creation form with universal inspection context routing.
+ * Now 6 steps:
+ *   Step 1: Inspection Context — "What are you inspecting?"
+ *   Step 2: Material Class + Family + Surface Type + Service Environment
+ *   Step 3: NDT Method
+ *   Step 4: Component
+ *   Step 5: Welding Process (ONLY if context = WELD)
+ *   Step 6: Code Selection
+ *
+ * If context != WELD, step 5 is skipped automatically.
+ *
+ * CONSTRAINT: No backtick template literals
+ */
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../lib/auth";
-import { apiFetch } from "../lib/api";
+import { supabase } from "../lib/supabase";
 import {
-  NDT_METHODS, METHOD_LABELS, METHOD_COLORS, MATERIAL_CLASSES, LOAD_CONDITIONS,
-  WELDING_PROCESSES, WELDING_PROCESS_LABELS, WELD_POSITIONS,
-  JOINT_TYPES, JOINT_TYPE_LABELS, HEAT_INPUT_LEVELS, TRAVEL_SPEED_LEVELS
+  NDE_METHODS,
+  WELDING_PROCESSES,
+  WELD_POSITIONS,
+  HEAT_INPUT_LEVELS,
+  TRAVEL_SPEED_LEVELS,
+  INSPECTION_CONTEXT_OPTIONS,
+  MATERIAL_CLASS_OPTIONS,
+  MATERIAL_FAMILY_OPTIONS,
+  SURFACE_TYPE_OPTIONS,
+  SERVICE_ENVIRONMENT_OPTIONS
 } from "../lib/constants";
 
+var API_BASE = "/.netlify/functions";
+
 export default function NewCase() {
-  var { user, profile } = useAuth();
   var navigate = useNavigate();
+
+  /* ---- step tracking ---- */
   var [step, setStep] = useState(1);
   var [loading, setLoading] = useState(false);
   var [error, setError] = useState("");
 
-  var [form, setForm] = useState({
-    title: "", method: "" as string, material_class: "carbon_steel",
-    load_condition: "static", code_family: "AWS_D1_1", code_edition: "",
-    code_section: "", acceptance_table: "", component_name: "",
-    weld_id: "", joint_type: "fillet", thickness_mm: "",
-    procedure_ref: "", inspector_ref: "",
-    welding_process: "unknown", weld_position: "unknown",
-    heat_input: "unknown", travel_speed: "unknown",
-    interpass_cleaning: "unknown", preheat_used: "unknown",
-    passes: "",
-  });
+  /* ---- Step 1: Inspection Context ---- */
+  var [inspectionContext, setInspectionContext] = useState("");
 
-  function updateField(field: string, value: string) {
-    setForm(function(prev) { return Object.assign({}, prev, { [field]: value }); });
+  /* ---- Step 2: Material + Surface + Environment ---- */
+  var [materialClass, setMaterialClass] = useState("");
+  var [materialFamily, setMaterialFamily] = useState("");
+  var [surfaceType, setSurfaceType] = useState("");
+  var [serviceEnvironment, setServiceEnvironment] = useState("");
+
+  /* ---- Step 3: NDT Method ---- */
+  var [method, setMethod] = useState("");
+
+  /* ---- Step 4: Component ---- */
+  var [component, setComponent] = useState("");
+
+  /* ---- Step 5: Welding Process (only if context = WELD) ---- */
+  var [weldProcess, setWeldProcess] = useState("");
+  var [weldPosition, setWeldPosition] = useState("");
+  var [heatInput, setHeatInput] = useState("");
+  var [travelSpeed, setTravelSpeed] = useState("");
+
+  /* ---- Step 6: Code ---- */
+  var [selectedCode, setSelectedCode] = useState("");
+
+  /* ---- Determine if weld step is needed ---- */
+  var isWeld = inspectionContext === "WELD";
+  var totalSteps = isWeld ? 6 : 5;
+
+  /* ---- Reset material family when class changes ---- */
+  useEffect(function() {
+    setMaterialFamily("");
+  }, [materialClass]);
+
+  /* ---- Families for selected class ---- */
+  var familyOptions = MATERIAL_FAMILY_OPTIONS[materialClass] || [];
+
+  /* ---- Step labels ---- */
+  function getStepLabel(s: number): string {
+    if (s === 1) return "Inspection Context";
+    if (s === 2) return "Material & Environment";
+    if (s === 3) return "NDT Method";
+    if (s === 4) return "Component";
+    if (isWeld && s === 5) return "Welding Process";
+    return "Code / Standard";
   }
 
+  /* ---- Actual step number mapping (skip weld step if not weld) ---- */
+  function getActualStep(): number {
+    if (!isWeld && step >= 5) return step + 1;
+    return step;
+  }
+
+  /* ---- Navigation ---- */
+  function canNext(): boolean {
+    if (step === 1) return inspectionContext !== "";
+    if (step === 2) return materialClass !== "";
+    if (step === 3) return method !== "";
+    if (step === 4) return component.trim() !== "";
+    if (isWeld && step === 5) return true;
+    return true;
+  }
+
+  function handleNext() {
+    if (step < totalSteps) setStep(step + 1);
+  }
+
+  function handleBack() {
+    if (step > 1) setStep(step - 1);
+  }
+
+  /* ---- Code options (simplified from DEPLOY30) ---- */
+  var CODE_OPTIONS = [
+    { value: "AWS_D1.1", label: "AWS D1.1 — Structural Welding Code" },
+    { value: "AWS_D1.5", label: "AWS D1.5 — Bridge Welding Code" },
+    { value: "ASME_SEC_VIII", label: "ASME Section VIII — Pressure Vessels" },
+    { value: "ASME_SEC_V", label: "ASME Section V — NDE" },
+    { value: "ASME_B31.3", label: "ASME B31.3 — Process Piping" },
+    { value: "API_1104", label: "API 1104 — Pipeline Welding" },
+    { value: "API_510", label: "API 510 — Pressure Vessel Inspection" },
+    { value: "API_570", label: "API 570 — Piping Inspection" },
+    { value: "API_653", label: "API 653 — Tank Inspection" },
+    { value: "API_579", label: "API 579 — Fitness-for-Service" },
+    { value: "AMPP_COATING", label: "AMPP — Coating / Lining" },
+    { value: "ACI_CIVIL", label: "ACI — Concrete / Civil" },
+    { value: "ISO_GENERAL", label: "ISO — General Welding / NDT" },
+    { value: "TRAINING", label: "Training / Educational Only" },
+    { value: "OWNER_SPEC", label: "Owner / OEM Specification" },
+    { value: "OTHER", label: "Other" }
+  ];
+
+  /* ---- Submit ---- */
   async function handleSubmit() {
-    setError("");
     setLoading(true);
+    setError("");
+
     try {
-      var body = {
-        title: form.title,
-        method: form.method,
-        material_class: form.material_class,
-        load_condition: form.load_condition,
-        code_family: form.code_family,
-        code_edition: form.code_edition,
-        code_section: form.code_section,
-        acceptance_table: form.acceptance_table,
-        component_name: form.component_name,
-        weld_id: form.weld_id,
-        joint_type: form.joint_type,
-        thickness_mm: form.thickness_mm ? parseFloat(form.thickness_mm) : null,
-        procedure_ref: form.procedure_ref,
-        inspector_ref: form.inspector_ref,
-        welding_process: form.welding_process,
-        weld_position: form.weld_position,
-        heat_input: form.heat_input,
-        travel_speed: form.travel_speed,
-        interpass_cleaning: form.interpass_cleaning,
-        preheat_used: form.preheat_used,
-        passes: form.passes ? parseInt(form.passes) : null,
-        org_id: profile.org_id,
-        user_id: user?.id,
+      var sessionRes = await supabase.auth.getSession();
+      var token = sessionRes.data.session?.access_token || "";
+
+      var processContext = null;
+      if (isWeld && weldProcess) {
+        processContext = {
+          process: weldProcess,
+          position: weldPosition || null,
+          heat_input: heatInput || null,
+          travel_speed: travelSpeed || null
+        };
+      }
+
+      var payload = {
+        method: method,
+        component: component,
+        code: selectedCode || null,
+        inspectionContext: inspectionContext,
+        materialClass: materialClass || null,
+        materialFamily: materialFamily || null,
+        surfaceType: surfaceType || null,
+        serviceEnvironment: serviceEnvironment || null,
+        processContext: processContext
       };
-      var data = await apiFetch("create-case", {
+
+      var res = await fetch(API_BASE + "/create-case", {
         method: "POST",
-        body: JSON.stringify(body),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token
+        },
+        body: JSON.stringify(payload)
       });
-      navigate("/cases/" + data.case.id);
+
+      var data = await res.json();
+
+      if (!res.ok || !data.caseId) {
+        setError(data.error || "Failed to create case");
+        setLoading(false);
+        return;
+      }
+
+      navigate("/cases/" + data.caseId);
+
     } catch (err: any) {
-      setError(err.message || "Failed to create case");
+      setError(String(err));
       setLoading(false);
     }
   }
 
-  return (
-    <div className="page">
-      <div className="page-header"><h1>New Inspection Case</h1></div>
-
-      {step === 1 && (
-        <div className="form-section">
-          <h2>Step 1: Select Method</h2>
-          <p className="form-hint">What energy are you putting into the material?</p>
-          <div className="method-grid">
-            {NDT_METHODS.map(function(m) {
-              return (
-                <button key={m}
-                  className={"method-select-btn" + (form.method === m ? " method-selected" : "")}
-                  style={{ borderColor: form.method === m ? METHOD_COLORS[m] : "#ddd" }}
-                  onClick={function() { updateField("method", m); }}>
-                  <span className="method-select-code" style={{ color: METHOD_COLORS[m] }}>{m}</span>
-                  <span className="method-select-name">{METHOD_LABELS[m]}</span>
-                </button>
-              );
-            })}
-          </div>
-          {form.method && <button className="btn-primary" onClick={function() { setStep(2); }}>Continue</button>}
-        </div>
-      )}
-
-      {step === 2 && (
-        <div className="form-section">
-          <h2>Step 2: Component &amp; Material</h2>
-          <p className="form-hint">Describe the physical reality. The system builds a physics model from this.</p>
-          <div className="form-group">
-            <label>Case Title</label>
-            <input type="text" value={form.title} onChange={function(e) { updateField("title", e.target.value); }}
-              placeholder="e.g. V-101 Nozzle N-3 Weld Inspection" required />
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label>Material Class</label>
-              <select value={form.material_class} onChange={function(e) { updateField("material_class", e.target.value); }}>
-                {MATERIAL_CLASSES.map(function(m) { return <option key={m} value={m}>{m.replace(/_/g, " ")}</option>; })}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Load Condition</label>
-              <select value={form.load_condition} onChange={function(e) { updateField("load_condition", e.target.value); }}>
-                {LOAD_CONDITIONS.map(function(l) { return <option key={l} value={l}>{l.replace(/_/g, " ")}</option>; })}
-              </select>
-            </div>
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label>Thickness (mm)</label>
-              <input type="number" step="0.1" value={form.thickness_mm}
-                onChange={function(e) { updateField("thickness_mm", e.target.value); }} placeholder="e.g. 25.4" />
-            </div>
-            <div className="form-group">
-              <label>Joint Type</label>
-              <select value={form.joint_type} onChange={function(e) { updateField("joint_type", e.target.value); }}>
-                {JOINT_TYPES.map(function(j) { return <option key={j} value={j}>{JOINT_TYPE_LABELS[j] || j}</option>; })}
-              </select>
-            </div>
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label>Component Name</label>
-              <input type="text" value={form.component_name}
-                onChange={function(e) { updateField("component_name", e.target.value); }} placeholder="e.g. Pressure Vessel V-101" />
-            </div>
-            <div className="form-group">
-              <label>Weld ID</label>
-              <input type="text" value={form.weld_id}
-                onChange={function(e) { updateField("weld_id", e.target.value); }} placeholder="e.g. W-N3-001" />
-            </div>
-          </div>
-          <div className="form-actions">
-            <button className="btn-secondary" onClick={function() { setStep(1); }}>Back</button>
-            <button className="btn-primary" onClick={function() { setStep(3); }} disabled={!form.title}>Continue</button>
-          </div>
-        </div>
-      )}
-
-      {step === 3 && (
-        <div className="form-section">
-          <h2>Step 3: Welding Process Context</h2>
-          <p className="form-hint">This information drives the physics engine. The more you provide, the smarter the system gets.</p>
-          <div className="form-row">
-            <div className="form-group">
-              <label>Welding Process</label>
-              <select value={form.welding_process} onChange={function(e) { updateField("welding_process", e.target.value); }}>
-                {WELDING_PROCESSES.map(function(p) { return <option key={p} value={p}>{WELDING_PROCESS_LABELS[p] || p}</option>; })}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Weld Position</label>
-              <select value={form.weld_position} onChange={function(e) { updateField("weld_position", e.target.value); }}>
-                {WELD_POSITIONS.map(function(p) { return <option key={p} value={p}>{p}</option>; })}
-              </select>
-            </div>
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label>Heat Input</label>
-              <select value={form.heat_input} onChange={function(e) { updateField("heat_input", e.target.value); }}>
-                {HEAT_INPUT_LEVELS.map(function(h) { return <option key={h} value={h}>{h.replace(/_/g, " ")}</option>; })}
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Travel Speed</label>
-              <select value={form.travel_speed} onChange={function(e) { updateField("travel_speed", e.target.value); }}>
-                {TRAVEL_SPEED_LEVELS.map(function(s) { return <option key={s} value={s}>{s.replace(/_/g, " ")}</option>; })}
-              </select>
-            </div>
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label>Interpass Cleaning</label>
-              <select value={form.interpass_cleaning} onChange={function(e) { updateField("interpass_cleaning", e.target.value); }}>
-                <option value="unknown">Unknown</option>
-                <option value="yes">Yes - Confirmed</option>
-                <option value="no">No - Not Performed</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Number of Passes</label>
-              <input type="number" min="1" max="50" value={form.passes}
-                onChange={function(e) { updateField("passes", e.target.value); }} placeholder="e.g. 3" />
-            </div>
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label>Preheat Used</label>
-              <select value={form.preheat_used} onChange={function(e) { updateField("preheat_used", e.target.value); }}>
-                <option value="unknown">Unknown</option>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
-            </div>
-          </div>
-          <div className="form-actions">
-            <button className="btn-secondary" onClick={function() { setStep(2); }}>Back</button>
-            <button className="btn-primary" onClick={function() { setStep(4); }}>Continue</button>
-          </div>
-        </div>
-      )}
-
-      {step === 4 && (
-        <div className="form-section">
-          <h2>Step 4: Code Context</h2>
-          <p className="form-hint">Which code governs this inspection?</p>
-          <div className="form-row">
-            <div className="form-group">
-              <label>Code Family</label>
-              <select value={form.code_family} onChange={function(e) { updateField("code_family", e.target.value); }}>
-                <option value="AWS_D1_1">AWS D1.1 - Structural Welding</option>
-                <option value="ASME_VIII">ASME Section VIII - Pressure Vessels</option>
-                <option value="API_1104">API 1104 - Pipeline Welding</option>
-                <option value="AWS_D1_5">AWS D1.5 - Bridge Welding</option>
-                <option value="ASME_B31_3">ASME B31.3 - Process Piping</option>
-                <option value="GENERIC">Other / Generic</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label>Code Edition / Section</label>
-              <input type="text" value={form.code_edition} onChange={function(e) { updateField("code_edition", e.target.value); }} placeholder="e.g. 2020 Edition" />
-            </div>
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label>Acceptance Table</label>
-              <input type="text" value={form.acceptance_table} onChange={function(e) { updateField("acceptance_table", e.target.value); }} placeholder="e.g. Table 6.1" />
-            </div>
-            <div className="form-group">
-              <label>Procedure Reference</label>
-              <input type="text" value={form.procedure_ref} onChange={function(e) { updateField("procedure_ref", e.target.value); }} placeholder="e.g. NDE-VT-001 Rev 3" />
-            </div>
-          </div>
-          <div className="form-group">
-            <label>Inspector Reference</label>
-            <input type="text" value={form.inspector_ref} onChange={function(e) { updateField("inspector_ref", e.target.value); }} placeholder="e.g. CWI #12345 / Level II #67890" />
-          </div>
-          {error && <p className="form-error">{error}</p>}
-          <div className="form-actions">
-            <button className="btn-secondary" onClick={function() { setStep(3); }}>Back</button>
-            <button className="btn-primary" onClick={handleSubmit} disabled={loading}>
-              {loading ? "Creating case & building physics model..." : "Create Case"}
+  /* ---- Render helpers ---- */
+  function renderOptionGrid(
+    options: Array<{ value: string; label: string }>,
+    selected: string,
+    onSelect: (v: string) => void
+  ) {
+    return (
+      <div className="option-grid">
+        {options.map(function(opt) {
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              className={"option-btn" + (selected === opt.value ? " selected" : "")}
+              onClick={function() { onSelect(opt.value); }}
+            >
+              {opt.label}
             </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderSelect(
+    label: string,
+    value: string,
+    onChange: (v: string) => void,
+    options: Array<{ value: string; label: string }>,
+    placeholder?: string
+  ) {
+    return (
+      <div className="form-field">
+        <label className="form-label">{label}</label>
+        <select
+          className="form-select"
+          value={value}
+          onChange={function(e) { onChange(e.target.value); }}
+        >
+          <option value="">{placeholder || "Select..."}</option>
+          {options.map(function(opt) {
+            return <option key={opt.value} value={opt.value}>{opt.label}</option>;
+          })}
+        </select>
+      </div>
+    );
+  }
+
+  /* ---- Step content ---- */
+  function renderStep() {
+    /* Step 1: Inspection Context */
+    if (step === 1) {
+      return (
+        <div className="step-content">
+          <h3 className="step-title">What are you inspecting?</h3>
+          <p className="step-desc">
+            Select the inspection context. This determines which analysis engine will evaluate your findings.
+          </p>
+          {renderOptionGrid(INSPECTION_CONTEXT_OPTIONS, inspectionContext, setInspectionContext)}
+          {inspectionContext === "WELD" && (
+            <div className="step-note info">
+              Weld context selected — welding process step will be included.
+            </div>
+          )}
+          {inspectionContext && inspectionContext !== "WELD" && inspectionContext !== "UNKNOWN" && (
+            <div className="step-note info">
+              Non-weld context — the system will use the {inspectionContext.replace(/_/g, " ").toLowerCase()} damage engine.
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* Step 2: Material + Surface + Environment */
+    if (step === 2) {
+      return (
+        <div className="step-content">
+          <h3 className="step-title">Material & Environment</h3>
+          <p className="step-desc">
+            Identify the material class, family, surface type, and service environment.
+          </p>
+
+          <div className="form-field">
+            <label className="form-label">Material Class</label>
+            {renderOptionGrid(MATERIAL_CLASS_OPTIONS, materialClass, setMaterialClass)}
+          </div>
+
+          {materialClass && familyOptions.length > 0 && (
+            renderSelect("Material Family", materialFamily, setMaterialFamily, familyOptions, "Select family...")
+          )}
+
+          {renderSelect("Surface / Component Type", surfaceType, setSurfaceType, SURFACE_TYPE_OPTIONS, "Select surface type...")}
+
+          {renderSelect("Service Environment", serviceEnvironment, setServiceEnvironment, SERVICE_ENVIRONMENT_OPTIONS, "Select environment...")}
+        </div>
+      );
+    }
+
+    /* Step 3: NDT Method */
+    if (step === 3) {
+      return (
+        <div className="step-content">
+          <h3 className="step-title">NDT Method</h3>
+          <p className="step-desc">Select the primary inspection method.</p>
+          {renderOptionGrid(NDE_METHODS, method, setMethod)}
+        </div>
+      );
+    }
+
+    /* Step 4: Component */
+    if (step === 4) {
+      return (
+        <div className="step-content">
+          <h3 className="step-title">Component Description</h3>
+          <p className="step-desc">Describe the component or area being inspected.</p>
+          <div className="form-field">
+            <input
+              type="text"
+              className="form-input"
+              placeholder="e.g. 12-inch carbon steel pipe, butt weld joint #47"
+              value={component}
+              onChange={function(e) { setComponent(e.target.value); }}
+            />
           </div>
         </div>
-      )}
+      );
+    }
+
+    /* Step 5: Welding Process (only if isWeld) */
+    if (isWeld && step === 5) {
+      return (
+        <div className="step-content">
+          <h3 className="step-title">Welding Process</h3>
+          <p className="step-desc">
+            Providing welding process details dramatically improves convergence accuracy.
+          </p>
+          {renderOptionGrid(WELDING_PROCESSES, weldProcess, setWeldProcess)}
+
+          {weldProcess && (
+            <div className="weld-details-grid">
+              {renderSelect("Weld Position", weldPosition, setWeldPosition, WELD_POSITIONS, "Select position...")}
+              {renderSelect("Heat Input", heatInput, setHeatInput, HEAT_INPUT_LEVELS, "Select heat input...")}
+              {renderSelect("Travel Speed", travelSpeed, setTravelSpeed, TRAVEL_SPEED_LEVELS, "Select travel speed...")}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* Final step: Code / Standard */
+    return (
+      <div className="step-content">
+        <h3 className="step-title">Governing Code / Standard</h3>
+        <p className="step-desc">
+          Select the code or standard governing this inspection. This controls acceptance criteria and disposition authority.
+        </p>
+        {renderOptionGrid(CODE_OPTIONS, selectedCode, setSelectedCode)}
+      </div>
+    );
+  }
+
+  /* ---- Progress indicator ---- */
+  function renderProgress() {
+    var dots = [];
+    for (var i = 1; i <= totalSteps; i++) {
+      dots.push(
+        <div
+          key={i}
+          className={"progress-dot" + (i === step ? " active" : "") + (i < step ? " done" : "")}
+        >
+          {i}
+        </div>
+      );
+    }
+    return <div className="progress-dots">{dots}</div>;
+  }
+
+  /* ---- Main render ---- */
+  return (
+    <div className="new-case-page">
+      <div className="new-case-header">
+        <h2>New Inspection Case</h2>
+        <p className="step-indicator">
+          Step {step} of {totalSteps}: {getStepLabel(step)}
+        </p>
+      </div>
+
+      {renderProgress()}
+
+      {error && <div className="error-banner">{error}</div>}
+
+      {renderStep()}
+
+      <div className="step-nav">
+        {step > 1 && (
+          <button type="button" className="btn-secondary" onClick={handleBack} disabled={loading}>
+            Back
+          </button>
+        )}
+
+        {step < totalSteps && (
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleNext}
+            disabled={!canNext()}
+          >
+            Next
+          </button>
+        )}
+
+        {step === totalSteps && (
+          <button
+            type="button"
+            className="btn-primary submit-btn"
+            onClick={handleSubmit}
+            disabled={loading || !method || !component.trim()}
+          >
+            {loading ? "Creating..." : "Create Case"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
