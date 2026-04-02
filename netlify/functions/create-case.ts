@@ -177,7 +177,7 @@ var handler: Handler = async function(event) {
       time_dimension_type: fourD.time,
 
       /* has defaults but we set explicitly */
-      status: "open",
+      status: "draft",
       load_condition: "unknown",
 
       /* material_class — CHECK constraint, must be lowercase allowed value */
