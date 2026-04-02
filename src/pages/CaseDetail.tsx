@@ -229,7 +229,10 @@ export default function CaseDetail() {
 
   if (loading || !caseData) return <div className="page-loading">Loading case...</div>;
 
-  var findingTypes = Array.from(new Set(findings.map(function(f) { return f.finding_type; })));
+  // Use label (e.g. "undercut", "slag_inclusion") not finding_type (e.g. "Discontinuity")
+  var findingTypes = Array.from(new Set(findings.map(function(f) {
+    return (f.label || f.finding_type || "unknown").toLowerCase().replace(/ /g, "_");
+  })));
 
   var TABS: Array<{ key: TabName; label: string }> = [
     { key: "overview", label: "Overview" }, { key: "evidence", label: "Evidence" },
@@ -347,7 +350,9 @@ export default function CaseDetail() {
 
                 {findingTypes.map(function(ft) {
                   var fields = MEAS_FIELDS[ft] || [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }];
-                  var maxConf = Math.max.apply(null, findings.filter(function(f) { return f.finding_type === ft; }).map(function(f) { return f.confidence || 0; }));
+                  var maxConf = Math.max.apply(null, findings.filter(function(f) {
+                    return (f.label || f.finding_type || "").toLowerCase().replace(/ /g, "_") === ft;
+                  }).map(function(f) { return f.confidence || 0; }));
 
                   return (
                     <div key={ft} className="meas-finding-group">
