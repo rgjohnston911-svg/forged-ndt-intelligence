@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { path: "/", label: "Dashboard", icon: "\u25A3" },
   { path: "/cases", label: "Cases", icon: "\u25C9" },
   { path: "/cases/new", label: "New Case", icon: "+" },
+  { path: "/voice", label: "Voice", icon: "\uD83C\uDF99\uFE0F" },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
