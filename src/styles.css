@@ -288,16 +288,10 @@ a:hover { text-decoration: underline; }
   .overview-grid { grid-template-columns: 1fr; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
 }
-/**
- * DEPLOY24_styles_additions.css
- * APPEND to: src/styles.css
- *
- * Add these styles to the end of the existing styles.css file.
- */
 
 /* ================================================================
-   EVIDENCE TAB
-   ================================================================ */
+   DEPLOY24 — EVIDENCE TAB
+================================================================ */
 .evidence-actions { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
 .upload-btn, .analyze-btn {
   padding: 10px 20px; border-radius: 6px; font-weight: 600;
@@ -316,8 +310,8 @@ a:hover { text-decoration: underline; }
 .evidence-info span { font-size: 12px; color: #666; }
 
 /* ================================================================
-   MEASUREMENT INPUT
-   ================================================================ */
+   DEPLOY24 — MEASUREMENT INPUT
+================================================================ */
 .measurements-section {
   margin-top: 32px; padding-top: 24px;
   border-top: 2px solid #0F4C75;
@@ -378,8 +372,8 @@ a:hover { text-decoration: underline; }
 .authority-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ================================================================
-   FORMATTED PHYSICS MODEL
-   ================================================================ */
+   DEPLOY24 — FORMATTED PHYSICS MODEL
+================================================================ */
 .capability-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
 .capability-card {
   background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px;
@@ -402,8 +396,8 @@ a:hover { text-decoration: underline; }
 .mat-value { font-size: 15px; font-weight: 600; color: #0F4C75; }
 
 /* ================================================================
-   CONFLICT RESOLUTION
-   ================================================================ */
+   DEPLOY24 — CONFLICT RESOLUTION
+================================================================ */
 .conflict-summary { margin-bottom: 24px; padding: 16px; background: #fff8e1; border: 1px solid #ffe082; border-radius: 8px; }
 .conflict-summary h3 { margin: 0 0 12px; color: #E65100; }
 .conflict-card { background: white; border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px; margin-bottom: 8px; }
@@ -415,8 +409,8 @@ a:hover { text-decoration: underline; }
 .conflict-reasoning { font-size: 13px; color: #555; margin: 0; line-height: 1.4; }
 
 /* ================================================================
-   AUTHORITY LOCK DECISION
-   ================================================================ */
+   DEPLOY24 — AUTHORITY LOCK DECISION
+================================================================ */
 .authority-locked-banner {
   background: #1B5E20; color: white; padding: 12px 20px; border-radius: 8px;
   display: flex; align-items: center; gap: 10px; margin-bottom: 20px; font-weight: 600;
@@ -434,27 +428,18 @@ a:hover { text-decoration: underline; }
 .stat-pass { border-color: #a5d6a7; color: #2E7D32; }
 .stat-fail { border-color: #ef9a9a; color: #C62828; }
 
-/* Finding reasoning and causes */
 .finding-reasoning {
   background: #f0f4f8; padding: 10px 12px; border-radius: 6px;
   margin-top: 8px; font-size: 13px; line-height: 1.5; color: #333;
 }
-.finding-causes {
-  margin-top: 6px; font-size: 12px; color: #666; font-style: italic;
-}
+.finding-causes { margin-top: 6px; font-size: 12px; color: #666; font-style: italic; }
 .finding-location { font-size: 12px; color: #666; margin-top: 2px; }
-
-/* Rule evidence chain and measurement display */
 .rule-chain { font-size: 12px; color: #1565C0; margin-top: 6px; padding: 4px 8px; background: #e3f2fd; border-radius: 4px; }
 .rule-measurement { font-size: 13px; margin-top: 6px; padding: 6px 10px; background: #f5f5f5; border-radius: 4px; font-family: "Courier New", monospace; }
-/**
- * DEPLOY27_convergence_styles.css
- * APPEND to: src/styles.css (after DEPLOY24 additions)
- */
 
 /* ================================================================
-   CONVERGENCE ENGINE
-   ================================================================ */
+   DEPLOY27 — CONVERGENCE ENGINE
+================================================================ */
 .convergence-btn {
   padding: 10px 20px; border-radius: 6px; font-weight: 700;
   cursor: pointer; border: none; font-size: 14px;
@@ -514,9 +499,7 @@ a:hover { text-decoration: underline; }
 .hyp-header {
   display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
 }
-.hyp-rank {
-  font-size: 20px; font-weight: 800; color: #0F4C75; min-width: 36px;
-}
+.hyp-rank { font-size: 20px; font-weight: 800; color: #0F4C75; min-width: 36px; }
 .hyp-type { font-size: 16px; font-weight: 700; color: #333; flex: 1; }
 .hyp-score { font-size: 20px; font-weight: 800; color: #0F4C75; }
 .hyp-badge {
@@ -526,11 +509,8 @@ a:hover { text-decoration: underline; }
 .hyp-plausible-badge { background: #e8f5e9; color: #2E7D32; }
 .hyp-eliminated-badge { background: #ffebee; color: #C62828; }
 
-/* Score bars */
 .hyp-scores { margin-bottom: 10px; }
-.score-bar-group {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
-}
+.score-bar-group { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .score-label {
   font-size: 11px; color: #666; min-width: 70px; text-align: right;
   font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
@@ -539,10 +519,7 @@ a:hover { text-decoration: underline; }
   flex: 1; height: 8px; background: #e0e0e0; border-radius: 4px;
   overflow: hidden; max-width: 200px;
 }
-.score-fill {
-  height: 100%; background: #0F4C75; border-radius: 4px;
-  transition: width 0.3s;
-}
+.score-fill { height: 100%; background: #0F4C75; border-radius: 4px; transition: width 0.3s; }
 .penalty-bar { background: #ffcdd2; }
 .penalty-fill { background: #C62828; }
 .score-val { font-size: 12px; font-weight: 700; color: #333; min-width: 36px; }
@@ -556,9 +533,7 @@ a:hover { text-decoration: underline; }
   font-size: 13px; color: #C62828; margin-bottom: 6px; line-height: 1.4;
   padding: 6px 10px; background: #ffebee; border-radius: 4px;
 }
-.hyp-causes {
-  font-size: 12px; color: #555; margin-top: 6px; font-style: italic;
-}
+.hyp-causes { font-size: 12px; color: #555; margin-top: 6px; font-style: italic; }
 
 .conv-escalation {
   background: #ffebee; border: 1px solid #ef9a9a; border-radius: 8px;
@@ -566,323 +541,142 @@ a:hover { text-decoration: underline; }
 }
 .conv-escalation strong { color: #C62828; }
 .conv-escalation p { margin: 6px 0 0; font-size: 13px; color: #555; }
-/**
- * DEPLOY39 — styles_universal_router.css
- * APPEND to src/styles.css
- *
- * New styles for the universal inspection context router UI.
- * Covers: step progress dots, option grid, form fields,
- * info notes, weld details grid, submit button.
- *
- * APPEND ONLY — do not replace existing styles.css content.
- */
 
 /* ================================================================
-   UNIVERSAL ROUTER — PROGRESS DOTS
+   DEPLOY39 — UNIVERSAL ROUTER UI
 ================================================================ */
 
-/* --- paste below into styles.css --- */
-
-.progress-dots {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  margin: 16px 0 24px 0;
-}
-
+.progress-dots { display: flex; justify-content: center; gap: 8px; margin: 16px 0 24px 0; }
 .progress-dot {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  font-weight: 600;
-  background: #1e293b;
-  color: #64748b;
-  border: 2px solid #334155;
-  transition: all 0.2s ease;
+  width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center;
+  justify-content: center; font-size: 13px; font-weight: 600;
+  background: #1e293b; color: #64748b; border: 2px solid #334155; transition: all 0.2s ease;
 }
+.progress-dot.active { background: #2563eb; color: #fff; border-color: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.4); }
+.progress-dot.done { background: #059669; color: #fff; border-color: #10b981; }
 
-.progress-dot.active {
-  background: #2563eb;
-  color: #fff;
-  border-color: #3b82f6;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
-}
-
-.progress-dot.done {
-  background: #059669;
-  color: #fff;
-  border-color: #10b981;
-}
-
-/* ================================================================
-   UNIVERSAL ROUTER — OPTION GRID
-================================================================ */
-
-.option-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px;
-  margin: 12px 0;
-}
-
+.option-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin: 12px 0; }
 .option-btn {
-  padding: 12px 16px;
-  border-radius: 8px;
-  border: 2px solid #334155;
-  background: #1e293b;
-  color: #cbd5e1;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.15s ease;
+  padding: 12px 16px; border-radius: 8px; border: 2px solid #334155; background: #1e293b;
+  color: #cbd5e1; font-size: 14px; font-weight: 500; cursor: pointer; text-align: left; transition: all 0.15s ease;
 }
+.option-btn:hover { border-color: #3b82f6; background: #1e3a5f; }
+.option-btn.selected { border-color: #3b82f6; background: #1e3a5f; color: #fff; box-shadow: 0 0 6px rgba(59, 130, 246, 0.3); }
 
-.option-btn:hover {
-  border-color: #3b82f6;
-  background: #1e3a5f;
-}
-
-.option-btn.selected {
-  border-color: #3b82f6;
-  background: #1e3a5f;
-  color: #fff;
-  box-shadow: 0 0 6px rgba(59, 130, 246, 0.3);
-}
-
-/* ================================================================
-   UNIVERSAL ROUTER — FORM FIELDS
-================================================================ */
-
-.form-field {
-  margin: 16px 0;
-}
-
-.form-label {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: #94a3b8;
-  margin-bottom: 6px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
+.form-field { margin: 16px 0; }
+.form-label { display: block; font-size: 13px; font-weight: 600; color: #94a3b8; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
 .form-select {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 2px solid #334155;
-  background: #1e293b;
-  color: #e2e8f0;
-  font-size: 14px;
-  appearance: none;
-  cursor: pointer;
+  width: 100%; padding: 10px 12px; border-radius: 8px; border: 2px solid #334155;
+  background: #1e293b; color: #e2e8f0; font-size: 14px; appearance: none; cursor: pointer;
 }
-
-.form-select:focus {
-  outline: none;
-  border-color: #3b82f6;
-}
-
+.form-select:focus { outline: none; border-color: #3b82f6; }
 .form-input {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 2px solid #334155;
-  background: #1e293b;
-  color: #e2e8f0;
-  font-size: 14px;
-  box-sizing: border-box;
+  width: 100%; padding: 10px 12px; border-radius: 8px; border: 2px solid #334155;
+  background: #1e293b; color: #e2e8f0; font-size: 14px; box-sizing: border-box;
+}
+.form-input:focus { outline: none; border-color: #3b82f6; }
+
+.step-content { margin: 0 0 24px 0; }
+.step-title { font-size: 20px; font-weight: 700; color: #f1f5f9; margin: 0 0 8px 0; }
+.step-desc { font-size: 14px; color: #94a3b8; margin: 0 0 16px 0; }
+.step-note { margin-top: 12px; padding: 10px 14px; border-radius: 8px; font-size: 13px; }
+.step-note.info { background: #1e3a5f; color: #93c5fd; border: 1px solid #2563eb44; }
+
+.weld-details-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 16px; }
+@media (max-width: 600px) {
+  .weld-details-grid { grid-template-columns: 1fr; }
+  .option-grid { grid-template-columns: 1fr 1fr; }
 }
 
-.form-input:focus {
-  outline: none;
-  border-color: #3b82f6;
+.step-nav { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; padding-top: 16px; border-top: 1px solid #1e293b; }
+.submit-btn { background: #059669; }
+.submit-btn:hover:not(:disabled) { background: #047857; }
+
+.new-case-page { max-width: 720px; margin: 0 auto; padding: 24px 16px; }
+.new-case-header h2 { font-size: 24px; font-weight: 700; color: #f1f5f9; margin: 0 0 4px 0; }
+.step-indicator { font-size: 13px; color: #64748b; margin: 0 0 8px 0; }
+.error-banner { background: #7f1d1d; color: #fca5a5; padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+
+/* ================================================================
+   DEPLOY45 — FORM DIVIDER
+================================================================ */
+.form-divider { height: 1px; background: #334155; margin: 24px 0; }
+
+/* ================================================================
+   DEPLOY46 — LOADING BANNER
+================================================================ */
+.loading-banner {
+  background: #1e3a5f; color: #93c5fd; padding: 10px 14px; border-radius: 8px;
+  margin-bottom: 16px; font-size: 13px; border: 1px solid #2563eb44;
+  display: flex; align-items: center; gap: 8px;
+}
+.loading-banner::before {
+  content: ""; width: 14px; height: 14px; border: 2px solid #93c5fd;
+  border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;
 }
 
 /* ================================================================
-   UNIVERSAL ROUTER — STEP CONTENT
+   DEPLOY48 — ROUTE INTELLIGENCE DISPLAY
 ================================================================ */
 
-.step-content {
-  margin: 0 0 24px 0;
-}
+.route-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid #e2e8f0; }
+.route-section-title { font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 12px 0; }
 
-.step-title {
-  font-size: 20px;
-  font-weight: 700;
-  color: #f1f5f9;
-  margin: 0 0 8px 0;
-}
+.route-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.route-chip { padding: 5px 12px; border-radius: 16px; font-size: 12px; font-weight: 600; text-transform: capitalize; }
+.chip-context { background: #dbeafe; color: #1e40af; }
+.chip-lifecycle { background: #fef3c7; color: #92400e; }
+.chip-industry { background: #e0e7ff; color: #3730a3; }
+.chip-asset { background: #d1fae5; color: #065f46; }
+.chip-surface { background: #f3e8ff; color: #6b21a8; }
+.chip-env { background: #fce7f3; color: #9d174d; }
 
-.step-desc {
-  font-size: 14px;
-  color: #94a3b8;
-  margin: 0 0 16px 0;
-}
+.route-result-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; }
+.route-result-header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.route-engine-name { font-size: 16px; font-weight: 700; color: #0f172a; text-transform: capitalize; }
 
-.step-note {
-  margin-top: 12px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 13px;
-}
+.route-confidence-badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.conf-high { background: #d1fae5; color: #065f46; }
+.conf-moderate { background: #fef3c7; color: #92400e; }
+.conf-low { background: #fee2e2; color: #991b1b; }
 
-.step-note.info {
-  background: #1e3a5f;
-  color: #93c5fd;
-  border: 1px solid #2563eb44;
-}
+.route-locked-badge { background: #059669; color: #fff; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
 
-/* ================================================================
-   UNIVERSAL ROUTER — WELD DETAILS GRID
-================================================================ */
+.route-authority-badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.auth-high { background: #d1fae5; color: #065f46; }
+.auth-moderate { background: #fef3c7; color: #92400e; }
+.auth-low { background: #fee2e2; color: #991b1b; }
 
-.weld-details-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 12px;
-  margin-top: 16px;
+.route-hard-disp-badge { background: #059669; color: #fff; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+.route-no-disp-badge { background: #dc2626; color: #fff; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+
+.route-primary-condition { font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 12px; text-transform: capitalize; }
+
+.route-conditions-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.route-condition-row { display: flex; align-items: center; gap: 8px; }
+.rc-name { width: 180px; font-size: 12px; color: #475569; text-transform: capitalize; flex-shrink: 0; }
+.rc-bar-wrap { flex: 1; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+.rc-bar { height: 100%; background: #2563eb; border-radius: 4px; transition: width 0.3s ease; }
+.rc-score { width: 36px; font-size: 12px; font-weight: 600; color: #0f172a; text-align: right; }
+
+.route-standards { margin: 12px 0; }
+.route-standards h4 { font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 8px 0; }
+.standard-card {
+  display: flex; flex-direction: column; gap: 2px; padding: 8px 12px;
+  background: #f8fafc; border-radius: 8px; border-left: 3px solid #2563eb; margin-bottom: 6px;
 }
+.secondary-std { border-left-color: #94a3b8; }
+.std-label { font-size: 13px; font-weight: 700; color: #0f172a; }
+.std-name { font-size: 12px; color: #475569; }
+.std-reason { font-size: 11px; color: #94a3b8; font-style: italic; }
+
+.route-rationale { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.rationale-chip { padding: 4px 10px; background: #f1f5f9; color: #475569; border-radius: 12px; font-size: 11px; }
+
+.route-warnings { margin-top: 10px; }
+.route-warning-item { padding: 6px 10px; background: #fef3c7; color: #92400e; border-radius: 6px; font-size: 12px; margin-bottom: 4px; }
 
 @media (max-width: 600px) {
-  .weld-details-grid {
-    grid-template-columns: 1fr;
-  }
-  .option-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-/* ================================================================
-   UNIVERSAL ROUTER — STEP NAV
-================================================================ */
-
-.step-nav {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 24px;
-  padding-top: 16px;
-  border-top: 1px solid #1e293b;
-}
-
-.btn-primary {
-  padding: 10px 24px;
-  border-radius: 8px;
-  border: none;
-  background: #2563eb;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: #1d4ed8;
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  padding: 10px 24px;
-  border-radius: 8px;
-  border: 2px solid #334155;
-  background: transparent;
-  color: #94a3b8;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.btn-secondary:hover:not(:disabled) {
-  border-color: #64748b;
-  color: #e2e8f0;
-}
-
-.submit-btn {
-  background: #059669;
-}
-
-.submit-btn:hover:not(:disabled) {
-  background: #047857;
-}
-
-/* ================================================================
-   UNIVERSAL ROUTER — NEW CASE PAGE
-================================================================ */
-
-.new-case-page {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 24px 16px;
-}
-
-.new-case-header h2 {
-  font-size: 24px;
-  font-weight: 700;
-  color: #f1f5f9;
-  margin: 0 0 4px 0;
-}
-
-.step-indicator {
-  font-size: 13px;
-  color: #64748b;
-  margin: 0 0 8px 0;
-}
-
-.error-banner {
-  background: #7f1d1d;
-  color: #fca5a5;
-  padding: 10px 14px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-  font-size: 13px;
-}
-/* DEPLOY45 — APPEND to src/styles.css
-   Form divider between material and classification sections in Step 2 */
-
-.form-divider {
-  height: 1px;
-  background: #334155;
-  margin: 24px 0;
-}
-/* DEPLOY46 — APPEND to src/styles.css
-   Loading banner for auto-routing during case creation */
-
-.loading-banner {
-  background: #1e3a5f;
-  color: #93c5fd;
-  padding: 10px 14px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  border: 1px solid #2563eb44;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.loading-banner::before {
-  content: "";
-  width: 14px;
-  height: 14px;
-  border: 2px solid #93c5fd;
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
+  .rc-name { width: 120px; }
+  .route-result-header { flex-direction: column; align-items: flex-start; }
 }
