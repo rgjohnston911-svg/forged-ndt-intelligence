@@ -1,8 +1,9 @@
 /**
- * DEPLOY38v3 — create-case.ts
+ * DEPLOY38 FINAL — create-case.ts
  * netlify/functions/create-case.ts
  *
- * Fixed: added title column (NOT NULL in schema)
+ * Built from actual inspection_cases schema (59 columns).
+ * All NOT NULL columns without defaults are explicitly provided.
  *
  * CONSTRAINT: No backtick template literals (Git Bash paste corruption)
  */
@@ -19,6 +20,18 @@ function headers() {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Content-Type": "application/json"
   };
+}
+
+/* ---- 4D dimension defaults based on NDT method ---- */
+function get4DDefaults(method: string) {
+  var m = (method || "").toUpperCase();
+  if (m === "VT") return { energy: "photon", interaction: "reflection", response: "visual_pattern", time: "snapshot" };
+  if (m === "PT") return { energy: "chemical", interaction: "capillary", response: "bleed_out_pattern", time: "delayed" };
+  if (m === "MT") return { energy: "magnetic_field", interaction: "flux_leakage", response: "particle_pattern", time: "snapshot" };
+  if (m === "UT") return { energy: "acoustic_wave", interaction: "reflection", response: "echo_signal", time: "real_time" };
+  if (m === "RT") return { energy: "ionizing_radiation", interaction: "transmission", response: "density_image", time: "snapshot" };
+  if (m === "ET") return { energy: "electromagnetic_field", interaction: "eddy_current", response: "impedance_signal", time: "real_time" };
+  return { energy: "unknown", interaction: "unknown", response: "unknown", time: "unknown" };
 }
 
 var handler: Handler = async function(event) {
@@ -69,6 +82,14 @@ var handler: Handler = async function(event) {
 
     var orgId = (profileRes.data && profileRes.data.org_id) ? profileRes.data.org_id : null;
 
+    if (!orgId) {
+      return {
+        statusCode: 400,
+        headers: headers(),
+        body: JSON.stringify({ error: "No org_id found for user profile" })
+      };
+    }
+
     /* ---- Parse body ---- */
     var body = JSON.parse(event.body || "{}");
 
@@ -78,7 +99,7 @@ var handler: Handler = async function(event) {
 
     /* Universal context fields */
     var inspectionContext = (body.inspectionContext || "").trim() || null;
-    var materialClass = (body.materialClass || "").trim() || null;
+    var materialClass = (body.materialClass || "").trim() || "unknown";
     var materialFamily = (body.materialFamily || "").trim() || null;
     var surfaceType = (body.surfaceType || "").trim() || null;
     var serviceEnvironment = (body.serviceEnvironment || "").trim() || null;
@@ -102,22 +123,33 @@ var handler: Handler = async function(event) {
       };
     }
 
-    /* ---- Generate case number and title ---- */
+    /* ---- Generate case number, title, 4D defaults ---- */
     var caseNumber = "NDT-" + Date.now();
     var title = method + " - " + componentName;
+    var fourD = get4DDefaults(method);
 
-    /* ---- Create case ---- */
+    /* ---- Build row matching ALL not-null columns ---- */
     var caseRow: Record<string, any> = {
+      /* required, no default */
       org_id: orgId,
-      created_by: userId,
       case_number: caseNumber,
       title: title,
       method: method,
+      created_by: userId,
+      energy_type: fourD.energy,
+      interaction_type: fourD.interaction,
+      response_type: fourD.response,
+      time_dimension_type: fourD.time,
+
+      /* has defaults but we set explicitly */
+      status: "open",
+      material_class: materialClass,
+      load_condition: "unknown",
+
+      /* nullable — universal context */
       component_name: componentName,
       code_family: codeFamily,
-      status: "open",
       inspection_context: inspectionContext,
-      material_class: materialClass,
       material_family: materialFamily,
       surface_type: surfaceType,
       service_environment: serviceEnvironment
