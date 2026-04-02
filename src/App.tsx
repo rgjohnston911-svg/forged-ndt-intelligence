@@ -6,10 +6,9 @@ import Dashboard from "./pages/Dashboard";
 import Cases from "./pages/Cases";
 import NewCase from "./pages/NewCase";
 import CaseDetail from "./pages/CaseDetail";
-
+import VoiceInspectionPage from "./pages/VoiceInspectionPage";
 export default function App() {
   const { user, loading } = useAuth();
-
   if (loading) {
     return (
       <div className="loading-screen">
@@ -18,11 +17,9 @@ export default function App() {
       </div>
     );
   }
-
   if (!user) {
     return <Login />;
   }
-
   return (
     <AppShell>
       <Routes>
@@ -30,6 +27,7 @@ export default function App() {
         <Route path="/cases" element={<Cases />} />
         <Route path="/cases/new" element={<NewCase />} />
         <Route path="/cases/:id" element={<CaseDetail />} />
+        <Route path="/voice" element={<VoiceInspectionPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>
