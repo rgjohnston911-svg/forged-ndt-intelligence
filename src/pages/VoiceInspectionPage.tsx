@@ -246,11 +246,45 @@ export default function VoiceInspectionPage() {
       }
 
       /* ROUTE: EVENT-DRIVEN / OTHER */
-      var resp = await fetch("/api/voice-incident-plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: transcript }) });
+      /* Build constrained transcript with locked context from deterministic engines */
+      var constrainedTranscript = transcript;
+      var lockedParts: string[] = [];
+      lockedParts.push("[SYSTEM LOCKED CONTEXT - DO NOT OVERRIDE THESE VALUES]");
+      if (resolveResult && resolveResult.canonical_asset_class && resolveResult.canonical_asset_class !== "unknown_asset") {
+        lockedParts.push("ASSET CLASS: " + resolveResult.canonical_asset_class.replace(/_/g, " "));
+      }
+      if (parseResult && parseResult.detected_events && parseResult.detected_events.length > 0) {
+        var evNames: string[] = [];
+        for (var evi = 0; evi < parseResult.detected_events.length; evi++) evNames.push(parseResult.detected_events[evi].event_type);
+        lockedParts.push("EVENTS: " + evNames.join(", "));
+      }
+      if (parseResult && parseResult.primary_values) {
+        var pv = parseResult.primary_values;
+        if (pv.wind_speed_mph !== null) lockedParts.push("WIND SPEED: " + pv.wind_speed_mph + " mph");
+        if (pv.wave_height_ft !== null) lockedParts.push("WAVE HEIGHT: " + pv.wave_height_ft + " ft");
+        if (pv.surge_height_ft !== null) lockedParts.push("SURGE HEIGHT: " + pv.surge_height_ft + " ft");
+        if (pv.distance_miles !== null) lockedParts.push("DISTANCE: " + pv.distance_miles + " miles");
+        if (pv.impact_speed_mph !== null) lockedParts.push("IMPACT SPEED: " + pv.impact_speed_mph + " mph");
+        if (pv.diameter_ft !== null) lockedParts.push("DIAMETER: " + pv.diameter_ft + " ft");
+        if (pv.diameter_in !== null) lockedParts.push("DIAMETER: " + pv.diameter_in + " inches");
+        if (pv.pressure_psi !== null) lockedParts.push("PRESSURE: " + pv.pressure_psi + " psi");
+        if (pv.temperature_f !== null) lockedParts.push("TEMPERATURE: " + pv.temperature_f + " F");
+      }
+      if (parseResult && parseResult.environment_factors && parseResult.environment_factors.length > 0) {
+        var envNames: string[] = [];
+        for (var envi = 0; envi < parseResult.environment_factors.length; envi++) envNames.push(parseResult.environment_factors[envi].key);
+        lockedParts.push("ENVIRONMENT: " + envNames.join(", "));
+      }
+      lockedParts.push("[END LOCKED CONTEXT - Build the inspection plan for the ASSET CLASS above. Do not change the asset type.]");
+      if (lockedParts.length > 2) {
+        constrainedTranscript = lockedParts.join("\n") + "\n\nORIGINAL TRANSCRIPT:\n" + transcript;
+      }
+
+      var resp = await fetch("/api/voice-incident-plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: constrainedTranscript }) });
       var data = await resp.json();
       if (data && data.plan && !data.error) {
         try {
-          var enrichResp = await fetch("/api/event-enrich", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: transcript, plan: data.plan, parsed: data.parsed }) });
+          var enrichResp = await fetch("/api/event-enrich", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: constrainedTranscript, plan: data.plan, parsed: data.parsed }) });
           if (enrichResp.ok) {
             var enrichData = await enrichResp.json(); setEnrichment(enrichData);
             if (enrichData.enriched_plan) data.plan = enrichData.enriched_plan;
