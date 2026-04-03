@@ -356,6 +356,7 @@ export default function VoiceInspectionPage() {
   const [aiQuestions, setAiQuestions] = useState<any[] | null>(null);
   const [aiUnderstood, setAiUnderstood] = useState<string | null>(null);
   const [aiInterpretation, setAiInterpretation] = useState<any>(null);
+  const [selectedAnswers, setSelectedAnswers] = useState<{ [key: string]: string }>({});
 
   // Initialize speech recognition on mount
   useEffect(() => {
@@ -421,6 +422,7 @@ export default function VoiceInspectionPage() {
     setAiQuestions(null);
     setAiUnderstood(null);
     setAiInterpretation(null);
+    setSelectedAnswers({});
 
     const initialSteps: StepState[] = [
       { label: "AI Incident Parser (GPT-4o)", status: "pending" },
@@ -794,28 +796,87 @@ export default function VoiceInspectionPage() {
                 <strong>Understood so far:</strong> {aiUnderstood}
               </div>
             )}
-            <div style={{ fontSize: "13px", color: "#374151", marginBottom: "8px" }}>
-              To give you the best inspection plan, please provide more detail. You can answer these questions and hit Generate again:
+            <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px" }}>
+              Tap your answers below, then hit <strong>Generate with Answers</strong> at the bottom:
             </div>
-            {aiQuestions.map((q: any, i: number) => (
-              <div key={i} style={{ marginBottom: "10px", padding: "10px 12px", backgroundColor: "#fafafa", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}>
-                <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "4px" }}>{i + 1}. {q.question}</div>
-                {q.why && <div style={{ fontSize: "11px", color: "#6b7280", marginBottom: "4px" }}>Why this matters: {q.why}</div>}
-                {q.options && q.options.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
-                    {q.options.map((opt: string, oi: number) => (
-                      <button
-                        key={oi}
-                        onClick={() => setTranscript((prev) => prev + " " + opt + ".")}
-                        style={{ padding: "4px 10px", fontSize: "12px", backgroundColor: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", borderRadius: "4px", cursor: "pointer" }}
-                      >
-                        {opt}
-                      </button>
-                    ))}
+            {aiQuestions.map((q: any, i: number) => {
+              const qKey = "q" + i;
+              const selected = selectedAnswers[qKey] || "";
+              return (
+                <div key={i} style={{ marginBottom: "14px", padding: "10px 12px", backgroundColor: selected ? "#f0fdf4" : "#fafafa", borderRadius: "6px", borderLeft: selected ? "3px solid #16a34a" : "3px solid #2563eb", transition: "all 0.2s" }}>
+                  <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "4px" }}>
+                    {i + 1}. {q.question}
+                    {selected && <span style={{ marginLeft: "8px", color: "#16a34a", fontSize: "12px" }}>{"\u2705"} {selected}</span>}
                   </div>
-                )}
+                  {q.why && <div style={{ fontSize: "11px", color: "#6b7280", marginBottom: "6px" }}>Why: {q.why}</div>}
+                  {q.options && q.options.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
+                      {q.options.map((opt: string, oi: number) => {
+                        const isSelected = selected === opt;
+                        return (
+                          <button
+                            key={oi}
+                            onClick={() => {
+                              setSelectedAnswers((prev) => {
+                                const next = { ...prev };
+                                if (isSelected) {
+                                  delete next[qKey];
+                                } else {
+                                  next[qKey] = opt;
+                                }
+                                return next;
+                              });
+                            }}
+                            style={{
+                              padding: "6px 14px",
+                              fontSize: "13px",
+                              fontWeight: isSelected ? 700 : 400,
+                              backgroundColor: isSelected ? "#16a34a" : "#fff",
+                              color: isSelected ? "#fff" : "#1e40af",
+                              border: isSelected ? "2px solid #16a34a" : "2px solid #bfdbfe",
+                              borderRadius: "6px",
+                              cursor: "pointer",
+                              transition: "all 0.15s",
+                            }}
+                          >
+                            {opt}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {Object.keys(selectedAnswers).length > 0 && (
+              <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "#eff6ff", borderRadius: "8px", border: "1px solid #bfdbfe" }}>
+                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "8px" }}>
+                  <strong>Your answers:</strong> {Object.values(selectedAnswers).join(" | ")}
+                </div>
+                <button
+                  onClick={() => {
+                    const answers = Object.values(selectedAnswers).join(". ") + ".";
+                    setTranscript((prev) => prev + " " + answers);
+                    setAiQuestions(null);
+                    setSelectedAnswers({});
+                    setTimeout(() => handleGenerate(), 300);
+                  }}
+                  style={{
+                    padding: "10px 28px",
+                    fontSize: "15px",
+                    fontWeight: 700,
+                    color: "#fff",
+                    backgroundColor: "#16a34a",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    width: "100%",
+                  }}
+                >
+                  {"\u2705"} Generate with Answers
+                </button>
               </div>
-            ))}
+            )}
           </Card>
         )}
 
