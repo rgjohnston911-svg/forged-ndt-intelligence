@@ -1,4 +1,5 @@
-// DEPLOY84 — Universal AI Incident Parser v3
+// DEPLOY84b — Universal AI Incident Parser v3.1
+// Fix: ALWAYS return partial_events and partial_environment in need_more_info mode
 // "Just have a conversation with the really smart AI"
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
@@ -17,13 +18,22 @@ var SYSTEM_PROMPT = "You are the world's foremost NDT and inspection intelligenc
   + "=== IF YOU NEED MORE INFO ===\n"
   + "Return JSON with status 'need_more_info'. Ask up to 5 targeted questions like an expert interviewing a field tech. Each question has options when possible.\n\n"
 
+  + "CRITICAL RULE FOR need_more_info: You MUST ALWAYS populate partial_events and partial_environment with whatever you CAN extract, even from vague input.\n"
+  + "Examples:\n"
+  + "  - 'I need to inspect a pipe' -> partial_events: ['inspection_request'], partial_environment: []\n"
+  + "  - 'boat hit our riser' -> partial_events: ['impact'], partial_environment: ['marine_exposure', 'offshore']\n"
+  + "  - 'there was a fire at the refinery' -> partial_events: ['fire', 'thermal_exposure'], partial_environment: ['refinery', 'hydrocarbon_service']\n"
+  + "  - 'bridge got hit' -> partial_events: ['impact'], partial_environment: ['civil_infrastructure']\n"
+  + "  - 'crack in a weld' -> partial_events: ['crack_indication'], partial_environment: []\n"
+  + "NEVER return empty partial_events if the user mentioned ANY event, action, or finding. Extract what you can.\n\n"
+
   + "=== IF YOU HAVE ENOUGH INFO ===\n"
   + "Return JSON with status 'interpreted' containing the full inspection intelligence.\n\n"
 
   + "RESPOND WITH ONLY VALID JSON. No markdown. No backticks. No explanation outside JSON.\n\n"
 
   + "For 'need_more_info':\n"
-  + "{\"status\":\"need_more_info\",\"understood_so_far\":\"...\",\"questions\":[{\"question\":\"...\",\"why\":\"...\",\"options\":[\"a\",\"b\",\"c\"]}],\"partial_events\":[],\"partial_environment\":[]}\n\n"
+  + "{\"status\":\"need_more_info\",\"understood_so_far\":\"...\",\"questions\":[{\"question\":\"...\",\"why\":\"...\",\"options\":[\"a\",\"b\",\"c\"]}],\"partial_events\":[\"MUST include any detectable events\"],\"partial_environment\":[\"MUST include any detectable environment factors\"]}\n\n"
 
   + "For 'interpreted':\n"
   + "{\"status\":\"interpreted\",\"events\":[\"lowercase_underscored\"],\"environment\":[\"lowercase_underscored\"],\"asset_class\":\"...\",\"asset_type\":\"...\",\"asset_material\":\"...\",\"industry\":\"...\","
@@ -46,7 +56,8 @@ var SYSTEM_PROMPT = "You are the world's foremost NDT and inspection intelligenc
   + "7. Every mechanism needs at least one detection method and one sizing method.\n"
   + "8. Zones must be SPECIFIC to the asset geometry — not just 'impact zone'.\n"
   + "9. Return ONLY JSON.\n"
-  + "10. Rich input = rich output. Vague input = smart questions.\n";
+  + "10. Rich input = rich output. Vague input = smart questions WITH partial_events populated.\n"
+  + "11. NEVER return empty partial_events if the transcript contains ANY keyword suggesting an event, finding, or action.\n";
 
 
 var handler = async function(event: any): Promise<any> {
@@ -188,9 +199,31 @@ var handler = async function(event: any): Promise<any> {
             if (ai_interpretation.partial_events) ai_events = ai_interpretation.partial_events;
             if (ai_interpretation.partial_environment) ai_environment = ai_interpretation.partial_environment;
 
+            // SAFETY NET: If AI returned need_more_info but forgot partial_events,
+            // do a basic keyword scan to populate them anyway
+            if (ai_interpretation.status === "need_more_info" && ai_events.length === 0) {
+              var lt = transcript.toLowerCase();
+              if (lt.indexOf("impact") !== -1 || lt.indexOf("hit") !== -1 || lt.indexOf("struck") !== -1 || lt.indexOf("collision") !== -1) ai_events.push("impact");
+              if (lt.indexOf("fire") !== -1 || lt.indexOf("burn") !== -1) ai_events.push("fire");
+              if (lt.indexOf("crack") !== -1) ai_events.push("crack_indication");
+              if (lt.indexOf("corrosion") !== -1 || lt.indexOf("rust") !== -1) ai_events.push("corrosion");
+              if (lt.indexOf("leak") !== -1) ai_events.push("leak");
+              if (lt.indexOf("hurricane") !== -1 || lt.indexOf("storm") !== -1 || lt.indexOf("wind") !== -1) ai_events.push("weather_event");
+              if (lt.indexOf("earthquake") !== -1 || lt.indexOf("seismic") !== -1) ai_events.push("seismic_event");
+              if (lt.indexOf("inspect") !== -1 || lt.indexOf("check") !== -1 || lt.indexOf("assess") !== -1) ai_events.push("inspection_request");
+              if (lt.indexOf("weld") !== -1) ai_events.push("weld_assessment");
+              // Also scan for environment clues
+              if (lt.indexOf("offshore") !== -1 || lt.indexOf("platform") !== -1 || lt.indexOf("marine") !== -1) ai_environment.push("marine_exposure");
+              if (lt.indexOf("sour") !== -1 || lt.indexOf("h2s") !== -1) ai_environment.push("sour_service");
+              if (lt.indexOf("high temp") !== -1 || lt.indexOf("hot") !== -1 || lt.indexOf("elevated temp") !== -1) ai_environment.push("high_temperature");
+              if (lt.indexOf("refinery") !== -1 || lt.indexOf("process") !== -1) ai_environment.push("hydrocarbon_service");
+              if (lt.indexOf("bridge") !== -1) ai_environment.push("civil_infrastructure");
+              if (lt.indexOf("nuclear") !== -1) ai_environment.push("nuclear");
+              if (lt.indexOf("underwater") !== -1 || lt.indexOf("subsea") !== -1) ai_environment.push("underwater");
+            }
+
           } catch (pe) {
             ai_error = "AI returned invalid JSON";
-            // Store raw content for debugging
             ai_interpretation = { status: "parse_error", raw: raw_content.substring(0, 500) };
           }
         } else {
@@ -206,7 +239,6 @@ var handler = async function(event: any): Promise<any> {
     // BUILD OUTPUT
     // ================================================================
 
-    // The parsed object feeds the deterministic chain (backward compatible)
     var parsed = {
       events: ai_events,
       environment: ai_environment,
@@ -214,7 +246,6 @@ var handler = async function(event: any): Promise<any> {
       raw_text: transcript
     };
 
-    // Build the response
     var response_body: any = {
       parsed: parsed,
       ai_interpretation: ai_interpretation,
