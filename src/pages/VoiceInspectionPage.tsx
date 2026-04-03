@@ -1,10 +1,8 @@
-// DEPLOY83 — VoiceInspectionPage.tsx v6
-// Full Incident-to-Inspection Intelligence Chain Integration
-// GPT-4o demoted to prose polish only — deterministic chain is the reasoning layer
-// Call Chain: parse-incident + resolve-asset → governance + code-authority → master-router → 
-//   incident-inspection-chain → voice-incident-plan (prose only) → event-enrich → time-progression + code-trace
+// DEPLOY85 — VoiceInspectionPage.tsx v7
+// Full pipeline with mic input, AI-powered parsing, deterministic chain
+// "Just have a conversation with the really smart AI"
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 
 // ============================================================================
 // TYPES
@@ -350,6 +348,52 @@ export default function VoiceInspectionPage() {
   // Ref for auto-scroll
   const resultsRef = useRef<HTMLDivElement>(null);
 
+  // Mic / speech recognition
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  // AI follow-up questions (from DEPLOY84 parse-incident)
+  const [aiQuestions, setAiQuestions] = useState<any[] | null>(null);
+  const [aiUnderstood, setAiUnderstood] = useState<string | null>(null);
+  const [aiInterpretation, setAiInterpretation] = useState<any>(null);
+
+  // Initialize speech recognition on mount
+  useEffect(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SR) {
+      const recognition = new SR();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+      recognition.onresult = (event: any) => {
+        let finalText = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            finalText += event.results[i][0].transcript + " ";
+          }
+        }
+        if (finalText) setTranscript((prev) => prev + finalText);
+      };
+      recognition.onerror = () => setIsListening(false);
+      recognition.onend = () => setIsListening(false);
+      recognitionRef.current = recognition;
+    }
+  }, []);
+
+  function toggleMic() {
+    if (!recognitionRef.current) {
+      alert("Speech recognition not supported in this browser. Use Chrome for voice input.");
+      return;
+    }
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  }
+
   // ---- Step updater helper ----
   function updateStep(idx: number, updates: Partial<StepState>, current: StepState[]): StepState[] {
     const next = [...current];
@@ -374,10 +418,13 @@ export default function VoiceInspectionPage() {
     setTimeProgression(null);
     setCodeTrace(null);
     setChainPerformance(null);
+    setAiQuestions(null);
+    setAiUnderstood(null);
+    setAiInterpretation(null);
 
     const initialSteps: StepState[] = [
-      { label: "Parse Incident (deterministic)", status: "pending" },
-      { label: "Resolve Asset (deterministic)", status: "pending" },
+      { label: "AI Incident Parser (GPT-4o)", status: "pending" },
+      { label: "Resolve Asset", status: "pending" },
       { label: "Governance Matrix", status: "pending" },
       { label: "Code Authority Resolution", status: "pending" },
       { label: "Master Router", status: "pending" },
@@ -409,25 +456,54 @@ export default function VoiceInspectionPage() {
       if (parseRes.status === "fulfilled") {
         parsedResult = parseRes.value.parsed || parseRes.value;
         setParsed(parsedResult);
+
+        // Capture AI interpretation from DEPLOY84
+        if (parseRes.value.ai_interpretation) {
+          setAiInterpretation(parseRes.value.ai_interpretation);
+
+          // If AI is asking follow-up questions
+          if (parseRes.value.needs_input && parseRes.value.questions) {
+            setAiQuestions(parseRes.value.questions);
+            setAiUnderstood(parseRes.value.understood || "");
+          }
+
+          // If AI provided asset resolution, use it as fallback
+          if (parseRes.value.resolved && !assetResult) {
+            assetResult = parseRes.value.resolved;
+            setAsset(assetResult);
+          }
+        }
+
         const evtCount = parsedResult?.events?.length || 0;
         const envCount = parsedResult?.environment?.length || 0;
-        s = updateStep(0, { status: "done", detail: `${evtCount} events, ${envCount} environments` }, s);
+        const aiStatus = parseRes.value.ai_interpretation?.status || "no_ai";
+        s = updateStep(0, { status: "done", detail: `${evtCount} events, ${envCount} environments (${aiStatus})` }, s);
       } else {
         s = updateStep(0, { status: "error", detail: parseRes.reason?.message }, s);
         errs.push("parse-incident: " + parseRes.reason?.message);
-        // Create fallback parsed
         parsedResult = { events: [], environment: [], numeric_values: {}, raw_text: transcript };
         setParsed(parsedResult);
       }
 
       if (assetRes.status === "fulfilled") {
-        assetResult = assetRes.value.resolved || assetRes.value;
+        // Use resolve-asset result, but AI interpretation may override if resolve-asset gives low confidence
+        const resolveResult = assetRes.value.resolved || assetRes.value;
+        const aiResolved = parseRes.status === "fulfilled" ? parseRes.value.resolved : null;
+
+        if (aiResolved && resolveResult.confidence < 0.5 && aiResolved.confidence > 0.5) {
+          // AI interpretation is more confident — use it
+          assetResult = aiResolved;
+        } else {
+          assetResult = resolveResult;
+        }
         setAsset(assetResult);
         s = updateStep(1, { status: "done", detail: `${assetResult?.asset_class} (${Math.round((assetResult?.confidence || 0) * 100)}%)` }, s);
       } else {
         s = updateStep(1, { status: "error", detail: assetRes.reason?.message }, s);
         errs.push("resolve-asset: " + assetRes.reason?.message);
-        assetResult = { asset_class: "pressure_vessel", asset_type: "pressure_vessel", confidence: 0.3 };
+        // Fall back to AI resolution if available
+        const aiResolved = parseRes.status === "fulfilled" ? parseRes.value.resolved : null;
+        assetResult = aiResolved || { asset_class: "pressure_vessel", asset_type: "pressure_vessel", confidence: 0.3 };
         setAsset(assetResult);
       }
       setSteps([...s]);
@@ -632,7 +708,7 @@ export default function VoiceInspectionPage() {
           NDT Superbrain — Voice Inspection Intelligence
         </h1>
         <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>
-          Deterministic 6-engine inspection chain + AI narrative polish. 21 engines. Zero hallucination in the decision chain.
+          Just have a conversation with the really smart AI. Speak or type — it understands any industry, any asset, any scenario.
         </p>
       </div>
 
@@ -657,24 +733,41 @@ export default function VoiceInspectionPage() {
         />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", backgroundColor: "#f9fafb", borderTop: "1px solid #e5e7eb" }}>
           <span style={{ fontSize: "12px", color: "#9ca3af" }}>
-            {transcript.length > 0 ? `${transcript.split(/\s+/).filter(Boolean).length} words` : "Enter inspection scenario"}
+            {transcript.length > 0 ? `${transcript.split(/\s+/).filter(Boolean).length} words` : "Speak or type your inspection scenario"}
           </span>
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating || !transcript.trim()}
-            style={{
-              padding: "8px 24px",
-              fontSize: "14px",
-              fontWeight: 700,
-              color: "#fff",
-              backgroundColor: isGenerating ? "#9ca3af" : "#2563eb",
-              border: "none",
-              borderRadius: "6px",
-              cursor: isGenerating ? "not-allowed" : "pointer",
-            }}
-          >
-            {isGenerating ? "Generating..." : "Generate Inspection Plan"}
-          </button>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <button
+              onClick={toggleMic}
+              style={{
+                padding: "8px 16px",
+                fontSize: "14px",
+                fontWeight: 700,
+                color: isListening ? "#fff" : "#dc2626",
+                backgroundColor: isListening ? "#dc2626" : "#fff",
+                border: "2px solid #dc2626",
+                borderRadius: "6px",
+                cursor: "pointer",
+              }}
+            >
+              {isListening ? "\uD83D\uDD34 Listening..." : "\uD83C\uDF99\uFE0F Mic"}
+            </button>
+            <button
+              onClick={handleGenerate}
+              disabled={isGenerating || !transcript.trim()}
+              style={{
+                padding: "8px 24px",
+                fontSize: "14px",
+                fontWeight: 700,
+                color: "#fff",
+                backgroundColor: isGenerating ? "#9ca3af" : "#2563eb",
+                border: "none",
+                borderRadius: "6px",
+                cursor: isGenerating ? "not-allowed" : "pointer",
+              }}
+            >
+              {isGenerating ? "Generating..." : "Generate Inspection Plan"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -692,6 +785,76 @@ export default function VoiceInspectionPage() {
 
       {/* ---- RESULTS ---- */}
       <div ref={resultsRef}>
+
+        {/* ---- AI FOLLOW-UP QUESTIONS (when parser needs more info) ---- */}
+        {aiQuestions && aiQuestions.length > 0 && (
+          <Card title="AI Needs More Information" icon="\uD83E\uDD14" collapsible={false}>
+            {aiUnderstood && (
+              <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px", padding: "8px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", borderLeft: "3px solid #16a34a" }}>
+                <strong>Understood so far:</strong> {aiUnderstood}
+              </div>
+            )}
+            <div style={{ fontSize: "13px", color: "#374151", marginBottom: "8px" }}>
+              To give you the best inspection plan, please provide more detail. You can answer these questions and hit Generate again:
+            </div>
+            {aiQuestions.map((q: any, i: number) => (
+              <div key={i} style={{ marginBottom: "10px", padding: "10px 12px", backgroundColor: "#fafafa", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}>
+                <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "4px" }}>{i + 1}. {q.question}</div>
+                {q.why && <div style={{ fontSize: "11px", color: "#6b7280", marginBottom: "4px" }}>Why this matters: {q.why}</div>}
+                {q.options && q.options.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "4px" }}>
+                    {q.options.map((opt: string, oi: number) => (
+                      <button
+                        key={oi}
+                        onClick={() => setTranscript((prev) => prev + " " + opt + ".")}
+                        style={{ padding: "4px 10px", fontSize: "12px", backgroundColor: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", borderRadius: "4px", cursor: "pointer" }}
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </Card>
+        )}
+
+        {/* ---- AI FULL INTERPRETATION (when parser has enough info) ---- */}
+        {aiInterpretation && aiInterpretation.status === "interpreted" && aiInterpretation.disposition && (
+          <Card
+            title={"AI Disposition: " + (aiInterpretation.disposition.decision || "").replace(/_/g, " ")}
+            icon={aiInterpretation.disposition.decision === "NO_GO" ? "\uD83D\uDED1" : aiInterpretation.disposition.decision === "RESTRICTED" ? "\u26A0\uFE0F" : "\u2705"}
+            status={aiInterpretation.disposition.authority_required || ""}
+          >
+            <div style={{
+              padding: "10px 14px",
+              borderRadius: "6px",
+              marginBottom: "10px",
+              fontWeight: 700,
+              fontSize: "15px",
+              color: "#fff",
+              backgroundColor: aiInterpretation.disposition.decision === "NO_GO" ? "#dc2626" : aiInterpretation.disposition.decision === "RESTRICTED" ? "#ea580c" : "#16a34a"
+            }}>
+              {(aiInterpretation.disposition.decision || "").replace(/_/g, " ")}
+            </div>
+            <div style={{ fontSize: "13px", color: "#374151", marginBottom: "8px" }}>{aiInterpretation.disposition.rationale}</div>
+            {aiInterpretation.disposition.conditions_for_upgrade && (
+              <div style={{ fontSize: "12px", color: "#6b7280" }}>
+                <strong>Required before upgrade:</strong>
+                {aiInterpretation.disposition.conditions_for_upgrade.map((c: string, i: number) => (
+                  <div key={i} style={{ padding: "2px 0" }}>{i + 1}. {c}</div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* ---- AI REASONING (show the AI's thought process) ---- */}
+        {aiInterpretation && aiInterpretation.status === "interpreted" && aiInterpretation.reasoning && (
+          <Card title="AI Reasoning Chain" icon="\uD83E\uDDE0" status={`confidence: ${Math.round((aiInterpretation.confidence || 0) * 100)}%`}>
+            <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151" }}>{aiInterpretation.reasoning}</div>
+          </Card>
+        )}
 
         {/* ---- VERIFIED DATA (Parse + Asset) ---- */}
         {parsed && asset && (
