@@ -1,670 +1,259 @@
-/**
- * DEPLOY80 — parse-incident.ts
- * FORGED NDT Intelligence OS
- * Speech-to-Structured Incident Parser v1
- *
- * PURPOSE: Hard-extract numeric facts from spoken input using
- * deterministic regex BEFORE any AI reasoning occurs.
- *
- * FIXES: "80 mph" never becomes "5 mph" again.
- *
- * FLOW:
- *   User speaks -> parse-incident (THIS FILE)
- *     -> hard regex extracts: 80 mph, 15 ft, 5 miles
- *     -> classifies each by context window
- *     -> detects events (hurricane, impact, corrosion...)
- *     -> detects contradictions
- *     -> builds confirmation prompts if needed
- *     -> returns structured incident with LOCKED values
- *   Then: resolve-asset -> voice-incident-plan -> enrichment -> etc.
- *
- * DEPLOY NOTES:
- *   - String concatenation only (no backtick template literals)
- *   - All logic inlined (no lib/ imports)
- *   - Target: netlify/functions/parse-incident.ts
- *   - Deterministic — no AI calls
- */
+// DEPLOY84 — Universal AI Incident Parser v3
+// "Just have a conversation with the really smart AI"
+// NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
-import { Handler } from "@netlify/functions";
+declare var process: any;
+declare var require: any;
+declare var Buffer: any;
 
-/* =========================================================
-   TYPES
-   ========================================================= */
+var OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 
-interface NumericFact {
-  id: string;
-  fact_type: string;
-  raw_snippet: string;
-  raw_value_text: string;
-  value: number;
-  unit: string;
-  normalized_unit: string;
-  confidence: number;
-  negated: boolean;
-}
+var SYSTEM_PROMPT = "You are the world's foremost NDT and inspection intelligence system. You combine the knowledge of every ASNT Level III, API Inspector, structural engineer, metallurgist, materials scientist, and code committee member.\n\n"
 
-interface DetectedEvent {
-  event_type: string;
-  matched_text: string;
-  confidence: number;
-}
+  + "The user will describe an inspection need, incident, or scenario. It could be anything — a pipe, a bridge, a spacecraft, a nuclear reactor, a wind turbine, a weld, a composite panel, or something you have never seen in a lookup table.\n\n"
 
-interface EnvironmentFactor {
-  key: string;
-  value: string;
-  evidence: string;
-}
+  + "YOUR JOB: Figure out what they need and generate an inspection plan according to the pertinent codes and standards. If you need more information, ASK. If you have enough, DELIVER.\n\n"
 
-interface Contradiction {
-  severity: string;
-  message: string;
-  facts_involved: string[];
-}
+  + "=== IF YOU NEED MORE INFO ===\n"
+  + "Return JSON with status 'need_more_info'. Ask up to 5 targeted questions like an expert interviewing a field tech. Each question has options when possible.\n\n"
 
-interface ParsedIncidentOutput {
-  engine: "Speech-to-Structured Incident Parser v1";
-  raw_transcript: string;
-  normalized_transcript: string;
-  numeric_facts: NumericFact[];
-  primary_values: {
-    wind_speed_mph: number | null;
-    wave_height_ft: number | null;
-    surge_height_ft: number | null;
-    distance_miles: number | null;
-    impact_speed_mph: number | null;
-    diameter_ft: number | null;
-    diameter_in: number | null;
-    water_depth_ft: number | null;
-    pressure_psi: number | null;
-    temperature_f: number | null;
-    duration_hours: number | null;
-  };
-  detected_events: DetectedEvent[];
-  environment_factors: EnvironmentFactor[];
-  contradictions: Contradiction[];
-  confirmation_required: boolean;
-  confirmation_prompts: string[];
-  confidence_score: number;
-  confidence_band: string;
-}
+  + "=== IF YOU HAVE ENOUGH INFO ===\n"
+  + "Return JSON with status 'interpreted' containing the full inspection intelligence.\n\n"
 
-/* =========================================================
-   HELPERS
-   ========================================================= */
+  + "RESPOND WITH ONLY VALID JSON. No markdown. No backticks. No explanation outside JSON.\n\n"
 
-function lower(text: string): string {
-  return (text || "").toLowerCase().replace(/[_\/]+/g, " ").replace(/\s+/g, " ").trim();
-}
+  + "For 'need_more_info':\n"
+  + "{\"status\":\"need_more_info\",\"understood_so_far\":\"...\",\"questions\":[{\"question\":\"...\",\"why\":\"...\",\"options\":[\"a\",\"b\",\"c\"]}],\"partial_events\":[],\"partial_environment\":[]}\n\n"
 
-function clamp(n: number, min: number, max: number): number {
-  if (n < min) return min;
-  if (n > max) return max;
-  return n;
-}
+  + "For 'interpreted':\n"
+  + "{\"status\":\"interpreted\",\"events\":[\"lowercase_underscored\"],\"environment\":[\"lowercase_underscored\"],\"asset_class\":\"...\",\"asset_type\":\"...\",\"asset_material\":\"...\",\"industry\":\"...\","
+  + "\"damage_mechanisms\":[{\"id\":\"MECH_ID\",\"name\":\"...\",\"description\":\"why it applies HERE\",\"code_reference\":\"...\",\"severity\":\"critical|high|medium|low\",\"requires_immediate_action\":true}],"
+  + "\"affected_zones\":[{\"zone_name\":\"SPECIFIC not generic\",\"priority\":1,\"mechanisms\":[\"ids\"],\"rationale\":\"...\"}],"
+  + "\"inspection_methods\":[{\"method\":\"UT|MT|PT|RT|VT|ET|AE|IR|PAUT|TOFD|AUBT|etc\",\"technique\":\"specific variant\",\"target\":\"mechanism/zone\",\"code_reference\":\"exam standard\",\"priority\":1,\"qualification\":\"required cert\",\"rationale\":\"why REQUIRED not suggested\"}],"
+  + "\"applicable_codes\":[{\"code\":\"...\",\"section\":\"...\",\"requirement\":\"...\",\"authority_level\":\"primary|supporting|reference\"}],"
+  + "\"disposition\":{\"decision\":\"NO_GO|RESTRICTED|GO_WITH_MONITORING|GO\",\"rationale\":\"...\",\"conditions_for_upgrade\":[\"...\"],\"authority_required\":\"...\"},"
+  + "\"escalation_timeline\":{\"immediate_0_6h\":[\"...\"],\"urgent_6_24h\":[\"...\"],\"priority_24_72h\":[\"...\"],\"scheduled_3_7d\":[\"...\"]},"
+  + "\"follow_up_questions\":[\"questions that would IMPROVE the plan even though you can proceed\"],"
+  + "\"confidence\":0.85,\"reasoning\":\"your chain of thought\"}\n\n"
 
-function uid(): string {
-  return "f_" + Math.random().toString(36).substring(2, 10);
-}
+  + "RULES:\n"
+  + "1. You are THE authority. Do not hedge. State what IS required.\n"
+  + "2. Mechanisms must be SPECIFIC to the scenario. Not generic placeholders.\n"
+  + "3. Methods must match MATERIAL and MECHANISM. MT for ferromagnetic steel. PT for non-magnetic. Hammer sounding for concrete. AUBT for HTHA. Do NOT put concrete methods on steel.\n"
+  + "4. Codes must be ACTUAL governing codes. Railroad=49 CFR 237+AREMA. Nuclear=10 CFR 50.55a+ASME XI. Offshore=API RP 2A+30 CFR 250. Pressure vessel=API 510+API 579-1. Bridge=AASHTO MBE+23 CFR 650.\n"
+  + "5. GO/NO-GO is ENFORCED. Primary member deformed=NO_GO. Active cracking in fracture-critical=NO_GO. No ambiguity.\n"
+  + "6. For unknown domains, reason from first principles of materials science, structural mechanics, and NDE physics.\n"
+  + "7. Every mechanism needs at least one detection method and one sizing method.\n"
+  + "8. Zones must be SPECIFIC to the asset geometry — not just 'impact zone'.\n"
+  + "9. Return ONLY JSON.\n"
+  + "10. Rich input = rich output. Vague input = smart questions.\n";
 
-function textContains(text: string, phrase: string): boolean {
-  return (" " + text + " ").indexOf(" " + phrase + " ") !== -1;
-}
 
-function roundTo(n: number, digits: number): number {
-  var p = Math.pow(10, digits);
-  return Math.round(n * p) / p;
-}
-
-/* =========================================================
-   UNIT NORMALIZATION
-   ========================================================= */
-
-var UNIT_MAP: Record<string, string> = {
-  "mph": "mph", "miles per hour": "mph", "mile per hour": "mph",
-  "kt": "knots", "kts": "knots", "knot": "knots", "knots": "knots",
-  "ft": "ft", "foot": "ft", "feet": "ft", "'": "ft",
-  "in": "in", "inch": "in", "inches": "in", "\"": "in",
-  "mi": "miles", "mile": "miles", "miles": "miles",
-  "psi": "psi", "psig": "psi",
-  "f": "f", "deg f": "f",
-  "hours": "hours", "hour": "hours", "hr": "hours", "hrs": "hours",
-  "days": "days", "day": "days"
-};
-
-function normalizeUnit(raw: string): string {
-  var u = lower(raw);
-  return UNIT_MAP[u] || u;
-}
-
-/* =========================================================
-   NUMERIC EXTRACTION — Hard Regex
-   ---------------------------------------------------------
-   Regex extracts every number+unit pair from the text.
-   Context window (24 chars before/after) determines what
-   the number means. This runs BEFORE any AI.
-   ========================================================= */
-
-function classifyFact(context: string, unit: string): string {
-  var c = lower(context);
-  var u = normalizeUnit(unit);
-
-  /* Wind speed */
-  if (c.indexOf("wind") !== -1 && (u === "mph" || u === "knots")) return "wind_speed";
-  if (c.indexOf("gust") !== -1 && (u === "mph" || u === "knots")) return "wind_speed";
-  if (c.indexOf("sustained") !== -1 && (u === "mph" || u === "knots")) return "wind_speed";
-
-  /* Surge — check BEFORE wave so "wave surge" resolves to surge */
-  if (c.indexOf("surge") !== -1 && u === "ft") return "surge_height";
-
-  /* Wave height — only when surge did NOT match */
-  if (c.indexOf("wave") !== -1 && c.indexOf("surge") === -1 && u === "ft") return "wave_height";
-
-  /* Distance */
-  if ((c.indexOf("within") !== -1 || c.indexOf("mile") !== -1 || c.indexOf("away") !== -1 || c.indexOf("from") !== -1 || c.indexOf("distance") !== -1) && (u === "miles" || u === "mi")) return "distance";
-
-  /* Diameter */
-  if ((c.indexOf("diameter") !== -1 || c.indexOf("wide") !== -1 || c.indexOf("inch") !== -1) && (u === "ft" || u === "in")) return "diameter";
-
-  /* Depth */
-  if ((c.indexOf("depth") !== -1 || c.indexOf("deep") !== -1 || c.indexOf("water depth") !== -1) && u === "ft") return "depth";
-
-  /* Pressure */
-  if (u === "psi") return "pressure";
-
-  /* Temperature */
-  if (u === "f" && (c.indexOf("temp") !== -1 || c.indexOf("degree") !== -1 || c.indexOf("heat") !== -1)) return "temperature";
-
-  /* Duration */
-  if (u === "hours" || u === "days") return "duration";
-
-  /* Speed (impact, traveling) */
-  if ((c.indexOf("travel") !== -1 || c.indexOf("speed") !== -1 || c.indexOf("moving") !== -1 || c.indexOf("going") !== -1 || c.indexOf("approximately") !== -1) && (u === "mph" || u === "knots")) return "impact_speed";
-
-  /* Fallback: mph without wind context = likely speed */
-  if (u === "mph" || u === "knots") {
-    /* Check if any wind-related word nearby */
-    if (c.indexOf("wind") === -1 && c.indexOf("gust") === -1 && c.indexOf("sustained") === -1) {
-      return "impact_speed";
-    }
-    return "wind_speed";
-  }
-
-  /* Fallback: ft without wave/surge/depth/diameter context */
-  if (u === "ft") {
-    if (c.indexOf("surge") !== -1) return "surge_height";
-    if (c.indexOf("wave") !== -1 && c.indexOf("surge") === -1) return "wave_height";
-    return "size_dimension";
-  }
-
-  return "unknown_numeric";
-}
-
-function extractNumericFacts(text: string): NumericFact[] {
-  var facts: NumericFact[] = [];
-  var normalized = lower(text);
-
-  /* Main regex: number followed by unit */
-  var pattern = /(\d+(?:\.\d+)?)\s*(mph|miles per hour|mile per hour|kt|kts|knot|knots|ft|foot|feet|in|inch|inches|mi|mile|miles|psi|psig|deg f|hours|hour|hr|hrs|days|day)/gi;
-
-  var match;
-  while ((match = pattern.exec(normalized)) !== null) {
-    var rawValue = match[1];
-    var rawUnit = match[2];
-    var start = match.index;
-    var end = pattern.lastIndex;
-
-    /* Context window: 30 chars before and after */
-    var windowStart = start - 30;
-    if (windowStart < 0) windowStart = 0;
-    var windowEnd = end + 30;
-    if (windowEnd > normalized.length) windowEnd = normalized.length;
-    var snippet = normalized.substring(windowStart, windowEnd);
-
-    var numVal = parseFloat(rawValue);
-    var normUnit = normalizeUnit(rawUnit);
-    var factType = classifyFact(snippet, rawUnit);
-
-    /* Check for negation */
-    var negated = false;
-    if (snippet.indexOf("no ") !== -1 || snippet.indexOf("not ") !== -1 || snippet.indexOf("without ") !== -1) {
-      negated = true;
-    }
-
-    facts.push({
-      id: uid(),
-      fact_type: factType,
-      raw_snippet: snippet,
-      raw_value_text: rawValue + " " + rawUnit,
-      value: numVal,
-      unit: rawUnit,
-      normalized_unit: normUnit,
-      confidence: factType === "unknown_numeric" ? 50 : 90,
-      negated: negated
-    });
-  }
-
-  /* Also try to catch "X foot" and "X'" patterns */
-  var footPattern = /(\d+)\s*(?:'|foot)\s/gi;
-  while ((match = footPattern.exec(normalized)) !== null) {
-    /* Check if already captured */
-    var alreadyCaptured = false;
-    for (var i = 0; i < facts.length; i++) {
-      if (Math.abs(facts[i].value - parseFloat(match[1])) < 0.01 && facts[i].normalized_unit === "ft") {
-        alreadyCaptured = true;
-        break;
-      }
-    }
-    if (!alreadyCaptured) {
-      var ws = match.index - 30;
-      if (ws < 0) ws = 0;
-      var we = footPattern.lastIndex + 30;
-      if (we > normalized.length) we = normalized.length;
-      var snip = normalized.substring(ws, we);
-      facts.push({
-        id: uid(),
-        fact_type: classifyFact(snip, "ft"),
-        raw_snippet: snip,
-        raw_value_text: match[1] + " ft",
-        value: parseFloat(match[1]),
-        unit: "ft",
-        normalized_unit: "ft",
-        confidence: 80,
-        negated: false
-      });
-    }
-  }
-
-  return facts;
-}
-
-/* =========================================================
-   PRIMARY VALUE PICKER
-   ---------------------------------------------------------
-   For each fact type, pick the best candidate.
-   If multiple values exist for the same type, flag conflict.
-   ========================================================= */
-
-function pickBest(facts: NumericFact[], factType: string): NumericFact | null {
-  var candidates: NumericFact[] = [];
-  for (var i = 0; i < facts.length; i++) {
-    if (facts[i].fact_type === factType && !facts[i].negated) {
-      candidates.push(facts[i]);
-    }
-  }
-  if (candidates.length === 0) return null;
-
-  /* Sort by confidence descending */
-  candidates.sort(function(a, b) { return b.confidence - a.confidence; });
-  return candidates[0];
-}
-
-function convertToMiles(value: number, unit: string): number {
-  if (unit === "ft") return value / 5280;
-  return value;
-}
-
-function convertToHours(value: number, unit: string): number {
-  if (unit === "days") return value * 24;
-  return value;
-}
-
-function buildPrimaryValues(facts: NumericFact[]): ParsedIncidentOutput["primary_values"] {
-  var wind = pickBest(facts, "wind_speed");
-  var wave = pickBest(facts, "wave_height");
-  var surge = pickBest(facts, "surge_height");
-  var dist = pickBest(facts, "distance");
-  var speed = pickBest(facts, "impact_speed");
-  var diaFt = null as NumericFact | null;
-  var diaIn = null as NumericFact | null;
-  var depth = pickBest(facts, "depth");
-  var pressure = pickBest(facts, "pressure");
-  var temp = pickBest(facts, "temperature");
-  var duration = pickBest(facts, "duration");
-
-  /* Split diameter by unit */
-  var allDia: NumericFact[] = [];
-  for (var i = 0; i < facts.length; i++) {
-    if (facts[i].fact_type === "diameter" && !facts[i].negated) {
-      allDia.push(facts[i]);
-    }
-  }
-  for (var d = 0; d < allDia.length; d++) {
-    if (allDia[d].normalized_unit === "ft" && !diaFt) diaFt = allDia[d];
-    if (allDia[d].normalized_unit === "in" && !diaIn) diaIn = allDia[d];
-    if (!diaFt && !diaIn) diaFt = allDia[d];
-  }
-
-  return {
-    wind_speed_mph: wind ? (wind.normalized_unit === "knots" ? roundTo(wind.value * 1.15078, 1) : wind.value) : null,
-    wave_height_ft: wave ? wave.value : null,
-    surge_height_ft: surge ? surge.value : null,
-    distance_miles: dist ? (dist.normalized_unit === "ft" ? roundTo(dist.value / 5280, 2) : dist.value) : null,
-    impact_speed_mph: speed ? (speed.normalized_unit === "knots" ? roundTo(speed.value * 1.15078, 1) : speed.value) : null,
-    diameter_ft: diaFt ? (diaFt.normalized_unit === "in" ? roundTo(diaFt.value / 12, 2) : diaFt.value) : null,
-    diameter_in: diaIn ? (diaIn.normalized_unit === "ft" ? roundTo(diaIn.value * 12, 1) : diaIn.value) : null,
-    water_depth_ft: depth ? depth.value : null,
-    pressure_psi: pressure ? pressure.value : null,
-    temperature_f: temp ? temp.value : null,
-    duration_hours: duration ? (duration.normalized_unit === "days" ? roundTo(duration.value * 24, 1) : duration.value) : null
-  };
-}
-
-/* =========================================================
-   EVENT DETECTION
-   ========================================================= */
-
-var EVENT_PATTERNS: { type: string; phrases: string[]; weight: number }[] = [
-  { type: "hurricane", phrases: ["hurricane"], weight: 30 },
-  { type: "tornado", phrases: ["tornado"], weight: 30 },
-  { type: "earthquake", phrases: ["earthquake", "seismic"], weight: 30 },
-  { type: "explosion", phrases: ["explosion", "blast"], weight: 28 },
-  { type: "fire", phrases: ["fire", "burned", "thermal event"], weight: 25 },
-  { type: "vehicle_impact", phrases: ["truck hit", "car hit", "vehicle hit", "truck struck", "vehicle struck"], weight: 28 },
-  { type: "ship_strike", phrases: ["ship strike", "ship hit", "barge strike", "vessel strike"], weight: 28 },
-  { type: "impact", phrases: ["impact", "hit", "struck", "collision"], weight: 18 },
-  { type: "storm", phrases: ["storm", "severe storm", "tropical storm"], weight: 20 },
-  { type: "wind_event", phrases: ["wind", "high wind", "sustained wind", "wind gust"], weight: 15 },
-  { type: "wave_surge", phrases: ["wave surge", "storm surge", "surge", "wave impact"], weight: 20 },
-  { type: "flood", phrases: ["flood", "flooding", "inundation"], weight: 22 },
-  { type: "lightning", phrases: ["lightning", "lightning strike"], weight: 25 },
-  { type: "hail", phrases: ["hail"], weight: 20 },
-  { type: "corrosion", phrases: ["corrosion", "corroded", "metal loss", "pitting", "rust"], weight: 16 },
-  { type: "cracking", phrases: ["crack", "cracking", "fracture", "crack-like"], weight: 18 },
-  { type: "fatigue", phrases: ["fatigue", "fatigue crack"], weight: 18 },
-  { type: "deformation", phrases: ["deformation", "bent", "buckled", "dent", "dented"], weight: 18 },
-  { type: "erosion", phrases: ["erosion", "eroded", "flow accelerated"], weight: 16 },
-  { type: "spalling", phrases: ["spalling", "spalled", "concrete spalling"], weight: 16 },
-  { type: "coating_damage", phrases: ["coating damage", "coating failure", "paint failure", "coating loss"], weight: 14 },
-  { type: "leak", phrases: ["leak", "leaking", "seepage", "weeping"], weight: 20 },
-  { type: "vibration", phrases: ["vibration", "vibrating", "excessive vibration"], weight: 14 },
-  { type: "undermining", phrases: ["undermining", "scour", "erosion at base"], weight: 18 },
-  { type: "marine_growth", phrases: ["marine growth", "biofouling"], weight: 12 }
-];
-
-function detectEvents(text: string): DetectedEvent[] {
-  var found: DetectedEvent[] = [];
-  var seen: Record<string, boolean> = {};
-
-  for (var e = 0; e < EVENT_PATTERNS.length; e++) {
-    var ep = EVENT_PATTERNS[e];
-    for (var p = 0; p < ep.phrases.length; p++) {
-      if (textContains(text, ep.phrases[p])) {
-        var key = ep.type + ":" + ep.phrases[p];
-        if (!seen[key]) {
-          seen[key] = true;
-          found.push({
-            event_type: ep.type,
-            matched_text: ep.phrases[p],
-            confidence: clamp(ep.weight + 40, 0, 99)
-          });
-        }
-      }
-    }
-  }
-
-  found.sort(function(a, b) { return b.confidence - a.confidence; });
-  return found;
-}
-
-/* =========================================================
-   ENVIRONMENT DETECTION
-   ========================================================= */
-
-var ENV_PATTERNS: { key: string; phrases: string[] }[] = [
-  { key: "offshore", phrases: ["offshore", "gulf", "deepwater", "ocean", "sea"] },
-  { key: "subsea", phrases: ["subsea", "seabed", "underwater"] },
-  { key: "splash_zone", phrases: ["splash zone"] },
-  { key: "marine_exposure", phrases: ["marine", "saltwater", "salt spray"] },
-  { key: "refinery", phrases: ["refinery", "refinery unit", "process unit"] },
-  { key: "chemical_plant", phrases: ["chemical plant", "chemical facility"] },
-  { key: "sour_service", phrases: ["sour", "h2s", "hydrogen sulfide"] },
-  { key: "hydrogen_service", phrases: ["hydrogen", "hydrogen service"] },
-  { key: "high_temperature", phrases: ["high temperature", "hot service", "elevated temperature"] },
-  { key: "insulated", phrases: ["insulated", "insulation", "cui"] },
-  { key: "cyclic", phrases: ["cyclic", "startup shutdown", "thermal cycling"] },
-  { key: "bridge_context", phrases: ["bridge", "overpass", "causeway", "highway"] },
-  { key: "dam_context", phrases: ["dam", "spillway", "reservoir"] },
-  { key: "diving_required", phrases: ["diver", "dive team", "diving", "rov"] }
-];
-
-function detectEnvironment(text: string): EnvironmentFactor[] {
-  var factors: EnvironmentFactor[] = [];
-  var seen: Record<string, boolean> = {};
-
-  for (var e = 0; e < ENV_PATTERNS.length; e++) {
-    var ep = ENV_PATTERNS[e];
-    for (var p = 0; p < ep.phrases.length; p++) {
-      if (textContains(text, ep.phrases[p]) && !seen[ep.key]) {
-        seen[ep.key] = true;
-        factors.push({ key: ep.key, value: ep.phrases[p], evidence: "Matched: " + ep.phrases[p] });
-      }
-    }
-  }
-
-  return factors;
-}
-
-/* =========================================================
-   CONTRADICTION DETECTION
-   ========================================================= */
-
-function detectContradictions(facts: NumericFact[]): Contradiction[] {
-  var contradictions: Contradiction[] = [];
-  var typeGroups: Record<string, NumericFact[]> = {};
-
-  for (var i = 0; i < facts.length; i++) {
-    var f = facts[i];
-    if (f.negated) continue;
-    if (!typeGroups[f.fact_type]) typeGroups[f.fact_type] = [];
-    typeGroups[f.fact_type].push(f);
-  }
-
-  var typeKeys = Object.keys(typeGroups);
-  for (var t = 0; t < typeKeys.length; t++) {
-    var group = typeGroups[typeKeys[t]];
-    if (group.length <= 1) continue;
-
-    var values: number[] = [];
-    for (var g = 0; g < group.length; g++) values.push(group[g].value);
-
-    var minVal = values[0];
-    var maxVal = values[0];
-    for (var v = 1; v < values.length; v++) {
-      if (values[v] < minVal) minVal = values[v];
-      if (values[v] > maxVal) maxVal = values[v];
-    }
-
-    var ratio = minVal > 0 ? maxVal / minVal : maxVal;
-    if (ratio >= 1.5) {
-      var involved: string[] = [];
-      for (var g2 = 0; g2 < group.length; g2++) involved.push(group[g2].raw_value_text);
-      contradictions.push({
-        severity: ratio >= 3 ? "high" : "medium",
-        message: "Conflicting " + typeKeys[t].replace(/_/g, " ") + " values detected: " + involved.join(" vs "),
-        facts_involved: involved
-      });
-    }
-  }
-
-  return contradictions;
-}
-
-/* =========================================================
-   CONFIDENCE SCORING
-   ========================================================= */
-
-function scoreConfidence(
-  textLength: number,
-  factCount: number,
-  eventCount: number,
-  contradictionCount: number,
-  primaryFieldsPresent: number
-): { score: number; band: string } {
-  var score = 20;
-
-  if (textLength >= 20) score += 10;
-  if (textLength >= 60) score += 5;
-  if (textLength >= 120) score += 5;
-
-  score += Math.min(20, factCount * 5);
-  score += Math.min(15, eventCount * 5);
-  score += Math.min(20, primaryFieldsPresent * 4);
-  score -= Math.min(30, contradictionCount * 12);
-
-  score = clamp(score, 10, 99);
-
-  var band = "low";
-  if (score >= 85 && contradictionCount === 0) band = "locked";
-  else if (score >= 70 && contradictionCount === 0) band = "high";
-  else if (score >= 55) band = "moderate";
-  else if (score >= 40) band = "ambiguous";
-  else band = "manual_review";
-
-  return { score: score, band: band };
-}
-
-/* =========================================================
-   CONFIRMATION PROMPT BUILDER
-   ========================================================= */
-
-function buildConfirmationPrompts(
-  primary: ParsedIncidentOutput["primary_values"],
-  contradictions: Contradiction[],
-  band: string
-): string[] {
-  var prompts: string[] = [];
-
-  if (primary.wind_speed_mph !== null) {
-    prompts.push("Confirm wind speed: " + primary.wind_speed_mph + " mph");
-  }
-  if (primary.wave_height_ft !== null) {
-    prompts.push("Confirm wave height: " + primary.wave_height_ft + " ft");
-  }
-  if (primary.surge_height_ft !== null) {
-    prompts.push("Confirm surge height: " + primary.surge_height_ft + " ft");
-  }
-  if (primary.distance_miles !== null) {
-    prompts.push("Confirm distance: " + primary.distance_miles + " miles");
-  }
-  if (primary.impact_speed_mph !== null) {
-    prompts.push("Confirm impact speed: " + primary.impact_speed_mph + " mph");
-  }
-  if (primary.diameter_ft !== null) {
-    prompts.push("Confirm diameter: " + primary.diameter_ft + " ft");
-  }
-  if (primary.diameter_in !== null) {
-    prompts.push("Confirm diameter: " + primary.diameter_in + " inches");
-  }
-
-  for (var c = 0; c < contradictions.length; c++) {
-    prompts.push(contradictions[c].message);
-  }
-
-  return prompts;
-}
-
-/* =========================================================
-   MAIN PARSER
-   ========================================================= */
-
-function parseIncident(rawText: string): ParsedIncidentOutput {
-  var normalized = lower(rawText);
-
-  var facts = extractNumericFacts(rawText);
-  var primary = buildPrimaryValues(facts);
-  var events = detectEvents(normalized);
-  var environment = detectEnvironment(normalized);
-  var contradictions = detectContradictions(facts);
-
-  /* Count primary fields present */
-  var fieldsPresent = 0;
-  if (primary.wind_speed_mph !== null) fieldsPresent++;
-  if (primary.wave_height_ft !== null) fieldsPresent++;
-  if (primary.surge_height_ft !== null) fieldsPresent++;
-  if (primary.distance_miles !== null) fieldsPresent++;
-  if (primary.impact_speed_mph !== null) fieldsPresent++;
-  if (primary.diameter_ft !== null || primary.diameter_in !== null) fieldsPresent++;
-  if (primary.water_depth_ft !== null) fieldsPresent++;
-  if (primary.pressure_psi !== null) fieldsPresent++;
-  if (events.length > 0) fieldsPresent++;
-
-  var conf = scoreConfidence(normalized.length, facts.length, events.length, contradictions.length, fieldsPresent);
-
-  var confirmationRequired = conf.band !== "locked" && conf.band !== "high";
-  var prompts = buildConfirmationPrompts(primary, contradictions, conf.band);
-
-  return {
-    engine: "Speech-to-Structured Incident Parser v1",
-    raw_transcript: rawText,
-    normalized_transcript: normalized,
-    numeric_facts: facts,
-    primary_values: primary,
-    detected_events: events,
-    environment_factors: environment,
-    contradictions: contradictions,
-    confirmation_required: confirmationRequired,
-    confirmation_prompts: confirmationRequired ? prompts : [],
-    confidence_score: conf.score,
-    confidence_band: conf.band
-  };
-}
-
-/* =========================================================
-   NETLIFY FUNCTION HANDLER
-   ========================================================= */
-
-var handler: Handler = async function(event) {
+var handler = async function(event: any): Promise<any> {
   if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "POST, OPTIONS" }, body: "" };
+    return {
+      statusCode: 200,
+      headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "POST, OPTIONS", "Content-Type": "application/json" },
+      body: ""
+    };
   }
 
   if (event.httpMethod !== "POST") {
-    return { statusCode: 405, headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "Method not allowed" }) };
+    return { statusCode: 405, headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" }, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
   try {
     var body = JSON.parse(event.body || "{}");
-    var rawText = body.transcript || body.raw_text || "";
+    var transcript = body.transcript || body.raw_text || "";
 
-    if (!rawText.trim()) {
+    if (!transcript || transcript.trim().length < 3) {
       return {
         statusCode: 200,
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
-        body: JSON.stringify({
-          engine: "Speech-to-Structured Incident Parser v1",
-          raw_transcript: "",
-          normalized_transcript: "",
-          numeric_facts: [],
-          primary_values: {
-            wind_speed_mph: null, wave_height_ft: null, surge_height_ft: null,
-            distance_miles: null, impact_speed_mph: null, diameter_ft: null,
-            diameter_in: null, water_depth_ft: null, pressure_psi: null,
-            temperature_f: null, duration_hours: null
-          },
-          detected_events: [],
-          environment_factors: [],
-          contradictions: [],
-          confirmation_required: true,
-          confirmation_prompts: ["No input text provided."],
-          confidence_score: 0,
-          confidence_band: "manual_review"
-        })
+        body: JSON.stringify({ parsed: { events: [], environment: [], numeric_values: {}, raw_text: "" }, ai_interpretation: null })
       };
     }
 
-    var result = parseIncident(rawText);
+    // ================================================================
+    // REGEX NUMERIC EXTRACTION — locked values override AI
+    // ================================================================
+    var numeric_values: { [key: string]: number } = {};
+    var rules: Array<{ p: RegExp; k: string; m?: number; o?: number }> = [
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:mph|miles?\s*per\s*hour)/i, k: "speed_mph" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:knots?|kts?)/i, k: "speed_mph", m: 1.151 },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:km\/h|kph)/i, k: "speed_mph", m: 0.621 },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:psi|psig)/i, k: "pressure_psi" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:bar|barg)\b/i, k: "pressure_psi", m: 14.5038 },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:mpa)\b/i, k: "pressure_psi", m: 145.038 },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:degrees?\s*f|°f|fahrenheit)/i, k: "temperature_f" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:degrees?\s*c|°c|celsius)/i, k: "temperature_f", m: 1.8, o: 32 },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:foot|feet|ft)\s*(?:wave|sea|swell)/i, k: "wave_height_ft" },
+      { p: /(?:wave|sea|swell)s?\s*(?:of\s*)?(\d+(?:\.\d+)?)\s*(?:foot|feet|ft)/i, k: "wave_height_ft" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:inch(?:es)?|in\.?)\s*(?:thick|wall|nominal)/i, k: "thickness_in" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:mm)\s*(?:thick|wall)/i, k: "thickness_in", m: 0.03937 },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:inch(?:es)?|in\.?)\s*(?:diam|od|id)/i, k: "diameter_in" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:hours?|hrs?)\b/i, k: "duration_hours" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:minutes?|mins?)\s*(?:exposure|fire|burn|duration)/i, k: "duration_hours", m: 0.01667 },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:foot|feet|ft)\s*(?:deep|depth|below|under)/i, k: "depth_ft" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:meters?|m)\s*(?:deep|depth|below)/i, k: "depth_ft", m: 3.281 },
+      { p: /(\d+)\s*(?:years?\s*old|year[\s-]*old)/i, k: "age_years" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:miles?|mi)\b/i, k: "distance_miles" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:km|kilometers?)\b/i, k: "distance_miles", m: 0.621 },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:tons?|tonnes?)\b/i, k: "weight_tons" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:lbs?|pounds?)\b/i, k: "weight_lbs" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:mw|megawatt)/i, k: "power_mw" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:gallons?|gal)\b/i, k: "volume_gallons" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:barrels?|bbls?)\b/i, k: "volume_barrels" },
+      { p: /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:rpm)\b/i, k: "rotation_rpm" },
+      { p: /(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:wall|loss|reduction|strain)/i, k: "percent_value" }
+    ];
+
+    for (var r = 0; r < rules.length; r++) {
+      var rl = rules[r];
+      var mt = rl.p.exec(transcript);
+      if (mt && !numeric_values[rl.k]) {
+        var v = parseFloat(mt[1].replace(/,/g, ""));
+        if (rl.m) v = v * rl.m;
+        if (rl.o) v = v + rl.o;
+        numeric_values[rl.k] = Math.round(v * 100) / 100;
+      }
+    }
+
+    // ================================================================
+    // GPT-4o INTERPRETATION — the Level III brain
+    // ================================================================
+    var ai_interpretation = null;
+    var ai_events: string[] = [];
+    var ai_environment: string[] = [];
+    var ai_error = null;
+
+    if (!OPENAI_KEY) {
+      ai_error = "No OPENAI_API_KEY — set in Netlify environment variables";
+    } else {
+      try {
+        var https = require("https");
+
+        var ai_request_body = JSON.stringify({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: transcript }
+          ],
+          temperature: 0.1,
+          max_tokens: 4000
+        });
+
+        var ai_result: string = await new Promise(function(resolve, reject) {
+          var options = {
+            hostname: "api.openai.com",
+            port: 443,
+            path: "/v1/chat/completions",
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer " + OPENAI_KEY,
+              "Content-Length": Buffer.byteLength(ai_request_body)
+            }
+          };
+
+          var req = https.request(options, function(res: any) {
+            var chunks: any[] = [];
+            res.on("data", function(chunk: any) { chunks.push(chunk); });
+            res.on("end", function() { resolve(Buffer.concat(chunks).toString()); });
+          });
+
+          req.on("error", function(err: any) { reject(err); });
+          req.setTimeout(50000, function() { req.destroy(new Error("Timeout")); });
+          req.write(ai_request_body);
+          req.end();
+        });
+
+        var ai_data = JSON.parse(ai_result);
+
+        if (ai_data.choices && ai_data.choices[0] && ai_data.choices[0].message) {
+          var raw_content = (ai_data.choices[0].message.content || "").trim();
+          // Strip markdown fencing if present
+          var bt = String.fromCharCode(96);
+          var fence = bt + bt + bt;
+          if (raw_content.indexOf(fence) === 0) {
+            raw_content = raw_content.replace(new RegExp("^" + fence + "(?:json)?\\s*", "i"), "").replace(new RegExp("\\s*" + fence + "\\s*$", "i"), "").trim();
+          }
+
+          try {
+            ai_interpretation = JSON.parse(raw_content);
+
+            // Extract chain-compatible events and environment
+            if (ai_interpretation.events) ai_events = ai_interpretation.events;
+            if (ai_interpretation.environment) ai_environment = ai_interpretation.environment;
+            if (ai_interpretation.partial_events) ai_events = ai_interpretation.partial_events;
+            if (ai_interpretation.partial_environment) ai_environment = ai_interpretation.partial_environment;
+
+          } catch (pe) {
+            ai_error = "AI returned invalid JSON";
+            // Store raw content for debugging
+            ai_interpretation = { status: "parse_error", raw: raw_content.substring(0, 500) };
+          }
+        } else {
+          ai_error = ai_data.error ? ("OpenAI: " + (ai_data.error.message || "")) : "No response from AI";
+        }
+
+      } catch (fetch_err: any) {
+        ai_error = "AI call failed: " + (fetch_err.message || "Unknown");
+      }
+    }
+
+    // ================================================================
+    // BUILD OUTPUT
+    // ================================================================
+
+    // The parsed object feeds the deterministic chain (backward compatible)
+    var parsed = {
+      events: ai_events,
+      environment: ai_environment,
+      numeric_values: numeric_values,
+      raw_text: transcript
+    };
+
+    // Build the response
+    var response_body: any = {
+      parsed: parsed,
+      ai_interpretation: ai_interpretation,
+      regex_numerics: numeric_values
+    };
+
+    if (ai_error) {
+      response_body.ai_error = ai_error;
+    }
+
+    // If AI said need_more_info, flag it
+    if (ai_interpretation && ai_interpretation.status === "need_more_info") {
+      response_body.needs_input = true;
+      response_body.questions = ai_interpretation.questions || [];
+      response_body.understood = ai_interpretation.understood_so_far || "";
+    }
+
+    // If AI gave full interpretation, extract asset info for resolve-asset compatibility
+    if (ai_interpretation && ai_interpretation.status === "interpreted") {
+      response_body.resolved = {
+        asset_class: ai_interpretation.asset_class || "unknown",
+        asset_type: ai_interpretation.asset_type || "unknown",
+        confidence: ai_interpretation.confidence || 0.5,
+        material: ai_interpretation.asset_material || "unknown",
+        industry: ai_interpretation.industry || "unknown"
+      };
+    }
 
     return {
       statusCode: 200,
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
-      body: JSON.stringify(result)
+      body: JSON.stringify(response_body)
     };
-  } catch (err) {
-    var errMsg = (err && typeof err === "object" && "message" in err) ? (err as any).message : "Unknown error";
+
+  } catch (err: any) {
     return {
       statusCode: 500,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ error: "Incident Parser failed", detail: errMsg })
+      headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "parse-incident error", message: err.message || "Unknown", stack: err.stack || "" })
     };
   }
 };
