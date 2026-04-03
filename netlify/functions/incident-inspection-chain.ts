@@ -831,6 +831,8 @@ function runEngine1(
   }
 
   // Step 5: Look up damage mechanisms for each environment
+  var temp_filtered: string[] = [];
+
   for (var e = 0; e < all_environments.length; e++) {
     var env = all_environments[e];
     var env_mechanisms = SERVICE_MECHANISM_MAP[env];
@@ -846,6 +848,7 @@ function runEngine1(
       if (temp_f !== undefined && mech.temp_range_f) {
         // Allow some margin (50F) for uncertainty
         if (temp_f < mech.temp_range_f.min - 50 || temp_f > mech.temp_range_f.max + 50) {
+          temp_filtered.push(mech.id + " (" + mech.name + ") [active " + mech.temp_range_f.min + "-" + mech.temp_range_f.max + "F, reported temp: " + temp_f + "F]");
           continue;
         }
       }
@@ -862,6 +865,25 @@ function runEngine1(
         susceptible_materials: mech.susceptible_materials,
         temperature_range_f: mech.temp_range_f,
         contributing_factors: mech.contributing_factors
+      });
+    }
+  }
+
+  // Step 5b: If mechanisms were filtered by temperature, add as warnings
+  // Multi-temperature-zone equipment may still have these mechanisms at cooler zones
+  if (temp_filtered.length > 0) {
+    for (var tf = 0; tf < temp_filtered.length; tf++) {
+      mechanisms.push({
+        id: "TEMP_FILTERED_" + tf,
+        name: "TEMPERATURE-EXCLUDED (verify multi-zone applicability): " + temp_filtered[tf],
+        api_571_ref: "Review if equipment has multiple temperature zones",
+        description: "This mechanism was excluded because the reported operating temperature is outside its active range. However, if the equipment has multiple temperature zones (e.g., inlet vs outlet, top vs bottom, shell vs head), this mechanism may still be active at cooler locations. Engineering review recommended.",
+        source_trigger: "temperature_filter_advisory",
+        severity: "medium",
+        requires_immediate_action: false,
+        susceptible_materials: [],
+        temperature_range_f: null,
+        contributing_factors: ["multi_temperature_zone_equipment", "inlet_outlet_temperature_gradient", "ambient_cooling_at_supports"]
       });
     }
   }
@@ -940,10 +962,28 @@ var ZONE_MAP: { [asset_class: string]: { [mechanism_pattern: string]: Array<{
       { zone_id: "PV-FIRE-SUPPORT", zone_name: "Support Skirt/Saddle and Foundation", priority: 2, rationale: "Structural supports affected by fire — buckling, distortion, bolt damage." },
       { zone_id: "PV-FIRE-NOZZLE", zone_name: "Nozzle Connections and Flanges", priority: 2, rationale: "Differential expansion may cause leakage or distortion at flanged connections." }
     ],
-    "MECH_DAMAGE|STRUCTURAL_OVERLOAD|BLAST_DAMAGE": [
+    "MECH_DAMAGE|STRUCTURAL_OVERLOAD|BLAST_DAMAGE|DEBRIS_IMPACT": [
       { zone_id: "PV-IMPACT-POINT", zone_name: "Point of Impact / Damage", priority: 1, rationale: "Direct damage zone — denting, gouging, or deformation." },
       { zone_id: "PV-IMPACT-ADJ", zone_name: "Adjacent Shell (within 2x diameter from impact)", priority: 2, rationale: "Stress redistribution zone — secondary cracking possible." },
       { zone_id: "PV-IMPACT-WELD", zone_name: "Nearest Welds to Impact Point", priority: 2, rationale: "Pre-existing stress concentrators may have cracked from impulse loading." }
+    ],
+    "SULFIDATION|NAC": [
+      { zone_id: "PV-SULFID-HOTWALL", zone_name: "Hot-Wall Sections (highest sulfidation rate)", priority: 1, rationale: "Sulfidation rate increases exponentially with temperature. Highest temperature zones see highest metal loss per McConomy curves." },
+      { zone_id: "PV-SULFID-TRANSFER", zone_name: "Transfer Line Nozzle and Outlet Piping Connections", priority: 1, rationale: "Highest velocity and temperature at outlet. Naphthenic acid corrosion also concentrates here." },
+      { zone_id: "PV-SULFID-INLET", zone_name: "Feed Inlet and Impingement Areas", priority: 1, rationale: "Two-phase flow impingement accelerates sulfidation. Velocity-dependent damage." },
+      { zone_id: "PV-SULFID-TRAY", zone_name: "Tray Support Rings and Internal Attachment Welds", priority: 2, rationale: "Internals at process temperature. Thinning of tray supports affects mechanical integrity." }
+    ],
+    "WIND_STRUCTURAL|WAVE_LOADING|DEBRIS_IMPACT": [
+      { zone_id: "PV-STORM-SUPPORT", zone_name: "Vessel Support Structure (skirt, saddle, legs)", priority: 1, rationale: "Wind and wave loading transfers through supports. Anchor bolt stretch, skirt buckling, saddle displacement." },
+      { zone_id: "PV-STORM-NOZZLE", zone_name: "Nozzle Connections and Piping Attachments", priority: 1, rationale: "Relative movement between vessel and piping during storm loading causes nozzle overloads and flange leakage." },
+      { zone_id: "PV-STORM-FOUNDATION", zone_name: "Foundation and Anchor Bolts", priority: 1, rationale: "Wind uplift and lateral loads on foundation. Anchor bolt elongation or fracture." },
+      { zone_id: "PV-STORM-PLATFORM", zone_name: "Access Platforms, Ladders, and Appurtenances", priority: 2, rationale: "Wind loading on appendages. Attachment welds to shell are stress points." },
+      { zone_id: "PV-STORM-INSTRUMENT", zone_name: "Instrument Connections and Small-Bore Piping", priority: 2, rationale: "Wind vibration and debris impact damage to instrumentation and small-bore connections." }
+    ],
+    "MARINE_CORROSION|CP_DEFICIENCY": [
+      { zone_id: "PV-EXT-SPLASH", zone_name: "External Surfaces in Splash Zone", priority: 1, rationale: "Vessels on offshore platforms in splash zone have accelerated external corrosion. Coating condition critical." },
+      { zone_id: "PV-EXT-BASE", zone_name: "Base Plate and Support Interfaces", priority: 1, rationale: "Crevice corrosion at support contact points. Trapped moisture accelerates attack." },
+      { zone_id: "PV-EXT-COATING", zone_name: "External Coating System (full survey)", priority: 2, rationale: "Coating breakdown leads to accelerated external corrosion in marine environment." }
     ],
     "OVERPRESSURE_DAMAGE": [
       { zone_id: "PV-OP-SHELL", zone_name: "Shell Plates (dimensional survey)", priority: 1, rationale: "Check for permanent bulging, out-of-roundness, increased diameter." },
@@ -1034,6 +1074,13 @@ var ZONE_MAP: { [asset_class: string]: { [mechanism_pattern: string]: Array<{
     "MECH_FATIGUE": [
       { zone_id: "SS-JOINT-FAT", zone_name: "Fatigue-Critical Tubular Joints (per analysis)", priority: 1, rationale: "Joints with highest cumulative fatigue damage ratio. Inspection priority per API RP 2A." },
       { zone_id: "SS-CAISSON", zone_name: "Caisson and Conductor Clamps", priority: 2, rationale: "Cyclic wave loading on conductors transfers to clamps and support structure." }
+    ],
+    "MECH_DAMAGE|STRUCTURAL_OVERLOAD|DEBRIS_IMPACT": [
+      { zone_id: "SS-IMPACT-MEMBER", zone_name: "Impacted Member (dent/gouge/deformation survey)", priority: 1, rationale: "Direct damage assessment at point of impact. Measure dent depth, gouge depth, deformation extent. Check for cracking." },
+      { zone_id: "SS-IMPACT-JOINT-ABOVE", zone_name: "Joint Connection Above Impact Point", priority: 1, rationale: "Impact load transfers through member to nearest joint. Weld cracking at joint from impulse loading." },
+      { zone_id: "SS-IMPACT-JOINT-BELOW", zone_name: "Joint Connection Below Impact Point", priority: 1, rationale: "Impact load transfers to lower joint connection. Check for weld cracking, plate buckling at node." },
+      { zone_id: "SS-IMPACT-ADJACENT", zone_name: "Adjacent Braces and Members at Same Bay", priority: 2, rationale: "Load redistribution to adjacent members after impact damage. Verify no secondary buckling or overload." },
+      { zone_id: "SS-IMPACT-COATING", zone_name: "Coating Damage Zone at Impact", priority: 2, rationale: "Impact strips coating, exposing bare steel to accelerated corrosion. Map extent for coating repair." }
     ]
   },
 
