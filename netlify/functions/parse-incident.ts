@@ -153,11 +153,11 @@ function classifyFact(context: string, unit: string): string {
   if (c.indexOf("gust") !== -1 && (u === "mph" || u === "knots")) return "wind_speed";
   if (c.indexOf("sustained") !== -1 && (u === "mph" || u === "knots")) return "wind_speed";
 
-  /* Wave height */
-  if (c.indexOf("wave") !== -1 && u === "ft") return "wave_height";
-
-  /* Surge */
+  /* Surge — check BEFORE wave so "wave surge" resolves to surge */
   if (c.indexOf("surge") !== -1 && u === "ft") return "surge_height";
+
+  /* Wave height — only when surge did NOT match */
+  if (c.indexOf("wave") !== -1 && c.indexOf("surge") === -1 && u === "ft") return "wave_height";
 
   /* Distance */
   if ((c.indexOf("within") !== -1 || c.indexOf("mile") !== -1 || c.indexOf("away") !== -1 || c.indexOf("from") !== -1 || c.indexOf("distance") !== -1) && (u === "miles" || u === "mi")) return "distance";
@@ -191,8 +191,8 @@ function classifyFact(context: string, unit: string): string {
 
   /* Fallback: ft without wave/surge/depth/diameter context */
   if (u === "ft") {
-    if (c.indexOf("wave") !== -1) return "wave_height";
     if (c.indexOf("surge") !== -1) return "surge_height";
+    if (c.indexOf("wave") !== -1 && c.indexOf("surge") === -1) return "wave_height";
     return "size_dimension";
   }
 
