@@ -1,5 +1,7 @@
-// DEPLOY85 — VoiceInspectionPage.tsx v7
-// Full pipeline with mic input, AI-powered parsing, deterministic chain
+// DEPLOY86 — VoiceInspectionPage.tsx v8
+// Pipeline flow control: stop at questions, don't run full chain on first pass
+// Fix: "Generate with Answers" race condition (ref-based, no setTimeout)
+// Fix: emoji escape codes replaced with actual unicode characters
 // "Just have a conversation with the really smart AI"
 
 import React, { useState, useRef, useEffect } from "react";
@@ -162,14 +164,14 @@ interface EventEnrichResult {
 const API_BASE = "/api";
 
 async function callAPI(endpoint: string, body: any): Promise<any> {
-  const res = await fetch(`${API_BASE}/${endpoint}`, {
+  const res = await fetch(API_BASE + "/" + endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`${endpoint} failed (${res.status}): ${text}`);
+    throw new Error(endpoint + " failed (" + res.status + "): " + text);
   }
   return res.json();
 }
@@ -228,16 +230,16 @@ function priorityBadge(priority: number): React.ReactNode {
 }
 
 function confidenceBar(value: number, label: string): React.ReactNode {
-  const pct = Math.round(value * 100);
-  const color = pct >= 90 ? "#16a34a" : pct >= 75 ? "#ca8a04" : pct >= 50 ? "#ea580c" : "#dc2626";
+  var pct = Math.round(value * 100);
+  var color = pct >= 90 ? "#16a34a" : pct >= 75 ? "#ca8a04" : pct >= 50 ? "#ea580c" : "#dc2626";
   return (
     <div style={{ marginBottom: "6px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "2px" }}>
         <span>{label}</span>
-        <span style={{ fontWeight: 700, color }}>{pct}%</span>
+        <span style={{ fontWeight: 700, color: color }}>{pct}%</span>
       </div>
       <div style={{ height: "6px", backgroundColor: "#e5e7eb", borderRadius: "3px", overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${pct}%`, backgroundColor: color, borderRadius: "3px", transition: "width 0.5s ease" }} />
+        <div style={{ height: "100%", width: pct + "%", backgroundColor: color, borderRadius: "3px", transition: "width 0.5s ease" }} />
       </div>
     </div>
   );
@@ -284,12 +286,12 @@ function Card({ title, icon, children, status, collapsible = true }: {
 }
 
 // ============================================================================
-// STEP TRACKER
+// STEP TRACKER — now supports "waiting" status for paused pipeline
 // ============================================================================
 
 interface StepState {
   label: string;
-  status: "pending" | "running" | "done" | "error";
+  status: "pending" | "running" | "done" | "error" | "waiting";
   detail?: string;
 }
 
@@ -297,13 +299,21 @@ function StepTracker({ steps }: { steps: StepState[] }) {
   return (
     <div style={{ margin: "16px 0", padding: "12px 16px", backgroundColor: "#f0f4ff", borderRadius: "8px", border: "1px solid #dbeafe" }}>
       {steps.map((step, i) => {
-        const icon = step.status === "done" ? "\u2705" : step.status === "running" ? "\u23f3" : step.status === "error" ? "\u274c" : "\u25cb";
-        const color = step.status === "done" ? "#16a34a" : step.status === "running" ? "#2563eb" : step.status === "error" ? "#dc2626" : "#9ca3af";
+        var icon = step.status === "done" ? "\u2705"
+          : step.status === "running" ? "\u23f3"
+          : step.status === "error" ? "\u274c"
+          : step.status === "waiting" ? "\u23f8\ufe0f"
+          : "\u25cb";
+        var color = step.status === "done" ? "#16a34a"
+          : step.status === "running" ? "#2563eb"
+          : step.status === "error" ? "#dc2626"
+          : step.status === "waiting" ? "#ca8a04"
+          : "#9ca3af";
         return (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px 0", fontSize: "13px" }}>
             <span>{icon}</span>
-            <span style={{ color, fontWeight: step.status === "running" ? 700 : 400 }}>{step.label}</span>
-            {step.detail && <span style={{ color: "#6b7280", fontSize: "11px" }}>— {step.detail}</span>}
+            <span style={{ color: color, fontWeight: step.status === "running" ? 700 : step.status === "waiting" ? 600 : 400 }}>{step.label}</span>
+            {step.detail && <span style={{ color: step.status === "waiting" ? "#ca8a04" : "#6b7280", fontSize: "11px" }}>{"\u2014"} {step.detail}</span>}
           </div>
         );
       })}
@@ -322,6 +332,9 @@ export default function VoiceInspectionPage() {
 
   // Pipeline step tracking
   const [steps, setSteps] = useState<StepState[]>([]);
+
+  // Pipeline paused state — true when AI asked questions and pipeline stopped
+  const [pipelinePaused, setPipelinePaused] = useState(false);
 
   // API results
   const [parsed, setParsed] = useState<ParsedResult | null>(null);
@@ -360,15 +373,15 @@ export default function VoiceInspectionPage() {
 
   // Initialize speech recognition on mount
   useEffect(() => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    var SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SR) {
-      const recognition = new SR();
+      var recognition = new SR();
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = "en-US";
       recognition.onresult = (event: any) => {
-        let finalText = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
+        var finalText = "";
+        for (var i = event.resultIndex; i < event.results.length; i++) {
           if (event.results[i].isFinal) {
             finalText += event.results[i][0].transcript + " ";
           }
@@ -397,16 +410,22 @@ export default function VoiceInspectionPage() {
 
   // ---- Step updater helper ----
   function updateStep(idx: number, updates: Partial<StepState>, current: StepState[]): StepState[] {
-    const next = [...current];
+    var next = [...current];
     next[idx] = { ...next[idx], ...updates };
     return next;
   }
 
-  // ---- MAIN GENERATE FUNCTION ----
-  async function handleGenerate() {
-    if (!transcript.trim()) return;
+  // ============================================================================
+  // MAIN GENERATE FUNCTION
+  // Now accepts optional transcriptOverride to avoid React state race conditions.
+  // When "Generate with Answers" is clicked, the enriched text is passed directly.
+  // ============================================================================
+  async function handleGenerate(transcriptOverride?: string) {
+    var inputText = transcriptOverride || transcript;
+    if (!inputText.trim()) return;
 
     setIsGenerating(true);
+    setPipelinePaused(false);
     setErrors([]);
     setParsed(null);
     setAsset(null);
@@ -424,25 +443,26 @@ export default function VoiceInspectionPage() {
     setAiInterpretation(null);
     setSelectedAnswers({});
 
-    const initialSteps: StepState[] = [
+    var initialSteps: StepState[] = [
       { label: "AI Incident Parser (GPT-4o)", status: "pending" },
       { label: "Resolve Asset", status: "pending" },
       { label: "Governance Matrix", status: "pending" },
       { label: "Code Authority Resolution", status: "pending" },
       { label: "Master Router", status: "pending" },
-      { label: "Incident-to-Inspection Chain (6 engines)", status: "pending" },
+      { label: "Incident-to-Inspection Chain (7 engines)", status: "pending" },
       { label: "AI Narrative Polish (GPT-4o)", status: "pending" },
       { label: "Event Enrichment", status: "pending" },
       { label: "Time Progression", status: "pending" },
       { label: "Code Trace", status: "pending" },
     ];
-    let s = [...initialSteps];
+    var s = [...initialSteps];
     setSteps(s);
 
-    const errs: string[] = [];
-    let parsedResult: ParsedResult | null = null;
-    let assetResult: AssetResult | null = null;
-    let chainResult: ChainResult | null = null;
+    var errs: string[] = [];
+    var parsedResult: ParsedResult | null = null;
+    var assetResult: AssetResult | null = null;
+    var chainResult: ChainResult | null = null;
+    var needsMoreInfo = false;
 
     try {
       // ====== PHASE 1: PARALLEL — parse-incident + resolve-asset ======
@@ -450,9 +470,9 @@ export default function VoiceInspectionPage() {
       s = updateStep(1, { status: "running" }, s);
       setSteps([...s]);
 
-      const [parseRes, assetRes] = await Promise.allSettled([
-        callAPI("parse-incident", { transcript }),
-        callAPI("resolve-asset", { raw_text: transcript }),
+      var [parseRes, assetRes] = await Promise.allSettled([
+        callAPI("parse-incident", { transcript: inputText }),
+        callAPI("resolve-asset", { raw_text: inputText }),
       ]);
 
       if (parseRes.status === "fulfilled") {
@@ -463,10 +483,11 @@ export default function VoiceInspectionPage() {
         if (parseRes.value.ai_interpretation) {
           setAiInterpretation(parseRes.value.ai_interpretation);
 
-          // If AI is asking follow-up questions
+          // If AI is asking follow-up questions — flag for flow control
           if (parseRes.value.needs_input && parseRes.value.questions) {
             setAiQuestions(parseRes.value.questions);
             setAiUnderstood(parseRes.value.understood || "");
+            needsMoreInfo = true;
           }
 
           // If AI provided asset resolution, use it as fallback
@@ -476,50 +497,67 @@ export default function VoiceInspectionPage() {
           }
         }
 
-        const evtCount = parsedResult?.events?.length || 0;
-        const envCount = parsedResult?.environment?.length || 0;
-        const aiStatus = parseRes.value.ai_interpretation?.status || "no_ai";
-        s = updateStep(0, { status: "done", detail: `${evtCount} events, ${envCount} environments (${aiStatus})` }, s);
+        var evtCount = parsedResult?.events?.length || 0;
+        var envCount = parsedResult?.environment?.length || 0;
+        var aiStatus = parseRes.value.ai_interpretation?.status || "no_ai";
+        s = updateStep(0, { status: "done", detail: evtCount + " events, " + envCount + " environments (" + aiStatus + ")" }, s);
       } else {
         s = updateStep(0, { status: "error", detail: parseRes.reason?.message }, s);
         errs.push("parse-incident: " + parseRes.reason?.message);
-        parsedResult = { events: [], environment: [], numeric_values: {}, raw_text: transcript };
+        parsedResult = { events: [], environment: [], numeric_values: {}, raw_text: inputText };
         setParsed(parsedResult);
       }
 
       if (assetRes.status === "fulfilled") {
         // Use resolve-asset result, but AI interpretation may override if resolve-asset gives low confidence
-        const resolveResult = assetRes.value.resolved || assetRes.value;
-        const aiResolved = parseRes.status === "fulfilled" ? parseRes.value.resolved : null;
+        var resolveResult = assetRes.value.resolved || assetRes.value;
+        var aiResolved = parseRes.status === "fulfilled" ? parseRes.value.resolved : null;
 
         if (aiResolved && resolveResult.confidence < 0.5 && aiResolved.confidence > 0.5) {
-          // AI interpretation is more confident — use it
           assetResult = aiResolved;
         } else {
           assetResult = resolveResult;
         }
         setAsset(assetResult);
-        s = updateStep(1, { status: "done", detail: `${assetResult?.asset_class} (${Math.round((assetResult?.confidence || 0) * 100)}%)` }, s);
+        s = updateStep(1, { status: "done", detail: (assetResult?.asset_class || "") + " (" + Math.round((assetResult?.confidence || 0) * 100) + "%)" }, s);
       } else {
         s = updateStep(1, { status: "error", detail: assetRes.reason?.message }, s);
         errs.push("resolve-asset: " + assetRes.reason?.message);
-        // Fall back to AI resolution if available
-        const aiResolved = parseRes.status === "fulfilled" ? parseRes.value.resolved : null;
-        assetResult = aiResolved || { asset_class: "pressure_vessel", asset_type: "pressure_vessel", confidence: 0.3 };
+        var aiResolved2 = parseRes.status === "fulfilled" ? parseRes.value.resolved : null;
+        assetResult = aiResolved2 || { asset_class: "pressure_vessel", asset_type: "pressure_vessel", confidence: 0.3 };
         setAsset(assetResult);
       }
       setSteps([...s]);
+
+      // ====================================================================
+      // FLOW CONTROL: Stop at questions if AI needs more info
+      // This is the critical fix — do NOT run the full pipeline on vague input.
+      // Show questions only. Wait for user to answer. Then re-run with answers.
+      // ====================================================================
+      if (needsMoreInfo) {
+        for (var wi = 2; wi < s.length; wi++) {
+          s = updateStep(wi, { status: "waiting", detail: "waiting for your answers" }, s);
+        }
+        setSteps([...s]);
+        setErrors(errs);
+        setIsGenerating(false);
+        setPipelinePaused(true);
+        setTimeout(() => {
+          resultsRef.current?.scrollIntoView({ behavior: "smooth" });
+        }, 200);
+        return; // <<< STOP HERE — do NOT run Phases 2-7
+      }
 
       // ====== PHASE 2: PARALLEL — governance + code-authority (with asset_class) ======
       s = updateStep(2, { status: "running" }, s);
       s = updateStep(3, { status: "running" }, s);
       setSteps([...s]);
 
-      const assetClass = assetResult?.asset_class || "pressure_vessel";
+      var assetClass = assetResult?.asset_class || "pressure_vessel";
 
-      const [govRes, codeAuthRes] = await Promise.allSettled([
-        callAPI("governance-matrix", { raw_text: transcript, asset_class: assetClass }),
-        callAPI("code-authority-resolution", { raw_text: transcript, asset_class: assetClass }),
+      var [govRes, codeAuthRes] = await Promise.allSettled([
+        callAPI("governance-matrix", { raw_text: inputText, asset_class: assetClass }),
+        callAPI("code-authority-resolution", { raw_text: inputText, asset_class: assetClass }),
       ]);
 
       if (govRes.status === "fulfilled") {
@@ -544,7 +582,7 @@ export default function VoiceInspectionPage() {
       setSteps([...s]);
 
       try {
-        const routerRes = await callAPI("master-router", { transcript });
+        var routerRes = await callAPI("master-router", { transcript: inputText });
         setMasterRoute(routerRes);
         s = updateStep(4, { status: "done", detail: routerRes?.intake_path || "" }, s);
       } catch (e: any) {
@@ -558,17 +596,17 @@ export default function VoiceInspectionPage() {
       setSteps([...s]);
 
       try {
-        const chainRes = await callAPI("incident-inspection-chain", {
+        var chainRes = await callAPI("incident-inspection-chain", {
           parsed: parsedResult,
           asset: assetResult,
         });
         chainResult = chainRes.chain || chainRes;
         setChain(chainResult);
         setChainPerformance(chainRes.performance || null);
-        const mechCount = chainResult?.engine_1_damage_mechanisms?.length || 0;
-        const zoneCount = chainResult?.engine_2_affected_zones?.length || 0;
-        const methodCount = chainResult?.engine_3_inspection_methods?.length || 0;
-        s = updateStep(5, { status: "done", detail: `${mechCount} mechanisms, ${zoneCount} zones, ${methodCount} methods in ${chainRes.performance?.total_ms || "?"}ms` }, s);
+        var mechCount = chainResult?.engine_1_damage_mechanisms?.length || 0;
+        var zoneCount = chainResult?.engine_2_affected_zones?.length || 0;
+        var methodCount = chainResult?.engine_3_inspection_methods?.length || 0;
+        s = updateStep(5, { status: "done", detail: mechCount + " mechanisms, " + zoneCount + " zones, " + methodCount + " methods in " + (chainRes.performance?.total_ms || "?") + "ms" }, s);
       } catch (e: any) {
         s = updateStep(5, { status: "error", detail: e.message }, s);
         errs.push("incident-inspection-chain: " + e.message);
@@ -580,26 +618,24 @@ export default function VoiceInspectionPage() {
       setSteps([...s]);
 
       try {
-        // Build locked context from chain results
-        let lockedContext = "DETERMINISTIC CHAIN RESULTS (DO NOT OVERRIDE — use ONLY these findings):\n";
+        var lockedContext = "DETERMINISTIC CHAIN RESULTS (DO NOT OVERRIDE \u2014 use ONLY these findings):\n";
         if (chainResult) {
           lockedContext += "Asset: " + (chainResult.input_summary?.asset_class || "unknown") + "\n";
           lockedContext += "Events: " + (chainResult.input_summary?.events?.join(", ") || "none") + "\n";
           lockedContext += "Environment: " + (chainResult.input_summary?.environment?.join(", ") || "none") + "\n";
-          lockedContext += "Damage Mechanisms: " + (chainResult.engine_1_damage_mechanisms || []).filter((m: DamageMechanism) => !m.id.startsWith("TEMP_FILTERED")).map((m: DamageMechanism) => m.name + " [" + m.severity + "]").join("; ") + "\n";
-          lockedContext += "Affected Zones: " + (chainResult.engine_2_affected_zones || []).map((z: AffectedZone) => "P" + z.priority + " " + z.zone_name).join("; ") + "\n";
+          lockedContext += "Damage Mechanisms: " + (chainResult.engine_1_damage_mechanisms || []).filter(function(m: DamageMechanism) { return !m.id.startsWith("TEMP_FILTERED"); }).map(function(m: DamageMechanism) { return m.name + " [" + m.severity + "]"; }).join("; ") + "\n";
+          lockedContext += "Affected Zones: " + (chainResult.engine_2_affected_zones || []).map(function(z: AffectedZone) { return "P" + z.priority + " " + z.zone_name; }).join("; ") + "\n";
 
-          // Summarize methods by unique technique
-          const uniqueTechniques: string[] = [];
-          (chainResult.engine_3_inspection_methods || []).forEach((m: InspectionMethod) => {
+          var uniqueTechniques: string[] = [];
+          (chainResult.engine_3_inspection_methods || []).forEach(function(m: InspectionMethod) {
             if (uniqueTechniques.indexOf(m.technique_variant) === -1) uniqueTechniques.push(m.technique_variant);
           });
           lockedContext += "Inspection Methods: " + uniqueTechniques.join("; ") + "\n";
-          lockedContext += "Code Paths: " + (chainResult.engine_4_code_action_paths || []).map((p: CodeActionPath) => p.finding_type + " → " + p.primary_code).join("; ") + "\n";
+          lockedContext += "Code Paths: " + (chainResult.engine_4_code_action_paths || []).map(function(p: CodeActionPath) { return p.finding_type + " \u2192 " + p.primary_code; }).join("; ") + "\n";
         }
         if (parsedResult && parsedResult.numeric_values) {
-          const nums = parsedResult.numeric_values;
-          const numParts: string[] = [];
+          var nums = parsedResult.numeric_values;
+          var numParts: string[] = [];
           if (nums.wind_speed_mph !== undefined) numParts.push("Wind: " + nums.wind_speed_mph + " mph");
           if (nums.wave_height_ft !== undefined) numParts.push("Waves: " + nums.wave_height_ft + " ft");
           if (nums.pressure_psi !== undefined) numParts.push("Pressure: " + nums.pressure_psi + " psi");
@@ -607,10 +643,10 @@ export default function VoiceInspectionPage() {
           if (numParts.length > 0) lockedContext += "Verified Numerics: " + numParts.join(", ") + "\n";
         }
 
-        const constrainedTranscript = "=== LOCKED DETERMINISTIC CONTEXT ===\n" + lockedContext + "\n=== ORIGINAL TRANSCRIPT ===\n" + transcript;
+        var constrainedTranscript = "=== LOCKED DETERMINISTIC CONTEXT ===\n" + lockedContext + "\n=== ORIGINAL TRANSCRIPT ===\n" + inputText;
 
-        const planRes = await callAPI("voice-incident-plan", { transcript: constrainedTranscript });
-        const narrative = planRes?.plan || planRes?.text || planRes?.result || JSON.stringify(planRes);
+        var planRes = await callAPI("voice-incident-plan", { transcript: constrainedTranscript });
+        var narrative = planRes?.plan || planRes?.text || planRes?.result || JSON.stringify(planRes);
         setAiNarrative(typeof narrative === "string" ? narrative : JSON.stringify(narrative));
         s = updateStep(6, { status: "done", detail: "prose generated from chain data" }, s);
       } catch (e: any) {
@@ -624,8 +660,8 @@ export default function VoiceInspectionPage() {
       setSteps([...s]);
 
       try {
-        const enrichRes = await callAPI("event-enrich", {
-          transcript,
+        var enrichRes = await callAPI("event-enrich", {
+          transcript: inputText,
           plan: aiNarrative || "",
           parsed: parsedResult,
         });
@@ -642,19 +678,21 @@ export default function VoiceInspectionPage() {
       s = updateStep(9, { status: "running" }, s);
       setSteps([...s]);
 
-      // Build inputs from chain results
-      const severityForTime = chainResult?.engine_1_damage_mechanisms?.find((m: DamageMechanism) => m.severity === "critical")
+      var severityForTime = chainResult?.engine_1_damage_mechanisms?.find(function(m: DamageMechanism) { return m.severity === "critical"; })
         ? "critical"
-        : chainResult?.engine_1_damage_mechanisms?.find((m: DamageMechanism) => m.severity === "high")
+        : chainResult?.engine_1_damage_mechanisms?.find(function(m: DamageMechanism) { return m.severity === "high"; })
           ? "high"
           : "medium";
-      const serviceEnvForTime = chainResult?.input_summary?.environment || parsedResult?.environment || [];
+      var serviceEnvForTime = chainResult?.input_summary?.environment || parsedResult?.environment || [];
 
-      const findingsForTrace = chainResult?.engine_4_code_action_paths?.map((p: CodeActionPath) => p.finding_type) || [];
-      const methodsForTrace = [...new Set((chainResult?.engine_3_inspection_methods || []).map((m: InspectionMethod) => m.method_name))];
-      const dispositionForTrace = chainResult?.engine_4_code_action_paths?.[0]?.required_action || "";
+      var findingsForTrace = chainResult?.engine_4_code_action_paths?.map(function(p: CodeActionPath) { return p.finding_type; }) || [];
+      var methodsForTrace: string[] = [];
+      (chainResult?.engine_3_inspection_methods || []).forEach(function(m: InspectionMethod) {
+        if (methodsForTrace.indexOf(m.method_name) === -1) methodsForTrace.push(m.method_name);
+      });
+      var dispositionForTrace = chainResult?.engine_4_code_action_paths?.[0]?.required_action || "";
 
-      const [timeRes, traceRes] = await Promise.allSettled([
+      var [timeRes, traceRes] = await Promise.allSettled([
         callAPI("time-progression", {
           asset_type: assetResult?.asset_type || assetResult?.asset_class || "pressure_vessel",
           severity: severityForTime,
@@ -692,10 +730,21 @@ export default function VoiceInspectionPage() {
     setErrors(errs);
     setIsGenerating(false);
 
-    // Auto-scroll to results
     setTimeout(() => {
       resultsRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 200);
+  }
+
+  // ---- GENERATE WITH ANSWERS — builds enriched transcript and fires pipeline directly ----
+  function handleGenerateWithAnswers() {
+    var answers = Object.values(selectedAnswers).join(". ") + ".";
+    var enrichedTranscript = transcript + " " + answers;
+    setTranscript(enrichedTranscript);
+    setAiQuestions(null);
+    setSelectedAnswers({});
+    setPipelinePaused(false);
+    // Fire pipeline directly with the enriched text — no setTimeout race condition
+    handleGenerate(enrichedTranscript);
   }
 
   // ============================================================================
@@ -735,7 +784,7 @@ export default function VoiceInspectionPage() {
         />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", backgroundColor: "#f9fafb", borderTop: "1px solid #e5e7eb" }}>
           <span style={{ fontSize: "12px", color: "#9ca3af" }}>
-            {transcript.length > 0 ? `${transcript.split(/\s+/).filter(Boolean).length} words` : "Speak or type your inspection scenario"}
+            {transcript.length > 0 ? transcript.split(/\s+/).filter(Boolean).length + " words" : "Speak or type your inspection scenario"}
           </span>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
             <button
@@ -754,7 +803,7 @@ export default function VoiceInspectionPage() {
               {isListening ? "\uD83D\uDD34 Listening..." : "\uD83C\uDF99\uFE0F Mic"}
             </button>
             <button
-              onClick={handleGenerate}
+              onClick={() => handleGenerate()}
               disabled={isGenerating || !transcript.trim()}
               style={{
                 padding: "8px 24px",
@@ -776,6 +825,26 @@ export default function VoiceInspectionPage() {
       {/* ---- STEP TRACKER ---- */}
       {steps.length > 0 && <StepTracker steps={steps} />}
 
+      {/* ---- PIPELINE PAUSED BANNER ---- */}
+      {pipelinePaused && (
+        <div style={{
+          margin: "0 0 16px 0",
+          padding: "12px 16px",
+          backgroundColor: "#fffbeb",
+          border: "1px solid #fde68a",
+          borderRadius: "8px",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+        }}>
+          <span style={{ fontSize: "20px" }}>{"\u23F8\uFE0F"}</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: "13px", color: "#92400e" }}>Pipeline paused — AI needs more information</div>
+            <div style={{ fontSize: "12px", color: "#a16207" }}>Answer the questions below, then tap "Generate with Answers" to run the full inspection pipeline.</div>
+          </div>
+        </div>
+      )}
+
       {/* ---- ERRORS ---- */}
       {errors.length > 0 && (
         <div style={{ margin: "12px 0", padding: "12px 16px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px" }}>
@@ -790,7 +859,7 @@ export default function VoiceInspectionPage() {
 
         {/* ---- AI FOLLOW-UP QUESTIONS (when parser needs more info) ---- */}
         {aiQuestions && aiQuestions.length > 0 && (
-          <Card title="AI Needs More Information" icon="\uD83E\uDD14" collapsible={false}>
+          <Card title="AI Needs More Information" icon={"\uD83E\uDD14"} collapsible={false}>
             {aiUnderstood && (
               <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px", padding: "8px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", borderLeft: "3px solid #16a34a" }}>
                 <strong>Understood so far:</strong> {aiUnderstood}
@@ -800,8 +869,8 @@ export default function VoiceInspectionPage() {
               Tap your answers below, then hit <strong>Generate with Answers</strong> at the bottom:
             </div>
             {aiQuestions.map((q: any, i: number) => {
-              const qKey = "q" + i;
-              const selected = selectedAnswers[qKey] || "";
+              var qKey = "q" + i;
+              var selected = selectedAnswers[qKey] || "";
               return (
                 <div key={i} style={{ marginBottom: "14px", padding: "10px 12px", backgroundColor: selected ? "#f0fdf4" : "#fafafa", borderRadius: "6px", borderLeft: selected ? "3px solid #16a34a" : "3px solid #2563eb", transition: "all 0.2s" }}>
                   <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "4px" }}>
@@ -812,13 +881,13 @@ export default function VoiceInspectionPage() {
                   {q.options && q.options.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
                       {q.options.map((opt: string, oi: number) => {
-                        const isSelected = selected === opt;
+                        var isSelected = selected === opt;
                         return (
                           <button
                             key={oi}
                             onClick={() => {
                               setSelectedAnswers((prev) => {
-                                const next = { ...prev };
+                                var next = { ...prev };
                                 if (isSelected) {
                                   delete next[qKey];
                                 } else {
@@ -854,26 +923,21 @@ export default function VoiceInspectionPage() {
                   <strong>Your answers:</strong> {Object.values(selectedAnswers).join(" | ")}
                 </div>
                 <button
-                  onClick={() => {
-                    const answers = Object.values(selectedAnswers).join(". ") + ".";
-                    setTranscript((prev) => prev + " " + answers);
-                    setAiQuestions(null);
-                    setSelectedAnswers({});
-                    setTimeout(() => handleGenerate(), 300);
-                  }}
+                  onClick={handleGenerateWithAnswers}
+                  disabled={isGenerating}
                   style={{
                     padding: "10px 28px",
                     fontSize: "15px",
                     fontWeight: 700,
                     color: "#fff",
-                    backgroundColor: "#16a34a",
+                    backgroundColor: isGenerating ? "#9ca3af" : "#16a34a",
                     border: "none",
                     borderRadius: "6px",
-                    cursor: "pointer",
+                    cursor: isGenerating ? "not-allowed" : "pointer",
                     width: "100%",
                   }}
                 >
-                  {"\u2705"} Generate with Answers
+                  {isGenerating ? "Generating..." : "\u2705 Generate with Answers"}
                 </button>
               </div>
             )}
@@ -912,14 +976,14 @@ export default function VoiceInspectionPage() {
 
         {/* ---- AI REASONING (show the AI's thought process) ---- */}
         {aiInterpretation && aiInterpretation.status === "interpreted" && aiInterpretation.reasoning && (
-          <Card title="AI Reasoning Chain" icon="\uD83E\uDDE0" status={`confidence: ${Math.round((aiInterpretation.confidence || 0) * 100)}%`}>
+          <Card title="AI Reasoning Chain" icon={"\uD83E\uDDE0"} status={"confidence: " + Math.round((aiInterpretation.confidence || 0) * 100) + "%"}>
             <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151" }}>{aiInterpretation.reasoning}</div>
           </Card>
         )}
 
-        {/* ---- VERIFIED DATA (Parse + Asset) ---- */}
-        {parsed && asset && (
-          <Card title="Verified Extraction" icon="\ud83d\udd12" status={`${parsed.events?.length || 0} events, ${parsed.environment?.length || 0} environments`}>
+        {/* ---- VERIFIED DATA (Parse + Asset) — hidden when pipeline is paused ---- */}
+        {parsed && asset && !pipelinePaused && (
+          <Card title="Verified Extraction" icon={"\uD83D\uDD12"} status={(parsed.events?.length || 0) + " events, " + (parsed.environment?.length || 0) + " environments"}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
               <div>
                 <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Asset Resolution</div>
@@ -946,12 +1010,14 @@ export default function VoiceInspectionPage() {
               </div>
               <div>
                 <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Regex-Locked Numerics</div>
-                {parsed.numeric_values && Object.keys(parsed.numeric_values).filter(k => parsed.numeric_values[k] !== undefined).length > 0 ? (
-                  Object.entries(parsed.numeric_values).filter(([, v]) => v !== undefined).map(([k, v], i) => (
-                    <div key={i} style={{ fontSize: "13px" }}>
-                      <span style={{ fontWeight: 600 }}>{k.replace(/_/g, " ")}:</span> {v}
-                    </div>
-                  ))
+                {parsed.numeric_values && Object.keys(parsed.numeric_values).filter(function(k) { return parsed.numeric_values[k] !== undefined; }).length > 0 ? (
+                  Object.entries(parsed.numeric_values).filter(function([, v]) { return v !== undefined; }).map(function([k, v], i) {
+                    return (
+                      <div key={i} style={{ fontSize: "13px" }}>
+                        <span style={{ fontWeight: 600 }}>{k.replace(/_/g, " ")}:</span> {v}
+                      </div>
+                    );
+                  })
                 ) : (
                   <span style={{ fontSize: "12px", color: "#9ca3af" }}>No numerics extracted</span>
                 )}
@@ -962,7 +1028,7 @@ export default function VoiceInspectionPage() {
 
         {/* ---- CONFIDENCE SCORES ---- */}
         {chain?.confidence_scores && (
-          <Card title="Chain Confidence" icon="\ud83c\udfaf" status={`Overall: ${Math.round(chain.confidence_scores.overall_confidence * 100)}%`}>
+          <Card title="Chain Confidence" icon={"\uD83C\uDFAF"} status={"Overall: " + Math.round(chain.confidence_scores.overall_confidence * 100) + "%"}>
             {confidenceBar(chain.confidence_scores.mechanism_confidence, "Damage Mechanism")}
             {confidenceBar(chain.confidence_scores.zone_confidence, "Zone Prediction")}
             {confidenceBar(chain.confidence_scores.method_confidence, "Method Selection")}
@@ -977,9 +1043,9 @@ export default function VoiceInspectionPage() {
 
         {/* ---- ENGINE 1: DAMAGE MECHANISMS ---- */}
         {chain?.engine_1_damage_mechanisms && chain.engine_1_damage_mechanisms.length > 0 && (
-          <Card title="Engine 1 — Damage Mechanisms" icon="\u26a0\ufe0f" status={`${chain.engine_1_damage_mechanisms.filter(m => !m.id.startsWith("TEMP_FILTERED")).length} active, ${chain.engine_1_damage_mechanisms.filter(m => m.id.startsWith("TEMP_FILTERED")).length} temp-excluded`}>
-            {chain.engine_1_damage_mechanisms.filter(m => !m.id.startsWith("TEMP_FILTERED")).map((m, i) => (
-              <div key={i} style={{ marginBottom: "12px", padding: "10px 12px", backgroundColor: "#fafafa", borderRadius: "6px", borderLeft: `4px solid ${severityColor(m.severity)}` }}>
+          <Card title={"Engine 1 \u2014 Damage Mechanisms"} icon={"\u26A0\uFE0F"} status={chain.engine_1_damage_mechanisms.filter(function(m) { return !m.id.startsWith("TEMP_FILTERED"); }).length + " active, " + chain.engine_1_damage_mechanisms.filter(function(m) { return m.id.startsWith("TEMP_FILTERED"); }).length + " temp-excluded"}>
+            {chain.engine_1_damage_mechanisms.filter(function(m) { return !m.id.startsWith("TEMP_FILTERED"); }).map((m, i) => (
+              <div key={i} style={{ marginBottom: "12px", padding: "10px 12px", backgroundColor: "#fafafa", borderRadius: "6px", borderLeft: "4px solid " + severityColor(m.severity) }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
                   {severityBadge(m.severity)}
                   <span style={{ fontWeight: 700, fontSize: "14px" }}>{m.name}</span>
@@ -992,11 +1058,10 @@ export default function VoiceInspectionPage() {
                 </div>
               </div>
             ))}
-            {/* Temperature-excluded mechanisms */}
-            {chain.engine_1_damage_mechanisms.filter(m => m.id.startsWith("TEMP_FILTERED")).length > 0 && (
+            {chain.engine_1_damage_mechanisms.filter(function(m) { return m.id.startsWith("TEMP_FILTERED"); }).length > 0 && (
               <div style={{ marginTop: "12px", padding: "10px 12px", backgroundColor: "#fffbeb", borderRadius: "6px", border: "1px solid #fde68a" }}>
                 <div style={{ fontSize: "12px", fontWeight: 700, color: "#92400e", marginBottom: "6px" }}>Temperature-Excluded Mechanisms (verify multi-zone applicability)</div>
-                {chain.engine_1_damage_mechanisms.filter(m => m.id.startsWith("TEMP_FILTERED")).map((m, i) => (
+                {chain.engine_1_damage_mechanisms.filter(function(m) { return m.id.startsWith("TEMP_FILTERED"); }).map((m, i) => (
                   <div key={i} style={{ fontSize: "12px", color: "#78350f", padding: "2px 0" }}>
                     {m.name.replace("TEMPERATURE-EXCLUDED (verify multi-zone applicability): ", "")}
                   </div>
@@ -1008,9 +1073,9 @@ export default function VoiceInspectionPage() {
 
         {/* ---- ENGINE 2: AFFECTED ZONES ---- */}
         {chain?.engine_2_affected_zones && chain.engine_2_affected_zones.length > 0 && (
-          <Card title="Engine 2 — Affected Zones" icon="\ud83d\udccd" status={`${chain.engine_2_affected_zones.filter(z => z.priority === 1).length} P1, ${chain.engine_2_affected_zones.filter(z => z.priority === 2).length} P2`}>
+          <Card title={"Engine 2 \u2014 Affected Zones"} icon={"\uD83D\uDCCD"} status={chain.engine_2_affected_zones.filter(function(z) { return z.priority === 1; }).length + " P1, " + chain.engine_2_affected_zones.filter(function(z) { return z.priority === 2; }).length + " P2"}>
             {chain.engine_2_affected_zones.map((z, i) => (
-              <div key={i} style={{ marginBottom: "8px", padding: "8px 12px", backgroundColor: z.priority === 1 ? "#fef2f2" : "#f9fafb", borderRadius: "6px", borderLeft: `3px solid ${z.priority === 1 ? "#dc2626" : z.priority === 2 ? "#ea580c" : "#6b7280"}` }}>
+              <div key={i} style={{ marginBottom: "8px", padding: "8px 12px", backgroundColor: z.priority === 1 ? "#fef2f2" : "#f9fafb", borderRadius: "6px", borderLeft: "3px solid " + (z.priority === 1 ? "#dc2626" : z.priority === 2 ? "#ea580c" : "#6b7280") }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "2px" }}>
                   {priorityBadge(z.priority)}
                   <span style={{ fontWeight: 700, fontSize: "13px" }}>{z.zone_name}</span>
@@ -1025,40 +1090,42 @@ export default function VoiceInspectionPage() {
 
         {/* ---- ENGINE 3: INSPECTION METHODS ---- */}
         {chain?.engine_3_inspection_methods && chain.engine_3_inspection_methods.length > 0 && (
-          <Card title="Engine 3 — Inspection Methods" icon="\ud83d\udd2c" status={`${chain.engine_3_inspection_methods.length} method-zone pairs`}>
+          <Card title={"Engine 3 \u2014 Inspection Methods"} icon={"\uD83D\uDD2C"} status={chain.engine_3_inspection_methods.length + " method-zone pairs"}>
             {(() => {
-              // Group by method
-              const groups: { [key: string]: InspectionMethod[] } = {};
-              chain.engine_3_inspection_methods.forEach(m => {
+              var groups: { [key: string]: InspectionMethod[] } = {};
+              chain.engine_3_inspection_methods.forEach(function(m) {
                 if (!groups[m.method_name]) groups[m.method_name] = [];
-                // Deduplicate by technique within group
-                if (!groups[m.method_name].find(x => x.technique_variant === m.technique_variant)) {
+                if (!groups[m.method_name].find(function(x) { return x.technique_variant === m.technique_variant; })) {
                   groups[m.method_name].push(m);
                 }
               });
-              return Object.entries(groups).map(([method, items], gi) => (
-                <div key={gi} style={{ marginBottom: "12px" }}>
-                  <div style={{ fontSize: "13px", fontWeight: 700, color: "#1e40af", marginBottom: "6px", padding: "4px 8px", backgroundColor: "#eff6ff", borderRadius: "4px", display: "inline-block" }}>{method}</div>
-                  {items.map((item, ii) => (
-                    <div key={ii} style={{ marginLeft: "8px", marginBottom: "8px", padding: "6px 10px", borderLeft: "2px solid #dbeafe", fontSize: "12px" }}>
-                      <div style={{ fontWeight: 600, marginBottom: "2px" }}>{item.technique_variant}</div>
-                      <div style={{ color: "#374151" }}><strong>For:</strong> {item.target_mechanism} at {item.target_zone}</div>
-                      <div style={{ color: "#6b7280" }}><strong>Detects:</strong> {item.detection_capability}</div>
-                      <div style={{ color: "#6b7280" }}><strong>Sizing:</strong> {item.sizing_capability}</div>
-                      <div style={{ color: "#6b7280" }}><strong>Code:</strong> {item.code_reference} | <strong>Qual:</strong> {item.personnel_qualification}</div>
-                    </div>
-                  ))}
-                </div>
-              ));
+              return Object.entries(groups).map(function([method, items], gi) {
+                return (
+                  <div key={gi} style={{ marginBottom: "12px" }}>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: "#1e40af", marginBottom: "6px", padding: "4px 8px", backgroundColor: "#eff6ff", borderRadius: "4px", display: "inline-block" }}>{method}</div>
+                    {items.map(function(item, ii) {
+                      return (
+                        <div key={ii} style={{ marginLeft: "8px", marginBottom: "8px", padding: "6px 10px", borderLeft: "2px solid #dbeafe", fontSize: "12px" }}>
+                          <div style={{ fontWeight: 600, marginBottom: "2px" }}>{item.technique_variant}</div>
+                          <div style={{ color: "#374151" }}><strong>For:</strong> {item.target_mechanism} at {item.target_zone}</div>
+                          <div style={{ color: "#6b7280" }}><strong>Detects:</strong> {item.detection_capability}</div>
+                          <div style={{ color: "#6b7280" }}><strong>Sizing:</strong> {item.sizing_capability}</div>
+                          <div style={{ color: "#6b7280" }}><strong>Code:</strong> {item.code_reference} | <strong>Qual:</strong> {item.personnel_qualification}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              });
             })()}
           </Card>
         )}
 
         {/* ---- ENGINE 4: CODE ACTION PATHS ---- */}
         {chain?.engine_4_code_action_paths && chain.engine_4_code_action_paths.length > 0 && (
-          <Card title="Engine 4 — Code Action Paths" icon="\ud83d\udcdc" status={`${chain.engine_4_code_action_paths.length} finding types mapped`}>
+          <Card title={"Engine 4 \u2014 Code Action Paths"} icon={"\uD83D\uDCDC"} status={chain.engine_4_code_action_paths.length + " finding types mapped"}>
             {chain.engine_4_code_action_paths.map((p, i) => (
-              <div key={i} style={{ marginBottom: "12px", padding: "10px 12px", backgroundColor: "#fafafa", borderRadius: "6px", borderLeft: `3px solid ${p.engineering_review_required ? "#dc2626" : "#2563eb"}` }}>
+              <div key={i} style={{ marginBottom: "12px", padding: "10px 12px", backgroundColor: "#fafafa", borderRadius: "6px", borderLeft: "3px solid " + (p.engineering_review_required ? "#dc2626" : "#2563eb") }}>
                 <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "4px" }}>
                   {p.finding_type.replace(/_/g, " ")}
                   {p.engineering_review_required && <span style={{ fontSize: "11px", color: "#dc2626", marginLeft: "8px" }}>ENGINEERING REVIEW REQUIRED</span>}
@@ -1074,7 +1141,7 @@ export default function VoiceInspectionPage() {
 
         {/* ---- ENGINE 5: ESCALATION TIMELINE ---- */}
         {chain?.engine_5_escalation_timeline && chain.engine_5_escalation_timeline.length > 0 && (
-          <Card title="Engine 5 — Escalation Timeline" icon="\u23f1\ufe0f" status={`${chain.engine_5_escalation_timeline.length} tiers`}>
+          <Card title={"Engine 5 \u2014 Escalation Timeline"} icon={"\u23F1\uFE0F"} status={chain.engine_5_escalation_timeline.length + " tiers"}>
             <div style={{ display: "flex", gap: "4px", marginBottom: "12px", flexWrap: "wrap" }}>
               {chain.engine_5_escalation_timeline.map((tier, i) => (
                 <button
@@ -1096,7 +1163,7 @@ export default function VoiceInspectionPage() {
               ))}
             </div>
             {(() => {
-              const tier = chain.engine_5_escalation_timeline[activeTimelineTier];
+              var tier = chain.engine_5_escalation_timeline[activeTimelineTier];
               if (!tier) return null;
               return (
                 <div>
@@ -1126,7 +1193,7 @@ export default function VoiceInspectionPage() {
 
         {/* ---- ENGINE 6: EXECUTION PACKAGES ---- */}
         {chain?.engine_6_execution_packages && chain.engine_6_execution_packages.length > 0 && (
-          <Card title="Engine 6 — Execution Packages" icon="\ud83d\udcca" status="Supervisor | Engineer | Executive">
+          <Card title={"Engine 6 \u2014 Execution Packages"} icon={"\uD83D\uDCCA"} status="Supervisor | Engineer | Executive">
             <div style={{ display: "flex", gap: "4px", marginBottom: "12px" }}>
               {chain.engine_6_execution_packages.map((pkg, i) => (
                 <button
@@ -1148,7 +1215,7 @@ export default function VoiceInspectionPage() {
               ))}
             </div>
             {(() => {
-              const pkg = chain.engine_6_execution_packages[activePackageTab];
+              var pkg = chain.engine_6_execution_packages[activePackageTab];
               if (!pkg) return null;
               return (
                 <div>
@@ -1180,7 +1247,7 @@ export default function VoiceInspectionPage() {
 
         {/* ---- AI NARRATIVE (demoted GPT-4o) ---- */}
         {aiNarrative && (
-          <Card title="AI Narrative Summary" icon="\ud83e\udd16" status="GPT-4o prose polish — constrained by chain data">
+          <Card title="AI Narrative Summary" icon={"\uD83E\uDD16"} status="GPT-4o prose polish — constrained by chain data">
             <div style={{ fontSize: "13px", lineHeight: "1.7", color: "#374151", whiteSpace: "pre-wrap" }}>
               {aiNarrative}
             </div>
@@ -1189,7 +1256,7 @@ export default function VoiceInspectionPage() {
 
         {/* ---- GOVERNANCE MATRIX ---- */}
         {governance && (
-          <Card title="Governance Matrix" icon="\ud83c\udfdb\ufe0f">
+          <Card title="Governance Matrix" icon={"\uD83C\uDFDB\uFE0F"}>
             <pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "300px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>
               {JSON.stringify(governance, null, 2)}
             </pre>
@@ -1198,7 +1265,7 @@ export default function VoiceInspectionPage() {
 
         {/* ---- CODE AUTHORITY RESOLUTION ---- */}
         {codeAuthority && (
-          <Card title="Code Authority Resolution" icon="\ud83d\udcd6">
+          <Card title="Code Authority Resolution" icon={"\uD83D\uDCD6"}>
             <pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "300px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>
               {JSON.stringify(codeAuthority, null, 2)}
             </pre>
@@ -1207,7 +1274,7 @@ export default function VoiceInspectionPage() {
 
         {/* ---- TIME PROGRESSION ---- */}
         {timeProgression && (
-          <Card title="Time Progression — Risk Curve" icon="\ud83d\udcc8">
+          <Card title="Time Progression — Risk Curve" icon={"\uD83D\uDCC8"}>
             <pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "300px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>
               {JSON.stringify(timeProgression, null, 2)}
             </pre>
@@ -1216,7 +1283,7 @@ export default function VoiceInspectionPage() {
 
         {/* ---- EVENT ENRICHMENT ---- */}
         {eventEnrich && (
-          <Card title="Event Classification & Rule Packs" icon="\ud83c\udf10">
+          <Card title="Event Classification & Rule Packs" icon={"\uD83C\uDF10"}>
             <pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "300px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>
               {JSON.stringify(eventEnrich, null, 2)}
             </pre>
@@ -1225,7 +1292,7 @@ export default function VoiceInspectionPage() {
 
         {/* ---- CODE TRACE ---- */}
         {codeTrace && (
-          <Card title="Code Trace — Clause-Level Citations" icon="\ud83d\udd0d">
+          <Card title="Code Trace — Clause-Level Citations" icon={"\uD83D\uDD0D"}>
             <pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "300px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>
               {JSON.stringify(codeTrace, null, 2)}
             </pre>
@@ -1234,7 +1301,7 @@ export default function VoiceInspectionPage() {
 
         {/* ---- WARNINGS ---- */}
         {chain?.warnings && chain.warnings.length > 0 && (
-          <Card title="Chain Warnings" icon="\u26a0\ufe0f" collapsible={false}>
+          <Card title="Chain Warnings" icon={"\u26A0\uFE0F"} collapsible={false}>
             {chain.warnings.map((w, i) => (
               <div key={i} style={{ fontSize: "12px", color: "#92400e", padding: "3px 0" }}>{w}</div>
             ))}
