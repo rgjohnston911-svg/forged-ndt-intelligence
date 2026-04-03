@@ -701,6 +701,233 @@ var SERVICE_MECHANISM_MAP: { [key: string]: Array<{
       temp_range_f: null,
       contributing_factors: ["water_depth", "duration", "debris", "soil_type", "drainage"]
     }
+  ],
+
+  "concrete_damage": [
+    {
+      id: "CONCRETE_SPALLING",
+      name: "Concrete Spalling / Delamination",
+      api_571_ref: "ACI 201.2R / AASHTO MBE / FHWA Bridge Inspector's Reference Manual",
+      description: "Separation of surface concrete from substrate due to rebar corrosion expansion, freeze-thaw cycling, ASR, or impact. Delamination is subsurface separation detectable by sounding. Spalling is visible loss of concrete section.",
+      severity: "high",
+      requires_immediate: false,
+      susceptible_materials: ["reinforced_concrete", "prestressed_concrete"],
+      temp_range_f: null,
+      contributing_factors: ["chloride_exposure", "carbonation", "freeze_thaw", "rebar_corrosion", "insufficient_cover", "poor_consolidation"]
+    },
+    {
+      id: "REBAR_CORROSION",
+      name: "Reinforcement Corrosion (Chloride or Carbonation-Induced)",
+      api_571_ref: "ACI 222R / AASHTO MBE Section 6 / ASTM C876",
+      description: "Corrosion of embedded steel reinforcement caused by chloride penetration (de-icing salts, marine environment) or carbonation of cover concrete. Produces expansive rust products causing cracking, delamination, and spalling. Section loss reduces load capacity.",
+      severity: "critical",
+      requires_immediate: false,
+      susceptible_materials: ["carbon_steel_rebar", "prestress_strand", "post_tension_tendon"],
+      temp_range_f: null,
+      contributing_factors: ["chloride_concentration", "carbonation_depth", "cover_depth", "concrete_permeability", "moisture", "oxygen"]
+    },
+    {
+      id: "CONCRETE_CRACKING_STRUCTURAL",
+      name: "Structural Cracking (Shear / Flexural / Torsion)",
+      api_571_ref: "AASHTO LRFD / ACI 318 / AASHTO MBE",
+      description: "Cracking from structural loading beyond design capacity or fatigue. Shear cracks are diagonal (45-degree) typically near supports. Flexural cracks are vertical at midspan. Width, spacing, and pattern indicate severity and cause.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["reinforced_concrete", "prestressed_concrete"],
+      temp_range_f: null,
+      contributing_factors: ["overloading", "impact", "settlement", "loss_of_prestress", "reinforcement_corrosion", "design_deficiency"]
+    },
+    {
+      id: "CONCRETE_CRUSHING",
+      name: "Concrete Crushing / Compression Failure",
+      api_571_ref: "AASHTO LRFD / ACI 318",
+      description: "Crushing of concrete in compression zones from overloading or impact. Visible as crushed/fractured concrete with loss of section. In columns indicates imminent collapse risk. In beams indicates flexural compression failure.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["reinforced_concrete"],
+      temp_range_f: null,
+      contributing_factors: ["impact_force", "overloading", "eccentric_loading", "slenderness", "confinement_loss"]
+    },
+    {
+      id: "ASR",
+      name: "Alkali-Silica Reaction (ASR)",
+      api_571_ref: "ACI 221.1R / FHWA-HIF-09-004",
+      description: "Internal expansive reaction between alkali hydroxides in cement and reactive silica in aggregates. Produces gel that absorbs water and expands, causing map cracking, misalignment, and structural distress. Progressive and irreversible.",
+      severity: "high",
+      requires_immediate: false,
+      susceptible_materials: ["concrete_with_reactive_aggregate"],
+      temp_range_f: null,
+      contributing_factors: ["reactive_aggregate", "high_alkali_cement", "moisture_availability", "temperature"]
+    },
+    {
+      id: "FREEZE_THAW",
+      name: "Freeze-Thaw Damage",
+      api_571_ref: "ACI 201.2R / ASTM C666",
+      description: "Progressive deterioration from repeated freezing and thawing of water in concrete pores. Causes scaling, D-cracking, and internal microcracking. Accelerated by de-icing chemicals. Non-air-entrained concrete most susceptible.",
+      severity: "medium",
+      requires_immediate: false,
+      susceptible_materials: ["non_air_entrained_concrete"],
+      temp_range_f: { min: -20, max: 40 },
+      contributing_factors: ["freeze_thaw_cycles", "saturation", "deicing_chemicals", "lack_of_air_entrainment"]
+    },
+    {
+      id: "PRESTRESS_LOSS",
+      name: "Prestress Loss / Tendon Failure",
+      api_571_ref: "AASHTO LRFD / PTI M55 / FHWA-HRT-13-027",
+      description: "Loss of prestress force from tendon corrosion, relaxation, creep, or shrinkage. Tendon failure in post-tensioned bridges is catastrophic — can cause sudden span collapse. Grouting deficiencies leave tendons exposed to corrosion.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["prestress_strand", "post_tension_tendon", "anchorage_hardware"],
+      temp_range_f: null,
+      contributing_factors: ["grout_voids", "chloride_exposure", "hydrogen_embrittlement", "fretting_fatigue", "anchorage_failure"]
+    }
+  ],
+
+  "bridge_overload": [
+    {
+      id: "BRIDGE_IMPACT_DAMAGE",
+      name: "Bridge Impact Damage (Vehicle/Vessel/Railcar)",
+      api_571_ref: "AASHTO MBE Section 5 / 23 CFR 650.305 / AREMA Ch. 15",
+      description: "Direct impact damage to bridge members from vehicle collision, vessel strike, or train derailment. May cause member deformation, cracking, section loss, and load path disruption. Requires immediate assessment of structural stability.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["structural_steel", "reinforced_concrete", "prestressed_concrete"],
+      temp_range_f: null,
+      contributing_factors: ["impact_energy", "impact_angle", "member_type", "redundancy", "material_ductility"]
+    },
+    {
+      id: "GIRDER_DEFORMATION",
+      name: "Steel Girder Deformation / Lateral Distortion",
+      api_571_ref: "AASHTO MBE / AWS D1.5 / AISC 360",
+      description: "Permanent deformation of steel girders from impact, overloading, or instability. Includes lateral sweep, web buckling, flange local buckling, and overall member buckling. Deformation beyond tolerance requires load restriction or closure.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["structural_steel"],
+      temp_range_f: null,
+      contributing_factors: ["impact_force", "member_slenderness", "lateral_bracing", "load_eccentricity"]
+    },
+    {
+      id: "BEARING_FAILURE",
+      name: "Bearing Failure / Displacement",
+      api_571_ref: "AASHTO LRFD Section 14 / AASHTO MBE",
+      description: "Bearing damage from impact, overloading, or seismic event. Includes bearing displacement, elastomeric bearing distortion, steel bearing fracture, and loss of bearing function. Bearing failure changes load path and may cause superstructure instability.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["elastomeric_bearing", "steel_bearing", "pot_bearing", "PTFE_bearing"],
+      temp_range_f: null,
+      contributing_factors: ["impact", "seismic", "thermal_movement_exceeded", "corrosion", "debris_accumulation"]
+    },
+    {
+      id: "LOAD_PATH_DISRUPTION",
+      name: "Load Path Disruption",
+      api_571_ref: "AASHTO MBE / Structural Engineering Assessment",
+      description: "Interruption of the structural load path from member failure, connection failure, or bearing loss. In non-redundant structures (fracture-critical), single member failure can cause collapse. In redundant structures, load redistribution occurs but must be verified.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["all_bridge_materials"],
+      temp_range_f: null,
+      contributing_factors: ["member_failure", "connection_failure", "bearing_loss", "non_redundancy", "fracture_critical_members"]
+    }
+  ],
+
+  "bridge_fire": [
+    {
+      id: "STEEL_STRENGTH_REDUCTION",
+      name: "Steel Strength Reduction from Fire Exposure",
+      api_571_ref: "AASHTO MBE / AISC Design Guide 19 (Fire) / FHWA Bridge Fire Report",
+      description: "Steel loses strength rapidly above 600F. At 1000F, yield strength is approximately 60% of room temperature value. At 1200F, approximately 40%. Permanent strength loss may occur if steel exceeded critical temperature. Requires hardness survey and potential metallographic examination.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["structural_steel", "A36", "A572", "A588", "HPS_steel"],
+      temp_range_f: { min: 600, max: 2500 },
+      contributing_factors: ["fire_duration", "peak_temperature", "cooling_rate", "applied_load_during_fire", "steel_grade"]
+    },
+    {
+      id: "CONCRETE_FIRE_DAMAGE",
+      name: "Concrete Fire Damage",
+      api_571_ref: "ACI 216.1 / AASHTO MBE / PCI MNL-124",
+      description: "Concrete exposed to fire undergoes color changes (pink >570F, gray >1050F, buff >1650F), strength loss, spalling, and aggregate damage. Reinforcement loses bond. Prestress tendons are extremely sensitive — irreversible relaxation above 400F.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["reinforced_concrete", "prestressed_concrete"],
+      temp_range_f: { min: 400, max: 2500 },
+      contributing_factors: ["fire_duration", "peak_temperature", "moisture_content", "aggregate_type", "member_thickness", "prestress_level"]
+    },
+    {
+      id: "COATING_FIRE_LOSS",
+      name: "Protective Coating Loss from Fire",
+      api_571_ref: "SSPC / AASHTO MBE",
+      description: "Fire destroys paint and protective coatings on steel members. Exposes bare steel to accelerated corrosion. Also may indicate temperature exposure zone for damage assessment mapping.",
+      severity: "high",
+      requires_immediate: false,
+      susceptible_materials: ["coated_steel"],
+      temp_range_f: { min: 400, max: 2500 },
+      contributing_factors: ["fire_temperature", "coating_type", "exposure_duration"]
+    }
+  ],
+
+  "scour": [
+    {
+      id: "BRIDGE_SCOUR",
+      name: "Foundation Scour (General / Contraction / Local)",
+      api_571_ref: "FHWA HEC-18 / AASHTO MBE / 23 CFR 650.305",
+      description: "Erosion of streambed material around bridge foundations from flowing water. General scour lowers entire bed. Contraction scour from flow acceleration at bridge. Local scour from vortex formation at piers/abutments. Leading cause of bridge failure in the US.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["foundation_soil", "riprap", "piles"],
+      temp_range_f: null,
+      contributing_factors: ["flow_velocity", "flood_event", "channel_geometry", "pier_shape", "debris_accumulation", "bed_material"]
+    }
+  ],
+
+  "bridge_fatigue": [
+    {
+      id: "STEEL_FATIGUE_BRIDGE",
+      name: "Fatigue Cracking at Connection Details (AASHTO Categories)",
+      api_571_ref: "AASHTO LRFD Section 6.6 / AWS D1.5 / AASHTO MBE",
+      description: "Fatigue cracking at welded connection details classified by AASHTO fatigue categories (A through E-prime). Category E and E-prime details (partial penetration welds, cover plate terminations, web gussets) have lowest fatigue resistance. Fracture-critical members require special attention.",
+      severity: "high",
+      requires_immediate: true,
+      susceptible_materials: ["structural_steel_bridge"],
+      temp_range_f: null,
+      contributing_factors: ["truck_traffic_volume", "stress_range", "detail_category", "weld_quality", "constraint", "fracture_critical_designation"]
+    },
+    {
+      id: "GUSSET_PLATE_FAILURE",
+      name: "Gusset Plate Buckling / Failure",
+      api_571_ref: "FHWA Guidance on Gusset Plates (post I-35W) / AASHTO MBE",
+      description: "Buckling, yielding, or fracture of gusset plates at truss connections. I-35W bridge collapse (2007) was caused by under-designed gusset plates. Corrosion section loss, free-edge buckling, and Whitmore section yielding are primary failure modes.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["structural_steel"],
+      temp_range_f: null,
+      contributing_factors: ["original_design_adequacy", "section_loss_from_corrosion", "load_increase", "connection_eccentricity", "free_edge_length"]
+    }
+  ],
+
+  "derailment_event": [
+    {
+      id: "DERAILMENT_IMPACT",
+      name: "Train Derailment Impact on Structure",
+      api_571_ref: "AREMA Chapter 15 / 49 CFR 237 / FRA Bridge Safety Standards",
+      description: "Impact loading from derailed railcars striking bridge members. Impact energy depends on train speed, car weight (loaded freight cars 286,000 lbs), and impact angle. May cause primary member failure, track misalignment, bearing displacement, and fire from ruptured tank cars.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["structural_steel", "reinforced_concrete", "rail", "timber"],
+      temp_range_f: null,
+      contributing_factors: ["train_speed", "car_weight", "impact_angle", "number_of_cars_derailed", "hazmat_cargo", "member_hit"]
+    },
+    {
+      id: "TRACK_MISALIGNMENT",
+      name: "Track / Rail Misalignment",
+      api_571_ref: "AREMA Chapter 5 / 49 CFR 213 (Track Safety Standards)",
+      description: "Lateral or vertical displacement of rail from designed alignment. On bridges, track misalignment may indicate structural movement, bearing displacement, or substructure damage. Gauge widening exceeding FRA limits requires speed restriction or closure.",
+      severity: "critical",
+      requires_immediate: true,
+      susceptible_materials: ["rail_steel", "tie_plate", "timber_tie", "concrete_tie"],
+      temp_range_f: null,
+      contributing_factors: ["impact_force", "substructure_movement", "bearing_displacement", "tie_damage", "fastener_failure"]
+    }
   ]
 };
 
@@ -717,17 +944,24 @@ var EVENT_TO_ENVIRONMENT: { [key: string]: string[] } = {
   "earthquake": ["seismic_event"],
   "seismic": ["seismic_event"],
   "vibration": ["vibration", "cyclic_service"],
-  "impact": ["impact_event"],
-  "collision": ["impact_event"],
+  "impact": ["impact_event", "bridge_overload"],
+  "collision": ["impact_event", "bridge_overload"],
   "overpressure": ["overpressure"],
-  "flood": ["flood"],
+  "flood": ["flood", "scour"],
   "tsunami": ["flood", "seismic_event"],
   "corrosion": ["corrosion"],
   "erosion": ["corrosion"],
-  "fatigue": ["cyclic_service"],
+  "fatigue": ["cyclic_service", "bridge_fatigue"],
   "leak": ["corrosion"],
   "crack": ["cyclic_service"],
-  "upset": ["overpressure", "high_temperature"]
+  "upset": ["overpressure", "high_temperature"],
+  "derailment": ["derailment_event", "impact_event", "bridge_overload"],
+  "derailed": ["derailment_event", "impact_event", "bridge_overload"],
+  "train": ["derailment_event", "bridge_overload"],
+  "railcar": ["derailment_event", "bridge_overload"],
+  "scour": ["scour"],
+  "overload": ["bridge_overload"],
+  "deformation": ["impact_event", "bridge_overload"]
 };
 
 // --- ADDITIONAL ENVIRONMENT DETECTION FROM TRANSCRIPT KEYWORDS ---
@@ -769,7 +1003,39 @@ var TRANSCRIPT_ENV_KEYWORDS: { [key: string]: string[] } = {
   "thermal cycling": ["cyclic_service", "high_temperature"],
   "insulated": ["corrosion"],
   "insulation": ["corrosion"],
-  "cui": ["corrosion"]
+  "cui": ["corrosion"],
+  "bridge": ["concrete_damage", "bridge_overload", "bridge_fatigue"],
+  "girder": ["bridge_overload", "bridge_fatigue"],
+  "overpass": ["concrete_damage", "bridge_overload"],
+  "viaduct": ["concrete_damage", "bridge_overload"],
+  "pier": ["concrete_damage"],
+  "abutment": ["concrete_damage"],
+  "deck": ["concrete_damage"],
+  "bearing seat": ["bridge_overload"],
+  "bearing": ["bridge_overload"],
+  "gusset": ["bridge_fatigue"],
+  "truss": ["bridge_fatigue", "bridge_overload"],
+  "rail": ["derailment_event"],
+  "track": ["derailment_event"],
+  "railroad": ["derailment_event"],
+  "railway": ["derailment_event"],
+  "freight": ["derailment_event", "bridge_overload"],
+  "locomotive": ["derailment_event"],
+  "railcar": ["derailment_event"],
+  "tank car": ["derailment_event", "fire_exposure"],
+  "derail": ["derailment_event", "impact_event"],
+  "spalling": ["concrete_damage"],
+  "delamination": ["concrete_damage"],
+  "rebar": ["concrete_damage"],
+  "reinforcement": ["concrete_damage"],
+  "prestress": ["concrete_damage"],
+  "post-tension": ["concrete_damage"],
+  "tendon": ["concrete_damage"],
+  "scour": ["scour"],
+  "flood": ["flood", "scour"],
+  "dam": ["concrete_damage", "scour"],
+  "concrete": ["concrete_damage"],
+  "column": ["concrete_damage"]
 };
 
 
@@ -1152,6 +1418,109 @@ var ZONE_MAP: { [asset_class: string]: { [mechanism_pattern: string]: Array<{
       { zone_id: "RPF-CUI-CIRCUIT", zone_name: "CUI-Susceptible Circuits (25-350F)", priority: 1, rationale: "Intermittent service piping and vessels in CUI temperature range." },
       { zone_id: "RPF-DEADLEG-SYSTEM", zone_name: "Dead Legs and Stagnant Connections", priority: 2, rationale: "Accelerated corrosion in stagnant areas." }
     ]
+  },
+
+  "bridge_steel": {
+    "BRIDGE_IMPACT_DAMAGE|GIRDER_DEFORMATION|DERAILMENT_IMPACT|MECH_DAMAGE|STRUCTURAL_OVERLOAD": [
+      { zone_id: "BS-IMPACT-MEMBER", zone_name: "Impacted Girder/Member — Full Length", priority: 1, rationale: "Direct damage assessment. Measure lateral sweep, web buckling, flange distortion. Check for cracking at stiffener connections." },
+      { zone_id: "BS-IMPACT-CONNECTION", zone_name: "Connections at Impacted Member Ends", priority: 1, rationale: "Load path through connections. Bolt shear, weld cracking, plate buckling at connection to pier cap/abutment." },
+      { zone_id: "BS-BEARING", zone_name: "Bearings at Impacted Span", priority: 1, rationale: "Bearing displacement or damage changes load path. Check bearing alignment, anchor bolts, sole plate." },
+      { zone_id: "BS-ADJACENT-GIRDER", zone_name: "Adjacent Girders and Cross-Frames", priority: 1, rationale: "Load redistribution to adjacent members. Check cross-frames, diaphragms, and lateral bracing for overstress." },
+      { zone_id: "BS-SPLICE", zone_name: "Splice Plates and Bolted/Welded Connections in Impact Zone", priority: 1, rationale: "Splices are critical load transfer points. Impact may cause bolt loosening, plate buckling, or weld cracking." },
+      { zone_id: "BS-DECK-ABOVE", zone_name: "Deck Above Impacted Girder", priority: 2, rationale: "Deck damage from below — cracking, shear connector damage, composite action loss." },
+      { zone_id: "BS-ADJACENT-SPAN", zone_name: "Adjacent Spans (load redistribution check)", priority: 2, rationale: "If impacted span capacity is reduced, adjacent spans may carry redistributed loads." }
+    ],
+    "FIRE_DAMAGE|METALLURGICAL_CHANGE|STEEL_STRENGTH_REDUCTION|COATING_FIRE_LOSS": [
+      { zone_id: "BS-FIRE-WEB", zone_name: "Girder Web in Fire Zone (buckling/distortion check)", priority: 1, rationale: "Thin web plates are most sensitive to fire-induced buckling and distortion. Check for web waviness and permanent set." },
+      { zone_id: "BS-FIRE-FLANGE", zone_name: "Bottom Flange in Fire Zone (tension flange)", priority: 1, rationale: "Bottom flange carries tension in positive moment region. Fire damage to tension flange directly reduces flexural capacity." },
+      { zone_id: "BS-FIRE-BEARING-STIFF", zone_name: "Bearing Stiffeners and Connection Plates in Fire Zone", priority: 1, rationale: "Stiffeners prevent web buckling. Fire damage to stiffeners reduces shear capacity near supports." },
+      { zone_id: "BS-FIRE-LATERAL", zone_name: "Lateral Bracing and Cross-Frames in Fire Zone", priority: 2, rationale: "Lateral bracing prevents lateral-torsional buckling. Fire damage may reduce bracing effectiveness." },
+      { zone_id: "BS-FIRE-COATING", zone_name: "Coating Condition in Fire Zone (exposure temperature mapping)", priority: 2, rationale: "Coating damage pattern maps fire exposure zones. Bare steel is accelerated corrosion risk." }
+    ],
+    "STEEL_FATIGUE_BRIDGE|MECH_FATIGUE|GUSSET_PLATE_FAILURE": [
+      { zone_id: "BS-FATIGUE-COVERPLATE", zone_name: "Cover Plate Terminations (Category E/E')", priority: 1, rationale: "Lowest fatigue resistance details. Cracks initiate at weld toe at cover plate end. AASHTO Category E' for partial length." },
+      { zone_id: "BS-FATIGUE-WEB-GAP", zone_name: "Web Gap Regions (out-of-plane distortion)", priority: 1, rationale: "Web gap cracking from out-of-plane distortion is most common fatigue problem in steel bridges. Occurs at connection plate terminations." },
+      { zone_id: "BS-FATIGUE-FLOOR", zone_name: "Floorbeam-to-Girder Connections", priority: 1, rationale: "High stress range connection detail. Fatigue cracking at cope holes, weld terminations." },
+      { zone_id: "BS-FATIGUE-GUSSET", zone_name: "Gusset Plates (corrosion + buckling check)", priority: 1, rationale: "Post I-35W collapse requirement. Check free-edge buckling, section loss, Whitmore section adequacy." },
+      { zone_id: "BS-FATIGUE-STRINGER", zone_name: "Stringer-to-Floorbeam Connections", priority: 2, rationale: "Clip angle connections subject to fatigue. Check for cracks at rivet/bolt holes and angle legs." }
+    ],
+    "MARINE_CORROSION|GENERAL_CORROSION|PITTING": [
+      { zone_id: "BS-CORR-BEARING", zone_name: "Steel at Bearings and Bearing Areas", priority: 1, rationale: "Debris and moisture accumulate at bearings. Pack rust between bearing components." },
+      { zone_id: "BS-CORR-DRAIN", zone_name: "Areas Below Deck Joints and Drains", priority: 1, rationale: "Leaking deck joints deposit chloride-laden water on steel below. Highest corrosion rate areas." },
+      { zone_id: "BS-CORR-FASCIA", zone_name: "Fascia Girder Exterior Face", priority: 2, rationale: "Exposed to road spray. Accelerated corrosion on exterior face." },
+      { zone_id: "BS-CORR-BOTTOM", zone_name: "Bottom Flange (trapped moisture)", priority: 2, rationale: "Horizontal surfaces trap moisture and debris. Section loss at tension flange directly reduces capacity." }
+    ],
+    "BEARING_FAILURE|LOAD_PATH_DISRUPTION": [
+      { zone_id: "BS-BEARING-SEAT", zone_name: "Bearing Seat and Masonry Plate", priority: 1, rationale: "Concrete bearing seat condition affects load transfer. Cracked or spalled bearing seats cannot support bearing loads." },
+      { zone_id: "BS-BEARING-ANCHOR", zone_name: "Anchor Bolts at Bearings", priority: 1, rationale: "Anchor bolts resist lateral and uplift forces. Corroded or fractured anchor bolts compromise bearing function." },
+      { zone_id: "BS-BEARING-DEVICE", zone_name: "Bearing Device (elastomeric/steel/pot)", priority: 1, rationale: "Bearing condition — elastomeric splitting/bulging, steel bearing corrosion/seizure, pot bearing seal failure." }
+    ],
+    "TRACK_MISALIGNMENT": [
+      { zone_id: "BS-TRACK-ALIGN", zone_name: "Track Alignment on Bridge (gauge, profile, cross-level)", priority: 1, rationale: "Track geometry verification per FRA Class standards. Gauge, alignment, profile, cross-level, and warp measurements." },
+      { zone_id: "BS-TRACK-FASTENER", zone_name: "Rail Fasteners, Tie Plates, and Guard Rails on Bridge", priority: 1, rationale: "Fastener condition — missing/broken clips, loose tie plates, guard rail damage." },
+      { zone_id: "BS-TRACK-APPROACH", zone_name: "Bridge Approach Trackwork (50 feet each end)", priority: 2, rationale: "Approach track settlement or misalignment indicates possible substructure movement." }
+    ]
+  },
+
+  "bridge_concrete": {
+    "CONCRETE_SPALLING|REBAR_CORROSION|FREEZE_THAW|ASR": [
+      { zone_id: "BC-DECK-TOP", zone_name: "Deck Top Surface and Wearing Surface", priority: 1, rationale: "Chloride exposure from deicing. Map cracking, spalling, patches, potholes. Chain drag or hammer sounding for delamination survey." },
+      { zone_id: "BC-DECK-SOFFIT", zone_name: "Deck Soffit (bottom of deck)", priority: 1, rationale: "Efflorescence, staining, cracking, and spalling visible from below. Indicates water penetration through deck." },
+      { zone_id: "BC-PIER-COL", zone_name: "Pier Columns (especially splash zone if over water)", priority: 1, rationale: "Chloride exposure at splash zone. Vertical cracking indicates rebar corrosion. Horizontal cracking indicates overloading." },
+      { zone_id: "BC-PIER-CAP", zone_name: "Pier Cap Beam", priority: 1, rationale: "Critical load transfer element. Shear cracks near bearings. Flexural cracks at midspan. Check bearing seats for deterioration." },
+      { zone_id: "BC-ABUTMENT", zone_name: "Abutment Faces, Wingwalls, and Backwalls", priority: 2, rationale: "Exposure to moisture and backfill pressure. Check for rotation, settlement, and drainage adequacy." },
+      { zone_id: "BC-BARRIER", zone_name: "Barrier Rails and Parapets", priority: 2, rationale: "Impact damage, chloride exposure, delamination. Safety-critical element." },
+      { zone_id: "BC-JOINT", zone_name: "Expansion Joints and Joint Headers", priority: 2, rationale: "Joint failure allows water and chlorides to reach substructure. Check for debris, seal damage, and header deterioration." }
+    ],
+    "CONCRETE_CRACKING_STRUCTURAL|CONCRETE_CRUSHING|BRIDGE_IMPACT_DAMAGE": [
+      { zone_id: "BC-IMPACT-ZONE", zone_name: "Impact Zone on Concrete Member", priority: 1, rationale: "Direct assessment of impact damage — spalling, cracking pattern, rebar exposure, section loss." },
+      { zone_id: "BC-COLUMN-TOP", zone_name: "Column Top Connection to Cap Beam", priority: 1, rationale: "Shear failure zone. Diagonal cracking from column into cap beam indicates critical shear distress." },
+      { zone_id: "BC-COLUMN-BASE", zone_name: "Column Base Connection to Footing", priority: 1, rationale: "Plastic hinge zone under lateral loading. Check for cracking, spalling, and rebar buckling/exposure." },
+      { zone_id: "BC-BEAM-ENDS", zone_name: "Beam/Girder Ends at Supports (shear zone)", priority: 1, rationale: "Maximum shear zone. Diagonal cracking indicates shear distress. Check bearing area condition." },
+      { zone_id: "BC-MIDSPAN", zone_name: "Midspan Soffit of Beams/Girders (flexural zone)", priority: 2, rationale: "Maximum moment zone. Vertical cracking at midspan indicates flexural distress. Check crack widths." }
+    ],
+    "CONCRETE_FIRE_DAMAGE|FIRE_DAMAGE|COATING_FIRE_LOSS": [
+      { zone_id: "BC-FIRE-SOFFIT", zone_name: "Deck Soffit in Fire Zone (direct flame exposure)", priority: 1, rationale: "Under-deck fires directly expose deck soffit. Color changes map temperature exposure. Spalling exposes reinforcement." },
+      { zone_id: "BC-FIRE-COLUMN", zone_name: "Columns/Piers in Fire Zone", priority: 1, rationale: "Fire damage assessment of concrete columns — color change, spalling depth, rebar exposure, rebar temperature assessment." },
+      { zone_id: "BC-FIRE-BEAM", zone_name: "Beams/Girders in Fire Zone", priority: 1, rationale: "Concrete beams exposed to fire — check for spalling, cracking, deflection increase, and prestress tendon condition." },
+      { zone_id: "BC-FIRE-REBAR", zone_name: "Exposed Reinforcement in Fire Zone", priority: 1, rationale: "Rebar exposed by spalling in fire zone — hardness testing to assess thermal damage. Prestress tendons extremely sensitive." }
+    ],
+    "PRESTRESS_LOSS": [
+      { zone_id: "BC-PT-ANCHOR", zone_name: "Post-Tension Anchorages", priority: 1, rationale: "Anchorage condition — corrosion, grout leakage, staining, cracking around anchorages indicates tendon problems." },
+      { zone_id: "BC-PT-MIDSPAN", zone_name: "Midspan Bottom of Prestressed Beams", priority: 1, rationale: "Flexural cracking at midspan of prestressed beams indicates prestress loss. Should be in compression — any cracking is significant." },
+      { zone_id: "BC-PT-DUCT", zone_name: "Post-Tension Duct Locations (grout void survey)", priority: 1, rationale: "Grout voids leave tendons unprotected. Impact echo, GPR, or borescope to locate voids." }
+    ],
+    "BRIDGE_SCOUR": [
+      { zone_id: "BC-SCOUR-PIER", zone_name: "Pier Foundations (scour depth measurement)", priority: 1, rationale: "Measure scour depth at each pier. Compare to design scour depth. Foundation exposure reduces capacity." },
+      { zone_id: "BC-SCOUR-ABUTMENT", zone_name: "Abutment Foundations", priority: 1, rationale: "Scour at abutments undermines support. Check for exposed footing, settlement, and rotation." },
+      { zone_id: "BC-SCOUR-RIPRAP", zone_name: "Scour Countermeasures (riprap, sheet piling)", priority: 2, rationale: "Verify scour countermeasures are intact and functioning." }
+    ]
+  },
+
+  "rail_bridge": {
+    "DERAILMENT_IMPACT|BRIDGE_IMPACT_DAMAGE|GIRDER_DEFORMATION|MECH_DAMAGE": [
+      { zone_id: "RB-IMPACT-GIRDER", zone_name: "Impacted Girder — Full Length Inspection", priority: 1, rationale: "Full-length assessment of impacted steel girder for deformation, cracking, section loss, and connection damage." },
+      { zone_id: "RB-TRACK-BRIDGE", zone_name: "Track Structure on Bridge (rail, ties, fasteners, guard rail)", priority: 1, rationale: "Complete track inspection on bridge per AREMA/FRA requirements. Rail alignment, gauge, fasteners, tie condition." },
+      { zone_id: "RB-BEARING-RB", zone_name: "Bearings (displacement and damage)", priority: 1, rationale: "Bearing assessment — check for displacement, anchor bolt damage, and proper function." },
+      { zone_id: "RB-FLOOR-SYSTEM", zone_name: "Floor System (floorbeams, stringers, connections)", priority: 1, rationale: "Floor system carries direct wheel loads. Check floorbeam-to-girder connections for impact damage." },
+      { zone_id: "RB-SUBSTRUCTURE", zone_name: "Substructure (piers, abutments, foundations)", priority: 1, rationale: "Check for substructure damage from impact loading transmitted through superstructure." },
+      { zone_id: "RB-APPROACH", zone_name: "Approach Spans and Approach Trackwork", priority: 2, rationale: "Adjacent spans may have load redistribution. Approach track settlement indicates possible foundation movement." }
+    ],
+    "FIRE_DAMAGE|STEEL_STRENGTH_REDUCTION|CONCRETE_FIRE_DAMAGE|COATING_FIRE_LOSS": [
+      { zone_id: "RB-FIRE-STEEL", zone_name: "Steel Members in Fire Exposure Zone", priority: 1, rationale: "Hardness survey and visual assessment of all steel in fire zone. Map coating damage extent." },
+      { zone_id: "RB-FIRE-CONCRETE", zone_name: "Concrete Members in Fire Zone", priority: 1, rationale: "Concrete color change mapping, spalling assessment, rebar exposure check." },
+      { zone_id: "RB-FIRE-TIMBER", zone_name: "Timber Components in Fire Zone (if timber deck/ties)", priority: 1, rationale: "Timber charring depth assessment. Cross-section loss from charring reduces capacity." },
+      { zone_id: "RB-FIRE-RAIL", zone_name: "Rail in Fire Zone (heat damage)", priority: 1, rationale: "Rail may have thermal distortion, residual stress, or metallurgical changes from fire exposure." }
+    ],
+    "TRACK_MISALIGNMENT": [
+      { zone_id: "RB-TRACK-GAUGE", zone_name: "Track Gauge Measurement (entire bridge length)", priority: 1, rationale: "FRA gauge limits — exceeding limits requires speed restriction or closure." },
+      { zone_id: "RB-TRACK-SURFACE", zone_name: "Track Surface and Cross-Level", priority: 1, rationale: "Surface and cross-level deviations indicate structural movement." },
+      { zone_id: "RB-TRACK-JOINT", zone_name: "Rail Joints on Bridge", priority: 2, rationale: "Joint bars and bolts — check for fracture, loose bolts, and battered ends." }
+    ],
+    "STEEL_FATIGUE_BRIDGE|GUSSET_PLATE_FAILURE": [
+      { zone_id: "RB-FATIGUE-CONN", zone_name: "Fatigue-Prone Connection Details (AREMA fatigue categories)", priority: 1, rationale: "Railroad bridges have high cycle fatigue from heavy axle loads. Focus on AREMA-classified details." },
+      { zone_id: "RB-FATIGUE-FCM", zone_name: "Fracture-Critical Members (if applicable)", priority: 1, rationale: "Non-redundant members whose failure would cause span collapse. Hands-on inspection with NDE required." }
+    ]
   }
 };
 
@@ -1466,6 +1835,107 @@ var METHOD_RULES: { [mechanism_id: string]: Array<{
   "CP_DEFICIENCY": [
     { method: "CP", technique: "Close-Interval CP Survey", detection: "Protection levels along entire structure", sizing: "Potential measurements at close intervals", code_ref: "NACE SP0176 / DNV-RP-B401", rationale: "Detailed CP survey to map protection levels. Identify areas of under-protection.", priority: 1, qualification: "CP Technician / NACE certified", limitations: "Requires reference electrode placement. IR drop correction." },
     { method: "UT", technique: "UT Thickness at Under-Protected Locations", detection: "Corrosion damage from CP deficiency", sizing: "Remaining wall thickness", code_ref: "API RP 2I / NACE SP0176", rationale: "Measure wall thickness at any locations with inadequate CP to assess corrosion damage.", priority: 1, qualification: "ASNT Level II UT", limitations: "Access dependent. Marine growth removal required." }
+  ],
+
+  "CONCRETE_SPALLING": [
+    { method: "VT", technique: "Visual Inspection — Condition State Assessment (AASHTO Element Level)", detection: "Spalling extent, delamination (sounding), efflorescence, staining, cracking pattern", sizing: "Area and depth of spalling, delamination extent", code_ref: "AASHTO MBE / NBIS / 23 CFR 650", rationale: "Element-level visual inspection per AASHTO MBEI. Map all spalling, delamination, and exposed reinforcement. Document condition states (CS1-CS4).", priority: 1, qualification: "NBIS-qualified Bridge Inspector / PE", limitations: "Subjective element. Requires access (snooper, rope access, or scaffolding)." },
+    { method: "SOUNDING", technique: "Hammer Sounding / Chain Drag (deck delamination survey)", detection: "Subsurface delamination in concrete decks and soffits", sizing: "Delamination area mapping", code_ref: "ASTM D4580 / AASHTO MBE", rationale: "Chain drag for horizontal surfaces (deck), hammer sounding for vertical/overhead surfaces. Hollow sound indicates delamination. Most cost-effective concrete screening method.", priority: 1, qualification: "Bridge Inspector", limitations: "Cannot determine depth. Only detects delamination, not corrosion rate. Requires direct access." },
+    { method: "GPR", technique: "Ground Penetrating Radar (concrete deck condition)", detection: "Rebar location, deck deterioration, chloride-affected zones, delamination", sizing: "Deterioration mapping of entire deck area", code_ref: "ASTM D6087 / AASHTO MBE", rationale: "GPR provides rapid full-coverage assessment of deck condition. Maps deterioration zones and rebar depth. Complement to chain drag for deck assessment.", priority: 2, qualification: "GPR technician with bridge experience", limitations: "Interpretation requires experience. Cannot detect early-stage corrosion. Signal affected by moisture and reinforcement congestion." }
+  ],
+
+  "REBAR_CORROSION": [
+    { method: "HALFCELL", technique: "Half-Cell Potential Survey (ASTM C876)", detection: "Probability of active rebar corrosion (copper-copper sulfate reference)", sizing: "Corrosion probability map over surface area", code_ref: "ASTM C876 / AASHTO MBE", rationale: "Half-cell potential mapping determines probability of active rebar corrosion. Greater than -350mV (CSE) = >90% probability of active corrosion. Required for corrosion assessment of reinforced concrete.", priority: 1, qualification: "Corrosion technician / Bridge Inspector with training", limitations: "Requires moist concrete. Affected by concrete resistivity. Surface must be connected electrically." },
+    { method: "COVERMETER", technique: "Cover Meter / Pachometer (rebar location and cover depth)", detection: "Rebar location, spacing, and concrete cover depth", sizing: "Cover depth measurement at grid points", code_ref: "BS 1881-204 / AASHTO MBE", rationale: "Verify actual cover depth vs. design. Insufficient cover allows faster chloride penetration to rebar. Map rebar locations for other testing.", priority: 1, qualification: "Bridge Inspector / Technician", limitations: "Limited depth range. Affected by congested reinforcement. Cannot detect corrosion directly." },
+    { method: "CHLORIDE", technique: "Chloride Profiling (concrete powder samples)", detection: "Chloride concentration at rebar depth", sizing: "Chloride content vs. threshold for corrosion initiation", code_ref: "ASTM C1152 / AASHTO T260 / AASHTO MBE", rationale: "Concrete dust samples at incremental depths to profile chloride penetration. Compare chloride at rebar depth to corrosion threshold (typically 1.0-1.5 lb/yd3). Essential for remaining life prediction.", priority: 1, qualification: "Materials testing technician", limitations: "Destructive sampling. Point measurements. Lab analysis required." },
+    { method: "GPR", technique: "Ground Penetrating Radar (corrosion zone mapping)", detection: "Deteriorated zones around corroding rebar", sizing: "Corrosion-affected area", code_ref: "ASTM D6087", rationale: "GPR signal attenuation indicates chloride-contaminated or deteriorated concrete around rebar.", priority: 2, qualification: "GPR technician", limitations: "Indirect method for corrosion. Best as screening tool." }
+  ],
+
+  "CONCRETE_CRACKING_STRUCTURAL": [
+    { method: "VT", technique: "Crack Mapping — Width, Length, Pattern, and Orientation", detection: "Crack type identification (shear/flexural/torsion/settlement)", sizing: "Crack width (crack comparator), length, spacing", code_ref: "AASHTO MBE / ACI 224R / FHWA Bridge Inspector Reference Manual", rationale: "Crack pattern identifies cause: diagonal at supports = shear, vertical at midspan = flexural, map cracking = ASR/shrinkage. Width indicates severity: >0.013 in = structural concern for reinforced concrete, ANY cracking in prestressed = significant.", priority: 1, qualification: "NBIS-qualified Bridge Inspector / SE", limitations: "Visual only. Cannot determine depth or rebar condition. Must be supplemented by NDE for critical findings." },
+    { method: "UT", technique: "UT Crack Depth Measurement (concrete)", detection: "Crack depth in concrete members", sizing: "Through-member crack depth", code_ref: "ASTM C597 / ACI 228.2R", rationale: "Ultrasonic pulse velocity across crack determines crack depth. Critical for shear cracks in pier columns and girder ends.", priority: 1, qualification: "ASNT Level II UT (concrete experience)", limitations: "Surface condition affects coupling. Requires crack access from both sides for transmission method." },
+    { method: "IMPACT_ECHO", technique: "Impact Echo (internal flaw detection)", detection: "Internal cracks, voids, delamination, and member thickness", sizing: "Flaw depth and extent", code_ref: "ASTM C1383 / ACI 228.2R", rationale: "Impact echo detects internal defects in concrete including cracks, honeycombing, and voids not visible at surface. Useful for deck and pier assessment.", priority: 2, qualification: "Impact echo technician with concrete experience", limitations: "Member geometry affects results. Requires experienced interpretation." }
+  ],
+
+  "CONCRETE_CRUSHING": [
+    { method: "VT", technique: "Visual Assessment of Crushing Zone", detection: "Extent of crushing, section loss, rebar exposure and buckling", sizing: "Crushing zone dimensions and depth", code_ref: "AASHTO MBE / Emergency assessment", rationale: "IMMEDIATE visual assessment. Concrete crushing in a column indicates imminent collapse risk. Document extent, check for rebar buckling or fracture.", priority: 1, qualification: "Structural Engineer / Bridge Inspector", limitations: "Safety concern — crushing zone may propagate. Establish exclusion zone." },
+    { method: "REBOUND", technique: "Rebound Hammer (Schmidt Hammer) — Adjacent to Damage", detection: "Concrete compressive strength estimate in undamaged areas", sizing: "Relative strength correlation", code_ref: "ASTM C805 / ACI 228.1R", rationale: "Assess concrete quality adjacent to crushing zone. Determines if damage is localized or indicates systemic weakness.", priority: 2, qualification: "Technician", limitations: "Surface test only. Affected by moisture and surface condition. Not reliable for damaged concrete. Estimates only." }
+  ],
+
+  "ASR": [
+    { method: "VT", technique: "Visual Pattern Assessment (map cracking, gel exudation)", detection: "Map/pattern cracking, gel staining, misalignment, expansion", sizing: "Extent of affected area", code_ref: "FHWA-HIF-09-004 / AASHTO MBE", rationale: "ASR produces characteristic map cracking with white gel deposits. Progressive expansion causes misalignment and joint closure.", priority: 1, qualification: "Bridge Inspector / Materials Engineer", limitations: "Visual alone cannot confirm ASR — must be verified by petrography." },
+    { method: "PETROGRAPHY", technique: "Petrographic Analysis (concrete core examination)", detection: "Confirmation of ASR reaction products, gel, reactive aggregate", sizing: "Severity classification", code_ref: "ASTM C856 / FHWA-HIF-09-004", rationale: "Petrographic examination of concrete cores is the definitive method for confirming ASR and assessing severity. Required for positive identification.", priority: 1, qualification: "Petrographer / Materials Engineer", limitations: "Destructive sampling. Lab analysis required. Point samples." }
+  ],
+
+  "PRESTRESS_LOSS": [
+    { method: "VT", technique: "Visual for Cracking in Prestressed Members (ANY crack is significant)", detection: "Flexural cracking at midspan of prestressed members — indicates prestress loss", sizing: "Crack width and extent", code_ref: "AASHTO MBE / PCI MNL-137", rationale: "Prestressed concrete should have no flexural cracking under service load. ANY cracking in the tension zone of a prestressed member is significant and indicates prestress loss exceeding design expectations.", priority: 1, qualification: "Structural Engineer / Bridge Inspector", limitations: "Cannot quantify prestress loss from visual alone." },
+    { method: "IMPACT_ECHO", technique: "Impact Echo / Ultrasonic for Grout Void Detection", detection: "Voids in post-tension ducts where grout is missing", sizing: "Void length and location along tendon path", code_ref: "FHWA-HRT-13-027 / PTI M55", rationale: "Grout voids leave tendons unprotected and at risk of corrosion. Impact echo and UT methods can detect voids through concrete cover.", priority: 1, qualification: "Specialist NDE technician", limitations: "Complex interpretation. Access required along tendon path. Duct material affects results." },
+    { method: "GPR", technique: "GPR for Tendon Location and Duct Condition", detection: "Tendon location, duct position, potential voids", sizing: "Mapping of tendon paths", code_ref: "ASTM D6087 / FHWA-HRT-13-027", rationale: "GPR locates post-tension ducts and can indicate void locations by signal characteristics.", priority: 2, qualification: "GPR technician", limitations: "Cannot definitively confirm voids. Supplement with impact echo." }
+  ],
+
+  "BRIDGE_IMPACT_DAMAGE": [
+    { method: "VT", technique: "Emergency Visual Assessment — Structural Stability", detection: "Overall stability, load path integrity, immediate collapse risk", sizing: "Damage extent and member condition", code_ref: "AASHTO MBE Section 5 / NBIS", rationale: "FIRST ACTION: Determine if structure is stable enough for inspection access. Look for member displacement, connection failure, bearing displacement. Establish exclusion zones.", priority: 1, qualification: "Structural Engineer / NBIS Team Leader", limitations: "Preliminary — must be followed by detailed NDE." },
+    { method: "MT", technique: "MPI at Steel Connections in Impact Zone", detection: "Cracking at welded and bolted connections", sizing: "Crack length", code_ref: "AWS D1.5 / AASHTO MBE", rationale: "Impact may crack welds at stiffener connections, splice plates, and gusset plates. WFMT for maximum sensitivity at weld toes.", priority: 1, qualification: "ASNT Level II MT", limitations: "Requires surface cleaning and access." },
+    { method: "UT", technique: "UT at Welded Connections in Impact Zone", detection: "Subsurface cracking from impact loading", sizing: "Crack depth for engineering assessment", code_ref: "AWS D1.5 / ASME V Art. 4", rationale: "Volumetric examination of critical welds in the impact zone. Focus on stiffener-to-web welds, flange splices, and connection plates.", priority: 1, qualification: "ASNT Level II UT", limitations: "Complex connection geometry." },
+    { method: "DIMENSIONAL", technique: "Dimensional Survey (deformation measurement)", detection: "Permanent deformation — sweep, camber change, twist, web buckling", sizing: "Quantitative deformation measurements vs. tolerances", code_ref: "AASHTO MBE / AISC Code of Standard Practice", rationale: "Precise measurement of girder deformation — lateral sweep (string line), web flatness (straightedge), camber (survey), and cross-frame alignment. Compare to AISC tolerances.", priority: 1, qualification: "Bridge Inspector / Surveyor", limitations: "Requires original geometry data or design drawings for comparison." },
+    { method: "HARDNESS", technique: "Hardness Testing at Fire-Exposed Steel", detection: "Steel strength changes from thermal exposure", sizing: "Hardness map in fire zone", code_ref: "AISC Design Guide 19 / ASTM A1038", rationale: "If fire occurred with impact event — hardness mapping of steel in fire zone to assess thermal damage. Significant hardness change indicates metallurgical damage.", priority: 1, qualification: "ASNT Level II / Trained technician", limitations: "Only relevant when fire exposure occurred. Surface measurement." }
+  ],
+
+  "GIRDER_DEFORMATION": [
+    { method: "DIMENSIONAL", technique: "Detailed Deformation Survey (sweep, camber, section distortion)", detection: "Permanent deformation beyond tolerance", sizing: "Maximum lateral sweep, web out-of-flatness, camber loss/gain", code_ref: "AASHTO MBE / AISC 303 (tolerance standards)", rationale: "PRIMARY assessment method for deformed girder. String line for lateral sweep, straightedge for web flatness, survey for camber. Values exceeding tolerances require engineering assessment or member replacement.", priority: 1, qualification: "Bridge Inspector / Surveyor / SE", limitations: "Requires reference to original geometry." },
+    { method: "MT", technique: "MPI at All Connections of Deformed Member", detection: "Cracking from deformation/overload", sizing: "Crack length", code_ref: "AWS D1.5 / AASHTO MBE", rationale: "Deformation induces secondary stresses at connections. Check all welds and bolt groups at ends and intermediate connections of deformed member.", priority: 1, qualification: "ASNT Level II MT", limitations: "Surface method." },
+    { method: "UT", technique: "UT Thickness (if section loss suspected at buckled areas)", detection: "Section loss from prior corrosion that may have contributed to buckling", sizing: "Remaining section thickness", code_ref: "AASHTO MBE", rationale: "If web buckling occurs at a location with corrosion, verify remaining section for engineering assessment.", priority: 2, qualification: "ASNT Level II UT", limitations: "Standard measurement." }
+  ],
+
+  "STEEL_STRENGTH_REDUCTION": [
+    { method: "HARDNESS", technique: "Hardness Survey of Fire-Exposed Steel (REQUIRED)", detection: "Hardness changes indicating strength reduction from fire", sizing: "Hardness map across fire exposure zones", code_ref: "AISC Design Guide 19 / ASTM A1038 / AASHTO MBE", rationale: "REQUIRED for fire damage assessment of steel bridges. Map hardness across fire zone. Compare to expected hardness for steel grade. Significant reduction indicates strength loss. Combined with visual (paint/coating damage as temperature indicators).", priority: 1, qualification: "ASNT Level II / Metallurgist", limitations: "Surface measurement only. Must establish baseline values for comparison." },
+    { method: "REPLICA", technique: "Metallographic Replication (if hardness indicates changes)", detection: "Microstructural evidence of thermal damage", sizing: "Qualitative assessment", code_ref: "ASTM E1351 / AISC DG19", rationale: "Confirms metallurgical condition where hardness indicates changes. Identifies grain growth, phase changes.", priority: 1, qualification: "Metallurgist", limitations: "Surface technique. Representative sampling." },
+    { method: "DIMENSIONAL", technique: "Deformation Survey in Fire Zone", detection: "Thermal distortion and permanent set from fire exposure", sizing: "Quantitative deformation", code_ref: "AISC DG19 / AASHTO MBE", rationale: "Fire under sustained load causes creep deformation. Measure all members in fire zone for permanent distortion.", priority: 1, qualification: "Surveyor / Inspector", limitations: "Requires reference data." }
+  ],
+
+  "CONCRETE_FIRE_DAMAGE": [
+    { method: "VT", technique: "Visual Assessment — Color Change Mapping", detection: "Temperature exposure zones from concrete color (pink >570F, gray >1050F, buff >1650F)", sizing: "Fire zone boundary mapping", code_ref: "ACI 216.1 / AASHTO MBE", rationale: "Concrete color changes with temperature exposure — this maps the fire intensity zones. Pink/red indicates 570-660F. Gray indicates 1050-1200F. Buff/white indicates >1650F. Combined with spalling depth.", priority: 1, qualification: "Structural Engineer / Bridge Inspector", limitations: "Color changes may be subtle or masked by soot. Must be cleaned." },
+    { method: "REBOUND", technique: "Rebound Hammer at Multiple Depths (after spall removal)", detection: "Concrete strength at different depths from fire-exposed surface", sizing: "Residual strength estimate", code_ref: "ASTM C805 / ACI 228.1R / ACI 216.1", rationale: "Rebound hammer on exposed concrete at different depths (after incremental removal) maps the strength gradient from fire-exposed surface. Determines depth of strength-compromised concrete.", priority: 1, qualification: "Technician", limitations: "Requires surface preparation. Estimate only — calibrate with cores." },
+    { method: "CORE", technique: "Concrete Core Testing (compressive strength)", detection: "Actual compressive strength of fire-damaged concrete", sizing: "Quantitative strength value", code_ref: "ASTM C42 / ACI 318 / ACI 216.1", rationale: "Cores from fire-damaged zone and undamaged reference zone. Lab testing for actual compressive strength comparison. Definitive method for fire damage assessment.", priority: 1, qualification: "Materials testing", limitations: "Destructive. Limited number of samples. Lab required." }
+  ],
+
+  "BEARING_FAILURE": [
+    { method: "VT", technique: "Visual Bearing Inspection — Alignment, Condition, and Function", detection: "Bearing displacement, distortion, fracture, seizure", sizing: "Displacement measurement", code_ref: "AASHTO MBE / AASHTO LRFD Section 14", rationale: "Visual assessment of every bearing at affected span. Check alignment marks (if present), anchor bolt condition, sole plate, masonry plate, and elastomeric pad condition.", priority: 1, qualification: "Bridge Inspector", limitations: "May not detect internal damage in pot bearings. Requires cleaning." },
+    { method: "DIMENSIONAL", technique: "Bearing Displacement Measurement", detection: "Bearing offset from design position", sizing: "Quantitative displacement", code_ref: "AASHTO MBE", rationale: "Measure bearing position relative to design. Lateral displacement, longitudinal displacement, and rotation. Compare to bearing movement capacity.", priority: 1, qualification: "Bridge Inspector", limitations: "Requires knowledge of design position." }
+  ],
+
+  "BRIDGE_SCOUR": [
+    { method: "DIVE_SURVEY", technique: "Underwater Foundation Inspection", detection: "Scour depth, foundation exposure, undermining", sizing: "Scour hole dimensions and depth", code_ref: "FHWA HEC-18 / AASHTO MBE / 23 CFR 650", rationale: "Direct measurement of scour depth at each pier and abutment. Probing to determine foundation exposure. Required after flood events.", priority: 1, qualification: "Certified Underwater Bridge Inspector (FHWA)", limitations: "Water conditions affect access. Probe depth limited." },
+    { method: "SONAR", technique: "Sonar / Bathymetric Survey", detection: "Channel cross-section and scour hole geometry", sizing: "Complete scour mapping", code_ref: "FHWA HEC-18", rationale: "Sonar survey maps the complete scour profile around foundations. Identifies scour extent and depth without dive entry.", priority: 1, qualification: "Hydrographic surveyor", limitations: "Equipment cost. Water depth and turbidity." }
+  ],
+
+  "STEEL_FATIGUE_BRIDGE": [
+    { method: "VT", technique: "Visual Inspection of Fatigue-Prone Details (FCM hands-on)", detection: "Visible fatigue cracking, paint cracking at weld toes", sizing: "Crack length", code_ref: "AASHTO MBE / 23 CFR 650 (FCM requirements)", rationale: "Hands-on visual inspection of all fatigue-prone details per AASHTO. Fracture-critical members require arms-length hands-on inspection. Paint cracks at weld toes often precede structural cracks.", priority: 1, qualification: "NBIS Team Leader / PE (FCM qualified)", limitations: "May not detect tight cracks. Must supplement with NDE for critical details." },
+    { method: "MT", technique: "MPI at Fatigue-Critical Weld Details", detection: "Surface-breaking fatigue cracks at weld toes", sizing: "Crack length", code_ref: "AWS D1.5 Chapter 6 / AASHTO MBE", rationale: "MPI of Category C through E' details. Focus on cover plate terminations, web gap regions, cope holes, and gusset plate connections.", priority: 1, qualification: "ASNT Level II MT", limitations: "Surface method only." },
+    { method: "UT", technique: "UT at Known Fatigue Crack Locations (sizing)", detection: "Through-thickness crack depth", sizing: "Crack height for fracture mechanics assessment", code_ref: "AWS D1.5 / AASHTO MBE", rationale: "Size detected fatigue cracks for remaining life analysis and repair planning. TOFD or PAUT preferred for accuracy.", priority: 1, qualification: "ASNT Level II UT-PA/TOFD", limitations: "Requires crack detected by other method first." }
+  ],
+
+  "GUSSET_PLATE_FAILURE": [
+    { method: "VT", technique: "Visual Assessment of Gusset Plates (FHWA guidance)", detection: "Buckling, distortion, corrosion section loss, cracking, bolt/rivet condition", sizing: "Section loss measurement, buckle amplitude", code_ref: "FHWA Guidance on Gusset Plates / AASHTO MBE", rationale: "Post I-35W requirement. Systematic visual assessment of every gusset plate — check for free-edge buckling, pack rust at interfaces, section loss, and connection condition.", priority: 1, qualification: "Bridge Inspector / SE", limitations: "Requires cleaning of debris and rust scale for accurate assessment." },
+    { method: "UT", technique: "UT Thickness of Gusset Plates (section loss measurement)", detection: "Remaining plate thickness at corroded areas", sizing: "Minimum remaining section for capacity calculation", code_ref: "AASHTO MBE / FHWA Gusset Plate Guidance", rationale: "Measure remaining section at corroded gusset plates. Used for load rating calculation per FHWA guidance.", priority: 1, qualification: "ASNT Level II UT", limitations: "Surface preparation required. Pitting may affect measurements." }
+  ],
+
+  "TRACK_MISALIGNMENT": [
+    { method: "SURVEY", technique: "Track Geometry Measurement (gauge, alignment, profile, cross-level, warp)", detection: "Track parameter deviations from FRA Class standards", sizing: "Quantitative deviations vs. FRA limits", code_ref: "49 CFR 213 (FRA Track Safety Standards) / AREMA", rationale: "Complete track geometry survey on bridge and approaches. Compare to FRA operating class limits. Exceeding limits requires speed restriction or closure.", priority: 1, qualification: "Track Inspector / Track Supervisor", limitations: "Manual measurement or track geometry car required." },
+    { method: "UT", technique: "Rail Flaw Detection (if rail damage suspected)", detection: "Internal rail defects (transverse deficiency, detail fracture)", sizing: "Flaw characterization", code_ref: "AREMA / 49 CFR 213", rationale: "If rail shows signs of damage from derailment — check for internal defects. Rail UT detection for transverse defects.", priority: 2, qualification: "Rail flaw detection technician", limitations: "Requires specialized rail UT equipment." }
+  ],
+
+  "DERAILMENT_IMPACT": [
+    { method: "VT", technique: "Comprehensive Post-Derailment Bridge Inspection", detection: "All visible damage to bridge structure from derailment", sizing: "Damage extent mapping", code_ref: "49 CFR 237 / AREMA Ch. 15 / FRA Bridge Safety Standards", rationale: "REQUIRED by FRA — comprehensive inspection after any derailment on a bridge. Every member, connection, bearing, and track component must be inspected. Structure must not be returned to service until inspection is complete.", priority: 1, qualification: "FRA-qualified Bridge Inspector / Railroad Bridge Engineer", limitations: "May require crane/equipment to remove derailed cars before full access." },
+    { method: "MT", technique: "MPI at All Steel Connections in Damage Zone", detection: "Cracking from impact loading", sizing: "Crack length", code_ref: "AWS D1.5 / AREMA", rationale: "Impact loading from derailment may crack welded or bolted connections. Comprehensive MPI of all connections in and adjacent to impact zone.", priority: 1, qualification: "ASNT Level II MT", limitations: "Access after derailment debris is cleared." },
+    { method: "DIMENSIONAL", technique: "Full Structure Dimensional Survey", detection: "Global and local deformation from impact", sizing: "Quantitative deformation measurements", code_ref: "AREMA / 49 CFR 237", rationale: "Survey of all primary members for deformation — girder sweep, vertical deflection, pier tilt, bearing displacement. Compare to pre-derailment condition or design geometry.", priority: 1, qualification: "Surveyor / Bridge Inspector", limitations: "Pre-event data may not exist. Use design drawings as reference." }
+  ],
+
+  "LOAD_PATH_DISRUPTION": [
+    { method: "VT", technique: "Load Path Verification — Every Connection in Affected Zone", detection: "Connection failure, member displacement, bearing loss", sizing: "Extent of load path interruption", code_ref: "AASHTO MBE / Structural Engineering", rationale: "Trace the load path from deck to foundation. Verify every connection is intact. Any break in load path requires immediate load restriction or closure.", priority: 1, qualification: "Structural Engineer", limitations: "Requires structural engineering judgment." }
+  ],
+
+  "COATING_FIRE_LOSS": [
+    { method: "VT", technique: "Coating Condition Survey in Fire Zone", detection: "Coating damage extent — blistering, charring, delamination, complete loss", sizing: "Area of coating damage by severity zone", code_ref: "SSPC-PA 2 / AASHTO MBE", rationale: "Map coating damage to establish fire exposure zones. Total coating loss indicates highest temperature. Blistering indicates moderate exposure. Intact coating indicates below damage threshold. Coating pattern is a temperature exposure map.", priority: 1, qualification: "Coating Inspector / Bridge Inspector", limitations: "Coating damage is not a direct structural assessment — but maps fire zones for steel assessment." }
   ]
 };
 
@@ -1905,6 +2375,125 @@ var FINDING_CODE_MAP: { [asset_class: string]: { [finding_type: string]: {
       ],
       engineering_review: true
     }
+  },
+
+  "bridge_steel": {
+    "crack": {
+      primary_code: "AASHTO MBE / AWS D1.5",
+      code_section: "AASHTO MBE Section 6.6 (Fatigue) + AWS D1.5 Chapter 6 (Inspection) + Chapter 5 (Repair)",
+      required_action: "Size crack. Determine fatigue detail category. Perform fracture mechanics assessment for remaining life. Develop repair per AWS D1.5.",
+      ffs_standard: "AASHTO MBE Load Rating + BS 7910 or API 579-1 Part 9",
+      ffs_part: "Fracture mechanics assessment (fatigue remaining life + fracture toughness check)",
+      repair_standard: "AWS D1.5 (Bridge Welding Code) — repair welding procedures",
+      documentation: ["Crack location and detail category per AASHTO", "NDE report with crack dimensions", "Fracture mechanics remaining life calculation", "Repair welding procedure per AWS D1.5", "Load rating with crack (reduced section)", "Bridge file update per NBIS"],
+      engineering_review: true
+    },
+    "deformation": {
+      primary_code: "AASHTO MBE / AISC 303",
+      code_section: "AASHTO MBE Section 5 (Emergency Assessment) + AISC 303 (tolerance standards)",
+      required_action: "Dimensional survey. Compare to AISC tolerances. Load rating with deformed geometry. Determine if heat straightening or replacement required.",
+      ffs_standard: "AASHTO MBE Load Rating with deformed geometry",
+      ffs_part: "Structural adequacy assessment with deformed member properties",
+      repair_standard: "AASHTO/AWS D1.5 — Heat straightening per FHWA guidelines",
+      documentation: ["Dimensional survey data (sweep, camber, twist, web flatness)", "Comparison to AISC tolerances", "Load rating with deformed member", "Heat straightening plan or replacement plan", "Bridge file update"],
+      engineering_review: true
+    },
+    "fire_damage": {
+      primary_code: "AASHTO MBE / AISC Design Guide 19",
+      code_section: "AASHTO MBE + AISC DG19 (Fire Design) + FHWA Bridge Fire Guidance",
+      required_action: "Hardness survey. Metallographic examination if hardness indicates changes. Dimensional survey. Load rating at post-fire material properties.",
+      ffs_standard: "AISC Design Guide 19 / AASHTO MBE Load Rating",
+      ffs_part: "Material property assessment + structural adequacy at reduced properties",
+      repair_standard: "AWS D1.5 / AISC — repair or replacement depending on damage severity",
+      documentation: ["Fire zone mapping (coating damage, color change)", "Hardness survey data vs. baseline/expected values", "Metallographic replication results (if needed)", "Dimensional survey for thermal distortion", "Load rating at post-fire material properties", "Repair/replacement plan"],
+      engineering_review: true
+    },
+    "bearing_damage": {
+      primary_code: "AASHTO MBE / AASHTO LRFD Section 14",
+      code_section: "AASHTO MBE + AASHTO LRFD Section 14 (Joints and Bearings)",
+      required_action: "Assess bearing function. Determine if reset, repair, or replace. Check substructure bearing seats.",
+      ffs_standard: "Bearing capacity assessment per AASHTO LRFD",
+      ffs_part: "Bearing capacity and function verification",
+      repair_standard: "AASHTO LRFD Section 14 — bearing replacement requirements",
+      documentation: ["Bearing condition and displacement measurements", "Anchor bolt condition", "Bearing seat condition (concrete)", "Bearing replacement plan if needed"],
+      engineering_review: true
+    }
+  },
+
+  "bridge_concrete": {
+    "structural_crack": {
+      primary_code: "AASHTO MBE / ACI 318",
+      code_section: "AASHTO MBE Section 6 (Load Rating) + ACI 318 (Concrete Design)",
+      required_action: "Map crack pattern. Determine type (shear/flexural). Measure widths. Load rating at reduced capacity. Repair per ACI or replace.",
+      ffs_standard: "AASHTO MBE Load Rating at reduced section capacity",
+      ffs_part: "Load rating with observed damage (Condition Factor per AASHTO MBE)",
+      repair_standard: "ACI 562 (Repair of Existing Concrete Structures) / ACI 546R",
+      documentation: ["Crack map with widths, lengths, and pattern", "Structural analysis confirming crack type", "Load rating at reduced capacity", "Repair design per ACI 562", "Bridge file update"],
+      engineering_review: true
+    },
+    "spalling_delamination": {
+      primary_code: "AASHTO MBE / NBIS",
+      code_section: "AASHTO MBE Section 4 (Inspection) + NBIS (23 CFR 650)",
+      required_action: "Map all spalling and delamination. Sound all accessible surfaces. Determine rebar condition. Assess remaining section. Repair or rehabilitate.",
+      ffs_standard: "AASHTO MBE Load Rating (condition-adjusted)",
+      ffs_part: "Condition Factor application per AASHTO MBE Section 6",
+      repair_standard: "ACI 562 / ACI 546R / ICRI Technical Guidelines",
+      documentation: ["Spalling/delamination map with quantities", "Sounding survey results (chain drag or hammer)", "Rebar condition assessment (corrosion state)", "Half-cell potential data (if taken)", "Chloride profile data (if taken)", "Repair specifications"],
+      engineering_review: false
+    },
+    "fire_damage_concrete": {
+      primary_code: "AASHTO MBE / ACI 216.1",
+      code_section: "AASHTO MBE + ACI 216.1 (Fire Resistance) + ACI 562 (Repair)",
+      required_action: "Color change mapping. Spalling depth assessment. Core testing. Load rating at reduced properties. Repair or replace.",
+      ffs_standard: "ACI 216.1 + AASHTO MBE Load Rating",
+      ffs_part: "Strength assessment at fire-reduced material properties per ACI 216.1",
+      repair_standard: "ACI 562 / ACI 546R / State DOT repair standards",
+      documentation: ["Fire zone mapping with color change boundaries", "Spalling depth measurements", "Core compressive strength test results", "Rebound hammer data", "Load rating at post-fire properties", "Repair/replacement plan"],
+      engineering_review: true
+    },
+    "scour": {
+      primary_code: "23 CFR 650 / FHWA HEC-18 / AASHTO MBE",
+      code_section: "FHWA HEC-18 (Scour) + AASHTO MBE Annex (Scour Assessment) + 23 CFR 650.305",
+      required_action: "Measure scour depth. Compare to design scour and critical scour. Install scour countermeasures if needed. Update Scour Plan of Action.",
+      ffs_standard: "FHWA HEC-18 Scour Assessment",
+      ffs_part: "Foundation adequacy at observed scour depth",
+      repair_standard: "FHWA HEC-23 (Scour Countermeasures) — riprap, sheet piling, etc.",
+      documentation: ["Scour measurement data (dive report or sonar)", "Comparison to design scour depth", "Foundation stability assessment", "Scour countermeasure design", "Updated Scour Plan of Action"],
+      engineering_review: true
+    }
+  },
+
+  "rail_bridge": {
+    "derailment_damage": {
+      primary_code: "49 CFR 237 / AREMA Chapter 15",
+      code_section: "FRA Bridge Safety Standards (49 CFR 237) + AREMA Manual Chapter 15",
+      required_action: "REQUIRED: Complete bridge inspection per 49 CFR 237 before returning to service. Inspect all members, connections, bearings, track structure. Load rating if damage found.",
+      ffs_standard: "AREMA Load Rating / FRA Bridge Safety Standards",
+      ffs_part: "Load rating at post-damage condition per AREMA",
+      repair_standard: "AREMA Chapter 15 / AWS D1.5 (for steel repairs) / Railroad engineering standards",
+      documentation: ["FRA post-derailment bridge inspection report", "All NDE reports", "Dimensional survey data", "Track geometry measurements", "Load rating (if damage found)", "Repair plan per AREMA", "FRA notification per 49 CFR 237"],
+      engineering_review: true
+    },
+    "track_damage": {
+      primary_code: "49 CFR 213 / AREMA Chapter 5",
+      code_section: "FRA Track Safety Standards (49 CFR 213) + AREMA Chapter 5 (Track)",
+      required_action: "Complete track geometry survey. Compare to FRA Class limits. Replace damaged rail, ties, and fasteners. Verify track gauge before returning to service.",
+      ffs_standard: "FRA Track Safety Standards (49 CFR 213)",
+      ffs_part: "Track geometry compliance with operating class",
+      repair_standard: "AREMA Chapter 5 / Railroad MOW standards",
+      documentation: ["Track geometry measurement data", "FRA class compliance determination", "Rail condition assessment", "Repair/replacement records", "Speed restriction documentation if applicable"],
+      engineering_review: true
+    },
+    "fire_damage_rail_bridge": {
+      primary_code: "49 CFR 237 / AREMA / AISC DG19",
+      code_section: "FRA Bridge Safety Standards + AREMA Chapter 15 + AISC DG19 for steel assessment",
+      required_action: "Fire damage assessment per AISC DG19 for steel, ACI 216.1 for concrete. Load rating at post-fire properties. FRA notification.",
+      ffs_standard: "AISC DG19 + ACI 216.1 + AREMA Load Rating",
+      ffs_part: "Material property assessment + load rating at reduced capacity",
+      repair_standard: "AWS D1.5 / ACI 562 / AREMA Chapter 15",
+      documentation: ["Fire zone mapping", "Hardness survey (steel)", "Core testing (concrete)", "Load rating at post-fire properties", "Repair plan", "FRA notification"],
+      engineering_review: true
+    }
   }
 };
 
@@ -2010,6 +2599,75 @@ function runEngine4(
     if (mech_id === "FOUNDATION_DAMAGE") {
       if (asset_class === "storage_tank") {
         if (anticipated_findings.indexOf("settlement") === -1) anticipated_findings.push("settlement");
+      }
+    }
+
+    // Bridge-specific mechanism to finding mappings
+    if (mech_id === "BRIDGE_IMPACT_DAMAGE" || mech_id === "GIRDER_DEFORMATION" || mech_id === "DERAILMENT_IMPACT") {
+      if (asset_class === "bridge_steel" || asset_class === "rail_bridge") {
+        if (anticipated_findings.indexOf("deformation") === -1) anticipated_findings.push("deformation");
+        if (anticipated_findings.indexOf("crack") === -1) anticipated_findings.push("crack");
+      }
+      if (asset_class === "bridge_concrete") {
+        if (anticipated_findings.indexOf("structural_crack") === -1) anticipated_findings.push("structural_crack");
+      }
+      if (asset_class === "rail_bridge") {
+        if (anticipated_findings.indexOf("derailment_damage") === -1) anticipated_findings.push("derailment_damage");
+        if (anticipated_findings.indexOf("track_damage") === -1) anticipated_findings.push("track_damage");
+      }
+    }
+
+    if (mech_id === "CONCRETE_SPALLING" || mech_id === "REBAR_CORROSION" || mech_id === "FREEZE_THAW" || mech_id === "ASR") {
+      if (asset_class === "bridge_concrete" || asset_class === "rail_bridge") {
+        if (anticipated_findings.indexOf("spalling_delamination") === -1) anticipated_findings.push("spalling_delamination");
+      }
+    }
+
+    if (mech_id === "CONCRETE_CRACKING_STRUCTURAL" || mech_id === "CONCRETE_CRUSHING") {
+      if (asset_class === "bridge_concrete" || asset_class === "rail_bridge") {
+        if (anticipated_findings.indexOf("structural_crack") === -1) anticipated_findings.push("structural_crack");
+      }
+    }
+
+    if (mech_id === "STEEL_STRENGTH_REDUCTION" || mech_id === "COATING_FIRE_LOSS") {
+      if (asset_class === "bridge_steel" || asset_class === "rail_bridge") {
+        if (anticipated_findings.indexOf("fire_damage") === -1) anticipated_findings.push("fire_damage");
+      }
+    }
+
+    if (mech_id === "CONCRETE_FIRE_DAMAGE") {
+      if (asset_class === "bridge_concrete" || asset_class === "rail_bridge") {
+        if (anticipated_findings.indexOf("fire_damage_concrete") === -1) anticipated_findings.push("fire_damage_concrete");
+      }
+    }
+
+    if (mech_id === "BEARING_FAILURE" || mech_id === "LOAD_PATH_DISRUPTION") {
+      if (asset_class === "bridge_steel" || asset_class === "bridge_concrete" || asset_class === "rail_bridge") {
+        if (anticipated_findings.indexOf("bearing_damage") === -1) anticipated_findings.push("bearing_damage");
+      }
+    }
+
+    if (mech_id === "BRIDGE_SCOUR") {
+      if (asset_class === "bridge_concrete" || asset_class === "bridge_steel" || asset_class === "rail_bridge") {
+        if (anticipated_findings.indexOf("scour") === -1) anticipated_findings.push("scour");
+      }
+    }
+
+    if (mech_id === "TRACK_MISALIGNMENT") {
+      if (asset_class === "rail_bridge") {
+        if (anticipated_findings.indexOf("track_damage") === -1) anticipated_findings.push("track_damage");
+      }
+    }
+
+    if (mech_id === "STEEL_FATIGUE_BRIDGE" || mech_id === "GUSSET_PLATE_FAILURE") {
+      if (asset_class === "bridge_steel" || asset_class === "rail_bridge") {
+        if (anticipated_findings.indexOf("crack") === -1) anticipated_findings.push("crack");
+      }
+    }
+
+    if (mech_id === "PRESTRESS_LOSS") {
+      if (asset_class === "bridge_concrete") {
+        if (anticipated_findings.indexOf("structural_crack") === -1) anticipated_findings.push("structural_crack");
       }
     }
   }
@@ -2405,6 +3063,232 @@ function runEngine6(
 
 
 // ============================================================================
+// ENGINE 7: GO / NO-GO / RESTRICTED DECISION ENGINE
+// Deterministic structural disposition based on mechanisms, severity, and findings
+// ============================================================================
+
+interface DispositionDecision {
+  decision: "NO_GO" | "RESTRICTED" | "GO_WITH_MONITORING" | "GO";
+  decision_label: string;
+  rationale: string[];
+  conditions: string[];
+  required_before_upgrade: string[];
+  authority_required: string;
+}
+
+function runEngine7(
+  mechanisms: DamageMechanism[],
+  zones: AffectedZone[],
+  parsed: ParsedIncident,
+  asset: ResolvedAsset
+): DispositionDecision {
+
+  var no_go_triggers: string[] = [];
+  var restricted_triggers: string[] = [];
+  var monitoring_triggers: string[] = [];
+
+  for (var m = 0; m < mechanisms.length; m++) {
+    var mech = mechanisms[m];
+    var id = mech.id;
+
+    // ---- ABSOLUTE NO-GO TRIGGERS ----
+
+    // Structural collapse risk
+    if (id === "LOAD_PATH_DISRUPTION") {
+      no_go_triggers.push("Load path disruption detected — structure may not support design loads");
+    }
+    if (id === "CONCRETE_CRUSHING") {
+      no_go_triggers.push("Concrete crushing in primary member — imminent structural failure risk");
+    }
+    if (id === "GUSSET_PLATE_FAILURE") {
+      no_go_triggers.push("Gusset plate failure suspected — connection integrity compromised (ref: I-35W collapse)");
+    }
+
+    // Deformation beyond tolerance
+    if (id === "GIRDER_DEFORMATION") {
+      no_go_triggers.push("Primary girder deformation reported — load capacity unknown until dimensional survey and engineering assessment completed");
+    }
+    if (id === "STRUCTURAL_OVERLOAD" && (asset.asset_class === "bridge_steel" || asset.asset_class === "bridge_concrete" || asset.asset_class === "rail_bridge")) {
+      no_go_triggers.push("Structural overload on bridge — engineering assessment required before any loading");
+    }
+
+    // Active cracking in primary members
+    if (id === "CONCRETE_CRACKING_STRUCTURAL") {
+      no_go_triggers.push("Structural cracking (shear/flexural) in primary concrete member — load rating required before opening");
+    }
+
+    // Derailment on bridge
+    if (id === "DERAILMENT_IMPACT") {
+      no_go_triggers.push("Train derailment on bridge — 49 CFR 237 requires complete inspection before return to service");
+    }
+    if (id === "TRACK_MISALIGNMENT") {
+      no_go_triggers.push("Track misalignment on bridge — no train traffic until track geometry verified per FRA Class standards");
+    }
+
+    // Scour critical
+    if (id === "BRIDGE_SCOUR") {
+      no_go_triggers.push("Foundation scour detected — bridge must be closed until foundation adequacy is verified");
+    }
+
+    // Bearing failure
+    if (id === "BEARING_FAILURE") {
+      no_go_triggers.push("Bearing failure or displacement — superstructure support compromised");
+    }
+
+    // HTHA confirmed
+    if (id === "HTHA") {
+      no_go_triggers.push("High Temperature Hydrogen Attack suspected — equipment must not operate until AUBT assessment confirms condition");
+    }
+
+    // Prestress tendon failure
+    if (id === "PRESTRESS_LOSS") {
+      no_go_triggers.push("Prestress loss / tendon failure suspected — load capacity may be critically reduced");
+    }
+
+    // ---- RESTRICTED OPERATION TRIGGERS ----
+
+    if (id === "BRIDGE_IMPACT_DAMAGE" && no_go_triggers.length === 0) {
+      restricted_triggers.push("Impact damage reported — restrict to reduced loading until inspection complete");
+    }
+    if (id === "FIRE_DAMAGE" || id === "STEEL_STRENGTH_REDUCTION" || id === "CONCRETE_FIRE_DAMAGE") {
+      if (no_go_triggers.length === 0) {
+        restricted_triggers.push("Fire damage — restrict loading until material assessment (hardness/core testing) confirms residual capacity");
+      }
+    }
+    if (id === "MECH_DAMAGE" && (asset.asset_class === "bridge_steel" || asset.asset_class === "structural_steel")) {
+      if (no_go_triggers.length === 0) {
+        restricted_triggers.push("Mechanical damage to structural member — restrict loading pending engineering assessment");
+      }
+    }
+    if (id === "STEEL_FATIGUE_BRIDGE") {
+      restricted_triggers.push("Fatigue cracking at connection details — restrict to reduced loading until crack sizing and remaining life assessment");
+    }
+    if (id === "OVERPRESSURE_DAMAGE") {
+      restricted_triggers.push("Overpressure event — operate at reduced pressure until FFS assessment per API 579-1 Part 8");
+    }
+    if ((id === "SSC" || id === "SOHIC" || id === "HIC") && mech.severity === "critical") {
+      restricted_triggers.push(mech.name + " — restrict to reduced conditions until NDE assessment confirms extent");
+    }
+    if (id === "CREEP" && mech.severity === "critical") {
+      restricted_triggers.push("Creep damage suspected — restrict temperature/pressure pending replication and remaining life assessment");
+    }
+
+    // ---- MONITORING TRIGGERS ----
+
+    if (id === "GENERAL_CORROSION" || id === "PITTING" || id === "CUI" || id === "MARINE_CORROSION") {
+      monitoring_triggers.push(mech.name + " — continue operation with monitoring per API inspection code intervals");
+    }
+    if (id === "REBAR_CORROSION" && mech.severity !== "critical") {
+      monitoring_triggers.push("Rebar corrosion — monitor with periodic inspection, plan rehabilitation");
+    }
+    if (id === "CONCRETE_SPALLING" && mech.severity !== "critical") {
+      monitoring_triggers.push("Concrete spalling — monitor progression, schedule repair");
+    }
+    if (id === "ASR") {
+      monitoring_triggers.push("ASR detected — monitor expansion rate, adjust load rating if needed");
+    }
+    if (id === "COATING_FIRE_LOSS") {
+      monitoring_triggers.push("Coating loss — schedule coating repair to prevent accelerated corrosion");
+    }
+  }
+
+  // ---- DETERMINE DECISION ----
+
+  if (no_go_triggers.length > 0) {
+    var authority = "Structural Engineer (PE/SE)";
+    if (asset.asset_class === "rail_bridge") {
+      authority = "Railroad Bridge Engineer per 49 CFR 237 + FRA notification required";
+    } else if (asset.asset_class === "bridge_steel" || asset.asset_class === "bridge_concrete") {
+      authority = "Bridge Engineer (PE/SE) + Bridge Owner notification per NBIS";
+    } else if (asset.asset_class === "pressure_vessel") {
+      authority = "API Authorized Inspector + Mechanical Engineer";
+    } else if (asset.asset_class === "process_piping") {
+      authority = "API Authorized Inspector + Piping Engineer";
+    }
+
+    return {
+      decision: "NO_GO",
+      decision_label: "NO-GO — CLOSED / SHUT DOWN until engineering assessment complete",
+      rationale: no_go_triggers,
+      conditions: [
+        "No traffic, loading, or operation permitted",
+        "Establish physical barriers and/or exclusion zones",
+        "Post signage and notifications per applicable regulations",
+        "Emergency responder access only under engineering supervision"
+      ],
+      required_before_upgrade: [
+        "Complete NDE inspection of all priority zones",
+        "Engineering assessment (load rating, FFS, or structural analysis)",
+        "Repair of critical deficiencies per applicable code",
+        "Post-repair verification NDE",
+        "Written return-to-service authorization from Engineer of Record"
+      ],
+      authority_required: authority
+    };
+  }
+
+  if (restricted_triggers.length > 0) {
+    var rest_authority = "Engineer (PE)";
+    if (asset.asset_class === "rail_bridge") {
+      rest_authority = "Railroad Bridge Engineer — speed restriction per AREMA/FRA";
+    } else if (asset.asset_class === "bridge_steel" || asset.asset_class === "bridge_concrete") {
+      rest_authority = "Bridge Engineer — load posting per AASHTO MBE";
+    } else if (asset.asset_class === "pressure_vessel" || asset.asset_class === "process_piping") {
+      rest_authority = "Mechanical Engineer + API Inspector — de-rate per API 510/570";
+    }
+
+    return {
+      decision: "RESTRICTED",
+      decision_label: "RESTRICTED — Reduced loading / reduced operating conditions until assessment complete",
+      rationale: restricted_triggers,
+      conditions: [
+        "Reduced loading, speed restriction, or de-rated operating conditions",
+        "Increased monitoring frequency",
+        "Engineering assessment in progress — complete within specified timeline",
+        "Restrictions remain until engineer authorizes upgrade"
+      ],
+      required_before_upgrade: [
+        "Complete NDE inspection per method selection",
+        "Engineering assessment confirms adequate capacity at desired load level",
+        "Any required repairs completed and verified",
+        "Written authorization to remove restrictions"
+      ],
+      authority_required: rest_authority
+    };
+  }
+
+  if (monitoring_triggers.length > 0) {
+    return {
+      decision: "GO_WITH_MONITORING",
+      decision_label: "GO WITH MONITORING — Continue operation with enhanced inspection program",
+      rationale: monitoring_triggers,
+      conditions: [
+        "Normal operation permitted",
+        "Enhanced monitoring per inspection plan",
+        "Report any changes in condition immediately",
+        "Next scheduled inspection per applicable code"
+      ],
+      required_before_upgrade: [
+        "Complete current inspection program",
+        "Establish baseline measurements for monitoring",
+        "Set re-inspection intervals per applicable code"
+      ],
+      authority_required: "Inspector per applicable code (API 510/570/653, NBIS, AREMA)"
+    };
+  }
+
+  return {
+    decision: "GO",
+    decision_label: "GO — No immediate structural concern from identified mechanisms",
+    rationale: ["No critical or high-severity mechanisms requiring immediate action were identified"],
+    conditions: ["Normal operation", "Continue routine inspection program"],
+    required_before_upgrade: [],
+    authority_required: "Inspector per routine program"
+  };
+}
+
+
+// ============================================================================
 // CONFIDENCE SCORING
 // ============================================================================
 
@@ -2542,10 +3426,14 @@ var handler = async function(event: any): Promise<any> {
     var exec_packages = runEngine6(mechanisms, zones, methods, code_paths, timeline, parsed, asset);
     var engine6_time = Date.now() - engine6_start;
 
+    var engine7_start = Date.now();
+    var disposition = runEngine7(mechanisms, zones, parsed, asset);
+    var engine7_time = Date.now() - engine7_start;
+
     var confidence = calculateConfidence(mechanisms, zones, methods, parsed, asset);
 
-    var output: ChainOutput = {
-      engine_version: "incident-inspection-chain-v1.0",
+    var output = {
+      engine_version: "incident-inspection-chain-v2.0-bridge",
       timestamp: new Date().toISOString(),
       input_summary: {
         asset_class: asset.asset_class,
@@ -2560,6 +3448,7 @@ var handler = async function(event: any): Promise<any> {
       engine_4_code_action_paths: code_paths,
       engine_5_escalation_timeline: timeline,
       engine_6_execution_packages: exec_packages,
+      engine_7_disposition: disposition,
       confidence_scores: confidence,
       warnings: warnings
     };
@@ -2580,7 +3469,8 @@ var handler = async function(event: any): Promise<any> {
           engine_4_ms: engine4_time,
           engine_5_ms: engine5_time,
           engine_6_ms: engine6_time,
-          total_ms: engine1_time + engine2_time + engine3_time + engine4_time + engine5_time + engine6_time
+          engine_7_ms: engine7_time,
+          total_ms: engine1_time + engine2_time + engine3_time + engine4_time + engine5_time + engine6_time + engine7_time
         }
       })
     };
