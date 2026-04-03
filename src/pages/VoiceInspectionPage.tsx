@@ -1,14 +1,11 @@
 /**
- * DEPLOY70 — VoiceInspectionPage.tsx v3
+ * DEPLOY78 — VoiceInspectionPage.tsx v4
  * src/pages/VoiceInspectionPage.tsx
  *
- * Voice-to-Inspection Plan with Code Authority Trace Panel.
- * Speak what happened, get an instant plan with full code citations.
- *
- * Changes from DEPLOY62:
- * - Added codeTrace state + fetchCodeTrace function
- * - Auto-calls code-trace API after plan generation
- * - Code Trace Panel renders below plan with expandable sections
+ * Complete demo flow:
+ *   Speak -> Plan -> Event Classification -> Code Trace
+ *   -> Time Progression Risk Curve -> Governance Matrix
+ *   -> Code Authority Resolution
  *
  * CONSTRAINT: No backtick template literals — string concatenation only
  */
@@ -20,6 +17,14 @@ var SEVERITY_COLORS: Record<string, string> = {
   moderate: "#eab308",
   high: "#f59e0b",
   critical: "#ef4444",
+};
+
+var RISK_COLORS: Record<string, string> = {
+  LOW: "#22c55e",
+  MEDIUM: "#eab308",
+  HIGH: "#f59e0b",
+  CRITICAL: "#ef4444",
+  EXTREME: "#dc2626",
 };
 
 var DISP_LABELS: Record<string, string> = {
@@ -51,6 +56,12 @@ export default function VoiceInspectionPage() {
   var [codeTrace, setCodeTrace] = useState<any>(null);
   var [codeTraceLoading, setCodeTraceLoading] = useState(false);
   var [enrichment, setEnrichment] = useState<any>(null);
+  var [timeProgression, setTimeProgression] = useState<any>(null);
+  var [timeProgressionLoading, setTimeProgressionLoading] = useState(false);
+  var [governance, setGovernance] = useState<any>(null);
+  var [governanceLoading, setGovernanceLoading] = useState(false);
+  var [codeResolution, setCodeResolution] = useState<any>(null);
+  var [codeResolutionLoading, setCodeResolutionLoading] = useState(false);
   var [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   var recognitionRef = useRef<any>(null);
 
@@ -93,6 +104,97 @@ export default function VoiceInspectionPage() {
     setListening(false);
   }
 
+  /* =========================================================
+     FETCH: TIME PROGRESSION
+     ========================================================= */
+  async function fetchTimeProgression(planData: any) {
+    setTimeProgressionLoading(true);
+    try {
+      var p = planData.plan;
+      var pr = planData.parsed;
+      var severity = (p && p.severity_band) ? p.severity_band : "moderate";
+      var riskScore = (p && p.risk_score) ? p.risk_score : 30;
+      var assetType = (pr && pr.asset_type) ? pr.asset_type : "unknown";
+
+      var payload: Record<string, any> = {
+        raw_text: transcript,
+        asset_type: assetType,
+        component_type: (pr && pr.component) ? pr.component : "unknown",
+        initial_severity: severity,
+        initial_risk_score: riskScore,
+        service_environment: (pr && pr.environment_context) ? pr.environment_context : [],
+        event_context: (pr && pr.event_category) ? pr.event_category : null,
+        findings_summary: transcript
+      };
+
+      /* Extract measured values if available */
+      if (pr && pr.measured_values) {
+        if (pr.measured_values.wind_mph) {
+          payload.event_context = (payload.event_context || "") + " wind " + pr.measured_values.wind_mph + " mph";
+        }
+      }
+
+      var response = await fetch("/api/time-progression", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        var data = await response.json();
+        setTimeProgression(data);
+      }
+    } catch (err) {
+      console.error("Time progression fetch failed:", err);
+    }
+    setTimeProgressionLoading(false);
+  }
+
+  /* =========================================================
+     FETCH: GOVERNANCE MATRIX
+     ========================================================= */
+  async function fetchGovernance(rawText: string) {
+    setGovernanceLoading(true);
+    try {
+      var response = await fetch("/api/governance-matrix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ raw_text: rawText })
+      });
+      if (response.ok) {
+        var data = await response.json();
+        setGovernance(data);
+      }
+    } catch (err) {
+      console.error("Governance matrix fetch failed:", err);
+    }
+    setGovernanceLoading(false);
+  }
+
+  /* =========================================================
+     FETCH: CODE AUTHORITY RESOLUTION
+     ========================================================= */
+  async function fetchCodeResolution(rawText: string) {
+    setCodeResolutionLoading(true);
+    try {
+      var response = await fetch("/api/code-authority-resolution", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ raw_text: rawText })
+      });
+      if (response.ok) {
+        var data = await response.json();
+        setCodeResolution(data);
+      }
+    } catch (err) {
+      console.error("Code authority resolution fetch failed:", err);
+    }
+    setCodeResolutionLoading(false);
+  }
+
+  /* =========================================================
+     FETCH: CODE TRACE (existing)
+     ========================================================= */
   async function fetchCodeTrace(planData: any) {
     setCodeTraceLoading(true);
     try {
@@ -101,33 +203,22 @@ export default function VoiceInspectionPage() {
       var disposition = "";
       var asset_class = "Other";
       var underwater_contexts: string[] = [];
-
       var p = planData.plan;
       var pr = planData.parsed;
 
-      // Extract findings from failure modes and damage mechanisms
       if (p && p.likely_failure_modes) {
-        for (var i = 0; i < p.likely_failure_modes.length; i++) {
-          findings.push(p.likely_failure_modes[i]);
-        }
+        for (var i = 0; i < p.likely_failure_modes.length; i++) findings.push(p.likely_failure_modes[i]);
       }
       if (p && p.probable_damage_mechanisms) {
-        for (var i = 0; i < p.probable_damage_mechanisms.length; i++) {
-          findings.push(p.probable_damage_mechanisms[i]);
-        }
+        for (var i = 0; i < p.probable_damage_mechanisms.length; i++) findings.push(p.probable_damage_mechanisms[i]);
       }
-
-      // Extract methods
       if (p && p.recommended_methods) {
         for (var i = 0; i < p.recommended_methods.length; i++) {
           var m = p.recommended_methods[i];
           methods.push(m.method || m.name || m);
         }
       }
-
-      // Determine disposition from severity or operational_disposition
       if (p && p.operational_disposition) {
-        // Map voice dispositions to DRE dispositions
         var dispMap: Record<string, string> = {
           continue_normal: "continue_normal",
           continue_with_monitoring: "continue_monitoring",
@@ -139,35 +230,18 @@ export default function VoiceInspectionPage() {
         };
         disposition = dispMap[p.operational_disposition] || "engineering_evaluation";
       }
-
-      // Asset class from parsed data
       if (pr && pr.asset_type) {
         var typeClassMap: Record<string, string> = {
-          bridge_support: "Bridge/Civil",
-          bridge: "Bridge/Civil",
-          pipeline: "Pipeline",
-          gas_pipeline: "Pipeline",
-          oil_pipeline: "Pipeline",
-          cargo_ship: "Marine Vessel",
-          ship: "Marine Vessel",
-          vessel: "Marine Vessel",
-          rudder: "Marine Vessel",
-          pressure_vessel: "Refinery/Process",
-          offshore_platform: "Offshore",
-          platform: "Offshore",
-          jacket_brace: "Offshore",
-          dam: "Dam/Hydro",
-          dam_face: "Dam/Hydro",
-          hydro: "Dam/Hydro",
-          wind_turbine: "Wind Energy",
-          storage_tank: "Storage/Terminal",
-          nuclear: "Nuclear",
-          rail: "Rail",
-          aerospace: "Aerospace"
+          bridge_support: "Bridge/Civil", bridge: "Bridge/Civil", pipeline: "Pipeline",
+          gas_pipeline: "Pipeline", oil_pipeline: "Pipeline", cargo_ship: "Marine Vessel",
+          ship: "Marine Vessel", vessel: "Marine Vessel", rudder: "Marine Vessel",
+          pressure_vessel: "Refinery/Process", offshore_platform: "Offshore",
+          platform: "Offshore", jacket_brace: "Offshore", dam: "Dam/Hydro",
+          dam_face: "Dam/Hydro", hydro: "Dam/Hydro", wind_turbine: "Wind Energy",
+          storage_tank: "Storage/Terminal", nuclear: "Nuclear", rail: "Rail", aerospace: "Aerospace"
         };
         var assetKey = (pr.asset_type || "").toLowerCase().replace(/[\s\-]+/g, "_");
         asset_class = typeClassMap[assetKey] || "Other";
-        // Check for partial match
         if (asset_class === "Other") {
           var mapKeys = Object.keys(typeClassMap);
           for (var i = 0; i < mapKeys.length; i++) {
@@ -178,8 +252,6 @@ export default function VoiceInspectionPage() {
           }
         }
       }
-
-      // Underwater detection
       if (pr && pr.environment_context) {
         for (var i = 0; i < pr.environment_context.length; i++) {
           var env = (pr.environment_context[i] || "").toLowerCase();
@@ -190,66 +262,50 @@ export default function VoiceInspectionPage() {
           }
         }
       }
-      // Also check transcript for underwater keywords
       var lowerTranscript = transcript.toLowerCase();
       if (underwater_contexts.length === 0 && (lowerTranscript.indexOf("diver") >= 0 || lowerTranscript.indexOf("underwater") >= 0 || lowerTranscript.indexOf("subsea") >= 0 || lowerTranscript.indexOf("rov") >= 0)) {
         underwater_contexts.push("adci_general");
         underwater_contexts.push("osha_diving");
       }
-      // Offshore underwater
       if (asset_class === "Offshore" && underwater_contexts.length > 0) {
         underwater_contexts.push("offshore");
         underwater_contexts.push("cathodic_protection");
       }
-      // Dam underwater
-      if (asset_class === "Dam/Hydro" && underwater_contexts.length > 0) {
-        underwater_contexts.push("dam_hydro");
-      }
-      // Nuclear underwater
-      if (asset_class === "Nuclear" && underwater_contexts.length > 0) {
-        underwater_contexts.push("nuclear_underwater");
-      }
-      // Marine
-      if (asset_class === "Marine Vessel") {
-        underwater_contexts.push("marine_vessel");
-      }
-
-      var score_dimensions = [
-        "event_severity", "observed_condition_severity", "hidden_damage_likelihood",
-        "inspection_urgency", "consequence", "overall_risk", "confidence"
-      ];
+      if (asset_class === "Dam/Hydro" && underwater_contexts.length > 0) underwater_contexts.push("dam_hydro");
+      if (asset_class === "Nuclear" && underwater_contexts.length > 0) underwater_contexts.push("nuclear_underwater");
+      if (asset_class === "Marine Vessel") underwater_contexts.push("marine_vessel");
 
       var response = await fetch("/api/code-trace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          findings: findings,
-          methods: methods,
-          disposition: disposition,
+          findings: findings, methods: methods, disposition: disposition,
           asset_class: asset_class,
-          score_dimensions: score_dimensions,
+          score_dimensions: ["event_severity", "observed_condition_severity", "hidden_damage_likelihood", "inspection_urgency", "consequence", "overall_risk", "confidence"],
           underwater_contexts: underwater_contexts
         })
       });
-
-      if (response.ok) {
-        var data = await response.json();
-        setCodeTrace(data);
-      }
+      if (response.ok) setCodeTrace(await response.json());
     } catch (err) {
       console.error("Code trace fetch failed:", err);
     }
     setCodeTraceLoading(false);
   }
 
+  /* =========================================================
+     GENERATE PLAN (main flow)
+     ========================================================= */
   async function generatePlan() {
     if (!transcript.trim()) return;
     setLoading(true);
     setResult(null);
     setCodeTrace(null);
     setEnrichment(null);
+    setTimeProgression(null);
+    setGovernance(null);
+    setCodeResolution(null);
     try {
-      // STEP 0: Call Master Inspection Router
+      /* STEP 0: Master Router */
       var routerResp = await fetch("/api/master-router", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -258,7 +314,11 @@ export default function VoiceInspectionPage() {
       var routerData = routerResp.ok ? await routerResp.json() : null;
       var routePath = (routerData && routerData.parsed_route) ? routerData.parsed_route.intake_path : "unknown";
 
-      // ROUTE: SCHEDULED / PROGRAMMATIC
+      /* Fire governance + code resolution in parallel (both accept raw text) */
+      fetchGovernance(transcript);
+      fetchCodeResolution(transcript);
+
+      /* ROUTE: SCHEDULED / PROGRAMMATIC */
       if (routePath === "scheduled_programmatic" && routerData.payload && routerData.payload.engine) {
         var sp = routerData.payload;
         var schedMethods: any[] = [];
@@ -305,10 +365,8 @@ export default function VoiceInspectionPage() {
         };
         setEnrichment({
           event_classification: {
-            event_type: "programmatic",
-            event_subtype: sp.parsed.program_type || "scheduled",
-            confidence: sp.parsed.confidence || 0,
-            trigger_words_matched: sp.parsed.detected_keywords || [],
+            event_type: "programmatic", event_subtype: sp.parsed.program_type || "scheduled",
+            confidence: sp.parsed.confidence || 0, trigger_words_matched: sp.parsed.detected_keywords || [],
             risk_floor_band: sp.overall_priority
           },
           rule_pack_applied: { rule_pack: "Scheduled Inspection Intelligence Engine v1" },
@@ -329,14 +387,15 @@ export default function VoiceInspectionPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ findings: schedDeg, methods: ctMethods, disposition: "engineering_evaluation", asset_class: "Refinery/Process", score_dimensions: ["event_severity", "observed_condition_severity", "hidden_damage_likelihood", "inspection_urgency", "consequence", "overall_risk", "confidence"], underwater_contexts: [] })
           });
-          if (ctResp.ok) { setCodeTrace(await ctResp.json()); }
+          if (ctResp.ok) setCodeTrace(await ctResp.json());
         } catch (ctErr) { console.error("Code trace failed:", ctErr); }
         setResult(mappedData);
+        fetchTimeProgression(mappedData);
         setLoading(false);
         return;
       }
 
-      // ROUTE: EVENT-DRIVEN / OTHER (existing flow)
+      /* ROUTE: EVENT-DRIVEN / OTHER */
       var resp = await fetch("/api/voice-incident-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -359,6 +418,7 @@ export default function VoiceInspectionPage() {
           }
         } catch (enrichErr) { console.error("Enrichment failed:", enrichErr); }
         fetchCodeTrace(data);
+        fetchTimeProgression(data);
       }
       setResult(data);
     } catch (err) {
@@ -372,6 +432,9 @@ export default function VoiceInspectionPage() {
     setResult(null);
     setCodeTrace(null);
     setEnrichment(null);
+    setTimeProgression(null);
+    setGovernance(null);
+    setCodeResolution(null);
   }
 
   var plan = result && result.plan ? result.plan : null;
@@ -386,109 +449,44 @@ export default function VoiceInspectionPage() {
 
       {/* MIC + CONTROLS */}
       <div className="voice-controls">
-        <button
-          className={"voice-mic-btn" + (listening ? " mic-active" : "")}
-          onClick={listening ? stopListening : startListening}
-          type="button"
-        >
+        <button className={"voice-mic-btn" + (listening ? " mic-active" : "")} onClick={listening ? stopListening : startListening} type="button">
           {listening ? "\uD83D\uDD34 Listening..." : "\uD83C\uDF99\uFE0F Start Mic"}
         </button>
-        <button
-          className="voice-generate-btn"
-          onClick={generatePlan}
-          disabled={loading || !transcript.trim()}
-          type="button"
-        >
+        <button className="voice-generate-btn" onClick={generatePlan} disabled={loading || !transcript.trim()} type="button">
           {loading ? "Generating..." : "\u26A1 Generate Inspection Plan"}
         </button>
       </div>
 
       {/* TRANSCRIPT INPUT */}
-      <textarea
-        className="voice-transcript-input"
-        value={transcript}
-        onChange={function(e) { setTranscript(e.target.value); }}
-        rows={4}
-        placeholder="Speak or type the incident here..."
-      />
+      <textarea className="voice-transcript-input" value={transcript} onChange={function(e) { setTranscript(e.target.value); }} rows={4} placeholder="Speak or type the incident here..." />
 
       {/* EXAMPLES */}
       <div className="voice-examples">
         <span className="voice-examples-label">Try an example:</span>
         <div className="voice-examples-grid">
           {EXAMPLES.map(function(ex, idx) {
-            return (
-              <button
-                key={idx}
-                className="voice-example-btn"
-                onClick={function() { loadExample(ex.text); }}
-                type="button"
-              >
-                {ex.label}
-              </button>
-            );
+            return <button key={idx} className="voice-example-btn" onClick={function() { loadExample(ex.text); }} type="button">{ex.label}</button>;
           })}
         </div>
       </div>
 
       {/* ERROR */}
-      {result && result.error && (
-        <div className="voice-error">{result.error}</div>
-      )}
+      {result && result.error && <div className="voice-error">{result.error}</div>}
 
       {/* PARSED INCIDENT */}
       {parsed && (
         <div className="voice-parsed-section">
           <h3>Parsed Incident</h3>
           <div className="voice-parsed-grid">
-            <div className="voice-parsed-item">
-              <span className="vp-label">Intake Path</span>
-              <span className="vp-value">{(parsed.intake_path || "").replace(/_/g, " ")}</span>
-            </div>
-            <div className="voice-parsed-item">
-              <span className="vp-label">Asset Type</span>
-              <span className="vp-value">{(parsed.asset_type || "").replace(/_/g, " ")}</span>
-            </div>
-            {parsed.event_category && (
-              <div className="voice-parsed-item">
-                <span className="vp-label">Event</span>
-                <span className="vp-value">{parsed.event_category.replace(/_/g, " ")}</span>
-              </div>
-            )}
-            {parsed.finding_category && (
-              <div className="voice-parsed-item">
-                <span className="vp-label">Finding</span>
-                <span className="vp-value">{parsed.finding_category.replace(/_/g, " ")}</span>
-              </div>
-            )}
-            {parsed.component && (
-              <div className="voice-parsed-item">
-                <span className="vp-label">Component</span>
-                <span className="vp-value">{parsed.component.replace(/_/g, " ")}</span>
-              </div>
-            )}
-            {parsed.impact_object && (
-              <div className="voice-parsed-item">
-                <span className="vp-label">Object</span>
-                <span className="vp-value">{parsed.impact_object.replace(/_/g, " ")}</span>
-              </div>
-            )}
-            {parsed.measured_values && parsed.measured_values.wind_mph && (
-              <div className="voice-parsed-item">
-                <span className="vp-label">Wind</span>
-                <span className="vp-value">{parsed.measured_values.wind_mph + " mph"}</span>
-              </div>
-            )}
-            {parsed.measured_values && parsed.measured_values.impact_speed_mph && (
-              <div className="voice-parsed-item">
-                <span className="vp-label">Impact Speed</span>
-                <span className="vp-value">{parsed.measured_values.impact_speed_mph + " mph"}</span>
-              </div>
-            )}
-            <div className="voice-parsed-item">
-              <span className="vp-label">Confidence</span>
-              <span className="vp-value">{parsed.confidence + "%"}</span>
-            </div>
+            <div className="voice-parsed-item"><span className="vp-label">Intake Path</span><span className="vp-value">{(parsed.intake_path || "").replace(/_/g, " ")}</span></div>
+            <div className="voice-parsed-item"><span className="vp-label">Asset Type</span><span className="vp-value">{(parsed.asset_type || "").replace(/_/g, " ")}</span></div>
+            {parsed.event_category && <div className="voice-parsed-item"><span className="vp-label">Event</span><span className="vp-value">{parsed.event_category.replace(/_/g, " ")}</span></div>}
+            {parsed.finding_category && <div className="voice-parsed-item"><span className="vp-label">Finding</span><span className="vp-value">{parsed.finding_category.replace(/_/g, " ")}</span></div>}
+            {parsed.component && <div className="voice-parsed-item"><span className="vp-label">Component</span><span className="vp-value">{parsed.component.replace(/_/g, " ")}</span></div>}
+            {parsed.impact_object && <div className="voice-parsed-item"><span className="vp-label">Object</span><span className="vp-value">{parsed.impact_object.replace(/_/g, " ")}</span></div>}
+            {parsed.measured_values && parsed.measured_values.wind_mph && <div className="voice-parsed-item"><span className="vp-label">Wind</span><span className="vp-value">{parsed.measured_values.wind_mph + " mph"}</span></div>}
+            {parsed.measured_values && parsed.measured_values.impact_speed_mph && <div className="voice-parsed-item"><span className="vp-label">Impact Speed</span><span className="vp-value">{parsed.measured_values.impact_speed_mph + " mph"}</span></div>}
+            <div className="voice-parsed-item"><span className="vp-label">Confidence</span><span className="vp-value">{parsed.confidence + "%"}</span></div>
           </div>
           {parsed.environment_context && parsed.environment_context.length > 0 && (
             <div className="voice-env-chips">
@@ -506,129 +504,288 @@ export default function VoiceInspectionPage() {
           <div className="voice-plan-header">
             <h2>{plan.title}</h2>
             <div className="voice-plan-badges">
-              <span className="voice-severity-badge" style={{ backgroundColor: SEVERITY_COLORS[plan.severity_band] || "#666" }}>
-                {(plan.severity_band || "").toUpperCase()}
-              </span>
-              <span className="voice-disp-badge">
-                {DISP_LABELS[plan.operational_disposition] || plan.operational_disposition.replace(/_/g, " ")}
-              </span>
+              <span className="voice-severity-badge" style={{ backgroundColor: SEVERITY_COLORS[plan.severity_band] || "#666" }}>{(plan.severity_band || "").toUpperCase()}</span>
+              <span className="voice-disp-badge">{DISP_LABELS[plan.operational_disposition] || (plan.operational_disposition || "").replace(/_/g, " ")}</span>
             </div>
           </div>
           <p className="voice-plan-summary">{plan.summary}</p>
-
-          {/* IMMEDIATE ACTIONS */}
           {plan.immediate_actions && plan.immediate_actions.length > 0 && (
-            <div className="voice-plan-block">
-              <h3>{"\u26A0\uFE0F"} Immediate Actions</h3>
-              {plan.immediate_actions.map(function(a: string, idx: number) {
-                return <div key={idx} className="voice-action-item">{a}</div>;
-              })}
-            </div>
+            <div className="voice-plan-block"><h3>{"\u26A0\uFE0F"} Immediate Actions</h3>{plan.immediate_actions.map(function(a: string, idx: number) { return <div key={idx} className="voice-action-item">{a}</div>; })}</div>
           )}
-
-          {/* RECOMMENDED METHODS */}
           {plan.recommended_methods && plan.recommended_methods.length > 0 && (
-            <div className="voice-plan-block">
-              <h3>Recommended Methods</h3>
-              <div className="voice-methods-grid">
-                {plan.recommended_methods.map(function(m: any, idx: number) {
+            <div className="voice-plan-block"><h3>Recommended Methods</h3><div className="voice-methods-grid">{plan.recommended_methods.map(function(m: any, idx: number) { return (<div key={idx} className={"voice-method-card priority-" + m.priority}><div className="voice-method-header"><span className="voice-method-name">{m.method}</span><span className="voice-method-priority">{"P" + m.priority}</span></div><div className="voice-method-reason">{m.reason}</div></div>); })}</div></div>
+          )}
+          {plan.probable_damage_mechanisms && plan.probable_damage_mechanisms.length > 0 && (
+            <div className="voice-plan-block"><h3>Probable Damage Mechanisms</h3><div className="voice-chip-list">{plan.probable_damage_mechanisms.map(function(d: string, idx: number) { return <span key={idx} className="voice-mech-chip">{d.replace(/_/g, " ")}</span>; })}</div></div>
+          )}
+          {plan.prioritized_inspection_zones && plan.prioritized_inspection_zones.length > 0 && (
+            <div className="voice-plan-block"><h3>Prioritized Inspection Zones</h3><div className="voice-chip-list">{plan.prioritized_inspection_zones.map(function(z: string, idx: number) { return <span key={idx} className="voice-zone-chip">{z.replace(/_/g, " ")}</span>; })}</div></div>
+          )}
+          {plan.likely_failure_modes && plan.likely_failure_modes.length > 0 && (
+            <div className="voice-plan-block"><h3>Likely Failure Modes</h3><div className="voice-chip-list">{plan.likely_failure_modes.map(function(f: string, idx: number) { return <span key={idx} className="voice-fail-chip">{f.replace(/_/g, " ")}</span>; })}</div></div>
+          )}
+          {plan.rationale && plan.rationale.length > 0 && (
+            <div className="voice-plan-block"><h3>Rationale</h3>{plan.rationale.map(function(r: string, idx: number) { return <div key={idx} className="voice-rationale-item">{r}</div>; })}</div>
+          )}
+          {plan.follow_up_questions && plan.follow_up_questions.length > 0 && (
+            <div className="voice-plan-block"><h3>Follow-Up Questions</h3>{plan.follow_up_questions.map(function(q: string, idx: number) { return <div key={idx} className="voice-question-item">{"? " + q}</div>; })}</div>
+          )}
+        </div>
+      )}
+
+      {/* =========================================================
+         TIME PROGRESSION ENGINE — RISK CURVE
+         ========================================================= */}
+      {timeProgressionLoading && (
+        <div className="ct-loading"><div className="ct-loading-spinner"></div>Calculating risk progression over time...</div>
+      )}
+      {timeProgression && timeProgression.time_points && (
+        <div className="ct-panel" style={{ marginTop: "20px" }}>
+          <div className="ct-panel-header">
+            <h3 className="ct-title"><span className="ct-icon">{"\u23F1\uFE0F"}</span> Risk Progression Over Time</h3>
+            <span className="ct-family-count">{timeProgression.overall_trajectory ? timeProgression.overall_trajectory.split(" ")[0] : ""}</span>
+          </div>
+
+          {/* Executive Summary */}
+          <p style={{ fontSize: "13px", color: "#c9d1d9", margin: "8px 0 16px 0", lineHeight: "1.5" }}>{timeProgression.executive_summary}</p>
+
+          {/* Threshold badges */}
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "16px" }}>
+            {timeProgression.critical_threshold_hours !== null && (
+              <span className="voice-severity-badge" style={{ backgroundColor: "#ef4444" }}>
+                {"CRITICAL at " + (timeProgression.critical_threshold_hours <= 24 ? timeProgression.critical_threshold_hours + "h" : Math.round(timeProgression.critical_threshold_hours / 24) + " days")}
+              </span>
+            )}
+            {timeProgression.extreme_threshold_hours !== null && (
+              <span className="voice-severity-badge" style={{ backgroundColor: "#dc2626" }}>
+                {"EXTREME at " + (timeProgression.extreme_threshold_hours <= 24 ? timeProgression.extreme_threshold_hours + "h" : Math.round(timeProgression.extreme_threshold_hours / 24) + " days")}
+              </span>
+            )}
+            <span className="ct-code-family">{"Peak: " + timeProgression.peak_risk_point.risk_score + " / " + timeProgression.peak_risk_point.failure_probability_pct + "% fail prob"}</span>
+          </div>
+
+          {/* RISK CURVE BARS */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            {timeProgression.time_points.map(function(tp: any, idx: number) {
+              var barWidth = Math.max(tp.risk_score, 3);
+              var barColor = RISK_COLORS[tp.risk_level] || "#666";
+              return (
+                <div key={idx} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ width: "70px", fontSize: "11px", color: "#8b949e", textAlign: "right", flexShrink: 0 }}>{tp.label}</span>
+                  <div style={{ flex: 1, position: "relative", height: "28px", background: "#161b22", borderRadius: "4px", overflow: "hidden" }}>
+                    <div style={{ width: barWidth + "%", height: "100%", backgroundColor: barColor, borderRadius: "4px", transition: "width 0.5s ease" }}></div>
+                    <span style={{ position: "absolute", top: "50%", left: "8px", transform: "translateY(-50%)", fontSize: "11px", color: "#fff", fontWeight: 600, textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}>
+                      {tp.risk_level + " " + tp.risk_score + "  |  " + tp.failure_probability_pct + "% fail"}
+                    </span>
+                  </div>
+                  {tp.new_mechanisms_activated.length > 0 && (
+                    <span style={{ fontSize: "10px", color: "#f59e0b", flexShrink: 0 }}>{"\u26A0 +" + tp.new_mechanisms_activated.length + " mech"}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Expandable: detailed narratives */}
+          <div className="ct-section" style={{ marginTop: "12px" }}>
+            <button className="ct-section-toggle" onClick={function() { toggleSection("tp_detail"); }} type="button">
+              <span className="ct-section-title">{"Detailed Progression Narratives (" + timeProgression.time_points.length + " time points)"}</span>
+              <span className="ct-chevron">{expandedSections["tp_detail"] ? "\u25B2" : "\u25BC"}</span>
+            </button>
+            {expandedSections["tp_detail"] && (
+              <div className="ct-section-body">
+                {timeProgression.time_points.map(function(tp: any, idx: number) {
                   return (
-                    <div key={idx} className={"voice-method-card priority-" + m.priority}>
-                      <div className="voice-method-header">
-                        <span className="voice-method-name">{m.method}</span>
-                        <span className="voice-method-priority">{"P" + m.priority}</span>
+                    <div key={"tpd-" + idx} style={{ padding: "10px 0", borderBottom: "1px solid #21262d" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                        <span style={{ fontWeight: 700, color: RISK_COLORS[tp.risk_level] || "#ccc", fontSize: "13px" }}>{tp.label}</span>
+                        <span className="voice-severity-badge" style={{ backgroundColor: RISK_COLORS[tp.risk_level] || "#666", fontSize: "10px", padding: "2px 6px" }}>{tp.risk_level}</span>
+                        <span style={{ fontSize: "11px", color: "#8b949e" }}>{"Action: " + tp.recommended_action.replace(/_/g, " ")}</span>
                       </div>
-                      <div className="voice-method-reason">{m.reason}</div>
+                      <div style={{ fontSize: "12px", color: "#c9d1d9", lineHeight: "1.4" }}>{tp.progression_narrative}</div>
+                      {tp.warnings.length > 0 && (
+                        <div style={{ marginTop: "4px" }}>
+                          {tp.warnings.map(function(w: string, wi: number) {
+                            return <div key={"tpw-" + wi} style={{ fontSize: "11px", color: "#f59e0b" }}>{"\u26A0 " + w}</div>;
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* DAMAGE MECHANISMS */}
-          {plan.probable_damage_mechanisms && plan.probable_damage_mechanisms.length > 0 && (
-            <div className="voice-plan-block">
-              <h3>Probable Damage Mechanisms</h3>
-              <div className="voice-chip-list">
-                {plan.probable_damage_mechanisms.map(function(d: string, idx: number) {
-                  return <span key={idx} className="voice-mech-chip">{d.replace(/_/g, " ")}</span>;
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* INSPECTION ZONES */}
-          {plan.prioritized_inspection_zones && plan.prioritized_inspection_zones.length > 0 && (
-            <div className="voice-plan-block">
-              <h3>Prioritized Inspection Zones</h3>
-              <div className="voice-chip-list">
-                {plan.prioritized_inspection_zones.map(function(z: string, idx: number) {
-                  return <span key={idx} className="voice-zone-chip">{z.replace(/_/g, " ")}</span>;
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* FAILURE MODES */}
-          {plan.likely_failure_modes && plan.likely_failure_modes.length > 0 && (
-            <div className="voice-plan-block">
-              <h3>Likely Failure Modes</h3>
-              <div className="voice-chip-list">
-                {plan.likely_failure_modes.map(function(f: string, idx: number) {
-                  return <span key={idx} className="voice-fail-chip">{f.replace(/_/g, " ")}</span>;
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* RATIONALE */}
-          {plan.rationale && plan.rationale.length > 0 && (
-            <div className="voice-plan-block">
-              <h3>Rationale</h3>
-              {plan.rationale.map(function(r: string, idx: number) {
-                return <div key={idx} className="voice-rationale-item">{r}</div>;
-              })}
-            </div>
-          )}
-
-          {/* FOLLOW-UP QUESTIONS */}
-          {plan.follow_up_questions && plan.follow_up_questions.length > 0 && (
-            <div className="voice-plan-block">
-              <h3>Follow-Up Questions</h3>
-              {plan.follow_up_questions.map(function(q: string, idx: number) {
-                return <div key={idx} className="voice-question-item">{"? " + q}</div>;
+          {/* Code basis */}
+          {timeProgression.code_basis && timeProgression.code_basis.length > 0 && (
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "12px" }}>
+              {timeProgression.code_basis.map(function(code: string, idx: number) {
+                return <span key={"tpc-" + idx} className="ct-code-family">{code}</span>;
               })}
             </div>
           )}
         </div>
       )}
 
-      {/* EVENT CLASSIFICATION + ENRICHMENT */}
+      {/* =========================================================
+         GOVERNANCE MATRIX
+         ========================================================= */}
+      {governanceLoading && (
+        <div className="ct-loading"><div className="ct-loading-spinner"></div>Resolving governance authority...</div>
+      )}
+      {governance && governance.ui_sections && (
+        <div className="ct-panel" style={{ marginTop: "20px" }}>
+          <div className="ct-panel-header">
+            <h3 className="ct-title"><span className="ct-icon">{"\uD83C\uDFDB\uFE0F"}</span> Governance Matrix</h3>
+            <span className="ct-family-count">{governance.confidence + "% confidence"}</span>
+          </div>
+          <p style={{ fontSize: "12px", color: "#8b949e", margin: "4px 0 12px 0" }}>{governance.primary_governance_path}</p>
+
+          {governance.ai_fallback_used && (
+            <div style={{ background: "#2d1b00", border: "1px solid #f59e0b", borderRadius: "6px", padding: "8px 12px", marginBottom: "12px", fontSize: "12px", color: "#f59e0b" }}>
+              {"\u26A0 " + (governance.ai_fallback_note || "AI fallback was used for this resolution.")}
+            </div>
+          )}
+
+          {/* 7 governance layers as expandable sections */}
+          {[
+            { key: "legal_regulatory", label: "Legal / Regulatory", icon: "\uD83D\uDCDC" },
+            { key: "asset_code", label: "Asset Code Family", icon: "\uD83D\uDCD6" },
+            { key: "method_execution", label: "Method Execution", icon: "\uD83D\uDD27" },
+            { key: "personnel_qualification", label: "Personnel Qualification", icon: "\uD83C\uDF93" },
+            { key: "damage_mechanism_rbi", label: "Damage Mechanism / RBI", icon: "\u2622\uFE0F" },
+            { key: "fitness_for_service", label: "Fitness for Service", icon: "\uD83D\uDEE1\uFE0F" },
+            { key: "owner_user_execution", label: "Owner / User Execution", icon: "\uD83C\uDFED" }
+          ].map(function(layer) {
+            var auths: string[] = governance.ui_sections[layer.key] || [];
+            if (auths.length === 0) return null;
+            return (
+              <div key={layer.key} className="ct-section">
+                <button className="ct-section-toggle" onClick={function() { toggleSection("gov_" + layer.key); }} type="button">
+                  <span className="ct-section-title">{layer.icon + " " + layer.label + " (" + auths.length + ")"}</span>
+                  <span className="ct-chevron">{expandedSections["gov_" + layer.key] ? "\u25B2" : "\u25BC"}</span>
+                </button>
+                {expandedSections["gov_" + layer.key] && (
+                  <div className="ct-section-body">
+                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      {auths.map(function(auth: string, aidx: number) {
+                        return <span key={"ga-" + aidx} className="ct-code-family">{auth}</span>;
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* =========================================================
+         CODE AUTHORITY RESOLUTION
+         ========================================================= */}
+      {codeResolutionLoading && (
+        <div className="ct-loading"><div className="ct-loading-spinner"></div>Resolving code authority hierarchy...</div>
+      )}
+      {codeResolution && codeResolution.primary_asset_code && (
+        <div className="ct-panel" style={{ marginTop: "20px" }}>
+          <div className="ct-panel-header">
+            <h3 className="ct-title"><span className="ct-icon">{"\uD83D\uDD0D"}</span> Code Authority Resolution</h3>
+            <span className="ct-family-count">{codeResolution.confidence + "% confidence"}</span>
+          </div>
+
+          {/* Primary code badge */}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "8px 0 12px 0" }}>
+            <span style={{ fontSize: "11px", color: "#8b949e", fontWeight: 600 }}>PRIMARY:</span>
+            <span className="ct-method-badge" style={{ fontSize: "13px" }}>{codeResolution.primary_asset_code.authority}</span>
+            <span style={{ fontSize: "11px", color: "#8b949e" }}>{codeResolution.primary_asset_code.confidence + "% confidence"}</span>
+          </div>
+          <p style={{ fontSize: "12px", color: "#8b949e", margin: "0 0 12px 0" }}>{codeResolution.primary_code_path}</p>
+
+          {/* Execution order */}
+          {codeResolution.execution_order && codeResolution.execution_order.length > 0 && (
+            <div className="ct-section">
+              <button className="ct-section-toggle" onClick={function() { toggleSection("cr_exec"); }} type="button">
+                <span className="ct-section-title">{"Execution Order (" + codeResolution.execution_order.length + " steps)"}</span>
+                <span className="ct-chevron">{expandedSections["cr_exec"] ? "\u25B2" : "\u25BC"}</span>
+              </button>
+              {expandedSections["cr_exec"] && (
+                <div className="ct-section-body">
+                  {codeResolution.execution_order.map(function(step: any, idx: number) {
+                    return (
+                      <div key={"eo-" + idx} style={{ padding: "6px 0", borderBottom: "1px solid #21262d", display: "flex", alignItems: "center", gap: "8px" }}>
+                        <span style={{ width: "24px", height: "24px", borderRadius: "50%", background: "#1f6feb", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, flexShrink: 0 }}>{step.step}</span>
+                        <span style={{ fontSize: "12px", color: "#c9d1d9", flex: 1 }}>{step.label}</span>
+                        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                          {step.authorities.map(function(auth: string, aidx: number) {
+                            return <span key={"eoa-" + aidx} className="ct-code-family" style={{ fontSize: "10px" }}>{auth}</span>;
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Authority conflicts */}
+          {codeResolution.authority_conflicts && codeResolution.authority_conflicts.length > 0 && (
+            <div className="ct-section">
+              <button className="ct-section-toggle" onClick={function() { toggleSection("cr_conflicts"); }} type="button">
+                <span className="ct-section-title">{"\u26A0 Authority Conflicts (" + codeResolution.authority_conflicts.length + ")"}</span>
+                <span className="ct-chevron">{expandedSections["cr_conflicts"] ? "\u25B2" : "\u25BC"}</span>
+              </button>
+              {expandedSections["cr_conflicts"] && (
+                <div className="ct-section-body">
+                  {codeResolution.authority_conflicts.map(function(conflict: any, idx: number) {
+                    return (
+                      <div key={"cf-" + idx} style={{ padding: "8px", marginBottom: "8px", background: "#1c1917", borderRadius: "6px", border: "1px solid #78350f" }}>
+                        <div style={{ fontSize: "12px", color: "#fbbf24", fontWeight: 600, marginBottom: "4px" }}>{"Layer: " + conflict.layer}</div>
+                        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "6px" }}>
+                          {conflict.competing_authorities.map(function(auth: string, aidx: number) {
+                            return <span key={"cfa-" + aidx} className="ct-code-family">{auth}</span>;
+                          })}
+                        </div>
+                        <div style={{ fontSize: "11px", color: "#c9d1d9" }}>{conflict.resolution}</div>
+                        {conflict.resolved_primary && (
+                          <div style={{ fontSize: "11px", color: "#22c55e", marginTop: "4px" }}>{"Resolved primary: " + conflict.resolved_primary}</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI fallback */}
+          {codeResolution.ai_fallback_used && (
+            <div style={{ background: "#2d1b00", border: "1px solid #f59e0b", borderRadius: "6px", padding: "8px 12px", marginTop: "12px", fontSize: "12px", color: "#f59e0b" }}>
+              {"\u26A0 " + (codeResolution.ai_fallback_note || "AI fallback was used.")}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* =========================================================
+         EVENT CLASSIFICATION + ENRICHMENT (existing)
+         ========================================================= */}
       {enrichment && enrichment.event_classification && (
         <div className="ct-panel" style={{ marginTop: "20px" }}>
           <div className="ct-panel-header">
-            <h3 className="ct-title">
-              <span className="ct-icon">{"\uD83C\uDFAF"}</span>
-              Event Classification
-            </h3>
+            <h3 className="ct-title"><span className="ct-icon">{"\uD83C\uDFAF"}</span> Event Classification</h3>
             <span className="ct-family-count">{enrichment.event_classification.confidence + "% confidence"}</span>
           </div>
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px", marginTop: "8px" }}>
             <span className="ct-method-badge">{(enrichment.event_classification.event_type || "").toUpperCase()}</span>
-            <span className="voice-severity-badge" style={{ backgroundColor: SEVERITY_COLORS[enrichment.event_classification.risk_floor_band] || "#666" }}>
-              {"RISK FLOOR: " + enrichment.event_classification.risk_floor_band.toUpperCase()}
-            </span>
-            {enrichment.rule_pack_applied && (
-              <span className="ct-code-family">{"Rule Pack: " + enrichment.rule_pack_applied.rule_pack}</span>
-            )}
+            <span className="voice-severity-badge" style={{ backgroundColor: SEVERITY_COLORS[enrichment.event_classification.risk_floor_band] || "#666" }}>{"RISK FLOOR: " + enrichment.event_classification.risk_floor_band.toUpperCase()}</span>
+            {enrichment.rule_pack_applied && <span className="ct-code-family">{"Rule Pack: " + enrichment.rule_pack_applied.rule_pack}</span>}
           </div>
           {enrichment.event_classification.trigger_words_matched && enrichment.event_classification.trigger_words_matched.length > 0 && (
             <div style={{ marginBottom: "10px" }}>
               <span style={{ fontSize: "12px", color: "#8b949e" }}>{"Trigger words: "}</span>
-              {enrichment.event_classification.trigger_words_matched.map(function(w: string, idx: number) {
-                return <span key={"tw-" + idx} className="voice-zone-chip" style={{ marginLeft: "4px" }}>{w}</span>;
-              })}
+              {enrichment.event_classification.trigger_words_matched.map(function(w: string, idx: number) { return <span key={"tw-" + idx} className="voice-zone-chip" style={{ marginLeft: "4px" }}>{w}</span>; })}
             </div>
           )}
           {enrichment.enrichment_notes && enrichment.enrichment_notes.length > 0 && (
@@ -639,9 +796,7 @@ export default function VoiceInspectionPage() {
               </button>
               {expandedSections["enrichment_notes"] && (
                 <div className="ct-section-body">
-                  {enrichment.enrichment_notes.map(function(note: string, idx: number) {
-                    return <div key={"note-" + idx} style={{ fontSize: "13px", color: "#c9d1d9", padding: "4px 0", borderBottom: "1px solid #21262d" }}>{note}</div>;
-                  })}
+                  {enrichment.enrichment_notes.map(function(note: string, idx: number) { return <div key={"note-" + idx} style={{ fontSize: "13px", color: "#c9d1d9", padding: "4px 0", borderBottom: "1px solid #21262d" }}>{note}</div>; })}
                 </div>
               )}
             </div>
@@ -650,9 +805,7 @@ export default function VoiceInspectionPage() {
             <div style={{ marginTop: "10px" }}>
               <span style={{ fontSize: "12px", color: "#8b949e", fontWeight: 600 }}>{"Regulatory Framework: "}</span>
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
-                {enrichment.enriched_plan.regulatory_references.map(function(reg: string, idx: number) {
-                  return <span key={"reg-" + idx} className="ct-code-family">{reg}</span>;
-                })}
+                {enrichment.enriched_plan.regulatory_references.map(function(reg: string, idx: number) { return <span key={"reg-" + idx} className="ct-code-family">{reg}</span>; })}
               </div>
             </div>
           )}
@@ -660,28 +813,16 @@ export default function VoiceInspectionPage() {
       )}
 
       {/* CODE TRACE LOADING */}
-      {codeTraceLoading && (
-        <div className="ct-loading">
-          <div className="ct-loading-spinner"></div>
-          Generating code authority trace...
-        </div>
-      )}
+      {codeTraceLoading && <div className="ct-loading"><div className="ct-loading-spinner"></div>Generating code authority trace...</div>}
 
-      {/* CODE AUTHORITY TRACE PANEL */}
+      {/* CODE AUTHORITY TRACE PANEL (existing — unchanged) */}
       {codeTrace && (
         <div className="ct-panel">
           <div className="ct-panel-header">
-            <h3 className="ct-title">
-              <span className="ct-icon">{"\u2696"}</span>
-              Code Authority Trace
-            </h3>
+            <h3 className="ct-title"><span className="ct-icon">{"\u2696"}</span> Code Authority Trace</h3>
             <span className="ct-family-count">{(codeTrace.applicable_code_families || []).length + " code families"}</span>
           </div>
-          <p className="ct-subtitle">
-            {"Applicable: " + (codeTrace.applicable_code_families || []).join(", ")}
-          </p>
-
-          {/* FINDING TRACES */}
+          <p className="ct-subtitle">{"Applicable: " + (codeTrace.applicable_code_families || []).join(", ")}</p>
           {codeTrace.finding_traces && codeTrace.finding_traces.length > 0 && (
             <div className="ct-section">
               <button className="ct-section-toggle" onClick={function() { toggleSection("findings"); }} type="button">
@@ -693,25 +834,15 @@ export default function VoiceInspectionPage() {
                   {codeTrace.finding_traces.map(function(ft: any, idx: number) {
                     return (
                       <div key={"ft-" + idx} className="ct-card">
-                        <div className="ct-card-header">
-                          <span className="ct-finding-name">{ft.display_name}</span>
-                          <span className="ct-ref-count">{ft.references.length + " ref" + (ft.references.length !== 1 ? "s" : "")}</span>
-                        </div>
+                        <div className="ct-card-header"><span className="ct-finding-name">{ft.display_name}</span><span className="ct-ref-count">{ft.references.length + " ref" + (ft.references.length !== 1 ? "s" : "")}</span></div>
                         <div className="ct-physics">{ft.physics_basis}</div>
                         <div className="ct-rejection">{ft.rejection_basis}</div>
                         {ft.references.map(function(ref: any, ridx: number) {
                           return (
                             <div key={"fref-" + ridx} className="ct-ref">
-                              <div className="ct-ref-header">
-                                <span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span>
-                                <span className="ct-clause">{ref.clause}</span>
-                              </div>
+                              <div className="ct-ref-header"><span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span><span className="ct-clause">{ref.clause}</span></div>
                               <div className="ct-ref-title">{ref.title}</div>
-                              <div className="ct-ref-detail">
-                                <div>{"Requirement: " + ref.requirement_summary}</div>
-                                <div>{"Acceptance: " + ref.acceptance_criteria}</div>
-                                <div className="ct-rationale">{"Rationale: " + ref.engineering_rationale}</div>
-                              </div>
+                              <div className="ct-ref-detail"><div>{"Requirement: " + ref.requirement_summary}</div><div>{"Acceptance: " + ref.acceptance_criteria}</div><div className="ct-rationale">{"Rationale: " + ref.engineering_rationale}</div></div>
                             </div>
                           );
                         })}
@@ -722,8 +853,6 @@ export default function VoiceInspectionPage() {
               )}
             </div>
           )}
-
-          {/* METHOD TRACES */}
           {codeTrace.method_traces && codeTrace.method_traces.length > 0 && (
             <div className="ct-section">
               <button className="ct-section-toggle" onClick={function() { toggleSection("methods"); }} type="button">
@@ -735,24 +864,15 @@ export default function VoiceInspectionPage() {
                   {codeTrace.method_traces.map(function(mt: any, idx: number) {
                     return (
                       <div key={"mt-" + idx} className="ct-card">
-                        <div className="ct-card-header">
-                          <span className="ct-method-badge">{mt.method}</span>
-                          <span className="ct-finding-name">{mt.display_name}</span>
-                        </div>
+                        <div className="ct-card-header"><span className="ct-method-badge">{mt.method}</span><span className="ct-finding-name">{mt.display_name}</span></div>
                         <div className="ct-capability">{"Capability: " + mt.capability_summary}</div>
                         <div className="ct-limitation">{"Limitation: " + mt.limitation_summary}</div>
                         {mt.references.map(function(ref: any, ridx: number) {
                           return (
                             <div key={"mref-" + ridx} className="ct-ref">
-                              <div className="ct-ref-header">
-                                <span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span>
-                                <span className="ct-clause">{ref.clause}</span>
-                              </div>
+                              <div className="ct-ref-header"><span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span><span className="ct-clause">{ref.clause}</span></div>
                               <div className="ct-ref-title">{ref.title}</div>
-                              <div className="ct-ref-detail">
-                                <div>{"Requirement: " + ref.requirement_summary}</div>
-                                <div>{"Rationale: " + ref.engineering_rationale}</div>
-                              </div>
+                              <div className="ct-ref-detail"><div>{"Requirement: " + ref.requirement_summary}</div><div>{"Rationale: " + ref.engineering_rationale}</div></div>
                             </div>
                           );
                         })}
@@ -763,8 +883,6 @@ export default function VoiceInspectionPage() {
               )}
             </div>
           )}
-
-          {/* DISPOSITION TRACE */}
           {codeTrace.disposition_trace && (
             <div className="ct-section">
               <button className="ct-section-toggle" onClick={function() { toggleSection("disposition"); }} type="button">
@@ -774,22 +892,14 @@ export default function VoiceInspectionPage() {
               {expandedSections["disposition"] && (
                 <div className="ct-section-body">
                   <div className="ct-card ct-disp-card">
-                    <div className="ct-card-header">
-                      <span className="ct-disp-badge">{(codeTrace.disposition_trace.disposition || "").replace(/_/g, " ").toUpperCase()}</span>
-                    </div>
+                    <div className="ct-card-header"><span className="ct-disp-badge">{(codeTrace.disposition_trace.disposition || "").replace(/_/g, " ").toUpperCase()}</span></div>
                     <div className="ct-authority-stmt">{codeTrace.disposition_trace.authority_statement}</div>
                     {codeTrace.disposition_trace.references.map(function(ref: any, ridx: number) {
                       return (
                         <div key={"dref-" + ridx} className="ct-ref">
-                          <div className="ct-ref-header">
-                            <span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span>
-                            <span className="ct-clause">{ref.clause}</span>
-                          </div>
+                          <div className="ct-ref-header"><span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span><span className="ct-clause">{ref.clause}</span></div>
                           <div className="ct-ref-title">{ref.title}</div>
-                          <div className="ct-ref-detail">
-                            <div>{"Requirement: " + ref.requirement_summary}</div>
-                            <div>{"Rationale: " + ref.engineering_rationale}</div>
-                          </div>
+                          <div className="ct-ref-detail"><div>{"Requirement: " + ref.requirement_summary}</div><div>{"Rationale: " + ref.engineering_rationale}</div></div>
                         </div>
                       );
                     })}
@@ -798,8 +908,6 @@ export default function VoiceInspectionPage() {
               )}
             </div>
           )}
-
-          {/* SCORE DIMENSION TRACES */}
           {codeTrace.score_traces && codeTrace.score_traces.length > 0 && (
             <div className="ct-section">
               <button className="ct-section-toggle" onClick={function() { toggleSection("scores"); }} type="button">
@@ -811,18 +919,10 @@ export default function VoiceInspectionPage() {
                   {codeTrace.score_traces.map(function(st: any, idx: number) {
                     return (
                       <div key={"st-" + idx} className="ct-card ct-score-card">
-                        <div className="ct-card-header">
-                          <span className="ct-dim-name">{(st.dimension || "").replace(/_/g, " ")}</span>
-                        </div>
+                        <div className="ct-card-header"><span className="ct-dim-name">{(st.dimension || "").replace(/_/g, " ")}</span></div>
                         <div className="ct-eng-basis">{st.engineering_basis}</div>
                         {st.references.map(function(ref: any, ridx: number) {
-                          return (
-                            <div key={"sref-" + ridx} className="ct-ref ct-ref-compact">
-                              <span className="ct-code-family">{ref.code_family}</span>
-                              <span className="ct-clause">{ref.clause}</span>
-                              <span className="ct-ref-title-inline">{ref.title}</span>
-                            </div>
-                          );
+                          return <div key={"sref-" + ridx} className="ct-ref ct-ref-compact"><span className="ct-code-family">{ref.code_family}</span><span className="ct-clause">{ref.clause}</span><span className="ct-ref-title-inline">{ref.title}</span></div>;
                         })}
                       </div>
                     );
@@ -831,8 +931,6 @@ export default function VoiceInspectionPage() {
               )}
             </div>
           )}
-
-          {/* UNDERWATER TRACES */}
           {codeTrace.underwater_traces && codeTrace.underwater_traces.length > 0 && (
             <div className="ct-section">
               <button className="ct-section-toggle" onClick={function() { toggleSection("underwater"); }} type="button">
@@ -844,15 +942,9 @@ export default function VoiceInspectionPage() {
                   {codeTrace.underwater_traces.map(function(ref: any, ridx: number) {
                     return (
                       <div key={"uwref-" + ridx} className="ct-ref">
-                        <div className="ct-ref-header">
-                          <span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span>
-                          <span className="ct-clause">{ref.clause}</span>
-                        </div>
+                        <div className="ct-ref-header"><span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span><span className="ct-clause">{ref.clause}</span></div>
                         <div className="ct-ref-title">{ref.title}</div>
-                        <div className="ct-ref-detail">
-                          <div>{"Requirement: " + ref.requirement_summary}</div>
-                          <div>{"Rationale: " + ref.engineering_rationale}</div>
-                        </div>
+                        <div className="ct-ref-detail"><div>{"Requirement: " + ref.requirement_summary}</div><div>{"Rationale: " + ref.engineering_rationale}</div></div>
                       </div>
                     );
                   })}
@@ -860,10 +952,7 @@ export default function VoiceInspectionPage() {
               )}
             </div>
           )}
-
-          <div className="ct-footer">
-            {"Trace v" + codeTrace.trace_version + " | " + (codeTrace.applicable_code_families || []).length + " code families | Generated " + new Date(codeTrace.generated_at).toLocaleString()}
-          </div>
+          <div className="ct-footer">{"Trace v" + codeTrace.trace_version + " | " + (codeTrace.applicable_code_families || []).length + " code families | Generated " + new Date(codeTrace.generated_at).toLocaleString()}</div>
         </div>
       )}
     </div>
