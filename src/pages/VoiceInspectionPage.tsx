@@ -50,6 +50,7 @@ export default function VoiceInspectionPage() {
   var [result, setResult] = useState<any>(null);
   var [codeTrace, setCodeTrace] = useState<any>(null);
   var [codeTraceLoading, setCodeTraceLoading] = useState(false);
+  var [enrichment, setEnrichment] = useState<any>(null);
   var [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   var recognitionRef = useRef<any>(null);
 
@@ -246,18 +247,120 @@ export default function VoiceInspectionPage() {
     setLoading(true);
     setResult(null);
     setCodeTrace(null);
+    setEnrichment(null);
     try {
+      // STEP 0: Call Master Inspection Router
+      var routerResp = await fetch("/api/master-router", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript: transcript })
+      });
+      var routerData = routerResp.ok ? await routerResp.json() : null;
+      var routePath = (routerData && routerData.parsed_route) ? routerData.parsed_route.intake_path : "unknown";
+
+      // ROUTE: SCHEDULED / PROGRAMMATIC
+      if (routePath === "scheduled_programmatic" && routerData.payload && routerData.payload.engine) {
+        var sp = routerData.payload;
+        var schedMethods: any[] = [];
+        var schedDeg: string[] = [];
+        var schedZones: string[] = [];
+        var seenM: Record<string, boolean> = {};
+        var compPlans = sp.prioritized_components || [];
+        for (var ci = 0; ci < compPlans.length; ci++) {
+          var cp = compPlans[ci];
+          var cpMethods = cp.recommended_methods || [];
+          for (var mi = 0; mi < cpMethods.length; mi++) {
+            var mKey = cpMethods[mi].method;
+            if (!seenM[mKey]) {
+              seenM[mKey] = true;
+              schedMethods.push({ method: cpMethods[mi].method, priority: cpMethods[mi].priority === "P1" ? 1 : cpMethods[mi].priority === "P2" ? 2 : 3, reason: cpMethods[mi].rationale });
+            }
+          }
+          var cpDeg = cp.probable_degradation || [];
+          for (var di = 0; di < cpDeg.length; di++) { if (schedDeg.indexOf(cpDeg[di]) < 0) schedDeg.push(cpDeg[di]); }
+          if (schedZones.indexOf(cp.component_type) < 0) schedZones.push(cp.component_type);
+        }
+        var mappedData: any = {
+          plan: {
+            title: "Inspection Program - " + (sp.parsed.asset_class || "facility").replace(/_/g, " "),
+            severity_band: sp.overall_priority,
+            operational_disposition: (sp.disposition || "").replace(/_/g, " "),
+            summary: sp.facility_summary,
+            immediate_actions: sp.immediate_actions || [],
+            recommended_methods: schedMethods,
+            probable_damage_mechanisms: schedDeg,
+            prioritized_inspection_zones: schedZones,
+            likely_failure_modes: [],
+            rationale: sp.what_happens_if_you_wait || [],
+            follow_up_questions: sp.follow_up_questions || [],
+            risk_score: sp.overall_priority === "critical" ? 85 : sp.overall_priority === "high" ? 65 : sp.overall_priority === "moderate" ? 45 : 25
+          },
+          parsed: {
+            intake_path: "programmatic",
+            asset_type: (sp.parsed.asset_class || "").replace(/_/g, " "),
+            event_category: sp.parsed.program_type || "scheduled",
+            confidence: sp.parsed.confidence || 0,
+            environment_context: sp.parsed.service_signals || []
+          }
+        };
+        setEnrichment({
+          event_classification: {
+            event_type: "programmatic",
+            event_subtype: sp.parsed.program_type || "scheduled",
+            confidence: sp.parsed.confidence || 0,
+            trigger_words_matched: sp.parsed.detected_keywords || [],
+            risk_floor_band: sp.overall_priority
+          },
+          rule_pack_applied: { rule_pack: "Scheduled Inspection Intelligence Engine v1" },
+          enrichment_notes: [
+            "Master Router: scheduled_programmatic",
+            "Asset: " + (sp.parsed.asset_class || "unknown").replace(/_/g, " "),
+            "Program: " + (sp.parsed.program_type || "unknown"),
+            "Components: " + (sp.parsed.inferred_components || []).join(", "),
+            "Disposition: " + (sp.disposition || "unknown").replace(/_/g, " ")
+          ],
+          enriched_plan: { regulatory_references: (sp.code_authority_trace && sp.code_authority_trace.applicable_families) ? sp.code_authority_trace.applicable_families : [] }
+        });
+        var ctMethods: string[] = [];
+        for (var i = 0; i < schedMethods.length; i++) ctMethods.push(schedMethods[i].method);
+        try {
+          var ctResp = await fetch("/api/code-trace", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ findings: schedDeg, methods: ctMethods, disposition: "engineering_evaluation", asset_class: "Refinery/Process", score_dimensions: ["event_severity", "observed_condition_severity", "hidden_damage_likelihood", "inspection_urgency", "consequence", "overall_risk", "confidence"], underwater_contexts: [] })
+          });
+          if (ctResp.ok) { setCodeTrace(await ctResp.json()); }
+        } catch (ctErr) { console.error("Code trace failed:", ctErr); }
+        setResult(mappedData);
+        setLoading(false);
+        return;
+      }
+
+      // ROUTE: EVENT-DRIVEN / OTHER (existing flow)
       var resp = await fetch("/api/voice-incident-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ transcript: transcript }),
       });
       var data = await resp.json();
-      setResult(data);
-      // Auto-fetch code trace if plan succeeded
       if (data && data.plan && !data.error) {
+        try {
+          var enrichResp = await fetch("/api/event-enrich", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ transcript: transcript, plan: data.plan, parsed: data.parsed })
+          });
+          if (enrichResp.ok) {
+            var enrichData = await enrichResp.json();
+            setEnrichment(enrichData);
+            if (enrichData.enriched_plan) data.plan = enrichData.enriched_plan;
+            if (enrichData.event_classification && enrichData.event_classification.event_type !== "unclassified") data.parsed.event_category = enrichData.event_classification.event_subtype;
+            if (enrichData.enriched_plan && enrichData.enriched_plan.regulatory_references) data.regulatory_references = enrichData.enriched_plan.regulatory_references;
+          }
+        } catch (enrichErr) { console.error("Enrichment failed:", enrichErr); }
         fetchCodeTrace(data);
       }
+      setResult(data);
     } catch (err) {
       setResult({ error: "Failed to generate plan." });
     }
@@ -268,6 +371,7 @@ export default function VoiceInspectionPage() {
     setTranscript(text);
     setResult(null);
     setCodeTrace(null);
+    setEnrichment(null);
   }
 
   var plan = result && result.plan ? result.plan : null;
@@ -495,6 +599,61 @@ export default function VoiceInspectionPage() {
               {plan.follow_up_questions.map(function(q: string, idx: number) {
                 return <div key={idx} className="voice-question-item">{"? " + q}</div>;
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* EVENT CLASSIFICATION + ENRICHMENT */}
+      {enrichment && enrichment.event_classification && (
+        <div className="ct-panel" style={{ marginTop: "20px" }}>
+          <div className="ct-panel-header">
+            <h3 className="ct-title">
+              <span className="ct-icon">{"\uD83C\uDFAF"}</span>
+              Event Classification
+            </h3>
+            <span className="ct-family-count">{enrichment.event_classification.confidence + "% confidence"}</span>
+          </div>
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px", marginTop: "8px" }}>
+            <span className="ct-method-badge">{(enrichment.event_classification.event_type || "").toUpperCase()}</span>
+            <span className="voice-severity-badge" style={{ backgroundColor: SEVERITY_COLORS[enrichment.event_classification.risk_floor_band] || "#666" }}>
+              {"RISK FLOOR: " + enrichment.event_classification.risk_floor_band.toUpperCase()}
+            </span>
+            {enrichment.rule_pack_applied && (
+              <span className="ct-code-family">{"Rule Pack: " + enrichment.rule_pack_applied.rule_pack}</span>
+            )}
+          </div>
+          {enrichment.event_classification.trigger_words_matched && enrichment.event_classification.trigger_words_matched.length > 0 && (
+            <div style={{ marginBottom: "10px" }}>
+              <span style={{ fontSize: "12px", color: "#8b949e" }}>{"Trigger words: "}</span>
+              {enrichment.event_classification.trigger_words_matched.map(function(w: string, idx: number) {
+                return <span key={"tw-" + idx} className="voice-zone-chip" style={{ marginLeft: "4px" }}>{w}</span>;
+              })}
+            </div>
+          )}
+          {enrichment.enrichment_notes && enrichment.enrichment_notes.length > 0 && (
+            <div className="ct-section">
+              <button className="ct-section-toggle" onClick={function() { toggleSection("enrichment_notes"); }} type="button">
+                <span className="ct-section-title">{"Enrichment Log (" + enrichment.enrichment_notes.length + " changes)"}</span>
+                <span className="ct-chevron">{expandedSections["enrichment_notes"] ? "\u25B2" : "\u25BC"}</span>
+              </button>
+              {expandedSections["enrichment_notes"] && (
+                <div className="ct-section-body">
+                  {enrichment.enrichment_notes.map(function(note: string, idx: number) {
+                    return <div key={"note-" + idx} style={{ fontSize: "13px", color: "#c9d1d9", padding: "4px 0", borderBottom: "1px solid #21262d" }}>{note}</div>;
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+          {enrichment.enriched_plan && enrichment.enriched_plan.regulatory_references && enrichment.enriched_plan.regulatory_references.length > 0 && (
+            <div style={{ marginTop: "10px" }}>
+              <span style={{ fontSize: "12px", color: "#8b949e", fontWeight: 600 }}>{"Regulatory Framework: "}</span>
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
+                {enrichment.enriched_plan.regulatory_references.map(function(reg: string, idx: number) {
+                  return <span key={"reg-" + idx} className="ct-code-family">{reg}</span>;
+                })}
+              </div>
             </div>
           )}
         </div>
