@@ -1,559 +1,1023 @@
-/**
- * DEPLOY81 — VoiceInspectionPage.tsx v5
- * src/pages/VoiceInspectionPage.tsx
- *
- * FULL INTELLIGENT CHAIN:
- *   1. parse-incident (regex-lock numbers)
- *   2. resolve-asset (canonical asset class)
- *   3. master-router → voice-incident-plan → event-enrich
- *   4. time-progression (with locked values + asset class)
- *   5. governance-matrix (with asset class)
- *   6. code-authority-resolution (with asset class)
- *   7. code-trace
- *
- * CONSTRAINT: No backtick template literals — string concatenation only
- */
+// DEPLOY83 — VoiceInspectionPage.tsx v6
+// Full Incident-to-Inspection Intelligence Chain Integration
+// GPT-4o demoted to prose polish only — deterministic chain is the reasoning layer
+// Call Chain: parse-incident + resolve-asset → governance + code-authority → master-router → 
+//   incident-inspection-chain → voice-incident-plan (prose only) → event-enrich → time-progression + code-trace
 
-import { useState, useRef } from "react";
+import React, { useState, useRef } from "react";
 
-var SEVERITY_COLORS: Record<string, string> = {
-  low: "#22c55e", moderate: "#eab308", high: "#f59e0b", critical: "#ef4444",
-};
+// ============================================================================
+// TYPES
+// ============================================================================
 
-var RISK_COLORS: Record<string, string> = {
-  LOW: "#22c55e", MEDIUM: "#eab308", HIGH: "#f59e0b", CRITICAL: "#ef4444", EXTREME: "#dc2626",
-};
+interface NumericValues {
+  wind_speed_mph?: number;
+  wave_height_ft?: number;
+  pressure_psi?: number;
+  temperature_f?: number;
+  distance_miles?: number;
+  thickness_in?: number;
+  diameter_in?: number;
+  duration_hours?: number;
+  [key: string]: number | undefined;
+}
 
-var DISP_LABELS: Record<string, string> = {
-  continue_normal: "Continue Normal", continue_with_monitoring: "Continue with Monitoring",
-  targeted_inspection: "Targeted Inspection", priority_inspection_required: "Priority Inspection Required",
-  restricted_operation: "Restricted Operation", inspection_before_return: "Inspection Before Return",
-  shutdown_consideration: "Shutdown Consideration",
-};
+interface ParsedResult {
+  events: string[];
+  environment: string[];
+  numeric_values: NumericValues;
+  raw_text: string;
+}
 
-var EXAMPLES = [
-  { label: "Bridge Impact", text: "A large truck traveling approximately 70 mph hit a 5 foot diameter concrete bridge support." },
-  { label: "Tornado over Pipeline", text: "A tornado with 150 mph winds crossed over a 10 inch gas pipeline." },
-  { label: "Ship Rudder Strike", text: "A cargo ship hit an unknown object with suspected rudder damage." },
-  { label: "Diver Found Corrosion", text: "A diver found heavy corrosion on a splash zone brace with marine growth." },
-  { label: "Tree on Pressure Vessel", text: "A tree fell on a pressure vessel near the saddle." },
-  { label: "Hurricane on Platform", text: "An offshore platform sustained 90 mph winds, 25 foot waves, and debris strikes during a hurricane." },
-  { label: "Dam Face Deterioration", text: "Diver observed concrete spalling and possible undermining at the dam face near the foundation." },
-  { label: "Subsea Crack Found", text: "ROV observed a crack-like indication at a welded node joint on the subsea jacket brace." },
-];
+interface AssetResult {
+  asset_class: string;
+  asset_type: string;
+  confidence: number;
+  alternatives?: Array<{ asset_class: string; score: number }>;
+}
+
+interface DamageMechanism {
+  id: string;
+  name: string;
+  api_571_ref: string;
+  description: string;
+  source_trigger: string;
+  severity: string;
+  requires_immediate_action: boolean;
+  susceptible_materials: string[];
+  temperature_range_f: { min: number; max: number } | null;
+  contributing_factors: string[];
+}
+
+interface AffectedZone {
+  zone_id: string;
+  zone_name: string;
+  priority: number;
+  damage_mechanisms: string[];
+  rationale: string;
+  asset_specific: boolean;
+}
+
+interface InspectionMethod {
+  method_id: string;
+  method_name: string;
+  technique_variant: string;
+  target_mechanism: string;
+  target_zone: string;
+  detection_capability: string;
+  sizing_capability: string;
+  code_reference: string;
+  rationale: string;
+  priority: number;
+  personnel_qualification: string;
+  limitations: string;
+}
+
+interface CodeActionPath {
+  finding_type: string;
+  primary_code: string;
+  code_section: string;
+  required_action: string;
+  ffs_assessment: string;
+  repair_standard: string;
+  documentation_required: string[];
+  engineering_review_required: boolean;
+}
+
+interface EscalationTier {
+  tier_name: string;
+  time_window: string;
+  hours_min: number;
+  hours_max: number;
+  actions: string[];
+  personnel_required: string[];
+  notifications: string[];
+  documentation: string[];
+}
+
+interface ExecutionPackage {
+  role: string;
+  summary: string;
+  action_items: string[];
+  timeline: string;
+  key_decisions: string[];
+  resources_needed: string[];
+}
+
+interface ChainResult {
+  engine_version: string;
+  timestamp: string;
+  input_summary: {
+    asset_class: string;
+    asset_type: string;
+    events: string[];
+    environment: string[];
+    numeric_values: NumericValues;
+  };
+  engine_1_damage_mechanisms: DamageMechanism[];
+  engine_2_affected_zones: AffectedZone[];
+  engine_3_inspection_methods: InspectionMethod[];
+  engine_4_code_action_paths: CodeActionPath[];
+  engine_5_escalation_timeline: EscalationTier[];
+  engine_6_execution_packages: ExecutionPackage[];
+  confidence_scores: {
+    mechanism_confidence: number;
+    zone_confidence: number;
+    method_confidence: number;
+    overall_confidence: number;
+  };
+  warnings: string[];
+}
+
+interface GovernanceResult {
+  layers?: Array<{ layer: string; authority: string; status: string }>;
+  [key: string]: any;
+}
+
+interface CodeAuthorityResult {
+  primary_code?: string;
+  execution_order?: string[];
+  conflicts?: string[];
+  [key: string]: any;
+}
+
+interface TimeProgressionResult {
+  mechanisms?: Array<{ name: string; probability_curve?: number[] }>;
+  [key: string]: any;
+}
+
+interface CodeTraceResult {
+  citations?: Array<{ code: string; clause: string; requirement: string }>;
+  [key: string]: any;
+}
+
+interface EventEnrichResult {
+  classification?: string;
+  rule_packs?: string[];
+  [key: string]: any;
+}
+
+// ============================================================================
+// API HELPER
+// ============================================================================
+
+const API_BASE = "/api";
+
+async function callAPI(endpoint: string, body: any): Promise<any> {
+  const res = await fetch(`${API_BASE}/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${endpoint} failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+// ============================================================================
+// SEVERITY HELPERS
+// ============================================================================
+
+function severityColor(severity: string): string {
+  switch (severity) {
+    case "critical": return "#dc2626";
+    case "high": return "#ea580c";
+    case "medium": return "#ca8a04";
+    case "low": return "#16a34a";
+    default: return "#6b7280";
+  }
+}
+
+function severityBadge(severity: string): React.ReactNode {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "2px 8px",
+        borderRadius: "4px",
+        fontSize: "11px",
+        fontWeight: 700,
+        color: "#fff",
+        backgroundColor: severityColor(severity),
+        textTransform: "uppercase",
+        letterSpacing: "0.5px",
+      }}
+    >
+      {severity}
+    </span>
+  );
+}
+
+function priorityBadge(priority: number): React.ReactNode {
+  const colors: { [key: number]: string } = { 1: "#dc2626", 2: "#ea580c", 3: "#ca8a04" };
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "2px 8px",
+        borderRadius: "4px",
+        fontSize: "11px",
+        fontWeight: 700,
+        color: "#fff",
+        backgroundColor: colors[priority] || "#6b7280",
+      }}
+    >
+      P{priority}
+    </span>
+  );
+}
+
+function confidenceBar(value: number, label: string): React.ReactNode {
+  const pct = Math.round(value * 100);
+  const color = pct >= 90 ? "#16a34a" : pct >= 75 ? "#ca8a04" : pct >= 50 ? "#ea580c" : "#dc2626";
+  return (
+    <div style={{ marginBottom: "6px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "2px" }}>
+        <span>{label}</span>
+        <span style={{ fontWeight: 700, color }}>{pct}%</span>
+      </div>
+      <div style={{ height: "6px", backgroundColor: "#e5e7eb", borderRadius: "3px", overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, backgroundColor: color, borderRadius: "3px", transition: "width 0.5s ease" }} />
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// CARD WRAPPER
+// ============================================================================
+
+function Card({ title, icon, children, status, collapsible = true }: {
+  title: string;
+  icon: string;
+  children: React.ReactNode;
+  status?: string;
+  collapsible?: boolean;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <div className="voice-card" style={{ marginBottom: "16px", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
+      <div
+        onClick={() => collapsible && setCollapsed(!collapsed)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "12px 16px",
+          backgroundColor: "#f9fafb",
+          borderBottom: collapsed ? "none" : "1px solid #e5e7eb",
+          cursor: collapsible ? "pointer" : "default",
+          userSelect: "none",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <span style={{ fontSize: "18px" }}>{icon}</span>
+          <span style={{ fontWeight: 700, fontSize: "14px" }}>{title}</span>
+          {status && <span style={{ fontSize: "11px", color: "#6b7280", marginLeft: "8px" }}>{status}</span>}
+        </div>
+        {collapsible && <span style={{ fontSize: "12px", color: "#9ca3af" }}>{collapsed ? "+" : "-"}</span>}
+      </div>
+      {!collapsed && <div style={{ padding: "16px" }}>{children}</div>}
+    </div>
+  );
+}
+
+// ============================================================================
+// STEP TRACKER
+// ============================================================================
+
+interface StepState {
+  label: string;
+  status: "pending" | "running" | "done" | "error";
+  detail?: string;
+}
+
+function StepTracker({ steps }: { steps: StepState[] }) {
+  return (
+    <div style={{ margin: "16px 0", padding: "12px 16px", backgroundColor: "#f0f4ff", borderRadius: "8px", border: "1px solid #dbeafe" }}>
+      {steps.map((step, i) => {
+        const icon = step.status === "done" ? "\u2705" : step.status === "running" ? "\u23f3" : step.status === "error" ? "\u274c" : "\u25cb";
+        const color = step.status === "done" ? "#16a34a" : step.status === "running" ? "#2563eb" : step.status === "error" ? "#dc2626" : "#9ca3af";
+        return (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px 0", fontSize: "13px" }}>
+            <span>{icon}</span>
+            <span style={{ color, fontWeight: step.status === "running" ? 700 : 400 }}>{step.label}</span>
+            {step.detail && <span style={{ color: "#6b7280", fontSize: "11px" }}>— {step.detail}</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
 
 export default function VoiceInspectionPage() {
-  var [transcript, setTranscript] = useState("");
-  var [listening, setListening] = useState(false);
-  var [loading, setLoading] = useState(false);
-  var [result, setResult] = useState<any>(null);
-  var [codeTrace, setCodeTrace] = useState<any>(null);
-  var [codeTraceLoading, setCodeTraceLoading] = useState(false);
-  var [enrichment, setEnrichment] = useState<any>(null);
-  var [timeProgression, setTimeProgression] = useState<any>(null);
-  var [timeProgressionLoading, setTimeProgressionLoading] = useState(false);
-  var [governance, setGovernance] = useState<any>(null);
-  var [governanceLoading, setGovernanceLoading] = useState(false);
-  var [codeResolution, setCodeResolution] = useState<any>(null);
-  var [codeResolutionLoading, setCodeResolutionLoading] = useState(false);
-  var [parsedIncident, setParsedIncident] = useState<any>(null);
-  var [resolvedAsset, setResolvedAsset] = useState<any>(null);
-  var [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
-  var recognitionRef = useRef<any>(null);
+  // Input state
+  const [transcript, setTranscript] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
 
-  function toggleSection(key: string) {
-    var next: Record<string, boolean> = {};
-    var keys = Object.keys(expandedSections);
-    for (var i = 0; i < keys.length; i++) next[keys[i]] = expandedSections[keys[i]];
-    next[key] = !next[key];
-    setExpandedSections(next);
+  // Pipeline step tracking
+  const [steps, setSteps] = useState<StepState[]>([]);
+
+  // API results
+  const [parsed, setParsed] = useState<ParsedResult | null>(null);
+  const [asset, setAsset] = useState<AssetResult | null>(null);
+  const [governance, setGovernance] = useState<GovernanceResult | null>(null);
+  const [codeAuthority, setCodeAuthority] = useState<CodeAuthorityResult | null>(null);
+  const [masterRoute, setMasterRoute] = useState<any>(null);
+  const [chain, setChain] = useState<ChainResult | null>(null);
+  const [aiNarrative, setAiNarrative] = useState<string | null>(null);
+  const [eventEnrich, setEventEnrich] = useState<EventEnrichResult | null>(null);
+  const [timeProgression, setTimeProgression] = useState<TimeProgressionResult | null>(null);
+  const [codeTrace, setCodeTrace] = useState<CodeTraceResult | null>(null);
+  const [chainPerformance, setChainPerformance] = useState<any>(null);
+
+  // Error state
+  const [errors, setErrors] = useState<string[]>([]);
+
+  // Active tab for execution packages
+  const [activePackageTab, setActivePackageTab] = useState(0);
+
+  // Active tab for escalation timeline
+  const [activeTimelineTier, setActiveTimelineTier] = useState(0);
+
+  // Ref for auto-scroll
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  // ---- Step updater helper ----
+  function updateStep(idx: number, updates: Partial<StepState>, current: StepState[]): StepState[] {
+    const next = [...current];
+    next[idx] = { ...next[idx], ...updates };
+    return next;
   }
 
-  function startListening() {
-    var SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { alert("Speech recognition not supported. Use Chrome or Edge."); return; }
-    var r = new SR(); r.lang = "en-US"; r.interimResults = true; r.continuous = false;
-    r.onstart = function() { setListening(true); };
-    r.onresult = function(e: any) { var t = ""; for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript; setTranscript(t.trim()); };
-    r.onerror = function() { setListening(false); };
-    r.onend = function() { setListening(false); };
-    recognitionRef.current = r; r.start();
-  }
-
-  function stopListening() { if (recognitionRef.current) recognitionRef.current.stop(); setListening(false); }
-
-  /* =========================================================
-     FETCH HELPERS
-     ========================================================= */
-
-  async function fetchTimeProgression(planData: any, assetClass: string, envFactors: string[]) {
-    setTimeProgressionLoading(true);
-    try {
-      var p = planData.plan; var pr = planData.parsed;
-      var severity = (p && p.severity_band) ? p.severity_band : "moderate";
-      var riskScore = (p && p.risk_score) ? p.risk_score : 30;
-      /* Use locked values from parsedIncident if available */
-      var pi = parsedIncident;
-      var payload: Record<string, any> = {
-        raw_text: transcript,
-        asset_type: assetClass || ((pr && pr.asset_type) ? pr.asset_type : "unknown"),
-        component_type: (pr && pr.component) ? pr.component : "unknown",
-        initial_severity: severity,
-        initial_risk_score: riskScore,
-        service_environment: envFactors.length > 0 ? envFactors : ((pr && pr.environment_context) ? pr.environment_context : []),
-        event_context: (pr && pr.event_category) ? pr.event_category : null,
-        findings_summary: transcript
-      };
-      /* Override with regex-locked values if available */
-      if (pi && pi.primary_values) {
-        if (pi.primary_values.wind_speed_mph) payload.event_context = (payload.event_context || "") + " wind " + pi.primary_values.wind_speed_mph + " mph";
-      }
-      var response = await fetch("/api/time-progression", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (response.ok) setTimeProgression(await response.json());
-    } catch (err) { console.error("Time progression fetch failed:", err); }
-    setTimeProgressionLoading(false);
-  }
-
-  async function fetchGovernance(rawText: string, assetClass: string) {
-    setGovernanceLoading(true);
-    try {
-      var payload: Record<string, any> = { raw_text: rawText };
-      if (assetClass && assetClass !== "unknown_asset") payload.asset_class = assetClass;
-      var response = await fetch("/api/governance-matrix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (response.ok) setGovernance(await response.json());
-    } catch (err) { console.error("Governance fetch failed:", err); }
-    setGovernanceLoading(false);
-  }
-
-  async function fetchCodeResolution(rawText: string, assetClass: string) {
-    setCodeResolutionLoading(true);
-    try {
-      var payload: Record<string, any> = { raw_text: rawText };
-      if (assetClass && assetClass !== "unknown_asset") payload.asset_class = assetClass;
-      var response = await fetch("/api/code-authority-resolution", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (response.ok) setCodeResolution(await response.json());
-    } catch (err) { console.error("Code resolution fetch failed:", err); }
-    setCodeResolutionLoading(false);
-  }
-
-  async function fetchCodeTrace(planData: any) {
-    setCodeTraceLoading(true);
-    try {
-      var findings: string[] = []; var methods: string[] = []; var disposition = ""; var asset_class = "Other"; var underwater_contexts: string[] = [];
-      var p = planData.plan; var pr = planData.parsed;
-      if (p && p.likely_failure_modes) { for (var i = 0; i < p.likely_failure_modes.length; i++) findings.push(p.likely_failure_modes[i]); }
-      if (p && p.probable_damage_mechanisms) { for (var i = 0; i < p.probable_damage_mechanisms.length; i++) findings.push(p.probable_damage_mechanisms[i]); }
-      if (p && p.recommended_methods) { for (var i = 0; i < p.recommended_methods.length; i++) { var m = p.recommended_methods[i]; methods.push(m.method || m.name || m); } }
-      if (p && p.operational_disposition) {
-        var dispMap: Record<string, string> = { continue_normal: "continue_normal", continue_with_monitoring: "continue_monitoring", targeted_inspection: "immediate_inspection", priority_inspection_required: "immediate_inspection", restricted_operation: "restrict_operations", inspection_before_return: "immediate_inspection", shutdown_consideration: "shutdown_consideration" };
-        disposition = dispMap[p.operational_disposition] || "engineering_evaluation";
-      }
-      if (pr && pr.asset_type) {
-        var typeClassMap: Record<string, string> = { bridge_support: "Bridge/Civil", bridge: "Bridge/Civil", pipeline: "Pipeline", gas_pipeline: "Pipeline", oil_pipeline: "Pipeline", cargo_ship: "Marine Vessel", ship: "Marine Vessel", vessel: "Marine Vessel", rudder: "Marine Vessel", pressure_vessel: "Refinery/Process", offshore_platform: "Offshore", platform: "Offshore", jacket_brace: "Offshore", dam: "Dam/Hydro", dam_face: "Dam/Hydro", hydro: "Dam/Hydro", wind_turbine: "Wind Energy", storage_tank: "Storage/Terminal", nuclear: "Nuclear", rail: "Rail", aerospace: "Aerospace" };
-        var assetKey = (pr.asset_type || "").toLowerCase().replace(/[\s\-]+/g, "_");
-        asset_class = typeClassMap[assetKey] || "Other";
-        if (asset_class === "Other") { var mapKeys = Object.keys(typeClassMap); for (var i = 0; i < mapKeys.length; i++) { if (assetKey.indexOf(mapKeys[i]) >= 0 || mapKeys[i].indexOf(assetKey) >= 0) { asset_class = typeClassMap[mapKeys[i]]; break; } } }
-      }
-      /* Use resolved asset for code trace too */
-      if (resolvedAsset && resolvedAsset.canonical_asset_class) {
-        var raClass = resolvedAsset.canonical_asset_class;
-        if (raClass.indexOf("offshore") !== -1) asset_class = "Offshore";
-        else if (raClass.indexOf("bridge") !== -1) asset_class = "Bridge/Civil";
-        else if (raClass.indexOf("pipeline") !== -1) asset_class = "Pipeline";
-        else if (raClass.indexOf("marine") !== -1) asset_class = "Marine Vessel";
-        else if (raClass.indexOf("pressure") !== -1 || raClass.indexOf("piping") !== -1 || raClass.indexOf("refinery") !== -1 || raClass.indexOf("heat_exchanger") !== -1) asset_class = "Refinery/Process";
-        else if (raClass.indexOf("storage") !== -1) asset_class = "Storage/Terminal";
-        else if (raClass.indexOf("dam") !== -1 || raClass.indexOf("civil") !== -1) asset_class = "Dam/Hydro";
-      }
-      var lowerT = transcript.toLowerCase();
-      if (pr && pr.environment_context) { for (var i = 0; i < pr.environment_context.length; i++) { var env = (pr.environment_context[i] || "").toLowerCase(); if (env.indexOf("underwater") >= 0 || env.indexOf("subsea") >= 0 || env.indexOf("diver") >= 0 || env.indexOf("marine") >= 0) { underwater_contexts.push("adci_general"); underwater_contexts.push("osha_diving"); break; } } }
-      if (underwater_contexts.length === 0 && (lowerT.indexOf("diver") >= 0 || lowerT.indexOf("underwater") >= 0 || lowerT.indexOf("subsea") >= 0 || lowerT.indexOf("rov") >= 0)) { underwater_contexts.push("adci_general"); underwater_contexts.push("osha_diving"); }
-      if (asset_class === "Offshore" && underwater_contexts.length > 0) { underwater_contexts.push("offshore"); underwater_contexts.push("cathodic_protection"); }
-      if (asset_class === "Dam/Hydro" && underwater_contexts.length > 0) underwater_contexts.push("dam_hydro");
-      if (asset_class === "Marine Vessel") underwater_contexts.push("marine_vessel");
-      var response = await fetch("/api/code-trace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ findings: findings, methods: methods, disposition: disposition, asset_class: asset_class, score_dimensions: ["event_severity", "observed_condition_severity", "hidden_damage_likelihood", "inspection_urgency", "consequence", "overall_risk", "confidence"], underwater_contexts: underwater_contexts }) });
-      if (response.ok) setCodeTrace(await response.json());
-    } catch (err) { console.error("Code trace fetch failed:", err); }
-    setCodeTraceLoading(false);
-  }
-
-  /* =========================================================
-     GENERATE PLAN — FULL INTELLIGENT CHAIN
-     ========================================================= */
-  async function generatePlan() {
+  // ---- MAIN GENERATE FUNCTION ----
+  async function handleGenerate() {
     if (!transcript.trim()) return;
-    setLoading(true);
-    setResult(null); setCodeTrace(null); setEnrichment(null); setTimeProgression(null);
-    setGovernance(null); setCodeResolution(null); setParsedIncident(null); setResolvedAsset(null);
+
+    setIsGenerating(true);
+    setErrors([]);
+    setParsed(null);
+    setAsset(null);
+    setGovernance(null);
+    setCodeAuthority(null);
+    setMasterRoute(null);
+    setChain(null);
+    setAiNarrative(null);
+    setEventEnrich(null);
+    setTimeProgression(null);
+    setCodeTrace(null);
+    setChainPerformance(null);
+
+    const initialSteps: StepState[] = [
+      { label: "Parse Incident (deterministic)", status: "pending" },
+      { label: "Resolve Asset (deterministic)", status: "pending" },
+      { label: "Governance Matrix", status: "pending" },
+      { label: "Code Authority Resolution", status: "pending" },
+      { label: "Master Router", status: "pending" },
+      { label: "Incident-to-Inspection Chain (6 engines)", status: "pending" },
+      { label: "AI Narrative Polish (GPT-4o)", status: "pending" },
+      { label: "Event Enrichment", status: "pending" },
+      { label: "Time Progression", status: "pending" },
+      { label: "Code Trace", status: "pending" },
+    ];
+    let s = [...initialSteps];
+    setSteps(s);
+
+    const errs: string[] = [];
+    let parsedResult: ParsedResult | null = null;
+    let assetResult: AssetResult | null = null;
+    let chainResult: ChainResult | null = null;
 
     try {
-      /* STEP 1: Parse incident (deterministic regex) + Resolve asset (alias scoring) — PARALLEL */
-      var parsePromise = fetch("/api/parse-incident", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: transcript }) }).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; });
+      // ====== PHASE 1: PARALLEL — parse-incident + resolve-asset ======
+      s = updateStep(0, { status: "running" }, s);
+      s = updateStep(1, { status: "running" }, s);
+      setSteps([...s]);
 
-      var resolvePromise = fetch("/api/resolve-asset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ raw_text: transcript }) }).then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; });
+      const [parseRes, assetRes] = await Promise.allSettled([
+        callAPI("parse-incident", { transcript }),
+        callAPI("resolve-asset", { raw_text: transcript }),
+      ]);
 
-      var parseResult = await parsePromise;
-      var resolveResult = await resolvePromise;
+      if (parseRes.status === "fulfilled") {
+        parsedResult = parseRes.value.parsed || parseRes.value;
+        setParsed(parsedResult);
+        const evtCount = parsedResult?.events?.length || 0;
+        const envCount = parsedResult?.environment?.length || 0;
+        s = updateStep(0, { status: "done", detail: `${evtCount} events, ${envCount} environments` }, s);
+      } else {
+        s = updateStep(0, { status: "error", detail: parseRes.reason?.message }, s);
+        errs.push("parse-incident: " + parseRes.reason?.message);
+        // Create fallback parsed
+        parsedResult = { events: [], environment: [], numeric_values: {}, raw_text: transcript };
+        setParsed(parsedResult);
+      }
 
-      if (parseResult) setParsedIncident(parseResult);
-      if (resolveResult) setResolvedAsset(resolveResult);
+      if (assetRes.status === "fulfilled") {
+        assetResult = assetRes.value.resolved || assetRes.value;
+        setAsset(assetResult);
+        s = updateStep(1, { status: "done", detail: `${assetResult?.asset_class} (${Math.round((assetResult?.confidence || 0) * 100)}%)` }, s);
+      } else {
+        s = updateStep(1, { status: "error", detail: assetRes.reason?.message }, s);
+        errs.push("resolve-asset: " + assetRes.reason?.message);
+        assetResult = { asset_class: "pressure_vessel", asset_type: "pressure_vessel", confidence: 0.3 };
+        setAsset(assetResult);
+      }
+      setSteps([...s]);
 
-      /* Extract canonical asset class for downstream */
-      var canonicalAsset = (resolveResult && resolveResult.canonical_asset_class) ? resolveResult.canonical_asset_class : "";
+      // ====== PHASE 2: PARALLEL — governance + code-authority (with asset_class) ======
+      s = updateStep(2, { status: "running" }, s);
+      s = updateStep(3, { status: "running" }, s);
+      setSteps([...s]);
 
-      /* Extract environment factors from parse result */
-      var envFactors: string[] = [];
-      if (parseResult && parseResult.environment_factors) {
-        for (var ei = 0; ei < parseResult.environment_factors.length; ei++) {
-          envFactors.push(parseResult.environment_factors[ei].key);
+      const assetClass = assetResult?.asset_class || "pressure_vessel";
+
+      const [govRes, codeAuthRes] = await Promise.allSettled([
+        callAPI("governance-matrix", { raw_text: transcript, asset_class: assetClass }),
+        callAPI("code-authority-resolution", { raw_text: transcript, asset_class: assetClass }),
+      ]);
+
+      if (govRes.status === "fulfilled") {
+        setGovernance(govRes.value);
+        s = updateStep(2, { status: "done" }, s);
+      } else {
+        s = updateStep(2, { status: "error", detail: govRes.reason?.message }, s);
+        errs.push("governance: " + govRes.reason?.message);
+      }
+
+      if (codeAuthRes.status === "fulfilled") {
+        setCodeAuthority(codeAuthRes.value);
+        s = updateStep(3, { status: "done" }, s);
+      } else {
+        s = updateStep(3, { status: "error", detail: codeAuthRes.reason?.message }, s);
+        errs.push("code-authority: " + codeAuthRes.reason?.message);
+      }
+      setSteps([...s]);
+
+      // ====== PHASE 3: SEQUENTIAL — master-router ======
+      s = updateStep(4, { status: "running" }, s);
+      setSteps([...s]);
+
+      try {
+        const routerRes = await callAPI("master-router", { transcript });
+        setMasterRoute(routerRes);
+        s = updateStep(4, { status: "done", detail: routerRes?.intake_path || "" }, s);
+      } catch (e: any) {
+        s = updateStep(4, { status: "error", detail: e.message }, s);
+        errs.push("master-router: " + e.message);
+      }
+      setSteps([...s]);
+
+      // ====== PHASE 4: INCIDENT-TO-INSPECTION CHAIN (THE CORE) ======
+      s = updateStep(5, { status: "running" }, s);
+      setSteps([...s]);
+
+      try {
+        const chainRes = await callAPI("incident-inspection-chain", {
+          parsed: parsedResult,
+          asset: assetResult,
+        });
+        chainResult = chainRes.chain || chainRes;
+        setChain(chainResult);
+        setChainPerformance(chainRes.performance || null);
+        const mechCount = chainResult?.engine_1_damage_mechanisms?.length || 0;
+        const zoneCount = chainResult?.engine_2_affected_zones?.length || 0;
+        const methodCount = chainResult?.engine_3_inspection_methods?.length || 0;
+        s = updateStep(5, { status: "done", detail: `${mechCount} mechanisms, ${zoneCount} zones, ${methodCount} methods in ${chainRes.performance?.total_ms || "?"}ms` }, s);
+      } catch (e: any) {
+        s = updateStep(5, { status: "error", detail: e.message }, s);
+        errs.push("incident-inspection-chain: " + e.message);
+      }
+      setSteps([...s]);
+
+      // ====== PHASE 5: AI NARRATIVE POLISH (GPT-4o — demoted) ======
+      s = updateStep(6, { status: "running" }, s);
+      setSteps([...s]);
+
+      try {
+        // Build locked context from chain results
+        let lockedContext = "DETERMINISTIC CHAIN RESULTS (DO NOT OVERRIDE — use ONLY these findings):\n";
+        if (chainResult) {
+          lockedContext += "Asset: " + (chainResult.input_summary?.asset_class || "unknown") + "\n";
+          lockedContext += "Events: " + (chainResult.input_summary?.events?.join(", ") || "none") + "\n";
+          lockedContext += "Environment: " + (chainResult.input_summary?.environment?.join(", ") || "none") + "\n";
+          lockedContext += "Damage Mechanisms: " + (chainResult.engine_1_damage_mechanisms || []).filter((m: DamageMechanism) => !m.id.startsWith("TEMP_FILTERED")).map((m: DamageMechanism) => m.name + " [" + m.severity + "]").join("; ") + "\n";
+          lockedContext += "Affected Zones: " + (chainResult.engine_2_affected_zones || []).map((z: AffectedZone) => "P" + z.priority + " " + z.zone_name).join("; ") + "\n";
+
+          // Summarize methods by unique technique
+          const uniqueTechniques: string[] = [];
+          (chainResult.engine_3_inspection_methods || []).forEach((m: InspectionMethod) => {
+            if (uniqueTechniques.indexOf(m.technique_variant) === -1) uniqueTechniques.push(m.technique_variant);
+          });
+          lockedContext += "Inspection Methods: " + uniqueTechniques.join("; ") + "\n";
+          lockedContext += "Code Paths: " + (chainResult.engine_4_code_action_paths || []).map((p: CodeActionPath) => p.finding_type + " → " + p.primary_code).join("; ") + "\n";
         }
-      }
-
-      /* STEP 2: Fire governance + code resolution with resolved asset class — PARALLEL */
-      fetchGovernance(transcript, canonicalAsset);
-      fetchCodeResolution(transcript, canonicalAsset);
-
-      /* STEP 3: Master Router */
-      var routerResp = await fetch("/api/master-router", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: transcript }) });
-      var routerData = routerResp.ok ? await routerResp.json() : null;
-      var routePath = (routerData && routerData.parsed_route) ? routerData.parsed_route.intake_path : "unknown";
-
-      /* ROUTE: SCHEDULED / PROGRAMMATIC */
-      if (routePath === "scheduled_programmatic" && routerData.payload && routerData.payload.engine) {
-        var sp = routerData.payload;
-        var schedMethods: any[] = []; var schedDeg: string[] = []; var schedZones: string[] = [];
-        var seenM: Record<string, boolean> = {};
-        var compPlans = sp.prioritized_components || [];
-        for (var ci = 0; ci < compPlans.length; ci++) {
-          var cp = compPlans[ci]; var cpMethods = cp.recommended_methods || [];
-          for (var mi = 0; mi < cpMethods.length; mi++) { var mKey = cpMethods[mi].method; if (!seenM[mKey]) { seenM[mKey] = true; schedMethods.push({ method: cpMethods[mi].method, priority: cpMethods[mi].priority === "P1" ? 1 : cpMethods[mi].priority === "P2" ? 2 : 3, reason: cpMethods[mi].rationale }); } }
-          var cpDeg = cp.probable_degradation || [];
-          for (var di = 0; di < cpDeg.length; di++) { if (schedDeg.indexOf(cpDeg[di]) < 0) schedDeg.push(cpDeg[di]); }
-          if (schedZones.indexOf(cp.component_type) < 0) schedZones.push(cp.component_type);
+        if (parsedResult && parsedResult.numeric_values) {
+          const nums = parsedResult.numeric_values;
+          const numParts: string[] = [];
+          if (nums.wind_speed_mph !== undefined) numParts.push("Wind: " + nums.wind_speed_mph + " mph");
+          if (nums.wave_height_ft !== undefined) numParts.push("Waves: " + nums.wave_height_ft + " ft");
+          if (nums.pressure_psi !== undefined) numParts.push("Pressure: " + nums.pressure_psi + " psi");
+          if (nums.temperature_f !== undefined) numParts.push("Temperature: " + nums.temperature_f + " F");
+          if (numParts.length > 0) lockedContext += "Verified Numerics: " + numParts.join(", ") + "\n";
         }
-        var mappedData: any = {
-          plan: { title: "Inspection Program - " + (sp.parsed.asset_class || "facility").replace(/_/g, " "), severity_band: sp.overall_priority, operational_disposition: (sp.disposition || "").replace(/_/g, " "), summary: sp.facility_summary, immediate_actions: sp.immediate_actions || [], recommended_methods: schedMethods, probable_damage_mechanisms: schedDeg, prioritized_inspection_zones: schedZones, likely_failure_modes: [], rationale: sp.what_happens_if_you_wait || [], follow_up_questions: sp.follow_up_questions || [], risk_score: sp.overall_priority === "critical" ? 85 : sp.overall_priority === "high" ? 65 : sp.overall_priority === "moderate" ? 45 : 25 },
-          parsed: { intake_path: "programmatic", asset_type: (sp.parsed.asset_class || "").replace(/_/g, " "), event_category: sp.parsed.program_type || "scheduled", confidence: sp.parsed.confidence || 0, environment_context: sp.parsed.service_signals || [] }
-        };
-        setEnrichment({ event_classification: { event_type: "programmatic", event_subtype: sp.parsed.program_type || "scheduled", confidence: sp.parsed.confidence || 0, trigger_words_matched: sp.parsed.detected_keywords || [], risk_floor_band: sp.overall_priority }, rule_pack_applied: { rule_pack: "Scheduled Inspection Intelligence Engine v1" }, enrichment_notes: ["Master Router: scheduled_programmatic", "Asset: " + (sp.parsed.asset_class || "unknown").replace(/_/g, " "), "Program: " + (sp.parsed.program_type || "unknown"), "Components: " + (sp.parsed.inferred_components || []).join(", "), "Disposition: " + (sp.disposition || "unknown").replace(/_/g, " ")], enriched_plan: { regulatory_references: (sp.code_authority_trace && sp.code_authority_trace.applicable_families) ? sp.code_authority_trace.applicable_families : [] } });
-        var ctMethods: string[] = [];
-        for (var i = 0; i < schedMethods.length; i++) ctMethods.push(schedMethods[i].method);
-        try { var ctResp = await fetch("/api/code-trace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ findings: schedDeg, methods: ctMethods, disposition: "engineering_evaluation", asset_class: "Refinery/Process", score_dimensions: ["event_severity", "observed_condition_severity", "hidden_damage_likelihood", "inspection_urgency", "consequence", "overall_risk", "confidence"], underwater_contexts: [] }) }); if (ctResp.ok) setCodeTrace(await ctResp.json()); } catch (ctErr) { console.error("Code trace failed:", ctErr); }
-        setResult(mappedData);
-        fetchTimeProgression(mappedData, canonicalAsset, envFactors);
-        setLoading(false);
-        return;
+
+        const constrainedTranscript = "=== LOCKED DETERMINISTIC CONTEXT ===\n" + lockedContext + "\n=== ORIGINAL TRANSCRIPT ===\n" + transcript;
+
+        const planRes = await callAPI("voice-incident-plan", { transcript: constrainedTranscript });
+        const narrative = planRes?.plan || planRes?.text || planRes?.result || JSON.stringify(planRes);
+        setAiNarrative(typeof narrative === "string" ? narrative : JSON.stringify(narrative));
+        s = updateStep(6, { status: "done", detail: "prose generated from chain data" }, s);
+      } catch (e: any) {
+        s = updateStep(6, { status: "error", detail: e.message }, s);
+        errs.push("voice-incident-plan: " + e.message);
+      }
+      setSteps([...s]);
+
+      // ====== PHASE 6: EVENT ENRICHMENT ======
+      s = updateStep(7, { status: "running" }, s);
+      setSteps([...s]);
+
+      try {
+        const enrichRes = await callAPI("event-enrich", {
+          transcript,
+          plan: aiNarrative || "",
+          parsed: parsedResult,
+        });
+        setEventEnrich(enrichRes);
+        s = updateStep(7, { status: "done" }, s);
+      } catch (e: any) {
+        s = updateStep(7, { status: "error", detail: e.message }, s);
+        errs.push("event-enrich: " + e.message);
+      }
+      setSteps([...s]);
+
+      // ====== PHASE 7: PARALLEL — time-progression + code-trace ======
+      s = updateStep(8, { status: "running" }, s);
+      s = updateStep(9, { status: "running" }, s);
+      setSteps([...s]);
+
+      // Build inputs from chain results
+      const severityForTime = chainResult?.engine_1_damage_mechanisms?.find((m: DamageMechanism) => m.severity === "critical")
+        ? "critical"
+        : chainResult?.engine_1_damage_mechanisms?.find((m: DamageMechanism) => m.severity === "high")
+          ? "high"
+          : "medium";
+      const serviceEnvForTime = chainResult?.input_summary?.environment || parsedResult?.environment || [];
+
+      const findingsForTrace = chainResult?.engine_4_code_action_paths?.map((p: CodeActionPath) => p.finding_type) || [];
+      const methodsForTrace = [...new Set((chainResult?.engine_3_inspection_methods || []).map((m: InspectionMethod) => m.method_name))];
+      const dispositionForTrace = chainResult?.engine_4_code_action_paths?.[0]?.required_action || "";
+
+      const [timeRes, traceRes] = await Promise.allSettled([
+        callAPI("time-progression", {
+          asset_type: assetResult?.asset_type || assetResult?.asset_class || "pressure_vessel",
+          severity: severityForTime,
+          service_env: serviceEnvForTime,
+        }),
+        callAPI("code-trace", {
+          findings: findingsForTrace,
+          methods: methodsForTrace,
+          disposition: dispositionForTrace,
+          asset_class: assetClass,
+        }),
+      ]);
+
+      if (timeRes.status === "fulfilled") {
+        setTimeProgression(timeRes.value);
+        s = updateStep(8, { status: "done" }, s);
+      } else {
+        s = updateStep(8, { status: "error", detail: timeRes.reason?.message }, s);
+        errs.push("time-progression: " + timeRes.reason?.message);
       }
 
-      /* ROUTE: EVENT-DRIVEN / OTHER */
-      /* Build constrained transcript with locked context from deterministic engines */
-      var constrainedTranscript = transcript;
-      var lockedParts: string[] = [];
-      lockedParts.push("[SYSTEM LOCKED CONTEXT - DO NOT OVERRIDE THESE VALUES]");
-      if (resolveResult && resolveResult.canonical_asset_class && resolveResult.canonical_asset_class !== "unknown_asset") {
-        lockedParts.push("ASSET CLASS: " + resolveResult.canonical_asset_class.replace(/_/g, " "));
+      if (traceRes.status === "fulfilled") {
+        setCodeTrace(traceRes.value);
+        s = updateStep(9, { status: "done" }, s);
+      } else {
+        s = updateStep(9, { status: "error", detail: traceRes.reason?.message }, s);
+        errs.push("code-trace: " + traceRes.reason?.message);
       }
-      if (parseResult && parseResult.detected_events && parseResult.detected_events.length > 0) {
-        var evNames: string[] = [];
-        for (var evi = 0; evi < parseResult.detected_events.length; evi++) evNames.push(parseResult.detected_events[evi].event_type);
-        lockedParts.push("EVENTS: " + evNames.join(", "));
-      }
-      if (parseResult && parseResult.primary_values) {
-        var pv = parseResult.primary_values;
-        if (pv.wind_speed_mph !== null) lockedParts.push("WIND SPEED: " + pv.wind_speed_mph + " mph");
-        if (pv.wave_height_ft !== null) lockedParts.push("WAVE HEIGHT: " + pv.wave_height_ft + " ft");
-        if (pv.surge_height_ft !== null) lockedParts.push("SURGE HEIGHT: " + pv.surge_height_ft + " ft");
-        if (pv.distance_miles !== null) lockedParts.push("DISTANCE: " + pv.distance_miles + " miles");
-        if (pv.impact_speed_mph !== null) lockedParts.push("IMPACT SPEED: " + pv.impact_speed_mph + " mph");
-        if (pv.diameter_ft !== null) lockedParts.push("DIAMETER: " + pv.diameter_ft + " ft");
-        if (pv.diameter_in !== null) lockedParts.push("DIAMETER: " + pv.diameter_in + " inches");
-        if (pv.pressure_psi !== null) lockedParts.push("PRESSURE: " + pv.pressure_psi + " psi");
-        if (pv.temperature_f !== null) lockedParts.push("TEMPERATURE: " + pv.temperature_f + " F");
-      }
-      if (parseResult && parseResult.environment_factors && parseResult.environment_factors.length > 0) {
-        var envNames: string[] = [];
-        for (var envi = 0; envi < parseResult.environment_factors.length; envi++) envNames.push(parseResult.environment_factors[envi].key);
-        lockedParts.push("ENVIRONMENT: " + envNames.join(", "));
-      }
-      lockedParts.push("[END LOCKED CONTEXT - Build the inspection plan for the ASSET CLASS above. Do not change the asset type.]");
-      if (lockedParts.length > 2) {
-        constrainedTranscript = lockedParts.join("\n") + "\n\nORIGINAL TRANSCRIPT:\n" + transcript;
-      }
+      setSteps([...s]);
 
-      var resp = await fetch("/api/voice-incident-plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: constrainedTranscript }) });
-      var data = await resp.json();
-      if (data && data.plan && !data.error) {
-        try {
-          var enrichResp = await fetch("/api/event-enrich", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ transcript: constrainedTranscript, plan: data.plan, parsed: data.parsed }) });
-          if (enrichResp.ok) {
-            var enrichData = await enrichResp.json(); setEnrichment(enrichData);
-            if (enrichData.enriched_plan) data.plan = enrichData.enriched_plan;
-            if (enrichData.event_classification && enrichData.event_classification.event_type !== "unclassified") data.parsed.event_category = enrichData.event_classification.event_subtype;
-            if (enrichData.enriched_plan && enrichData.enriched_plan.regulatory_references) data.regulatory_references = enrichData.enriched_plan.regulatory_references;
-          }
-        } catch (enrichErr) { console.error("Enrichment failed:", enrichErr); }
-        fetchCodeTrace(data);
-        fetchTimeProgression(data, canonicalAsset, envFactors);
-      }
-      setResult(data);
-    } catch (err) { setResult({ error: "Failed to generate plan." }); }
-    setLoading(false);
+    } catch (e: any) {
+      errs.push("Pipeline error: " + e.message);
+    }
+
+    setErrors(errs);
+    setIsGenerating(false);
+
+    // Auto-scroll to results
+    setTimeout(() => {
+      resultsRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 200);
   }
 
-  function loadExample(text: string) {
-    setTranscript(text); setResult(null); setCodeTrace(null); setEnrichment(null);
-    setTimeProgression(null); setGovernance(null); setCodeResolution(null);
-    setParsedIncident(null); setResolvedAsset(null);
-  }
+  // ============================================================================
+  // RENDER
+  // ============================================================================
 
-  var plan = result && result.plan ? result.plan : null;
-  var parsed = result && result.parsed ? result.parsed : null;
-
-  /* =========================================================
-     RENDER
-     ========================================================= */
   return (
-    <div className="page">
-      <div className="case-header">
-        <h1>Voice-to-Inspection Plan</h1>
-        <p className="voice-subtitle">Speak what happened. Get an instant inspection plan with full code authority.</p>
+    <div className="voice-inspection-page" style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
+      {/* ---- HEADER ---- */}
+      <div style={{ marginBottom: "24px" }}>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>
+          NDT Superbrain — Voice Inspection Intelligence
+        </h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>
+          Deterministic 6-engine inspection chain + AI narrative polish. 21 engines. Zero hallucination in the decision chain.
+        </p>
       </div>
 
-      {/* MIC + CONTROLS */}
-      <div className="voice-controls">
-        <button className={"voice-mic-btn" + (listening ? " mic-active" : "")} onClick={listening ? stopListening : startListening} type="button">{listening ? "\uD83D\uDD34 Listening..." : "\uD83C\uDF99\uFE0F Start Mic"}</button>
-        <button className="voice-generate-btn" onClick={generatePlan} disabled={loading || !transcript.trim()} type="button">{loading ? "Generating..." : "\u26A1 Generate Inspection Plan"}</button>
-      </div>
-
-      <textarea className="voice-transcript-input" value={transcript} onChange={function(e) { setTranscript(e.target.value); }} rows={4} placeholder="Speak or type the incident here..." />
-
-      {/* EXAMPLES */}
-      <div className="voice-examples">
-        <span className="voice-examples-label">Try an example:</span>
-        <div className="voice-examples-grid">
-          {EXAMPLES.map(function(ex, idx) { return <button key={idx} className="voice-example-btn" onClick={function() { loadExample(ex.text); }} type="button">{ex.label}</button>; })}
+      {/* ---- INPUT AREA ---- */}
+      <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
+        <textarea
+          value={transcript}
+          onChange={(e) => setTranscript(e.target.value)}
+          placeholder="Describe what happened — speak or type the incident, inspection scenario, or assessment request. Example: 'Hurricane with 92 mph winds hit our offshore platform. Sour service pressure vessel operating at 850 psi and 650 degrees F. Wave heights reached 18 feet.'"
+          style={{
+            width: "100%",
+            minHeight: "120px",
+            padding: "14px 16px",
+            fontSize: "14px",
+            lineHeight: "1.6",
+            border: "none",
+            outline: "none",
+            resize: "vertical",
+            fontFamily: "inherit",
+            boxSizing: "border-box",
+          }}
+        />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", backgroundColor: "#f9fafb", borderTop: "1px solid #e5e7eb" }}>
+          <span style={{ fontSize: "12px", color: "#9ca3af" }}>
+            {transcript.length > 0 ? `${transcript.split(/\s+/).filter(Boolean).length} words` : "Enter inspection scenario"}
+          </span>
+          <button
+            onClick={handleGenerate}
+            disabled={isGenerating || !transcript.trim()}
+            style={{
+              padding: "8px 24px",
+              fontSize: "14px",
+              fontWeight: 700,
+              color: "#fff",
+              backgroundColor: isGenerating ? "#9ca3af" : "#2563eb",
+              border: "none",
+              borderRadius: "6px",
+              cursor: isGenerating ? "not-allowed" : "pointer",
+            }}
+          >
+            {isGenerating ? "Generating..." : "Generate Inspection Plan"}
+          </button>
         </div>
       </div>
 
-      {result && result.error && <div className="voice-error">{result.error}</div>}
+      {/* ---- STEP TRACKER ---- */}
+      {steps.length > 0 && <StepTracker steps={steps} />}
 
-      {/* =========================================================
-         VERIFIED INCIDENT DATA (from parse-incident + resolve-asset)
-         ========================================================= */}
-      {(parsedIncident || resolvedAsset) && (
-        <div className="ct-panel" style={{ marginTop: "16px" }}>
-          <div className="ct-panel-header">
-            <h3 className="ct-title"><span className="ct-icon">{"\uD83D\uDD12"}</span> Verified Incident Data</h3>
-            {parsedIncident && <span className="ct-family-count">{parsedIncident.confidence_score + "% " + parsedIncident.confidence_band}</span>}
-          </div>
+      {/* ---- ERRORS ---- */}
+      {errors.length > 0 && (
+        <div style={{ margin: "12px 0", padding: "12px 16px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px" }}>
+          {errors.map((e, i) => (
+            <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0" }}>{e}</div>
+          ))}
+        </div>
+      )}
 
-          {/* Resolved Asset */}
-          {resolvedAsset && resolvedAsset.canonical_asset_class !== "unknown_asset" && (
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "8px 0 12px 0" }}>
-              <span style={{ fontSize: "11px", color: "#8b949e", fontWeight: 600 }}>ASSET:</span>
-              <span className="ct-method-badge" style={{ fontSize: "13px" }}>{resolvedAsset.canonical_asset_class.replace(/_/g, " ").toUpperCase()}</span>
-              <span style={{ fontSize: "11px", color: "#8b949e" }}>{resolvedAsset.confidence_score + "% " + resolvedAsset.confidence_band}</span>
-              {resolvedAsset.detected_aliases && resolvedAsset.detected_aliases.length > 0 && (
-                <span style={{ fontSize: "10px", color: "#8b949e" }}>{"(matched: " + resolvedAsset.detected_aliases.join(", ") + ")"}</span>
-              )}
+      {/* ---- RESULTS ---- */}
+      <div ref={resultsRef}>
+
+        {/* ---- VERIFIED DATA (Parse + Asset) ---- */}
+        {parsed && asset && (
+          <Card title="Verified Extraction" icon="\ud83d\udd12" status={`${parsed.events?.length || 0} events, ${parsed.environment?.length || 0} environments`}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Asset Resolution</div>
+                <div style={{ fontSize: "15px", fontWeight: 700, color: "#111" }}>{asset.asset_class?.replace(/_/g, " ")}</div>
+                <div style={{ fontSize: "12px", color: "#6b7280" }}>Type: {asset.asset_type?.replace(/_/g, " ")} — Confidence: {Math.round((asset.confidence || 0) * 100)}%</div>
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Detected Events</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                  {(parsed.events || []).map((e, i) => (
+                    <span key={i} style={{ padding: "2px 8px", backgroundColor: "#fee2e2", color: "#991b1b", borderRadius: "4px", fontSize: "12px", fontWeight: 600 }}>{e}</span>
+                  ))}
+                  {(parsed.events || []).length === 0 && <span style={{ fontSize: "12px", color: "#9ca3af" }}>None detected</span>}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Service Environment</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                  {(parsed.environment || []).map((e, i) => (
+                    <span key={i} style={{ padding: "2px 8px", backgroundColor: "#dbeafe", color: "#1e40af", borderRadius: "4px", fontSize: "12px", fontWeight: 600 }}>{e.replace(/_/g, " ")}</span>
+                  ))}
+                  {(parsed.environment || []).length === 0 && <span style={{ fontSize: "12px", color: "#9ca3af" }}>None detected</span>}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Regex-Locked Numerics</div>
+                {parsed.numeric_values && Object.keys(parsed.numeric_values).filter(k => parsed.numeric_values[k] !== undefined).length > 0 ? (
+                  Object.entries(parsed.numeric_values).filter(([, v]) => v !== undefined).map(([k, v], i) => (
+                    <div key={i} style={{ fontSize: "13px" }}>
+                      <span style={{ fontWeight: 600 }}>{k.replace(/_/g, " ")}:</span> {v}
+                    </div>
+                  ))
+                ) : (
+                  <span style={{ fontSize: "12px", color: "#9ca3af" }}>No numerics extracted</span>
+                )}
+              </div>
             </div>
-          )}
+          </Card>
+        )}
 
-          {/* Locked numeric values */}
-          {parsedIncident && parsedIncident.primary_values && (
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "10px" }}>
-              {parsedIncident.primary_values.wind_speed_mph !== null && (
-                <div style={{ background: "#0d1117", border: "1px solid #22c55e", borderRadius: "8px", padding: "8px 14px", textAlign: "center" }}>
-                  <div style={{ fontSize: "10px", color: "#8b949e", textTransform: "uppercase" }}>Wind Speed</div>
-                  <div style={{ fontSize: "20px", fontWeight: 700, color: "#22c55e" }}>{parsedIncident.primary_values.wind_speed_mph + " mph"}</div>
+        {/* ---- CONFIDENCE SCORES ---- */}
+        {chain?.confidence_scores && (
+          <Card title="Chain Confidence" icon="\ud83c\udfaf" status={`Overall: ${Math.round(chain.confidence_scores.overall_confidence * 100)}%`}>
+            {confidenceBar(chain.confidence_scores.mechanism_confidence, "Damage Mechanism")}
+            {confidenceBar(chain.confidence_scores.zone_confidence, "Zone Prediction")}
+            {confidenceBar(chain.confidence_scores.method_confidence, "Method Selection")}
+            {confidenceBar(chain.confidence_scores.overall_confidence, "Overall Chain")}
+            {chainPerformance && (
+              <div style={{ marginTop: "8px", fontSize: "11px", color: "#6b7280" }}>
+                Chain execution: {chainPerformance.total_ms}ms (E1:{chainPerformance.engine_1_ms}ms E2:{chainPerformance.engine_2_ms}ms E3:{chainPerformance.engine_3_ms}ms E4:{chainPerformance.engine_4_ms}ms E5:{chainPerformance.engine_5_ms}ms E6:{chainPerformance.engine_6_ms}ms)
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* ---- ENGINE 1: DAMAGE MECHANISMS ---- */}
+        {chain?.engine_1_damage_mechanisms && chain.engine_1_damage_mechanisms.length > 0 && (
+          <Card title="Engine 1 — Damage Mechanisms" icon="\u26a0\ufe0f" status={`${chain.engine_1_damage_mechanisms.filter(m => !m.id.startsWith("TEMP_FILTERED")).length} active, ${chain.engine_1_damage_mechanisms.filter(m => m.id.startsWith("TEMP_FILTERED")).length} temp-excluded`}>
+            {chain.engine_1_damage_mechanisms.filter(m => !m.id.startsWith("TEMP_FILTERED")).map((m, i) => (
+              <div key={i} style={{ marginBottom: "12px", padding: "10px 12px", backgroundColor: "#fafafa", borderRadius: "6px", borderLeft: `4px solid ${severityColor(m.severity)}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                  {severityBadge(m.severity)}
+                  <span style={{ fontWeight: 700, fontSize: "14px" }}>{m.name}</span>
+                  <span style={{ fontSize: "11px", color: "#6b7280" }}>({m.id})</span>
                 </div>
-              )}
-              {parsedIncident.primary_values.wave_height_ft !== null && (
-                <div style={{ background: "#0d1117", border: "1px solid #3b82f6", borderRadius: "8px", padding: "8px 14px", textAlign: "center" }}>
-                  <div style={{ fontSize: "10px", color: "#8b949e", textTransform: "uppercase" }}>Wave Height</div>
-                  <div style={{ fontSize: "20px", fontWeight: 700, color: "#3b82f6" }}>{parsedIncident.primary_values.wave_height_ft + " ft"}</div>
+                <div style={{ fontSize: "12px", color: "#374151", marginBottom: "4px" }}>{m.description}</div>
+                <div style={{ fontSize: "11px", color: "#6b7280" }}>
+                  <strong>Ref:</strong> {m.api_571_ref} | <strong>Trigger:</strong> {m.source_trigger}
+                  {m.requires_immediate_action && <span style={{ color: "#dc2626", fontWeight: 700, marginLeft: "8px" }}>IMMEDIATE ACTION REQUIRED</span>}
                 </div>
-              )}
-              {parsedIncident.primary_values.surge_height_ft !== null && (
-                <div style={{ background: "#0d1117", border: "1px solid #3b82f6", borderRadius: "8px", padding: "8px 14px", textAlign: "center" }}>
-                  <div style={{ fontSize: "10px", color: "#8b949e", textTransform: "uppercase" }}>Surge Height</div>
-                  <div style={{ fontSize: "20px", fontWeight: 700, color: "#3b82f6" }}>{parsedIncident.primary_values.surge_height_ft + " ft"}</div>
+              </div>
+            ))}
+            {/* Temperature-excluded mechanisms */}
+            {chain.engine_1_damage_mechanisms.filter(m => m.id.startsWith("TEMP_FILTERED")).length > 0 && (
+              <div style={{ marginTop: "12px", padding: "10px 12px", backgroundColor: "#fffbeb", borderRadius: "6px", border: "1px solid #fde68a" }}>
+                <div style={{ fontSize: "12px", fontWeight: 700, color: "#92400e", marginBottom: "6px" }}>Temperature-Excluded Mechanisms (verify multi-zone applicability)</div>
+                {chain.engine_1_damage_mechanisms.filter(m => m.id.startsWith("TEMP_FILTERED")).map((m, i) => (
+                  <div key={i} style={{ fontSize: "12px", color: "#78350f", padding: "2px 0" }}>
+                    {m.name.replace("TEMPERATURE-EXCLUDED (verify multi-zone applicability): ", "")}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* ---- ENGINE 2: AFFECTED ZONES ---- */}
+        {chain?.engine_2_affected_zones && chain.engine_2_affected_zones.length > 0 && (
+          <Card title="Engine 2 — Affected Zones" icon="\ud83d\udccd" status={`${chain.engine_2_affected_zones.filter(z => z.priority === 1).length} P1, ${chain.engine_2_affected_zones.filter(z => z.priority === 2).length} P2`}>
+            {chain.engine_2_affected_zones.map((z, i) => (
+              <div key={i} style={{ marginBottom: "8px", padding: "8px 12px", backgroundColor: z.priority === 1 ? "#fef2f2" : "#f9fafb", borderRadius: "6px", borderLeft: `3px solid ${z.priority === 1 ? "#dc2626" : z.priority === 2 ? "#ea580c" : "#6b7280"}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "2px" }}>
+                  {priorityBadge(z.priority)}
+                  <span style={{ fontWeight: 700, fontSize: "13px" }}>{z.zone_name}</span>
                 </div>
-              )}
-              {parsedIncident.primary_values.distance_miles !== null && (
-                <div style={{ background: "#0d1117", border: "1px solid #a855f7", borderRadius: "8px", padding: "8px 14px", textAlign: "center" }}>
-                  <div style={{ fontSize: "10px", color: "#8b949e", textTransform: "uppercase" }}>Distance</div>
-                  <div style={{ fontSize: "20px", fontWeight: 700, color: "#a855f7" }}>{parsedIncident.primary_values.distance_miles + " mi"}</div>
+                <div style={{ fontSize: "11px", color: "#6b7280" }}>
+                  <strong>Mechanisms:</strong> {z.damage_mechanisms.join(", ")} | {z.rationale}
                 </div>
-              )}
-              {parsedIncident.primary_values.impact_speed_mph !== null && (
-                <div style={{ background: "#0d1117", border: "1px solid #ef4444", borderRadius: "8px", padding: "8px 14px", textAlign: "center" }}>
-                  <div style={{ fontSize: "10px", color: "#8b949e", textTransform: "uppercase" }}>Impact Speed</div>
-                  <div style={{ fontSize: "20px", fontWeight: 700, color: "#ef4444" }}>{parsedIncident.primary_values.impact_speed_mph + " mph"}</div>
+              </div>
+            ))}
+          </Card>
+        )}
+
+        {/* ---- ENGINE 3: INSPECTION METHODS ---- */}
+        {chain?.engine_3_inspection_methods && chain.engine_3_inspection_methods.length > 0 && (
+          <Card title="Engine 3 — Inspection Methods" icon="\ud83d\udd2c" status={`${chain.engine_3_inspection_methods.length} method-zone pairs`}>
+            {(() => {
+              // Group by method
+              const groups: { [key: string]: InspectionMethod[] } = {};
+              chain.engine_3_inspection_methods.forEach(m => {
+                if (!groups[m.method_name]) groups[m.method_name] = [];
+                // Deduplicate by technique within group
+                if (!groups[m.method_name].find(x => x.technique_variant === m.technique_variant)) {
+                  groups[m.method_name].push(m);
+                }
+              });
+              return Object.entries(groups).map(([method, items], gi) => (
+                <div key={gi} style={{ marginBottom: "12px" }}>
+                  <div style={{ fontSize: "13px", fontWeight: 700, color: "#1e40af", marginBottom: "6px", padding: "4px 8px", backgroundColor: "#eff6ff", borderRadius: "4px", display: "inline-block" }}>{method}</div>
+                  {items.map((item, ii) => (
+                    <div key={ii} style={{ marginLeft: "8px", marginBottom: "8px", padding: "6px 10px", borderLeft: "2px solid #dbeafe", fontSize: "12px" }}>
+                      <div style={{ fontWeight: 600, marginBottom: "2px" }}>{item.technique_variant}</div>
+                      <div style={{ color: "#374151" }}><strong>For:</strong> {item.target_mechanism} at {item.target_zone}</div>
+                      <div style={{ color: "#6b7280" }}><strong>Detects:</strong> {item.detection_capability}</div>
+                      <div style={{ color: "#6b7280" }}><strong>Sizing:</strong> {item.sizing_capability}</div>
+                      <div style={{ color: "#6b7280" }}><strong>Code:</strong> {item.code_reference} | <strong>Qual:</strong> {item.personnel_qualification}</div>
+                    </div>
+                  ))}
                 </div>
-              )}
-              {parsedIncident.primary_values.diameter_ft !== null && (
-                <div style={{ background: "#0d1117", border: "1px solid #f59e0b", borderRadius: "8px", padding: "8px 14px", textAlign: "center" }}>
-                  <div style={{ fontSize: "10px", color: "#8b949e", textTransform: "uppercase" }}>Diameter</div>
-                  <div style={{ fontSize: "20px", fontWeight: 700, color: "#f59e0b" }}>{parsedIncident.primary_values.diameter_ft + " ft"}</div>
+              ));
+            })()}
+          </Card>
+        )}
+
+        {/* ---- ENGINE 4: CODE ACTION PATHS ---- */}
+        {chain?.engine_4_code_action_paths && chain.engine_4_code_action_paths.length > 0 && (
+          <Card title="Engine 4 — Code Action Paths" icon="\ud83d\udcdc" status={`${chain.engine_4_code_action_paths.length} finding types mapped`}>
+            {chain.engine_4_code_action_paths.map((p, i) => (
+              <div key={i} style={{ marginBottom: "12px", padding: "10px 12px", backgroundColor: "#fafafa", borderRadius: "6px", borderLeft: `3px solid ${p.engineering_review_required ? "#dc2626" : "#2563eb"}` }}>
+                <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "4px" }}>
+                  {p.finding_type.replace(/_/g, " ")}
+                  {p.engineering_review_required && <span style={{ fontSize: "11px", color: "#dc2626", marginLeft: "8px" }}>ENGINEERING REVIEW REQUIRED</span>}
                 </div>
-              )}
-              {parsedIncident.primary_values.diameter_in !== null && (
-                <div style={{ background: "#0d1117", border: "1px solid #f59e0b", borderRadius: "8px", padding: "8px 14px", textAlign: "center" }}>
-                  <div style={{ fontSize: "10px", color: "#8b949e", textTransform: "uppercase" }}>Diameter</div>
-                  <div style={{ fontSize: "20px", fontWeight: 700, color: "#f59e0b" }}>{parsedIncident.primary_values.diameter_in + " in"}</div>
-                </div>
-              )}
+                <div style={{ fontSize: "12px", color: "#374151", marginBottom: "2px" }}><strong>Code:</strong> {p.code_section}</div>
+                <div style={{ fontSize: "12px", color: "#374151", marginBottom: "2px" }}><strong>FFS:</strong> {p.ffs_assessment}</div>
+                <div style={{ fontSize: "12px", color: "#374151", marginBottom: "2px" }}><strong>Repair:</strong> {p.repair_standard}</div>
+                <div style={{ fontSize: "12px", color: "#374151" }}><strong>Action:</strong> {p.required_action}</div>
+              </div>
+            ))}
+          </Card>
+        )}
+
+        {/* ---- ENGINE 5: ESCALATION TIMELINE ---- */}
+        {chain?.engine_5_escalation_timeline && chain.engine_5_escalation_timeline.length > 0 && (
+          <Card title="Engine 5 — Escalation Timeline" icon="\u23f1\ufe0f" status={`${chain.engine_5_escalation_timeline.length} tiers`}>
+            <div style={{ display: "flex", gap: "4px", marginBottom: "12px", flexWrap: "wrap" }}>
+              {chain.engine_5_escalation_timeline.map((tier, i) => (
+                <button
+                  key={i}
+                  onClick={() => setActiveTimelineTier(i)}
+                  style={{
+                    padding: "6px 12px",
+                    fontSize: "12px",
+                    fontWeight: activeTimelineTier === i ? 700 : 400,
+                    color: activeTimelineTier === i ? "#fff" : "#374151",
+                    backgroundColor: activeTimelineTier === i ? (i === 0 ? "#dc2626" : i === 1 ? "#ea580c" : i === 2 ? "#ca8a04" : "#2563eb") : "#f3f4f6",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                  }}
+                >
+                  {tier.tier_name} ({tier.time_window})
+                </button>
+              ))}
             </div>
-          )}
+            {(() => {
+              const tier = chain.engine_5_escalation_timeline[activeTimelineTier];
+              if (!tier) return null;
+              return (
+                <div>
+                  <div style={{ marginBottom: "10px" }}>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Actions</div>
+                    {tier.actions.map((a, i) => (
+                      <div key={i} style={{ fontSize: "12px", padding: "3px 0", color: "#374151" }}>{i + 1}. {a}</div>
+                    ))}
+                  </div>
+                  <div style={{ marginBottom: "10px" }}>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Personnel Required</div>
+                    {tier.personnel_required.map((p, i) => (
+                      <div key={i} style={{ fontSize: "12px", padding: "2px 0", color: "#374151" }}>{p}</div>
+                    ))}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Notifications</div>
+                    {tier.notifications.map((n, i) => (
+                      <div key={i} style={{ fontSize: "12px", padding: "2px 0", color: "#374151" }}>{n}</div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+          </Card>
+        )}
 
-          {/* Events detected */}
-          {parsedIncident && parsedIncident.detected_events && parsedIncident.detected_events.length > 0 && (
-            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
-              <span style={{ fontSize: "11px", color: "#8b949e", fontWeight: 600 }}>EVENTS:</span>
-              {parsedIncident.detected_events.map(function(ev: any, idx: number) {
-                return <span key={"ev-" + idx} className="ct-method-badge" style={{ fontSize: "10px" }}>{ev.event_type.toUpperCase()}</span>;
-              })}
+        {/* ---- ENGINE 6: EXECUTION PACKAGES ---- */}
+        {chain?.engine_6_execution_packages && chain.engine_6_execution_packages.length > 0 && (
+          <Card title="Engine 6 — Execution Packages" icon="\ud83d\udcca" status="Supervisor | Engineer | Executive">
+            <div style={{ display: "flex", gap: "4px", marginBottom: "12px" }}>
+              {chain.engine_6_execution_packages.map((pkg, i) => (
+                <button
+                  key={i}
+                  onClick={() => setActivePackageTab(i)}
+                  style={{
+                    padding: "6px 12px",
+                    fontSize: "12px",
+                    fontWeight: activePackageTab === i ? 700 : 400,
+                    color: activePackageTab === i ? "#fff" : "#374151",
+                    backgroundColor: activePackageTab === i ? "#2563eb" : "#f3f4f6",
+                    border: "none",
+                    borderRadius: "4px",
+                    cursor: "pointer",
+                  }}
+                >
+                  {pkg.role.split(" / ")[0]}
+                </button>
+              ))}
             </div>
-          )}
+            {(() => {
+              const pkg = chain.engine_6_execution_packages[activePackageTab];
+              if (!pkg) return null;
+              return (
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "4px" }}>{pkg.role}</div>
+                  <div style={{ fontSize: "12px", color: "#374151", marginBottom: "10px" }}>{pkg.summary}</div>
+                  <div style={{ marginBottom: "10px" }}>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Action Items</div>
+                    {pkg.action_items.map((a, i) => (
+                      <div key={i} style={{ fontSize: "12px", padding: "3px 0", color: "#374151" }}>{i + 1}. {a}</div>
+                    ))}
+                  </div>
+                  <div style={{ marginBottom: "10px" }}>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Key Decisions</div>
+                    {pkg.key_decisions.map((d, i) => (
+                      <div key={i} style={{ fontSize: "12px", padding: "2px 0", color: "#374151" }}>{d}</div>
+                    ))}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Resources Needed</div>
+                    {pkg.resources_needed.map((r, i) => (
+                      <div key={i} style={{ fontSize: "12px", padding: "2px 0", color: "#374151" }}>{r}</div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+          </Card>
+        )}
 
-          {/* Environment factors */}
-          {parsedIncident && parsedIncident.environment_factors && parsedIncident.environment_factors.length > 0 && (
-            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
-              <span style={{ fontSize: "11px", color: "#8b949e", fontWeight: 600 }}>ENVIRONMENT:</span>
-              {parsedIncident.environment_factors.map(function(ef: any, idx: number) {
-                return <span key={"ef-" + idx} className="route-chip chip-env">{ef.key.replace(/_/g, " ")}</span>;
-              })}
+        {/* ---- AI NARRATIVE (demoted GPT-4o) ---- */}
+        {aiNarrative && (
+          <Card title="AI Narrative Summary" icon="\ud83e\udd16" status="GPT-4o prose polish — constrained by chain data">
+            <div style={{ fontSize: "13px", lineHeight: "1.7", color: "#374151", whiteSpace: "pre-wrap" }}>
+              {aiNarrative}
             </div>
-          )}
+          </Card>
+        )}
 
-          {/* Contradictions */}
-          {parsedIncident && parsedIncident.contradictions && parsedIncident.contradictions.length > 0 && (
-            <div style={{ background: "#2d1b00", border: "1px solid #f59e0b", borderRadius: "6px", padding: "8px 12px", marginTop: "8px", fontSize: "12px", color: "#f59e0b" }}>
-              {"\u26A0 " + parsedIncident.contradictions.length + " contradiction(s) detected:"}
-              {parsedIncident.contradictions.map(function(c: any, idx: number) {
-                return <div key={"ct-" + idx} style={{ marginTop: "4px" }}>{c.message}</div>;
-              })}
-            </div>
-          )}
-        </div>
-      )}
+        {/* ---- GOVERNANCE MATRIX ---- */}
+        {governance && (
+          <Card title="Governance Matrix" icon="\ud83c\udfdb\ufe0f">
+            <pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "300px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>
+              {JSON.stringify(governance, null, 2)}
+            </pre>
+          </Card>
+        )}
 
-      {/* PARSED INCIDENT (from AI — shown for comparison) */}
-      {parsed && (
-        <div className="voice-parsed-section">
-          <h3>AI-Parsed Incident</h3>
-          <div className="voice-parsed-grid">
-            <div className="voice-parsed-item"><span className="vp-label">Intake Path</span><span className="vp-value">{(parsed.intake_path || "").replace(/_/g, " ")}</span></div>
-            <div className="voice-parsed-item"><span className="vp-label">Asset Type</span><span className="vp-value">{(parsed.asset_type || "").replace(/_/g, " ")}</span></div>
-            {parsed.event_category && <div className="voice-parsed-item"><span className="vp-label">Event</span><span className="vp-value">{parsed.event_category.replace(/_/g, " ")}</span></div>}
-            {parsed.component && <div className="voice-parsed-item"><span className="vp-label">Component</span><span className="vp-value">{parsed.component.replace(/_/g, " ")}</span></div>}
-            {parsed.impact_object && <div className="voice-parsed-item"><span className="vp-label">Object</span><span className="vp-value">{parsed.impact_object.replace(/_/g, " ")}</span></div>}
-            <div className="voice-parsed-item"><span className="vp-label">Confidence</span><span className="vp-value">{parsed.confidence + "%"}</span></div>
-          </div>
-        </div>
-      )}
+        {/* ---- CODE AUTHORITY RESOLUTION ---- */}
+        {codeAuthority && (
+          <Card title="Code Authority Resolution" icon="\ud83d\udcd6">
+            <pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "300px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>
+              {JSON.stringify(codeAuthority, null, 2)}
+            </pre>
+          </Card>
+        )}
 
-      {/* INSPECTION PLAN */}
-      {plan && (
-        <div className="voice-plan-section">
-          <div className="voice-plan-header">
-            <h2>{plan.title}</h2>
-            <div className="voice-plan-badges">
-              <span className="voice-severity-badge" style={{ backgroundColor: SEVERITY_COLORS[plan.severity_band] || "#666" }}>{(plan.severity_band || "").toUpperCase()}</span>
-              <span className="voice-disp-badge">{DISP_LABELS[plan.operational_disposition] || (plan.operational_disposition || "").replace(/_/g, " ")}</span>
-            </div>
-          </div>
-          <p className="voice-plan-summary">{plan.summary}</p>
-          {plan.immediate_actions && plan.immediate_actions.length > 0 && (<div className="voice-plan-block"><h3>{"\u26A0\uFE0F"} Immediate Actions</h3>{plan.immediate_actions.map(function(a: string, idx: number) { return <div key={idx} className="voice-action-item">{a}</div>; })}</div>)}
-          {plan.recommended_methods && plan.recommended_methods.length > 0 && (<div className="voice-plan-block"><h3>Recommended Methods</h3><div className="voice-methods-grid">{plan.recommended_methods.map(function(m: any, idx: number) { return (<div key={idx} className={"voice-method-card priority-" + m.priority}><div className="voice-method-header"><span className="voice-method-name">{m.method}</span><span className="voice-method-priority">{"P" + m.priority}</span></div><div className="voice-method-reason">{m.reason}</div></div>); })}</div></div>)}
-          {plan.probable_damage_mechanisms && plan.probable_damage_mechanisms.length > 0 && (<div className="voice-plan-block"><h3>Probable Damage Mechanisms</h3><div className="voice-chip-list">{plan.probable_damage_mechanisms.map(function(d: string, idx: number) { return <span key={idx} className="voice-mech-chip">{d.replace(/_/g, " ")}</span>; })}</div></div>)}
-          {plan.prioritized_inspection_zones && plan.prioritized_inspection_zones.length > 0 && (<div className="voice-plan-block"><h3>Prioritized Inspection Zones</h3><div className="voice-chip-list">{plan.prioritized_inspection_zones.map(function(z: string, idx: number) { return <span key={idx} className="voice-zone-chip">{z.replace(/_/g, " ")}</span>; })}</div></div>)}
-          {plan.likely_failure_modes && plan.likely_failure_modes.length > 0 && (<div className="voice-plan-block"><h3>Likely Failure Modes</h3><div className="voice-chip-list">{plan.likely_failure_modes.map(function(f: string, idx: number) { return <span key={idx} className="voice-fail-chip">{f.replace(/_/g, " ")}</span>; })}</div></div>)}
-          {plan.rationale && plan.rationale.length > 0 && (<div className="voice-plan-block"><h3>Rationale</h3>{plan.rationale.map(function(r: string, idx: number) { return <div key={idx} className="voice-rationale-item">{r}</div>; })}</div>)}
-          {plan.follow_up_questions && plan.follow_up_questions.length > 0 && (<div className="voice-plan-block"><h3>Follow-Up Questions</h3>{plan.follow_up_questions.map(function(q: string, idx: number) { return <div key={idx} className="voice-question-item">{"? " + q}</div>; })}</div>)}
-        </div>
-      )}
+        {/* ---- TIME PROGRESSION ---- */}
+        {timeProgression && (
+          <Card title="Time Progression — Risk Curve" icon="\ud83d\udcc8">
+            <pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "300px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>
+              {JSON.stringify(timeProgression, null, 2)}
+            </pre>
+          </Card>
+        )}
 
-      {/* TIME PROGRESSION */}
-      {timeProgressionLoading && <div className="ct-loading"><div className="ct-loading-spinner"></div>Calculating risk progression...</div>}
-      {timeProgression && timeProgression.time_points && (
-        <div className="ct-panel" style={{ marginTop: "20px" }}>
-          <div className="ct-panel-header">
-            <h3 className="ct-title"><span className="ct-icon">{"\u23F1\uFE0F"}</span> Risk Progression Over Time</h3>
-            <span className="ct-family-count">{timeProgression.overall_trajectory ? timeProgression.overall_trajectory.split(" ")[0] : ""}</span>
-          </div>
-          <p style={{ fontSize: "13px", color: "#c9d1d9", margin: "8px 0 16px 0", lineHeight: "1.5" }}>{timeProgression.executive_summary}</p>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "16px" }}>
-            {timeProgression.critical_threshold_hours !== null && <span className="voice-severity-badge" style={{ backgroundColor: "#ef4444" }}>{"CRITICAL at " + (timeProgression.critical_threshold_hours <= 24 ? timeProgression.critical_threshold_hours + "h" : Math.round(timeProgression.critical_threshold_hours / 24) + " days")}</span>}
-            {timeProgression.extreme_threshold_hours !== null && <span className="voice-severity-badge" style={{ backgroundColor: "#dc2626" }}>{"EXTREME at " + (timeProgression.extreme_threshold_hours <= 24 ? timeProgression.extreme_threshold_hours + "h" : Math.round(timeProgression.extreme_threshold_hours / 24) + " days")}</span>}
-            <span className="ct-code-family">{"Peak: " + timeProgression.peak_risk_point.risk_score + " / " + timeProgression.peak_risk_point.failure_probability_pct + "% fail prob"}</span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {timeProgression.time_points.map(function(tp: any, idx: number) {
-              var barWidth = Math.max(tp.risk_score, 3); var barColor = RISK_COLORS[tp.risk_level] || "#666";
-              return (<div key={idx} style={{ display: "flex", alignItems: "center", gap: "8px" }}><span style={{ width: "70px", fontSize: "11px", color: "#8b949e", textAlign: "right", flexShrink: 0 }}>{tp.label}</span><div style={{ flex: 1, position: "relative", height: "28px", background: "#161b22", borderRadius: "4px", overflow: "hidden" }}><div style={{ width: barWidth + "%", height: "100%", backgroundColor: barColor, borderRadius: "4px", transition: "width 0.5s ease" }}></div><span style={{ position: "absolute", top: "50%", left: "8px", transform: "translateY(-50%)", fontSize: "11px", color: "#fff", fontWeight: 600, textShadow: "0 1px 2px rgba(0,0,0,0.8)" }}>{tp.risk_level + " " + tp.risk_score + "  |  " + tp.failure_probability_pct + "% fail"}</span></div>{tp.new_mechanisms_activated.length > 0 && <span style={{ fontSize: "10px", color: "#f59e0b", flexShrink: 0 }}>{"\u26A0 +" + tp.new_mechanisms_activated.length + " mech"}</span>}</div>);
-            })}
-          </div>
-          <div className="ct-section" style={{ marginTop: "12px" }}>
-            <button className="ct-section-toggle" onClick={function() { toggleSection("tp_detail"); }} type="button"><span className="ct-section-title">{"Detailed Narratives (" + timeProgression.time_points.length + " time points)"}</span><span className="ct-chevron">{expandedSections["tp_detail"] ? "\u25B2" : "\u25BC"}</span></button>
-            {expandedSections["tp_detail"] && (<div className="ct-section-body">{timeProgression.time_points.map(function(tp: any, idx: number) { return (<div key={"tpd-" + idx} style={{ padding: "10px 0", borderBottom: "1px solid #21262d" }}><div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}><span style={{ fontWeight: 700, color: RISK_COLORS[tp.risk_level] || "#ccc", fontSize: "13px" }}>{tp.label}</span><span className="voice-severity-badge" style={{ backgroundColor: RISK_COLORS[tp.risk_level] || "#666", fontSize: "10px", padding: "2px 6px" }}>{tp.risk_level}</span><span style={{ fontSize: "11px", color: "#8b949e" }}>{"Action: " + tp.recommended_action.replace(/_/g, " ")}</span></div><div style={{ fontSize: "12px", color: "#c9d1d9", lineHeight: "1.4" }}>{tp.progression_narrative}</div>{tp.warnings.length > 0 && <div style={{ marginTop: "4px" }}>{tp.warnings.map(function(w: string, wi: number) { return <div key={"tpw-" + wi} style={{ fontSize: "11px", color: "#f59e0b" }}>{"\u26A0 " + w}</div>; })}</div>}</div>); })}</div>)}
-          </div>
-          {timeProgression.code_basis && timeProgression.code_basis.length > 0 && (<div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "12px" }}>{timeProgression.code_basis.map(function(code: string, idx: number) { return <span key={"tpc-" + idx} className="ct-code-family">{code}</span>; })}</div>)}
-        </div>
-      )}
+        {/* ---- EVENT ENRICHMENT ---- */}
+        {eventEnrich && (
+          <Card title="Event Classification & Rule Packs" icon="\ud83c\udf10">
+            <pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "300px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>
+              {JSON.stringify(eventEnrich, null, 2)}
+            </pre>
+          </Card>
+        )}
 
-      {/* GOVERNANCE MATRIX */}
-      {governanceLoading && <div className="ct-loading"><div className="ct-loading-spinner"></div>Resolving governance...</div>}
-      {governance && governance.ui_sections && (
-        <div className="ct-panel" style={{ marginTop: "20px" }}>
-          <div className="ct-panel-header"><h3 className="ct-title"><span className="ct-icon">{"\uD83C\uDFDB\uFE0F"}</span> Governance Matrix</h3><span className="ct-family-count">{governance.confidence + "% confidence"}</span></div>
-          <p style={{ fontSize: "12px", color: "#8b949e", margin: "4px 0 12px 0" }}>{governance.primary_governance_path}</p>
-          {governance.ai_fallback_used && (<div style={{ background: "#2d1b00", border: "1px solid #f59e0b", borderRadius: "6px", padding: "8px 12px", marginBottom: "12px", fontSize: "12px", color: "#f59e0b" }}>{"\u26A0 " + (governance.ai_fallback_note || "AI fallback was used.")}</div>)}
-          {[{ key: "legal_regulatory", label: "Legal / Regulatory", icon: "\uD83D\uDCDC" }, { key: "asset_code", label: "Asset Code Family", icon: "\uD83D\uDCD6" }, { key: "method_execution", label: "Method Execution", icon: "\uD83D\uDD27" }, { key: "personnel_qualification", label: "Personnel Qualification", icon: "\uD83C\uDF93" }, { key: "damage_mechanism_rbi", label: "Damage Mechanism / RBI", icon: "\u2622\uFE0F" }, { key: "fitness_for_service", label: "Fitness for Service", icon: "\uD83D\uDEE1\uFE0F" }, { key: "owner_user_execution", label: "Owner / User Execution", icon: "\uD83C\uDFED" }].map(function(layer) {
-            var auths: string[] = governance.ui_sections[layer.key] || []; if (auths.length === 0) return null;
-            return (<div key={layer.key} className="ct-section"><button className="ct-section-toggle" onClick={function() { toggleSection("gov_" + layer.key); }} type="button"><span className="ct-section-title">{layer.icon + " " + layer.label + " (" + auths.length + ")"}</span><span className="ct-chevron">{expandedSections["gov_" + layer.key] ? "\u25B2" : "\u25BC"}</span></button>{expandedSections["gov_" + layer.key] && (<div className="ct-section-body"><div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>{auths.map(function(auth: string, aidx: number) { return <span key={"ga-" + aidx} className="ct-code-family">{auth}</span>; })}</div></div>)}</div>);
-          })}
-        </div>
-      )}
+        {/* ---- CODE TRACE ---- */}
+        {codeTrace && (
+          <Card title="Code Trace — Clause-Level Citations" icon="\ud83d\udd0d">
+            <pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "300px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>
+              {JSON.stringify(codeTrace, null, 2)}
+            </pre>
+          </Card>
+        )}
 
-      {/* CODE AUTHORITY RESOLUTION */}
-      {codeResolutionLoading && <div className="ct-loading"><div className="ct-loading-spinner"></div>Resolving code authority...</div>}
-      {codeResolution && codeResolution.primary_asset_code && (
-        <div className="ct-panel" style={{ marginTop: "20px" }}>
-          <div className="ct-panel-header"><h3 className="ct-title"><span className="ct-icon">{"\uD83D\uDD0D"}</span> Code Authority Resolution</h3><span className="ct-family-count">{codeResolution.confidence + "% confidence"}</span></div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "8px 0 12px 0" }}><span style={{ fontSize: "11px", color: "#8b949e", fontWeight: 600 }}>PRIMARY:</span><span className="ct-method-badge" style={{ fontSize: "13px" }}>{codeResolution.primary_asset_code.authority}</span><span style={{ fontSize: "11px", color: "#8b949e" }}>{codeResolution.primary_asset_code.confidence + "% confidence"}</span></div>
-          <p style={{ fontSize: "12px", color: "#8b949e", margin: "0 0 12px 0" }}>{codeResolution.primary_code_path}</p>
-          {codeResolution.execution_order && codeResolution.execution_order.length > 0 && (<div className="ct-section"><button className="ct-section-toggle" onClick={function() { toggleSection("cr_exec"); }} type="button"><span className="ct-section-title">{"Execution Order (" + codeResolution.execution_order.length + " steps)"}</span><span className="ct-chevron">{expandedSections["cr_exec"] ? "\u25B2" : "\u25BC"}</span></button>{expandedSections["cr_exec"] && (<div className="ct-section-body">{codeResolution.execution_order.map(function(step: any, idx: number) { return (<div key={"eo-" + idx} style={{ padding: "6px 0", borderBottom: "1px solid #21262d", display: "flex", alignItems: "center", gap: "8px" }}><span style={{ width: "24px", height: "24px", borderRadius: "50%", background: "#1f6feb", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, flexShrink: 0 }}>{step.step}</span><span style={{ fontSize: "12px", color: "#c9d1d9", flex: 1 }}>{step.label}</span><div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>{step.authorities.map(function(auth: string, aidx: number) { return <span key={"eoa-" + aidx} className="ct-code-family" style={{ fontSize: "10px" }}>{auth}</span>; })}</div></div>); })}</div>)}</div>)}
-          {codeResolution.authority_conflicts && codeResolution.authority_conflicts.length > 0 && (<div className="ct-section"><button className="ct-section-toggle" onClick={function() { toggleSection("cr_conflicts"); }} type="button"><span className="ct-section-title">{"\u26A0 Authority Conflicts (" + codeResolution.authority_conflicts.length + ")"}</span><span className="ct-chevron">{expandedSections["cr_conflicts"] ? "\u25B2" : "\u25BC"}</span></button>{expandedSections["cr_conflicts"] && (<div className="ct-section-body">{codeResolution.authority_conflicts.map(function(conflict: any, idx: number) { return (<div key={"cf-" + idx} style={{ padding: "8px", marginBottom: "8px", background: "#1c1917", borderRadius: "6px", border: "1px solid #78350f" }}><div style={{ fontSize: "12px", color: "#fbbf24", fontWeight: 600, marginBottom: "4px" }}>{"Layer: " + conflict.layer}</div><div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "6px" }}>{conflict.competing_authorities.map(function(auth: string, aidx: number) { return <span key={"cfa-" + aidx} className="ct-code-family">{auth}</span>; })}</div><div style={{ fontSize: "11px", color: "#c9d1d9" }}>{conflict.resolution}</div>{conflict.resolved_primary && <div style={{ fontSize: "11px", color: "#22c55e", marginTop: "4px" }}>{"Resolved: " + conflict.resolved_primary}</div>}</div>); })}</div>)}</div>)}
-          {codeResolution.ai_fallback_used && (<div style={{ background: "#2d1b00", border: "1px solid #f59e0b", borderRadius: "6px", padding: "8px 12px", marginTop: "12px", fontSize: "12px", color: "#f59e0b" }}>{"\u26A0 " + (codeResolution.ai_fallback_note || "AI fallback was used.")}</div>)}
-        </div>
-      )}
+        {/* ---- WARNINGS ---- */}
+        {chain?.warnings && chain.warnings.length > 0 && (
+          <Card title="Chain Warnings" icon="\u26a0\ufe0f" collapsible={false}>
+            {chain.warnings.map((w, i) => (
+              <div key={i} style={{ fontSize: "12px", color: "#92400e", padding: "3px 0" }}>{w}</div>
+            ))}
+          </Card>
+        )}
 
-      {/* EVENT CLASSIFICATION */}
-      {enrichment && enrichment.event_classification && (
-        <div className="ct-panel" style={{ marginTop: "20px" }}>
-          <div className="ct-panel-header"><h3 className="ct-title"><span className="ct-icon">{"\uD83C\uDFAF"}</span> Event Classification</h3><span className="ct-family-count">{enrichment.event_classification.confidence + "% confidence"}</span></div>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "12px", marginTop: "8px" }}><span className="ct-method-badge">{(enrichment.event_classification.event_type || "").toUpperCase()}</span><span className="voice-severity-badge" style={{ backgroundColor: SEVERITY_COLORS[enrichment.event_classification.risk_floor_band] || "#666" }}>{"RISK FLOOR: " + enrichment.event_classification.risk_floor_band.toUpperCase()}</span>{enrichment.rule_pack_applied && <span className="ct-code-family">{"Rule Pack: " + enrichment.rule_pack_applied.rule_pack}</span>}</div>
-          {enrichment.event_classification.trigger_words_matched && enrichment.event_classification.trigger_words_matched.length > 0 && (<div style={{ marginBottom: "10px" }}><span style={{ fontSize: "12px", color: "#8b949e" }}>{"Trigger words: "}</span>{enrichment.event_classification.trigger_words_matched.map(function(w: string, idx: number) { return <span key={"tw-" + idx} className="voice-zone-chip" style={{ marginLeft: "4px" }}>{w}</span>; })}</div>)}
-          {enrichment.enrichment_notes && enrichment.enrichment_notes.length > 0 && (<div className="ct-section"><button className="ct-section-toggle" onClick={function() { toggleSection("enrichment_notes"); }} type="button"><span className="ct-section-title">{"Enrichment Log (" + enrichment.enrichment_notes.length + " changes)"}</span><span className="ct-chevron">{expandedSections["enrichment_notes"] ? "\u25B2" : "\u25BC"}</span></button>{expandedSections["enrichment_notes"] && (<div className="ct-section-body">{enrichment.enrichment_notes.map(function(note: string, idx: number) { return <div key={"note-" + idx} style={{ fontSize: "13px", color: "#c9d1d9", padding: "4px 0", borderBottom: "1px solid #21262d" }}>{note}</div>; })}</div>)}</div>)}
-        </div>
-      )}
-
-      {/* CODE TRACE */}
-      {codeTraceLoading && <div className="ct-loading"><div className="ct-loading-spinner"></div>Generating code authority trace...</div>}
-      {codeTrace && (
-        <div className="ct-panel">
-          <div className="ct-panel-header"><h3 className="ct-title"><span className="ct-icon">{"\u2696"}</span> Code Authority Trace</h3><span className="ct-family-count">{(codeTrace.applicable_code_families || []).length + " code families"}</span></div>
-          <p className="ct-subtitle">{"Applicable: " + (codeTrace.applicable_code_families || []).join(", ")}</p>
-          {codeTrace.finding_traces && codeTrace.finding_traces.length > 0 && (<div className="ct-section"><button className="ct-section-toggle" onClick={function() { toggleSection("findings"); }} type="button"><span className="ct-section-title">{"Finding Authority (" + codeTrace.finding_traces.length + ")"}</span><span className="ct-chevron">{expandedSections["findings"] ? "\u25B2" : "\u25BC"}</span></button>{expandedSections["findings"] && (<div className="ct-section-body">{codeTrace.finding_traces.map(function(ft: any, idx: number) { return (<div key={"ft-" + idx} className="ct-card"><div className="ct-card-header"><span className="ct-finding-name">{ft.display_name}</span><span className="ct-ref-count">{ft.references.length + " ref" + (ft.references.length !== 1 ? "s" : "")}</span></div><div className="ct-physics">{ft.physics_basis}</div><div className="ct-rejection">{ft.rejection_basis}</div>{ft.references.map(function(ref: any, ridx: number) { return (<div key={"fref-" + ridx} className="ct-ref"><div className="ct-ref-header"><span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span><span className="ct-clause">{ref.clause}</span></div><div className="ct-ref-title">{ref.title}</div><div className="ct-ref-detail"><div>{"Requirement: " + ref.requirement_summary}</div><div>{"Acceptance: " + ref.acceptance_criteria}</div><div className="ct-rationale">{"Rationale: " + ref.engineering_rationale}</div></div></div>); })}</div>); })}</div>)}</div>)}
-          {codeTrace.method_traces && codeTrace.method_traces.length > 0 && (<div className="ct-section"><button className="ct-section-toggle" onClick={function() { toggleSection("methods"); }} type="button"><span className="ct-section-title">{"Method Authority (" + codeTrace.method_traces.length + ")"}</span><span className="ct-chevron">{expandedSections["methods"] ? "\u25B2" : "\u25BC"}</span></button>{expandedSections["methods"] && (<div className="ct-section-body">{codeTrace.method_traces.map(function(mt: any, idx: number) { return (<div key={"mt-" + idx} className="ct-card"><div className="ct-card-header"><span className="ct-method-badge">{mt.method}</span><span className="ct-finding-name">{mt.display_name}</span></div><div className="ct-capability">{"Capability: " + mt.capability_summary}</div><div className="ct-limitation">{"Limitation: " + mt.limitation_summary}</div>{mt.references.map(function(ref: any, ridx: number) { return (<div key={"mref-" + ridx} className="ct-ref"><div className="ct-ref-header"><span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span><span className="ct-clause">{ref.clause}</span></div><div className="ct-ref-title">{ref.title}</div><div className="ct-ref-detail"><div>{"Requirement: " + ref.requirement_summary}</div><div>{"Rationale: " + ref.engineering_rationale}</div></div></div>); })}</div>); })}</div>)}</div>)}
-          {codeTrace.disposition_trace && (<div className="ct-section"><button className="ct-section-toggle" onClick={function() { toggleSection("disposition"); }} type="button"><span className="ct-section-title">Disposition Authority</span><span className="ct-chevron">{expandedSections["disposition"] ? "\u25B2" : "\u25BC"}</span></button>{expandedSections["disposition"] && (<div className="ct-section-body"><div className="ct-card ct-disp-card"><div className="ct-card-header"><span className="ct-disp-badge">{(codeTrace.disposition_trace.disposition || "").replace(/_/g, " ").toUpperCase()}</span></div><div className="ct-authority-stmt">{codeTrace.disposition_trace.authority_statement}</div>{codeTrace.disposition_trace.references.map(function(ref: any, ridx: number) { return (<div key={"dref-" + ridx} className="ct-ref"><div className="ct-ref-header"><span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span><span className="ct-clause">{ref.clause}</span></div><div className="ct-ref-title">{ref.title}</div><div className="ct-ref-detail"><div>{"Requirement: " + ref.requirement_summary}</div><div>{"Rationale: " + ref.engineering_rationale}</div></div></div>); })}</div></div>)}</div>)}
-          {codeTrace.score_traces && codeTrace.score_traces.length > 0 && (<div className="ct-section"><button className="ct-section-toggle" onClick={function() { toggleSection("scores"); }} type="button"><span className="ct-section-title">{"Scoring Basis (" + codeTrace.score_traces.length + " dimensions)"}</span><span className="ct-chevron">{expandedSections["scores"] ? "\u25B2" : "\u25BC"}</span></button>{expandedSections["scores"] && (<div className="ct-section-body">{codeTrace.score_traces.map(function(st: any, idx: number) { return (<div key={"st-" + idx} className="ct-card ct-score-card"><div className="ct-card-header"><span className="ct-dim-name">{(st.dimension || "").replace(/_/g, " ")}</span></div><div className="ct-eng-basis">{st.engineering_basis}</div>{st.references.map(function(ref: any, ridx: number) { return <div key={"sref-" + ridx} className="ct-ref ct-ref-compact"><span className="ct-code-family">{ref.code_family}</span><span className="ct-clause">{ref.clause}</span><span className="ct-ref-title-inline">{ref.title}</span></div>; })}</div>); })}</div>)}</div>)}
-          {codeTrace.underwater_traces && codeTrace.underwater_traces.length > 0 && (<div className="ct-section"><button className="ct-section-toggle" onClick={function() { toggleSection("underwater"); }} type="button"><span className="ct-section-title">{"Underwater Authority (" + codeTrace.underwater_traces.length + ")"}</span><span className="ct-chevron">{expandedSections["underwater"] ? "\u25B2" : "\u25BC"}</span></button>{expandedSections["underwater"] && (<div className="ct-section-body">{codeTrace.underwater_traces.map(function(ref: any, ridx: number) { return (<div key={"uwref-" + ridx} className="ct-ref"><div className="ct-ref-header"><span className="ct-code-family">{ref.code_family + " (" + ref.code_edition + ")"}</span><span className="ct-clause">{ref.clause}</span></div><div className="ct-ref-title">{ref.title}</div><div className="ct-ref-detail"><div>{"Requirement: " + ref.requirement_summary}</div><div>{"Rationale: " + ref.engineering_rationale}</div></div></div>); })}</div>)}</div>)}
-          <div className="ct-footer">{"Trace v" + codeTrace.trace_version + " | " + (codeTrace.applicable_code_families || []).length + " families | " + new Date(codeTrace.generated_at).toLocaleString()}</div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
