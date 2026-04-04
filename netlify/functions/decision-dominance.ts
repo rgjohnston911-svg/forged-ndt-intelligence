@@ -1,13 +1,12 @@
-// DEPLOY87b — decision-dominance.ts v2.1
+// DEPLOY89 — decision-dominance.ts v2.2
 // Decision Dominance Layer — Engine 8
-// v2.1: Added method suppression (concrete methods on steel, steel methods on concrete)
-// Fixes from GPT eval:
-//   1. Universal mechanism set (load path never asset-suppressed)
-//   2. Creep/graphitization suppressed for short-duration fire
-//   3. Thermal fatigue suppressed without cyclic evidence
-//   4. Mechanism family merge (VIB_FATIGUE + VIB_FATIGUE_V → one family)
-//   5. Grouped confidence penalties with caps + floor at 40%
-//   6. Evidence sufficiency score separate from confidence
+// v2.2: Evidence Confirmation support
+//   - Accepts optional confirmed_flags from frontend
+//   - Merges confirmed over auto-derived (inspector wins)
+//   - Tracks overrides in output for audit trail
+//   - confirmation_status: "auto_derived" | "inspector_confirmed"
+// v2.1 (retained): Method suppression, universal mechanisms, grouped confidence,
+//   evidence sufficiency, hard locks, structural authority
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 declare var process: any;
@@ -60,7 +59,6 @@ var FAMILY_MAP: { [key: string]: { family: string; name: string } } = {
 // CLASSIFICATION SETS
 // ================================================================
 
-// Universal mechanisms — NEVER asset-suppressed, preserved if any structural evidence
 var UNIVERSAL_MECHANISMS: { [key: string]: boolean } = {
   "LOAD_PATH_DISRUPTION": true,
   "STRUCTURAL_OVERLOAD": true,
@@ -93,18 +91,15 @@ var CONCRETE_MATERIALS: { [key: string]: boolean } = {
   "concrete": true, "reinforced_concrete": true, "prestressed_concrete": true, "bridge_concrete": true
 };
 
-// Methods that only apply to concrete assets — suppress on steel
 var CONCRETE_ONLY_METHODS: { [key: string]: boolean } = {
   "SOUNDING": true, "GPR": true, "COVERMETER": true, "HALFCELL": true,
   "CHLORIDE": true, "IMPACT_ECHO": true, "PETROGRAPHY": true, "REBOUND": true
 };
 
-// Methods that only apply to steel/metal assets — suppress on concrete
 var STEEL_ONLY_METHODS: { [key: string]: boolean } = {
   "MT": true, "PAUT": true, "TOFD": true, "REPLICA": true, "HARDNESS": true
 };
 
-// Confidence group caps
 var DATA_UNKNOWNS_CAP = -20;
 var ACCESS_LIMITATIONS_CAP = -20;
 var OPERATIONAL_UNKNOWNS_CAP = -10;
@@ -183,6 +178,71 @@ function buildEvidenceFlags(parsed: any, chain: any, asset: any): any {
 }
 
 // ================================================================
+// EVIDENCE MERGE — confirmed_flags override auto-derived
+// v2.2: Inspector-confirmed evidence takes absolute priority
+// ================================================================
+
+function mergeConfirmedEvidence(autoEvidence: any, confirmedFlags: any): { evidence: any; overrides: any[]; } {
+  var overrides: any[] = [];
+  var merged: any = {};
+
+  // Copy auto-derived first
+  for (var key in autoEvidence) {
+    if (autoEvidence.hasOwnProperty(key)) {
+      merged[key] = autoEvidence[key];
+    }
+  }
+
+  // Override with confirmed values
+  if (confirmedFlags && typeof confirmedFlags === "object") {
+    for (var ckey in confirmedFlags) {
+      if (confirmedFlags.hasOwnProperty(ckey) && merged.hasOwnProperty(ckey)) {
+        var autoVal = merged[ckey];
+        var confirmVal = confirmedFlags[ckey];
+
+        // Only record override if value actually changed
+        if (autoVal !== confirmVal) {
+          overrides.push({
+            flag: ckey,
+            auto_derived: autoVal,
+            inspector_confirmed: confirmVal,
+            impact: classifyOverrideImpact(ckey)
+          });
+        }
+        merged[ckey] = confirmVal;
+      }
+    }
+  }
+
+  return { evidence: merged, overrides: overrides };
+}
+
+function classifyOverrideImpact(flagName: string): string {
+  // Hard-lock-critical flags
+  var hardLockFlags: { [key: string]: boolean } = {
+    "crack_confirmed": true, "crack_in_primary_member": true,
+    "visible_deformation": true, "primary_member_involved": true,
+    "fire_exposure": true, "leak_confirmed": true,
+    "pressure_boundary_involved": true, "pressure_boundary_damage_possible": true,
+    "bearing_displacement": true, "support_shift": true,
+    "load_path_interruption_possible": true
+  };
+
+  // Confidence-affecting flags
+  var confidenceFlags: { [key: string]: boolean } = {
+    "unknown_material": true, "unknown_geometry": true,
+    "unknown_wall_thickness": true, "underwater_access_limited": true,
+    "rov_visibility_poor": true, "missing_repair_history": true,
+    "unknown_operating_temperature": true
+  };
+
+  if (hardLockFlags[flagName]) return "hard_lock_critical";
+  if (confidenceFlags[flagName]) return "confidence_affecting";
+  if (flagName === "fire_duration_minutes") return "mechanism_suppression";
+  return "supplementary";
+}
+
+// ================================================================
 // ASSET / MATERIAL RESOLVERS
 // ================================================================
 
@@ -234,7 +294,6 @@ function mergeFamilies(mechanisms: any[]): any[] {
         reasons: []
       };
     } else {
-      // Merge: add code, take max severity
       var existing = familyMap[familyCode];
       var found = false;
       for (var j = 0; j < existing.merged_codes.length; j++) {
@@ -263,7 +322,6 @@ function evaluateFamily(family: any, assetFamily: string, materialFamily: string
   var severity = family.severity;
   var fireDuration = evidence.fire_duration_minutes || 0;
 
-  // Check if incident-dominant
   var isIncident = false;
   var incidentTerms = ["impact", "fire", "explosion", "deformation", "cracking", "hydrocarbon", "leakage"];
   for (var i = 0; i < events.length; i++) {
@@ -274,59 +332,49 @@ function evaluateFamily(family: any, assetFamily: string, materialFamily: string
     if (isIncident) break;
   }
 
-  // === UNIVERSAL MECHANISMS — never asset-suppressed ===
   if (UNIVERSAL_MECHANISMS[fc]) {
     reasons.push("universal_mechanism_preserved");
-    // Boost if structural evidence exists
     if (evidence.primary_member_involved || evidence.load_path_interruption_possible || evidence.visible_deformation || evidence.support_shift) {
       score = Math.max(score, 95);
       reasons.push("evidence_supported");
     }
-    // Skip all suppression rules — return early
     family.relevance_score = clamp(score, 0, 100);
     family.kept = true;
     family.reasons = reasons;
     return family;
   }
 
-  // === Concrete-only on non-concrete ===
   if (CONCRETE_ONLY[fc] && !CONCRETE_MATERIALS[materialFamily]) {
     score -= 80;
     reasons.push("material_mismatch");
   }
 
-  // === Bridge-only on non-bridge ===
   if (BRIDGE_ONLY[fc] && assetFamily !== "bridge" && assetFamily !== "rail") {
     score -= 75;
     reasons.push("asset_mismatch");
   }
 
-  // === Offshore-only on non-offshore ===
   if (OFFSHORE_ONLY[fc] && assetFamily !== "offshore_platform") {
     score -= 75;
     reasons.push("asset_mismatch");
   }
 
-  // === Long-duration high-temp: suppress for short fire ===
   if (LONG_DURATION_HIGH_TEMP[fc] && evidence.fire_exposure && fireDuration > 0 && fireDuration < 60) {
     score -= 85;
     reasons.push("duration_not_supported");
     reasons.push("acute_fire_not_sufficient");
   }
 
-  // === Cyclic-only: suppress without cyclic evidence ===
   if (CYCLIC_ONLY[fc] && !evidence.cyclic_temperature_profile_known) {
     score -= 85;
     reasons.push("cyclic_evidence_missing");
   }
 
-  // === Lifecycle suppression during acute incident ===
   if (isIncident && (fc === "ASR" || fc === "FREEZE_THAW" || fc === "REBAR_CORROSION" || fc === "PRESTRESS_LOSS")) {
     score -= 25;
     reasons.push("incident_dominance_suppressed");
   }
 
-  // === Positive: event support ===
   var hasImpact = false, hasFire = false, hasVib = false, hasMarine = false;
   for (var k = 0; k < events.length; k++) {
     var e2 = events[k].toLowerCase();
@@ -389,7 +437,6 @@ function computeEvidenceSufficiency(evidence: any): any {
 function computeGroupedConfidence(initialConfidence: number, evidence: any): any {
   var groups: any[] = [];
 
-  // Group 1: Data Unknowns (cap -20%)
   var dataRaw = 0;
   var dataReasons: string[] = [];
   if (evidence.unknown_material) { dataRaw -= 8; dataReasons.push("Material not confirmed"); }
@@ -399,7 +446,6 @@ function computeGroupedConfidence(initialConfidence: number, evidence: any): any
     groups.push({ group: "Data Unknowns", raw_delta: dataRaw, capped_delta: Math.max(dataRaw, DATA_UNKNOWNS_CAP), reasons: dataReasons });
   }
 
-  // Group 2: Access Limitations (cap -20%)
   var accessRaw = 0;
   var accessReasons: string[] = [];
   if (evidence.underwater_access_limited) { accessRaw -= 10; accessReasons.push("Underwater access limited"); }
@@ -408,7 +454,6 @@ function computeGroupedConfidence(initialConfidence: number, evidence: any): any
     groups.push({ group: "Access Limitations", raw_delta: accessRaw, capped_delta: Math.max(accessRaw, ACCESS_LIMITATIONS_CAP), reasons: accessReasons });
   }
 
-  // Group 3: Operational Unknowns (cap -10%)
   var opRaw = 0;
   var opReasons: string[] = [];
   if (evidence.missing_repair_history) { opRaw -= 8; opReasons.push("Missing repair history"); }
@@ -482,7 +527,6 @@ function resolveStructuralAuthority(evidence: any, hardLocks: any[], survivingFa
   var primaryDamage = !!(evidence.primary_member_involved && (evidence.visible_deformation || evidence.crack_confirmed || evidence.crack_in_primary_member));
   var loadPathConcern = !!(evidence.load_path_interruption_possible || evidence.support_shift || evidence.bearing_displacement);
 
-  // Also check if LOAD_PATH_DISRUPTION survived as a mechanism
   for (var i = 0; i < survivingFamilies.length; i++) {
     if (survivingFamilies[i].family_code === "LOAD_PATH_DISRUPTION" && survivingFamilies[i].kept) {
       loadPathConcern = true;
@@ -503,13 +547,11 @@ function resolveStructuralAuthority(evidence: any, hardLocks: any[], survivingFa
     rationale.push("Structural stability cannot be assumed until critical areas validated.");
   }
 
-  // Combined primary damage + load path = unstable
   if (primaryDamage && loadPathConcern && (evidence.visible_deformation || evidence.crack_confirmed)) {
     status = "unstable";
     rationale.push("Combined primary-member damage and load-path concern indicate unstable condition.");
   }
 
-  // Also check hard locks
   var unstableLocks = ["HL_PRIMARY_MEMBER_CRACK", "HL_LOAD_PATH_COMPROMISE"];
   for (var h = 0; h < hardLocks.length; h++) {
     if (hardLocks[h].fired) {
@@ -610,13 +652,11 @@ function resolveTopMethods(methods: any[], evidence: any, assetFamily: string): 
     if (mn) allMethods.push(mn);
   }
 
-  // Order: preferred first, then remaining
   var ordered: string[] = [];
   var seen: { [key: string]: boolean } = {};
 
   for (var p = 0; p < preferred.length; p++) {
     if (!seen[preferred[p]]) {
-      // Check it exists in available methods
       for (var a = 0; a < allMethods.length; a++) {
         if (allMethods[a] === preferred[p]) { ordered.push(preferred[p]); seen[preferred[p]] = true; break; }
       }
@@ -631,7 +671,6 @@ function resolveTopMethods(methods: any[], evidence: any, assetFamily: string): 
 
 // ================================================================
 // STEP 10: METHOD SUPPRESSION
-// Removes concrete-only methods on steel assets and vice versa
 // ================================================================
 
 function filterMethods(methods: any[], materialFamily: string, assetFamily: string): any {
@@ -644,12 +683,10 @@ function filterMethods(methods: any[], materialFamily: string, assetFamily: stri
     var mn = (m.method_name || m.method || "").toUpperCase();
     var reason = "";
 
-    // Concrete-only methods on non-concrete asset
     if (CONCRETE_ONLY_METHODS[mn] && !isConcrete) {
       reason = "concrete_method_on_steel_asset";
     }
 
-    // Steel-only methods on concrete asset
     if (STEEL_ONLY_METHODS[mn] && isConcrete) {
       reason = "steel_method_on_concrete_asset";
     }
@@ -665,10 +702,10 @@ function filterMethods(methods: any[], materialFamily: string, assetFamily: stri
 }
 
 // ================================================================
-// MAIN ENGINE
+// MAIN ENGINE — v2.2: accepts optional confirmed_flags
 // ================================================================
 
-function runDecisionDominance(parsed: any, chain: any, asset: any): any {
+function runDecisionDominance(parsed: any, chain: any, asset: any, confirmedFlags?: any): any {
   var startMs = Date.now();
 
   var assetClass = (asset && asset.asset_class) || "unknown";
@@ -679,7 +716,19 @@ function runDecisionDominance(parsed: any, chain: any, asset: any): any {
     ? Math.round(chain.confidence_scores.overall_confidence * 100) : 85;
 
   // Auto-derive evidence
-  var evidence = buildEvidenceFlags(parsed, chain, asset);
+  var autoEvidence = buildEvidenceFlags(parsed, chain, asset);
+
+  // v2.2: Merge confirmed flags over auto-derived
+  var evidence = autoEvidence;
+  var overrides: any[] = [];
+  var confirmationStatus = "auto_derived";
+
+  if (confirmedFlags && typeof confirmedFlags === "object" && Object.keys(confirmedFlags).length > 0) {
+    var mergeResult = mergeConfirmedEvidence(autoEvidence, confirmedFlags);
+    evidence = mergeResult.evidence;
+    overrides = mergeResult.overrides;
+    confirmationStatus = "inspector_confirmed";
+  }
 
   // Step 1: Merge families
   var rawMechs = (chain && chain.engine_1_damage_mechanisms) || [];
@@ -726,15 +775,22 @@ function runDecisionDominance(parsed: any, chain: any, asset: any): any {
   // Build decision trace
   var trace: string[] = [];
   trace.push("Asset family: " + assetFamily + ". Material family: " + materialFamily + ".");
+  trace.push("Evidence status: " + confirmationStatus + (overrides.length > 0 ? " (" + overrides.length + " overrides applied)" : "") + ".");
   trace.push("Detected events: " + (events.join(", ") || "none") + ".");
   trace.push("Merged " + rawMechs.length + " raw mechanisms into " + families.length + " families.");
   trace.push(surviving.length + " mechanism families survived; " + suppressed.length + " suppressed.");
   trace.push(methodFilter.surviving_count + " methods survived; " + methodFilter.suppressed_count + " methods suppressed (material/asset mismatch).");
   trace.push("Evidence sufficiency: " + evidenceSuff.label + " (" + evidenceSuff.score + "/100).");
 
+  // Log overrides in trace for audit
+  for (var oi = 0; oi < overrides.length; oi++) {
+    var ov = overrides[oi];
+    trace.push("OVERRIDE: " + ov.flag + " changed from " + String(ov.auto_derived) + " to " + String(ov.inspector_confirmed) + " [" + ov.impact + "]");
+  }
+
   for (var h = 0; h < hardLocks.length; h++) {
     if (hardLocks[h].fired) {
-      trace.push("HARD LOCK: " + hardLocks[h].name + " [" + hardLocks[h].code_basis + "] — " + hardLocks[h].rationale);
+      trace.push("HARD LOCK: " + hardLocks[h].name + " [" + hardLocks[h].code_basis + "] \u2014 " + hardLocks[h].rationale);
     }
   }
 
@@ -745,6 +801,9 @@ function runDecisionDominance(parsed: any, chain: any, asset: any): any {
   // Management summary
   var summary: string[] = [];
   summary.push(dispositionLabel(disposition) + " based on deterministic hard-lock and structural authority logic.");
+  if (confirmationStatus === "inspector_confirmed") {
+    summary.push("Evidence flags inspector-confirmed (" + overrides.length + " overrides).");
+  }
   summary.push(surviving.length + " mechanism families confirmed; " + suppressed.length + " suppressed.");
   if (methodFilter.suppressed_count > 0) summary.push(methodFilter.suppressed_count + " inspection methods suppressed (material/asset mismatch).");
   if (structural.primary_member_damage) summary.push("Primary member damage concern.");
@@ -755,9 +814,12 @@ function runDecisionDominance(parsed: any, chain: any, asset: any): any {
   summary.push("Top methods: " + topMethods.join(", ") + ".");
 
   return {
-    engine_version: "decision-dominance-v2.1",
+    engine_version: "decision-dominance-v2.2",
     timestamp: new Date().toISOString(),
     elapsed_ms: Date.now() - startMs,
+    confirmation_status: confirmationStatus,
+    evidence_overrides: overrides,
+    override_count: overrides.length,
     disposition: disposition,
     disposition_label: dispositionLabel(disposition),
     risk_band: riskBand,
@@ -788,13 +850,14 @@ function runDecisionDominance(parsed: any, chain: any, asset: any): any {
     decision_trace: trace,
     management_summary: summary.join(" "),
     evidence_flags: evidence,
+    auto_derived_evidence: autoEvidence,
     asset_family: assetFamily,
     material_family: materialFamily
   };
 }
 
 // ================================================================
-// NETLIFY HANDLER
+// NETLIFY HANDLER — v2.2: accepts confirmed_flags
 // ================================================================
 
 var handler = async function(event: any): Promise<any> {
@@ -815,12 +878,13 @@ var handler = async function(event: any): Promise<any> {
     var parsed = body.parsed || null;
     var chain = body.chain || null;
     var asset = body.asset || null;
+    var confirmedFlags = body.confirmed_flags || null;
 
     if (!chain) {
       return { statusCode: 400, headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" }, body: JSON.stringify({ error: "chain data is required" }) };
     }
 
-    var result = runDecisionDominance(parsed, chain, asset);
+    var result = runDecisionDominance(parsed, chain, asset, confirmedFlags);
 
     return {
       statusCode: 200,
