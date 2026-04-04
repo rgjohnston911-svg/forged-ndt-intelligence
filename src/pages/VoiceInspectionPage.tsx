@@ -1,208 +1,121 @@
-// DEPLOY95 — VoiceInspectionPage.tsx v10.3b
-// v10.3b: Verified Extraction card shows reality-lock corrected asset when conflict detected
-// v10.3 (retained): Reality Lock + Domain Gate + AI Interpretation Display
-//   - Calls /api/reality-lock after parse+asset to detect real domain
-//   - SUPPORTED domains: full 12-step deterministic pipeline
-//   - UNSUPPORTED domains: skip chain/DDL, show AI interpretation only
-//   - Asset conflict: override asset with reality-lock correction
-//   - Domain Status Banner shows detected domain + routing decision
-//   - AI Interpretation cards for unsupported domains
-// v10.2 (retained): Report export (Word + PDF)
-// v10.1 (retained): 19 confirmable evidence flags, 10 hard locks
-// v10 (retained): Evidence Confirmation Card, pipeline split, confirmed_flags
+// DEPLOY100 — VoiceInspectionPage.tsx v12.0
+// PHYSICS-FIRST DECISION CORE — Frontend Integration
+// 4 API calls (parse, asset+reality-lock, decision-core, narrative)
+// 9 physics-grounded cards replacing 14+ scattered engine cards
+// Evidence Confirmation retained between asset resolution and decision-core
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
 
 // ============================================================================
-// TYPES
-// ============================================================================
-
-interface NumericValues { [key: string]: number | undefined; }
-interface ParsedResult { events: string[]; environment: string[]; numeric_values: NumericValues; raw_text: string; }
-interface AssetResult { asset_class: string; asset_type: string; confidence: number; alternatives?: Array<{ asset_class: string; score: number }>; }
-interface DamageMechanism { id: string; name: string; api_571_ref: string; description: string; source_trigger: string; severity: string; requires_immediate_action: boolean; susceptible_materials: string[]; temperature_range_f: { min: number; max: number } | null; contributing_factors: string[]; }
-interface AffectedZone { zone_id: string; zone_name: string; priority: number; damage_mechanisms: string[]; rationale: string; asset_specific: boolean; }
-interface InspectionMethod { method_id: string; method_name: string; technique_variant: string; target_mechanism: string; target_zone: string; detection_capability: string; sizing_capability: string; code_reference: string; rationale: string; priority: number; personnel_qualification: string; limitations: string; }
-interface CodeActionPath { finding_type: string; primary_code: string; code_section: string; required_action: string; ffs_assessment: string; repair_standard: string; documentation_required: string[]; engineering_review_required: boolean; }
-interface EscalationTier { tier_name: string; time_window: string; hours_min: number; hours_max: number; actions: string[]; personnel_required: string[]; notifications: string[]; documentation: string[]; }
-interface ExecutionPackage { role: string; summary: string; action_items: string[]; timeline: string; key_decisions: string[]; resources_needed: string[]; }
-interface ChainResult { engine_version: string; timestamp: string; input_summary: { asset_class: string; asset_type: string; events: string[]; environment: string[]; numeric_values: NumericValues; }; engine_1_damage_mechanisms: DamageMechanism[]; engine_2_affected_zones: AffectedZone[]; engine_3_inspection_methods: InspectionMethod[]; engine_4_code_action_paths: CodeActionPath[]; engine_5_escalation_timeline: EscalationTier[]; engine_6_execution_packages: ExecutionPackage[]; confidence_scores: { mechanism_confidence: number; zone_confidence: number; method_confidence: number; overall_confidence: number; }; warnings: string[]; }
-interface GovernanceResult { [key: string]: any; }
-interface CodeAuthorityResult { [key: string]: any; }
-interface TimeProgressionResult { [key: string]: any; }
-interface CodeTraceResult { [key: string]: any; }
-interface EventEnrichResult { [key: string]: any; }
-
-// ============================================================================
-// EVIDENCE FLAG DEFINITIONS — what gets shown in the confirmation card
-// ============================================================================
-
-interface EvidenceFlagDef {
-  key: string;
-  label: string;
-  group: string;
-  type: "boolean" | "number";
-  hardLockCritical: boolean;
-  description: string;
-}
-
-var CONFIRMABLE_FLAGS: EvidenceFlagDef[] = [
-  // Damage Indicators
-  { key: "visible_deformation", label: "Visible Deformation", group: "Damage Indicators", type: "boolean", hardLockCritical: true, description: "Buckling, bending, denting, or permanent distortion observed" },
-  { key: "visible_cracking", label: "Cracking Suspected", group: "Damage Indicators", type: "boolean", hardLockCritical: false, description: "Possible cracking observed but not confirmed" },
-  { key: "crack_confirmed", label: "Cracking CONFIRMED", group: "Damage Indicators", type: "boolean", hardLockCritical: true, description: "Cracking confirmed by visual or NDE — triggers hard lock if in primary member" },
-  { key: "dent_or_gouge_present", label: "Dent / Gouge Present", group: "Damage Indicators", type: "boolean", hardLockCritical: false, description: "Localized mechanical damage (dent, gouge, scrape)" },
-  // Structural / Load Path
-  { key: "primary_member_involved", label: "Primary Member Involved", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Damage involves primary load-carrying member (leg, girder, brace, main beam)" },
-  { key: "load_path_interruption_possible", label: "Load Path Interruption", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Possible interruption or redistribution of structural load path" },
-  { key: "support_shift", label: "Support / Restraint Shift", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Support or restraint displacement, misalignment, or abnormal positioning" },
-  { key: "bearing_displacement", label: "Bearing Displacement", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Bearing shifted, displaced, or showing abnormal movement" },
-  // Fire / Thermal
-  { key: "fire_exposure", label: "Fire / Thermal Exposure", group: "Fire / Thermal", type: "boolean", hardLockCritical: true, description: "Component exposed to fire, flame impingement, or elevated temperature" },
-  { key: "fire_duration_minutes", label: "Fire Duration (minutes)", group: "Fire / Thermal", type: "number", hardLockCritical: false, description: "Approximate duration of fire exposure — affects mechanism suppression" },
-  // Pressure / Leaks
-  { key: "pressure_boundary_involved", label: "Pressure Boundary Involved", group: "Pressure / Leaks", type: "boolean", hardLockCritical: true, description: "Piping, vessel, PSV, flange, or other pressure-containing component" },
-  { key: "leak_suspected", label: "Leak Suspected", group: "Pressure / Leaks", type: "boolean", hardLockCritical: false, description: "Staining, seepage, or other indicators of possible leak" },
-  { key: "leak_confirmed", label: "Leak CONFIRMED", group: "Pressure / Leaks", type: "boolean", hardLockCritical: true, description: "Active or confirmed leak — triggers hard lock with pressure boundary" },
-  { key: "through_wall_leak_confirmed", label: "Through-Wall Leak CONFIRMED", group: "Pressure / Leaks", type: "boolean", hardLockCritical: true, description: "Confirmed through-wall breach with active leak — triggers immediate NO GO" },
-  // Structural / Load Path (expanded)
-  { key: "support_collapse_confirmed", label: "Support/Bearing Collapse CONFIRMED", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Confirmed structural failure of support or bearing — triggers NO GO" },
-  // Damage Indicators (expanded)
-  { key: "critical_wall_loss_confirmed", label: "Critical Wall Loss CONFIRMED", group: "Damage Indicators", type: "boolean", hardLockCritical: true, description: "Wall thickness confirmed below code minimum — triggers REPAIR BEFORE RESTART" },
-  // Fire / Thermal (expanded)
-  { key: "fire_property_degradation_confirmed", label: "Fire-Degraded Properties CONFIRMED", group: "Fire / Thermal", type: "boolean", hardLockCritical: true, description: "Post-fire testing confirms material properties beyond acceptance — triggers REPAIR BEFORE RESTART" },
-  // Access / Data Quality
-  { key: "underwater_access_limited", label: "Underwater / Limited Access", group: "Access / Data Quality", type: "boolean", hardLockCritical: false, description: "Inspection area is underwater, confined, or has restricted access" },
-  { key: "unknown_material", label: "Material Unknown", group: "Access / Data Quality", type: "boolean", hardLockCritical: false, description: "Material grade/type not specified or confirmed — degrades confidence" },
-];
-
-// ============================================================================
 // API HELPER
 // ============================================================================
-
 var API_BASE = "/api";
-
 async function callAPI(endpoint: string, body: any): Promise<any> {
   var res = await fetch(API_BASE + "/" + endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    var text = await res.text();
-    throw new Error(endpoint + " failed (" + res.status + "): " + text);
-  }
+  if (!res.ok) { var text = await res.text(); throw new Error(endpoint + " failed (" + res.status + "): " + text); }
   return res.json();
 }
 
 // ============================================================================
-// CLIENT-SIDE EVIDENCE EXTRACTION — preview for confirmation card
-// Mirrors DDL's buildEvidenceFlags but runs in browser
+// EVIDENCE FLAG DEFINITIONS (same as before — for confirmation card)
 // ============================================================================
+interface EvidenceFlagDef { key: string; label: string; group: string; type: "boolean" | "number"; hardLockCritical: boolean; description: string; }
+var CONFIRMABLE_FLAGS: EvidenceFlagDef[] = [
+  { key: "visible_deformation", label: "Visible Deformation", group: "Damage Indicators", type: "boolean", hardLockCritical: true, description: "Buckling, bending, denting, or permanent distortion" },
+  { key: "visible_cracking", label: "Cracking Suspected", group: "Damage Indicators", type: "boolean", hardLockCritical: false, description: "Possible cracking observed but not confirmed" },
+  { key: "crack_confirmed", label: "Cracking CONFIRMED", group: "Damage Indicators", type: "boolean", hardLockCritical: true, description: "Cracking confirmed by visual or NDE" },
+  { key: "dent_or_gouge_present", label: "Dent / Gouge Present", group: "Damage Indicators", type: "boolean", hardLockCritical: false, description: "Localized mechanical damage" },
+  { key: "critical_wall_loss_confirmed", label: "Critical Wall Loss CONFIRMED", group: "Damage Indicators", type: "boolean", hardLockCritical: true, description: "Wall below code minimum" },
+  { key: "primary_member_involved", label: "Primary Member Involved", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Primary load-carrying member (leg, girder, brace)" },
+  { key: "load_path_interruption_possible", label: "Load Path Interruption", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Possible interruption of structural load path" },
+  { key: "support_shift", label: "Support / Restraint Shift", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Support displacement or misalignment" },
+  { key: "support_collapse_confirmed", label: "Support Collapse CONFIRMED", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Structural failure of support/bearing" },
+  { key: "fire_exposure", label: "Fire / Thermal Exposure", group: "Fire / Thermal", type: "boolean", hardLockCritical: true, description: "Component exposed to fire or elevated temperature" },
+  { key: "fire_duration_minutes", label: "Fire Duration (minutes)", group: "Fire / Thermal", type: "number", hardLockCritical: false, description: "Approximate fire exposure duration" },
+  { key: "fire_property_degradation_confirmed", label: "Fire-Degraded Properties CONFIRMED", group: "Fire / Thermal", type: "boolean", hardLockCritical: true, description: "Post-fire material properties beyond acceptance" },
+  { key: "pressure_boundary_involved", label: "Pressure Boundary Involved", group: "Pressure / Leaks", type: "boolean", hardLockCritical: true, description: "Piping, vessel, PSV, flange, or pressure component" },
+  { key: "leak_suspected", label: "Leak Suspected", group: "Pressure / Leaks", type: "boolean", hardLockCritical: false, description: "Staining, seepage, or possible leak indicators" },
+  { key: "leak_confirmed", label: "Leak CONFIRMED", group: "Pressure / Leaks", type: "boolean", hardLockCritical: true, description: "Active or confirmed leak" },
+  { key: "through_wall_leak_confirmed", label: "Through-Wall Leak CONFIRMED", group: "Pressure / Leaks", type: "boolean", hardLockCritical: true, description: "Confirmed through-wall breach with active leak" },
+  { key: "underwater_access_limited", label: "Underwater / Limited Access", group: "Access / Data Quality", type: "boolean", hardLockCritical: false, description: "Underwater, confined, or restricted access" },
+  { key: "unknown_material", label: "Material Unknown", group: "Access / Data Quality", type: "boolean", hardLockCritical: false, description: "Material grade/type not confirmed" },
+];
 
-function extractPreliminaryEvidence(parsed: ParsedResult | null, asset: AssetResult | null): { [key: string]: any } {
+function extractPreliminaryEvidence(parsed: any, asset: any): any {
   var events = (parsed && parsed.events) || [];
   var transcript = (parsed && parsed.raw_text) || "";
   var lt = transcript.toLowerCase();
-
-  function hasEvent(term: string): boolean {
-    for (var i = 0; i < events.length; i++) {
-      if (events[i].toLowerCase().indexOf(term) !== -1) return true;
-    }
-    return false;
-  }
+  function hasEvent(term: string): boolean { for (var i = 0; i < events.length; i++) { if (events[i].toLowerCase().indexOf(term) !== -1) return true; } return false; }
   function inText(term: string): boolean { return lt.indexOf(term) !== -1; }
-
-  var fireDuration: number | null = null;
-  var fireMatch = /(\d+)\s*(?:minutes?|mins?)\s*(?:before|fire|burn|controlled|extinguish)/i.exec(transcript);
-  if (fireMatch) fireDuration = parseInt(fireMatch[1], 10);
-
   return {
     visible_deformation: hasEvent("deformation") || inText("dent") || inText("deform") || inText("buckl"),
-    visible_cracking: hasEvent("possible_cracking") || hasEvent("cracking") || inText("crack"),
+    visible_cracking: hasEvent("cracking") || inText("crack"),
     crack_confirmed: inText("crack confirmed") || inText("cracking confirmed"),
-    primary_member_involved: inText("jacket leg") || inText("primary") || inText("girder") || inText("main member") || inText("brace"),
+    primary_member_involved: inText("jacket leg") || inText("primary") || inText("girder") || inText("main member"),
     load_path_interruption_possible: inText("load path"),
     leak_suspected: hasEvent("possible_leakage") || inText("leak") || inText("staining"),
     leak_confirmed: inText("confirmed leak") || inText("active leak"),
-    pressure_boundary_involved: inText("piping") || inText("psv") || inText("flange") || inText("pressure"),
+    pressure_boundary_involved: inText("piping") || inText("psv") || inText("flange") || inText("pressure") || inText("decompression") || inText("chamber"),
     fire_exposure: hasEvent("fire") || inText("fire"),
-    fire_duration_minutes: fireDuration,
-    bearing_displacement: inText("bearing") && (inText("displace") || inText("shift")),
-    support_shift: inText("support") && (inText("displace") || inText("shift") || inText("misalign") || inText("abnormal alignment")),
+    fire_duration_minutes: null,
+    support_shift: inText("support") && (inText("displace") || inText("shift")),
+    support_collapse_confirmed: (inText("support") || inText("bearing")) && (inText("collapse") || inText("failed")),
     dent_or_gouge_present: inText("dent") || inText("gouge"),
-    underwater_access_limited: inText("ft of water") || inText("feet of water") || inText("underwater") || inText("subsea"),
-    unknown_material: !inText("carbon steel") && !inText("stainless") && !inText("alloy"),
-    // v10.1: New flags for expanded hard locks
-    through_wall_leak_confirmed: (inText("through-wall") || inText("through wall")) && inText("leak"),
-    support_collapse_confirmed: (inText("support") || inText("bearing")) && (inText("collapse") || inText("failed") || inText("buckled")),
-    critical_wall_loss_confirmed: inText("below minimum") || inText("critical wall") || (inText("wall loss") && (inText("critical") || inText("below"))),
-    fire_property_degradation_confirmed: (inText("hardness") && (inText("failed") || inText("below") || inText("degraded"))) || inText("material degradation confirmed"),
+    underwater_access_limited: inText("underwater") || inText("subsea"),
+    unknown_material: !inText("carbon steel") && !inText("stainless") && !inText("alloy") && !inText("steel"),
+    through_wall_leak_confirmed: inText("through-wall") && inText("leak"),
+    critical_wall_loss_confirmed: inText("below minimum") || inText("critical wall"),
+    fire_property_degradation_confirmed: inText("hardness") && (inText("failed") || inText("degraded")),
   };
 }
 
 // ============================================================================
-// SEVERITY / BADGE / CONFIDENCE HELPERS
+// HELPERS
 // ============================================================================
-
-function severityColor(severity: string): string {
-  switch (severity) {
-    case "critical": return "#dc2626";
-    case "high": return "#ea580c";
-    case "medium": return "#ca8a04";
-    case "low": return "#16a34a";
-    default: return "#6b7280";
-  }
-}
-
-function severityBadge(severity: string): React.ReactNode {
-  return (<span style={{ display: "inline-block", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700, color: "#fff", backgroundColor: severityColor(severity), textTransform: "uppercase", letterSpacing: "0.5px" }}>{severity}</span>);
-}
-
-function priorityBadge(priority: number): React.ReactNode {
-  var colors: { [key: number]: string } = { 1: "#dc2626", 2: "#ea580c", 3: "#ca8a04" };
-  return (<span style={{ display: "inline-block", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700, color: "#fff", backgroundColor: colors[priority] || "#6b7280" }}>P{priority}</span>);
-}
-
-function confidenceBar(value: number, label: string): React.ReactNode {
-  var pct = Math.round(value * 100);
-  var color = pct >= 90 ? "#16a34a" : pct >= 75 ? "#ca8a04" : pct >= 50 ? "#ea580c" : "#dc2626";
-  return (
-    <div style={{ marginBottom: "6px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "2px" }}>
-        <span>{label}</span><span style={{ fontWeight: 700, color: color }}>{pct}%</span>
-      </div>
-      <div style={{ height: "6px", backgroundColor: "#e5e7eb", borderRadius: "3px", overflow: "hidden" }}>
-        <div style={{ height: "100%", width: pct + "%", backgroundColor: color, borderRadius: "3px", transition: "width 0.5s ease" }} />
-      </div>
-    </div>
-  );
-}
-
-function dispositionColor(d: string): string {
-  if (d === "no_go") return "#dc2626";
-  if (d === "repair_before_restart") return "#ea580c";
-  if (d === "engineering_review_required") return "#ca8a04";
-  if (d === "restricted_operation") return "#2563eb";
+function tierColor(tier: string): string {
+  if (tier === "CRITICAL") return "#dc2626";
+  if (tier === "HIGH") return "#ea580c";
+  if (tier === "MEDIUM") return "#ca8a04";
   return "#16a34a";
+}
+function bandColor(band: string): string {
+  if (band === "TRUSTED") return "#16a34a";
+  if (band === "HIGH") return "#16a34a";
+  if (band === "GUARDED") return "#ca8a04";
+  if (band === "LOW") return "#ea580c";
+  return "#dc2626";
+}
+function gateIcon(result: string): string {
+  if (result === "PASS") return "\u2705";
+  if (result === "BLOCKED") return "\uD83D\uDED1";
+  if (result === "ESCALATED") return "\u26A0\uFE0F";
+  return "\u2139\uFE0F";
+}
+function gateColor(result: string): string {
+  if (result === "PASS") return "#16a34a";
+  if (result === "BLOCKED") return "#dc2626";
+  if (result === "ESCALATED") return "#ea580c";
+  return "#ca8a04";
 }
 
 // ============================================================================
 // CARD WRAPPER
 // ============================================================================
-
-function Card({ title, icon, children, status, collapsible = true }: { title: string; icon: string; children: React.ReactNode; status?: string; collapsible?: boolean; }) {
-  var [collapsed, setCollapsed] = useState(false);
+function Card({ title, icon, children, status, collapsible, defaultCollapsed }: { title: string; icon: string; children: React.ReactNode; status?: string; collapsible?: boolean; defaultCollapsed?: boolean }) {
+  var [collapsed, setCollapsed] = useState(defaultCollapsed || false);
+  var canCollapse = collapsible !== false;
   return (
-    <div className="voice-card" style={{ marginBottom: "16px", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
-      <div onClick={() => collapsible && setCollapsed(!collapsed)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", backgroundColor: "#f9fafb", borderBottom: collapsed ? "none" : "1px solid #e5e7eb", cursor: collapsible ? "pointer" : "default", userSelect: "none" }}>
+    <div style={{ marginBottom: "16px", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
+      <div onClick={function() { if (canCollapse) setCollapsed(!collapsed); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", backgroundColor: "#f9fafb", borderBottom: collapsed ? "none" : "1px solid #e5e7eb", cursor: canCollapse ? "pointer" : "default", userSelect: "none" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span style={{ fontSize: "18px" }}>{icon}</span>
           <span style={{ fontWeight: 700, fontSize: "14px" }}>{title}</span>
           {status && <span style={{ fontSize: "11px", color: "#6b7280", marginLeft: "8px" }}>{status}</span>}
         </div>
-        {collapsible && <span style={{ fontSize: "12px", color: "#9ca3af" }}>{collapsed ? "+" : "-"}</span>}
+        {canCollapse && <span style={{ fontSize: "12px", color: "#9ca3af" }}>{collapsed ? "+" : "-"}</span>}
       </div>
       {!collapsed && <div style={{ padding: "16px" }}>{children}</div>}
     </div>
@@ -212,20 +125,18 @@ function Card({ title, icon, children, status, collapsible = true }: { title: st
 // ============================================================================
 // STEP TRACKER
 // ============================================================================
-
 interface StepState { label: string; status: "pending" | "running" | "done" | "error" | "waiting"; detail?: string; }
-
 function StepTracker({ steps }: { steps: StepState[] }) {
   return (
     <div style={{ margin: "16px 0", padding: "12px 16px", backgroundColor: "#f0f4ff", borderRadius: "8px", border: "1px solid #dbeafe" }}>
-      {steps.map((step, i) => {
+      {steps.map(function(step, i) {
         var icon = step.status === "done" ? "\u2705" : step.status === "running" ? "\u23f3" : step.status === "error" ? "\u274c" : step.status === "waiting" ? "\u23f8\ufe0f" : "\u25cb";
         var color = step.status === "done" ? "#16a34a" : step.status === "running" ? "#2563eb" : step.status === "error" ? "#dc2626" : step.status === "waiting" ? "#ca8a04" : "#9ca3af";
         return (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "4px 0", fontSize: "13px" }}>
             <span>{icon}</span>
-            <span style={{ color: color, fontWeight: step.status === "running" ? 700 : step.status === "waiting" ? 600 : 400 }}>{step.label}</span>
-            {step.detail && <span style={{ color: step.status === "waiting" ? "#ca8a04" : "#6b7280", fontSize: "11px" }}>{"\u2014"} {step.detail}</span>}
+            <span style={{ color: color, fontWeight: step.status === "running" ? 700 : 400 }}>{step.label}</span>
+            {step.detail && <span style={{ color: "#6b7280", fontSize: "11px" }}>{"\u2014"} {step.detail}</span>}
           </div>
         );
       })}
@@ -234,141 +145,57 @@ function StepTracker({ steps }: { steps: StepState[] }) {
 }
 
 // ============================================================================
-// EVIDENCE CONFIRMATION CARD
+// EVIDENCE CONFIRMATION CARD (simplified from original)
 // ============================================================================
+function EvidenceConfirmationCard({ evidence, onConfirm, onSkip, isGenerating }: { evidence: any; onConfirm: (confirmed: any) => void; onSkip: () => void; isGenerating: boolean }) {
+  var [edited, setEdited] = useState<any>({ ...evidence });
+  function toggle(key: string) { setEdited(function(prev: any) { var n = { ...prev }; n[key] = !n[key]; return n; }); }
+  function setNum(key: string, val: string) { setEdited(function(prev: any) { var n = { ...prev }; var p = parseInt(val, 10); n[key] = isNaN(p) ? null : p; return n; }); }
 
-function EvidenceConfirmationCard({
-  evidence,
-  onConfirm,
-  onSkip,
-  isGenerating
-}: {
-  evidence: { [key: string]: any };
-  onConfirm: (confirmed: { [key: string]: any }) => void;
-  onSkip: () => void;
-  isGenerating: boolean;
-}) {
-  var [editedEvidence, setEditedEvidence] = useState<{ [key: string]: any }>({ ...evidence });
-  var [overrideCount, setOverrideCount] = useState(0);
-
-  // Count overrides whenever editedEvidence changes
-  useEffect(function() {
-    var count = 0;
-    for (var i = 0; i < CONFIRMABLE_FLAGS.length; i++) {
-      var flag = CONFIRMABLE_FLAGS[i];
-      if (editedEvidence[flag.key] !== evidence[flag.key]) count++;
-    }
-    setOverrideCount(count);
-  }, [editedEvidence, evidence]);
-
-  function toggleFlag(key: string) {
-    setEditedEvidence(function(prev: { [key: string]: any }) {
-      var next = { ...prev };
-      next[key] = !next[key];
-      return next;
-    });
-  }
-
-  function setNumericFlag(key: string, val: string) {
-    setEditedEvidence(function(prev: { [key: string]: any }) {
-      var next = { ...prev };
-      var parsed = parseInt(val, 10);
-      next[key] = isNaN(parsed) ? null : parsed;
-      return next;
-    });
-  }
-
-  // Group flags by category
-  var groups: { [key: string]: EvidenceFlagDef[] } = {};
+  var groups: any = {};
   for (var i = 0; i < CONFIRMABLE_FLAGS.length; i++) {
-    var flag = CONFIRMABLE_FLAGS[i];
-    if (!groups[flag.group]) groups[flag.group] = [];
-    groups[flag.group].push(flag);
+    var f = CONFIRMABLE_FLAGS[i];
+    if (!groups[f.group]) groups[f.group] = [];
+    groups[f.group].push(f);
   }
-
-  var groupNames = Object.keys(groups);
 
   return (
     <Card title="Evidence Confirmation" icon={"\uD83D\uDD0D"} collapsible={false}>
       <div style={{ padding: "10px 14px", backgroundColor: "#eff6ff", borderRadius: "6px", marginBottom: "16px", borderLeft: "4px solid #2563eb" }}>
-        <div style={{ fontWeight: 700, fontSize: "13px", color: "#1e40af", marginBottom: "4px" }}>Review Extracted Evidence Before Final Analysis</div>
-        <div style={{ fontSize: "12px", color: "#374151", lineHeight: "1.5" }}>
-          These evidence flags were auto-extracted from your description. They directly control hard locks, structural authority, and disposition. Correct any flags the AI got wrong before proceeding. Red-bordered flags are hard-lock-critical.
-        </div>
+        <div style={{ fontWeight: 700, fontSize: "13px", color: "#1e40af", marginBottom: "4px" }}>Review Evidence Before Physics Analysis</div>
+        <div style={{ fontSize: "12px", color: "#374151", lineHeight: "1.5" }}>These flags were auto-extracted. They directly control the physics analysis — mechanism validation, consequence tier, and disposition. Correct any errors before proceeding.</div>
       </div>
-
-      {groupNames.map(function(groupName, gi) {
-        var groupFlags = groups[groupName];
+      {Object.keys(groups).map(function(groupName, gi) {
         return (
           <div key={gi} style={{ marginBottom: "16px" }}>
             <div style={{ fontSize: "12px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "8px", borderBottom: "1px solid #e5e7eb", paddingBottom: "4px" }}>{groupName}</div>
-            {groupFlags.map(function(flag, fi) {
-              var currentVal = editedEvidence[flag.key];
-              var originalVal = evidence[flag.key];
-              var wasOverridden = currentVal !== originalVal;
-              var isActive = flag.type === "boolean" ? !!currentVal : (currentVal !== null && currentVal !== undefined);
-              var isCritical = flag.hardLockCritical;
-
+            {groups[groupName].map(function(flag: EvidenceFlagDef, fi: number) {
+              var val = edited[flag.key];
+              var origVal = evidence[flag.key];
+              var changed = val !== origVal;
+              var active = flag.type === "boolean" ? !!val : (val !== null && val !== undefined);
               if (flag.type === "number") {
                 return (
-                  <div key={fi} style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    padding: "8px 12px", marginBottom: "4px", borderRadius: "6px",
-                    backgroundColor: wasOverridden ? "#fefce8" : "#fafafa",
-                    border: "1px solid " + (wasOverridden ? "#fde68a" : isCritical ? "#fecaca" : "#e5e7eb")
-                  }}>
+                  <div key={fi} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", marginBottom: "4px", borderRadius: "6px", backgroundColor: changed ? "#fefce8" : "#fafafa", border: "1px solid " + (flag.hardLockCritical ? "#fecaca" : "#e5e7eb") }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                        <span style={{ fontWeight: 600, fontSize: "13px", color: "#111" }}>{flag.label}</span>
-                        {isCritical && <span style={{ fontSize: "9px", fontWeight: 700, color: "#dc2626", backgroundColor: "#fef2f2", padding: "1px 5px", borderRadius: "3px" }}>LOCK-CRITICAL</span>}
-                        {wasOverridden && <span style={{ fontSize: "9px", fontWeight: 700, color: "#92400e", backgroundColor: "#fef3c7", padding: "1px 5px", borderRadius: "3px" }}>OVERRIDDEN</span>}
-                      </div>
+                      <span style={{ fontWeight: 600, fontSize: "13px" }}>{flag.label}</span>
+                      {flag.hardLockCritical && <span style={{ fontSize: "9px", fontWeight: 700, color: "#dc2626", backgroundColor: "#fef2f2", padding: "1px 5px", borderRadius: "3px", marginLeft: "6px" }}>CRITICAL</span>}
                       <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>{flag.description}</div>
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <input
-                        type="number"
-                        value={currentVal !== null && currentVal !== undefined ? String(currentVal) : ""}
-                        onChange={function(e) { setNumericFlag(flag.key, e.target.value); }}
-                        placeholder="min"
-                        style={{
-                          width: "70px", padding: "4px 8px", fontSize: "13px", fontWeight: 700,
-                          border: "1px solid " + (wasOverridden ? "#f59e0b" : "#d1d5db"),
-                          borderRadius: "4px", textAlign: "center", outline: "none"
-                        }}
-                      />
-                    </div>
+                    <input type="number" value={val !== null && val !== undefined ? String(val) : ""} onChange={function(e) { setNum(flag.key, e.target.value); }} placeholder="min" style={{ width: "70px", padding: "4px 8px", fontSize: "13px", border: "1px solid #d1d5db", borderRadius: "4px", textAlign: "center" }} />
                   </div>
                 );
               }
-
               return (
-                <div key={fi} style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "8px 12px", marginBottom: "4px", borderRadius: "6px",
-                  backgroundColor: wasOverridden ? "#fefce8" : (isActive ? "#f0fdf4" : "#fafafa"),
-                  border: "1px solid " + (wasOverridden ? "#fde68a" : isCritical ? "#fecaca" : "#e5e7eb"),
-                  cursor: "pointer"
-                }} onClick={function() { toggleFlag(flag.key); }}>
+                <div key={fi} onClick={function() { toggle(flag.key); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", marginBottom: "4px", borderRadius: "6px", backgroundColor: changed ? "#fefce8" : (active ? "#f0fdf4" : "#fafafa"), border: "1px solid " + (flag.hardLockCritical ? "#fecaca" : "#e5e7eb"), cursor: "pointer" }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      <span style={{ fontWeight: 600, fontSize: "13px", color: "#111" }}>{flag.label}</span>
-                      {isCritical && <span style={{ fontSize: "9px", fontWeight: 700, color: "#dc2626", backgroundColor: "#fef2f2", padding: "1px 5px", borderRadius: "3px" }}>LOCK-CRITICAL</span>}
-                      {wasOverridden && <span style={{ fontSize: "9px", fontWeight: 700, color: "#92400e", backgroundColor: "#fef3c7", padding: "1px 5px", borderRadius: "3px" }}>OVERRIDDEN</span>}
-                    </div>
+                    <span style={{ fontWeight: 600, fontSize: "13px" }}>{flag.label}</span>
+                    {flag.hardLockCritical && <span style={{ fontSize: "9px", fontWeight: 700, color: "#dc2626", backgroundColor: "#fef2f2", padding: "1px 5px", borderRadius: "3px", marginLeft: "6px" }}>CRITICAL</span>}
+                    {changed && <span style={{ fontSize: "9px", fontWeight: 700, color: "#92400e", backgroundColor: "#fef3c7", padding: "1px 5px", borderRadius: "3px", marginLeft: "6px" }}>CHANGED</span>}
                     <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>{flag.description}</div>
                   </div>
-                  <div style={{
-                    width: "44px", height: "24px", borderRadius: "12px",
-                    backgroundColor: isActive ? "#16a34a" : "#d1d5db",
-                    position: "relative", transition: "background-color 0.2s", flexShrink: 0
-                  }}>
-                    <div style={{
-                      width: "20px", height: "20px", borderRadius: "10px",
-                      backgroundColor: "#fff", position: "absolute", top: "2px",
-                      left: isActive ? "22px" : "2px",
-                      transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
-                    }} />
+                  <div style={{ width: "44px", height: "24px", borderRadius: "12px", backgroundColor: active ? "#16a34a" : "#d1d5db", position: "relative", flexShrink: 0 }}>
+                    <div style={{ width: "20px", height: "20px", borderRadius: "10px", backgroundColor: "#fff", position: "absolute", top: "2px", left: active ? "22px" : "2px", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
                   </div>
                 </div>
               );
@@ -376,37 +203,11 @@ function EvidenceConfirmationCard({
           </div>
         );
       })}
-
-      {/* Override summary */}
-      {overrideCount > 0 && (
-        <div style={{ padding: "8px 12px", backgroundColor: "#fefce8", borderRadius: "6px", marginBottom: "12px", border: "1px solid #fde68a" }}>
-          <div style={{ fontSize: "12px", fontWeight: 700, color: "#92400e" }}>{overrideCount} flag{overrideCount > 1 ? "s" : ""} overridden from auto-derived values</div>
-          <div style={{ fontSize: "11px", color: "#a16207", marginTop: "2px" }}>Overrides will be logged in the audit trail.</div>
-        </div>
-      )}
-
-      {/* Action buttons */}
       <div style={{ display: "flex", gap: "8px", marginTop: "16px" }}>
-        <button
-          onClick={function() { onConfirm(editedEvidence); }}
-          disabled={isGenerating}
-          style={{
-            flex: 2, padding: "12px 24px", fontSize: "14px", fontWeight: 700,
-            color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#16a34a",
-            border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer"
-          }}
-        >
-          {isGenerating ? "Running..." : ("\u2705 Confirm Evidence & Continue" + (overrideCount > 0 ? " (" + overrideCount + " override" + (overrideCount > 1 ? "s" : "") + ")" : ""))}
+        <button onClick={function() { onConfirm(edited); }} disabled={isGenerating} style={{ flex: 2, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#16a34a", border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer" }}>
+          {isGenerating ? "Running Physics Analysis..." : "\u2705 Confirm & Run Physics Analysis"}
         </button>
-        <button
-          onClick={onSkip}
-          disabled={isGenerating}
-          style={{
-            flex: 1, padding: "12px 16px", fontSize: "13px", fontWeight: 600,
-            color: isGenerating ? "#9ca3af" : "#6b7280", backgroundColor: "#f3f4f6",
-            border: "1px solid #d1d5db", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer"
-          }}
-        >
+        <button onClick={onSkip} disabled={isGenerating} style={{ flex: 1, padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#6b7280", backgroundColor: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer" }}>
           Skip {"\u2014"} Trust Auto-Derived
         </button>
       </div>
@@ -415,347 +216,45 @@ function EvidenceConfirmationCard({
 }
 
 // ============================================================================
-// REPORT BUILDER — generates professional HTML inspection report
-// ============================================================================
-
-var REPORT_CSS = "body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#111;line-height:1.5;margin:40px;}" +
-  "h1{font-size:18pt;color:#1e3a5f;margin:0 0 4px 0;}" +
-  "h2{font-size:14pt;color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:4px;margin:24px 0 12px 0;}" +
-  "h3{font-size:12pt;color:#333;margin:16px 0 8px 0;}" +
-  ".header{border-bottom:3px solid #1e3a5f;padding-bottom:12px;margin-bottom:20px;}" +
-  ".subtitle{font-size:10pt;color:#666;margin:0;}" +
-  ".disposition-banner{padding:12px 20px;color:#fff;font-size:16pt;font-weight:bold;text-align:center;border-radius:4px;margin:16px 0;}" +
-  ".no_go{background-color:#dc2626;}" +
-  ".repair_before_restart{background-color:#ea580c;}" +
-  ".engineering_review_required{background-color:#ca8a04;}" +
-  ".conditional_go{background-color:#16a34a;}" +
-  "table{border-collapse:collapse;width:100%;margin:8px 0 16px 0;}" +
-  "th{background-color:#f0f4f8;color:#1e3a5f;font-size:10pt;text-align:left;padding:6px 10px;border:1px solid #ccc;}" +
-  "td{font-size:10pt;padding:6px 10px;border:1px solid #ddd;vertical-align:top;}" +
-  "tr:nth-child(even){background-color:#f9fafb;}" +
-  ".badge{display:inline-block;padding:2px 8px;border-radius:3px;font-size:9pt;font-weight:bold;color:#fff;}" +
-  ".critical{background-color:#dc2626;}.high{background-color:#ea580c;}.medium{background-color:#ca8a04;}.low{background-color:#16a34a;}" +
-  ".lock-box{padding:8px 12px;border-left:4px solid #dc2626;background-color:#fef2f2;margin:6px 0;}" +
-  ".override-box{padding:6px 12px;border-left:4px solid #f59e0b;background-color:#fefce8;margin:4px 0;font-size:10pt;}" +
-  ".trace-line{font-size:9pt;color:#374151;padding:2px 0;}" +
-  ".trace-lock{font-size:9pt;color:#dc2626;font-weight:bold;}" +
-  ".trace-override{font-size:9pt;color:#92400e;font-weight:bold;}" +
-  ".sig-block{margin-top:40px;border-top:1px solid #ccc;padding-top:20px;}" +
-  ".sig-line{border-bottom:1px solid #333;width:250px;display:inline-block;margin:0 20px;}" +
-  ".narrative{white-space:pre-wrap;font-size:10pt;line-height:1.6;color:#374151;padding:10px;background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;}" +
-  ".summary-grid{display:flex;gap:20px;margin:12px 0;}" +
-  ".summary-cell{flex:1;text-align:center;padding:8px;background-color:#f0f4f8;border-radius:4px;}" +
-  ".summary-label{font-size:9pt;color:#666;text-transform:uppercase;}" +
-  ".summary-value{font-size:14pt;font-weight:bold;}" +
-  "@media print{body{margin:20px;}.disposition-banner{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}";
-
-function buildReportHTML(data: any): string {
-  var dom = data.dominance;
-  var ch = data.chain;
-  var pr = data.parsed;
-  var as = data.asset;
-  var nar = data.aiNarrative;
-  var tx = data.transcript;
-  var now = new Date();
-  var dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-  var timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-  var caseRef = "FORGED-" + now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + String(now.getDate()).padStart(2, "0") + "-" + String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0") + String(now.getSeconds()).padStart(2, "0");
-
-  var h = "";
-
-  // Header
-  h += "<div class='header'>";
-  h += "<h1>FORGED NDT Intelligence OS</h1>";
-  h += "<p class='subtitle'>Inspection Plan Report</p>";
-  h += "<table style='border:none;margin-top:8px;'><tr style='background:none;'>";
-  h += "<td style='border:none;padding:2px 0;font-size:10pt;'><strong>Case Reference:</strong> " + caseRef + "</td>";
-  h += "<td style='border:none;padding:2px 0;font-size:10pt;text-align:right;'><strong>Date:</strong> " + dateStr + " " + timeStr + "</td>";
-  h += "</tr><tr style='background:none;'>";
-  h += "<td style='border:none;padding:2px 0;font-size:10pt;'><strong>Asset:</strong> " + ((as && as.asset_class) || "Unknown").replace(/_/g, " ") + " (" + Math.round(((as && as.confidence) || 0) * 100) + "% confidence)</td>";
-  h += "<td style='border:none;padding:2px 0;font-size:10pt;text-align:right;'><strong>Engine:</strong> " + ((dom && dom.engine_version) || "decision-dominance-v2.3") + "</td>";
-  h += "</tr></table></div>";
-
-  // Disposition Banner
-  if (dom) {
-    h += "<div class='disposition-banner " + (dom.disposition || "") + "'>" + (dom.disposition_label || "PENDING") + "</div>";
-
-    // Confirmation badge
-    if (dom.confirmation_status === "inspector_confirmed") {
-      h += "<p style='text-align:center;font-size:10pt;color:#16a34a;font-weight:bold;'>";
-      h += "EVIDENCE INSPECTOR-CONFIRMED";
-      if (dom.override_count > 0) h += " (" + dom.override_count + " override" + (dom.override_count > 1 ? "s" : "") + " applied)";
-      h += "</p>";
-    }
-
-    // Executive Summary Grid
-    h += "<table style='margin:16px 0;'><tr>";
-    h += "<th style='text-align:center;'>Risk Band</th><th style='text-align:center;'>Confidence</th><th style='text-align:center;'>Evidence Sufficiency</th><th style='text-align:center;'>Hard Locks Fired</th>";
-    h += "</tr><tr>";
-    h += "<td style='text-align:center;font-weight:bold;'>" + ((dom.risk_band || "").toUpperCase()) + "</td>";
-    h += "<td style='text-align:center;font-weight:bold;'>" + (dom.final_confidence || "?") + "%</td>";
-    h += "<td style='text-align:center;font-weight:bold;'>" + ((dom.evidence_sufficiency && dom.evidence_sufficiency.label) || "?") + " (" + ((dom.evidence_sufficiency && dom.evidence_sufficiency.score) || "?") + "/100)</td>";
-    h += "<td style='text-align:center;font-weight:bold;'>" + (dom.fired_lock_count || 0) + " of " + ((dom.hard_lock_triggers && dom.hard_lock_triggers.length) || 0) + "</td>";
-    h += "</tr></table>";
-
-    if (dom.management_summary) {
-      h += "<p style='font-size:10pt;color:#374151;line-height:1.6;'>" + dom.management_summary + "</p>";
-    }
-  }
-
-  // Structural Authority
-  if (dom && dom.structural_authority) {
-    var sa = dom.structural_authority;
-    h += "<h2>Structural Authority: " + (sa.status_label || "") + "</h2>";
-    h += "<table><tr><th>Factor</th><th>Status</th></tr>";
-    h += "<tr><td>Primary Member Damage</td><td style='font-weight:bold;color:" + (sa.primary_member_damage ? "#dc2626" : "#16a34a") + ";'>" + (sa.primary_member_damage ? "YES" : "NO") + "</td></tr>";
-    h += "<tr><td>Load Path Concern</td><td style='font-weight:bold;color:" + (sa.load_path_concern ? "#dc2626" : "#16a34a") + ";'>" + (sa.load_path_concern ? "YES" : "NO") + "</td></tr>";
-    h += "<tr><td>Immediate Shoring / Isolation Recommended</td><td style='font-weight:bold;color:" + (sa.immediate_shoring_or_isolation_recommended ? "#dc2626" : "#16a34a") + ";'>" + (sa.immediate_shoring_or_isolation_recommended ? "YES" : "NO") + "</td></tr>";
-    h += "</table>";
-    if (sa.rationale && sa.rationale.length > 0) {
-      for (var ri = 0; ri < sa.rationale.length; ri++) {
-        h += "<p style='font-size:10pt;margin:2px 0;'>" + (ri + 1) + ". " + sa.rationale[ri] + "</p>";
-      }
-    }
-  }
-
-  // Hard Lock Triggers
-  if (dom && dom.hard_lock_triggers) {
-    var firedLocks = dom.hard_lock_triggers.filter(function(t: any) { return t.fired; });
-    if (firedLocks.length > 0) {
-      h += "<h2>Hard Lock Triggers (" + firedLocks.length + " of " + dom.hard_lock_triggers.length + " fired)</h2>";
-      for (var li = 0; li < firedLocks.length; li++) {
-        var lk = firedLocks[li];
-        h += "<div class='lock-box'>";
-        h += "<p style='margin:0;font-weight:bold;color:#dc2626;'>" + lk.name + "</p>";
-        h += "<p style='margin:2px 0;font-size:10pt;'>" + lk.rationale + "</p>";
-        h += "<p style='margin:2px 0;font-size:9pt;color:#666;'>Code basis: " + lk.code_basis + "</p>";
-        h += "</div>";
-      }
-    }
-  }
-
-  // Evidence Overrides
-  if (dom && dom.evidence_overrides && dom.evidence_overrides.length > 0) {
-    h += "<h2>Evidence Overrides (Inspector Corrections)</h2>";
-    h += "<table><tr><th>Flag</th><th>Auto-Derived</th><th>Inspector Confirmed</th><th>Impact</th></tr>";
-    for (var oi = 0; oi < dom.evidence_overrides.length; oi++) {
-      var ov = dom.evidence_overrides[oi];
-      h += "<tr><td>" + ov.flag.replace(/_/g, " ") + "</td>";
-      h += "<td style='color:#dc2626;'>" + String(ov.auto_derived) + "</td>";
-      h += "<td style='color:#16a34a;font-weight:bold;'>" + String(ov.inspector_confirmed) + "</td>";
-      h += "<td>" + ov.impact.replace(/_/g, " ") + "</td></tr>";
-    }
-    h += "</table>";
-  }
-
-  // Surviving Mechanisms
-  if (dom && dom.surviving_mechanisms && dom.surviving_mechanisms.length > 0) {
-    h += "<h2>Surviving Damage Mechanisms (" + dom.surviving_mechanisms.length + ")</h2>";
-    h += "<table><tr><th>Mechanism</th><th>Severity</th><th>Relevance</th><th>Reasons</th></tr>";
-    for (var si = 0; si < dom.surviving_mechanisms.length; si++) {
-      var sm = dom.surviving_mechanisms[si];
-      h += "<tr><td style='font-weight:bold;'>" + (sm.family_name || sm.name || "") + "</td>";
-      h += "<td><span class='badge " + (sm.severity || "medium") + "'>" + (sm.severity || "medium").toUpperCase() + "</span></td>";
-      h += "<td>" + (sm.relevance_score || "") + "</td>";
-      h += "<td style='font-size:9pt;'>" + (sm.reasons || []).join(", ") + "</td></tr>";
-    }
-    h += "</table>";
-  }
-
-  // Suppressed Mechanisms
-  if (dom && dom.suppressed_mechanisms && dom.suppressed_mechanisms.length > 0) {
-    h += "<h2>Suppressed Mechanisms (" + dom.suppressed_mechanisms.length + ")</h2>";
-    h += "<table><tr><th>Mechanism</th><th>Reasons</th></tr>";
-    for (var xi = 0; xi < dom.suppressed_mechanisms.length; xi++) {
-      var xm = dom.suppressed_mechanisms[xi];
-      h += "<tr><td>" + (xm.family_name || xm.name || "") + "</td>";
-      h += "<td style='font-size:9pt;'>" + (xm.reasons || []).join(", ") + "</td></tr>";
-    }
-    h += "</table>";
-  }
-
-  // Priority Methods
-  if (dom && dom.top_methods && dom.top_methods.length > 0) {
-    h += "<h2>Priority Inspection Methods</h2>";
-    h += "<table><tr><th>#</th><th>Method</th></tr>";
-    for (var mi = 0; mi < dom.top_methods.length; mi++) {
-      h += "<tr><td>" + (mi + 1) + "</td><td style='font-weight:bold;'>" + dom.top_methods[mi] + "</td></tr>";
-    }
-    h += "</table>";
-    if (dom.method_filter && dom.method_filter.suppressed_methods && dom.method_filter.suppressed_methods.length > 0) {
-      h += "<h3>Suppressed Methods (material/asset mismatch)</h3>";
-      h += "<table><tr><th>Method</th><th>Reason</th></tr>";
-      for (var msi = 0; msi < dom.method_filter.suppressed_methods.length; msi++) {
-        var msm = dom.method_filter.suppressed_methods[msi];
-        h += "<tr><td>" + msm.method_name + "</td><td style='font-size:9pt;'>" + msm.reason.replace(/_/g, " ") + "</td></tr>";
-      }
-      h += "</table>";
-    }
-  }
-
-  // Prioritized Inspection Zones
-  var zones = (dom && dom.prioritized_inspection_sequence) || (ch && ch.engine_2_affected_zones) || [];
-  if (zones.length > 0) {
-    h += "<h2>Prioritized Inspection Zones</h2>";
-    h += "<table><tr><th>Priority</th><th>Zone</th><th>Rationale</th></tr>";
-    for (var zi = 0; zi < zones.length; zi++) {
-      var zn = zones[zi];
-      h += "<tr><td style='text-align:center;font-weight:bold;'>P" + (zn.priority || 2) + "</td>";
-      h += "<td style='font-weight:bold;'>" + (zn.zone_name || zn.zone || "") + "</td>";
-      h += "<td style='font-size:9pt;'>" + (zn.rationale || "") + "</td></tr>";
-    }
-    h += "</table>";
-  }
-
-  // Confidence Breakdown
-  if (dom && dom.confidence_adjustments && dom.confidence_adjustments.length > 0) {
-    h += "<h2>Confidence Analysis</h2>";
-    h += "<p style='font-size:10pt;'>Initial: <strong>" + (dom.initial_confidence || "?") + "%</strong> &rarr; Final: <strong>" + (dom.final_confidence || "?") + "%</strong> (delta: " + (dom.confidence_total_delta || "?") + "%)</p>";
-    h += "<table><tr><th>Group</th><th>Raw Delta</th><th>Capped Delta</th><th>Reasons</th></tr>";
-    for (var ci = 0; ci < dom.confidence_adjustments.length; ci++) {
-      var cg = dom.confidence_adjustments[ci];
-      h += "<tr><td style='font-weight:bold;'>" + cg.group + "</td>";
-      h += "<td>" + cg.raw_delta + "%</td>";
-      h += "<td style='font-weight:bold;color:#dc2626;'>" + cg.capped_delta + "%" + (cg.capped_delta !== cg.raw_delta ? " (capped)" : "") + "</td>";
-      h += "<td style='font-size:9pt;'>" + cg.reasons.join("; ") + "</td></tr>";
-    }
-    h += "</table>";
-  }
-
-  // Code Action Paths
-  if (ch && ch.engine_4_code_action_paths && ch.engine_4_code_action_paths.length > 0) {
-    h += "<h2>Code Action Paths</h2>";
-    h += "<table><tr><th>Finding Type</th><th>Code Section</th><th>Required Action</th><th>FFS Assessment</th><th>Eng. Review</th></tr>";
-    for (var cpi = 0; cpi < ch.engine_4_code_action_paths.length; cpi++) {
-      var cp = ch.engine_4_code_action_paths[cpi];
-      h += "<tr><td style='font-weight:bold;'>" + cp.finding_type.replace(/_/g, " ") + "</td>";
-      h += "<td>" + cp.code_section + "</td>";
-      h += "<td>" + cp.required_action + "</td>";
-      h += "<td>" + cp.ffs_assessment + "</td>";
-      h += "<td style='text-align:center;color:" + (cp.engineering_review_required ? "#dc2626" : "#16a34a") + ";font-weight:bold;'>" + (cp.engineering_review_required ? "YES" : "NO") + "</td></tr>";
-    }
-    h += "</table>";
-  }
-
-  // AI Narrative
-  if (nar) {
-    h += "<h2>AI Narrative Summary</h2>";
-    h += "<p style='font-size:9pt;color:#666;margin-bottom:4px;'>Generated by GPT-4o, constrained by deterministic chain + DDL output.</p>";
-    h += "<div class='narrative'>" + nar.replace(/\n/g, "<br>") + "</div>";
-  }
-
-  // Decision Trace
-  if (dom && dom.decision_trace && dom.decision_trace.length > 0) {
-    h += "<h2>Decision Trace (Audit Trail)</h2>";
-    for (var ti = 0; ti < dom.decision_trace.length; ti++) {
-      var tl = dom.decision_trace[ti];
-      var trClass = "trace-line";
-      if (tl.indexOf("HARD LOCK") !== -1) trClass = "trace-lock";
-      if (tl.indexOf("OVERRIDE") !== -1) trClass = "trace-override";
-      h += "<p class='" + trClass + "'>" + (ti + 1) + ". " + tl + "</p>";
-    }
-  }
-
-  // Original Input
-  if (tx) {
-    h += "<h2>Original Input Transcript</h2>";
-    h += "<div style='font-size:10pt;color:#374151;padding:10px;background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;white-space:pre-wrap;'>" + tx + "</div>";
-  }
-
-  // Signature Block
-  h += "<div class='sig-block'>";
-  h += "<table style='border:none;width:100%;'><tr style='background:none;'>";
-  h += "<td style='border:none;width:50%;'><p style='margin:0 0 4px 0;font-size:10pt;font-weight:bold;'>Inspector:</p><div class='sig-line'>&nbsp;</div></td>";
-  h += "<td style='border:none;width:50%;'><p style='margin:0 0 4px 0;font-size:10pt;font-weight:bold;'>Date:</p><div class='sig-line'>&nbsp;</div></td>";
-  h += "</tr><tr style='background:none;'>";
-  h += "<td style='border:none;padding-top:20px;'><p style='margin:0 0 4px 0;font-size:10pt;font-weight:bold;'>Reviewed By:</p><div class='sig-line'>&nbsp;</div></td>";
-  h += "<td style='border:none;padding-top:20px;'><p style='margin:0 0 4px 0;font-size:10pt;font-weight:bold;'>Date:</p><div class='sig-line'>&nbsp;</div></td>";
-  h += "</tr></table>";
-  h += "</div>";
-
-  // Footer
-  h += "<p style='text-align:center;font-size:8pt;color:#999;margin-top:30px;border-top:1px solid #ddd;padding-top:8px;'>Generated by FORGED NDT Intelligence OS &mdash; " + dateStr + " " + timeStr + " &mdash; " + caseRef + "<br>Engine: " + ((dom && dom.engine_version) || "decision-dominance-v2.3") + " | Evidence: " + ((dom && dom.confirmation_status) || "auto_derived") + "</p>";
-
-  return h;
-}
-
-function downloadAsWord(reportHTML: string) {
-  var wordDoc = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
-    "<head><meta charset='utf-8'><style>" + REPORT_CSS + "</style></head><body>" + reportHTML + "</body></html>";
-  var blob = new Blob(["\ufeff" + wordDoc], { type: "application/msword" });
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement("a");
-  var now = new Date();
-  var ts = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
-  a.href = url;
-  a.download = "FORGED_Inspection_Report_" + ts + ".doc";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-function openPrintView(reportHTML: string) {
-  var pw = window.open("", "_blank");
-  if (!pw) { alert("Pop-up blocked. Please allow pop-ups for this site."); return; }
-  var printWin: Window = pw;
-  printWin.document.write("<!DOCTYPE html><html><head><meta charset='utf-8'><title>FORGED Inspection Report</title><style>" + REPORT_CSS + "</style></head><body>" + reportHTML + "</body></html>");
-  printWin.document.close();
-  setTimeout(function() { printWin.print(); }, 500);
-}
-
-// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
-
 export default function VoiceInspectionPage() {
   var [transcript, setTranscript] = useState("");
   var [isGenerating, setIsGenerating] = useState(false);
   var [steps, setSteps] = useState<StepState[]>([]);
-  var [pipelinePaused, setPipelinePaused] = useState(false);
   var [evidenceConfirmPending, setEvidenceConfirmPending] = useState(false);
-  var [preliminaryEvidence, setPreliminaryEvidence] = useState<{ [key: string]: any } | null>(null);
-  var [realityLock, setRealityLock] = useState<any>(null);
-  var [domainUnsupported, setDomainUnsupported] = useState(false);
+  var [preliminaryEvidence, setPreliminaryEvidence] = useState<any>(null);
 
   // API results
-  var [parsed, setParsed] = useState<ParsedResult | null>(null);
-  var [asset, setAsset] = useState<AssetResult | null>(null);
-  var [governance, setGovernance] = useState<GovernanceResult | null>(null);
-  var [codeAuthority, setCodeAuthority] = useState<CodeAuthorityResult | null>(null);
-  var [masterRoute, setMasterRoute] = useState<any>(null);
-  var [chain, setChain] = useState<ChainResult | null>(null);
-  var [dominance, setDominance] = useState<any>(null);
+  var [parsed, setParsed] = useState<any>(null);
+  var [asset, setAsset] = useState<any>(null);
+  var [realityLock, setRealityLock] = useState<any>(null);
+  var [decisionCore, setDecisionCore] = useState<any>(null);
   var [aiNarrative, setAiNarrative] = useState<string | null>(null);
-  var [eventEnrich, setEventEnrich] = useState<EventEnrichResult | null>(null);
-  var [timeProgression, setTimeProgression] = useState<TimeProgressionResult | null>(null);
-  var [codeTrace, setCodeTrace] = useState<CodeTraceResult | null>(null);
-  var [chainPerformance, setChainPerformance] = useState<any>(null);
   var [errors, setErrors] = useState<string[]>([]);
-  var [activePackageTab, setActivePackageTab] = useState(0);
-  var [activeTimelineTier, setActiveTimelineTier] = useState(0);
-  var resultsRef = useRef<HTMLDivElement>(null);
   var [isListening, setIsListening] = useState(false);
   var recognitionRef = useRef<any>(null);
   var [aiQuestions, setAiQuestions] = useState<any[] | null>(null);
   var [aiUnderstood, setAiUnderstood] = useState<string | null>(null);
-  var [aiInterpretation, setAiInterpretation] = useState<any>(null);
-  var [selectedAnswers, setSelectedAnswers] = useState<{ [key: string]: string }>({});
+  var [selectedAnswers, setSelectedAnswers] = useState<any>({});
+  var [pipelinePaused, setPipelinePaused] = useState(false);
+  var resultsRef = useRef<HTMLDivElement>(null);
 
-  // Refs to hold parse/asset results for continuePipeline
-  var parsedRef = useRef<ParsedResult | null>(null);
-  var assetRef = useRef<AssetResult | null>(null);
+  // Refs for continuation
+  var parsedRef = useRef<any>(null);
+  var assetRef = useRef<any>(null);
   var stepsRef = useRef<StepState[]>([]);
   var errorsRef = useRef<string[]>([]);
   var inputTextRef = useRef<string>("");
 
-  useEffect(() => {
+  useEffect(function() {
     var SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SR) {
       var recognition = new SR();
       recognition.continuous = true; recognition.interimResults = true; recognition.lang = "en-US";
-      recognition.onresult = (event: any) => { var ft = ""; for (var i = event.resultIndex; i < event.results.length; i++) { if (event.results[i].isFinal) ft += event.results[i][0].transcript + " "; } if (ft) setTranscript((prev) => prev + ft); };
-      recognition.onerror = () => setIsListening(false); recognition.onend = () => setIsListening(false);
+      recognition.onresult = function(event: any) { var ft = ""; for (var i = event.resultIndex; i < event.results.length; i++) { if (event.results[i].isFinal) ft += event.results[i][0].transcript + " "; } if (ft) setTranscript(function(prev) { return prev + ft; }); };
+      recognition.onerror = function() { setIsListening(false); };
+      recognition.onend = function() { setIsListening(false); };
       recognitionRef.current = recognition;
     }
   }, []);
@@ -766,12 +265,11 @@ export default function VoiceInspectionPage() {
   }
 
   function updateStep(idx: number, updates: Partial<StepState>, current: StepState[]): StepState[] {
-    var next = [...current]; next[idx] = { ...next[idx], ...updates }; return next;
+    var next = current.slice(); next[idx] = Object.assign({}, next[idx], updates); return next;
   }
 
   // ============================================================================
-  // PHASE 1: Parse + Asset → Evidence Confirmation
-  // Steps: 0=Parser, 1=Asset — then pause for evidence confirmation
+  // PHASE 1: Parse + Asset + Reality Lock → Evidence Confirmation
   // ============================================================================
   async function handleGenerate(transcriptOverride?: string) {
     var inputText = transcriptOverride || transcript;
@@ -779,39 +277,26 @@ export default function VoiceInspectionPage() {
 
     setIsGenerating(true); setPipelinePaused(false); setEvidenceConfirmPending(false);
     setPreliminaryEvidence(null); setErrors([]);
-    setParsed(null); setAsset(null); setGovernance(null); setCodeAuthority(null);
-    setMasterRoute(null); setChain(null); setDominance(null); setAiNarrative(null);
-    setRealityLock(null); setDomainUnsupported(false);
-    setEventEnrich(null); setTimeProgression(null); setCodeTrace(null);
-    setChainPerformance(null); setAiQuestions(null); setAiUnderstood(null);
-    setAiInterpretation(null); setSelectedAnswers({});
+    setParsed(null); setAsset(null); setRealityLock(null);
+    setDecisionCore(null); setAiNarrative(null);
+    setAiQuestions(null); setAiUnderstood(null); setSelectedAnswers({});
     inputTextRef.current = inputText;
 
     var initialSteps: StepState[] = [
       { label: "AI Incident Parser (GPT-4o)", status: "pending" },
-      { label: "Resolve Asset", status: "pending" },
-      { label: "Reality Lock (Domain Gate)", status: "pending" },
-      { label: "Governance Matrix", status: "pending" },
-      { label: "Code Authority Resolution", status: "pending" },
-      { label: "Master Router", status: "pending" },
-      { label: "Incident-to-Inspection Chain (7 engines)", status: "pending" },
-      { label: "Decision Dominance (Engine 8)", status: "pending" },
-      { label: "AI Narrative Polish (GPT-4o)", status: "pending" },
-      { label: "Event Enrichment", status: "pending" },
-      { label: "Time Progression", status: "pending" },
-      { label: "Code Trace", status: "pending" },
+      { label: "Resolve Asset + Domain Gate", status: "pending" },
+      { label: "Physics-First Decision Core (6 states)", status: "pending" },
+      { label: "AI Narrative (GPT-4o)", status: "pending" },
     ];
-    var s = [...initialSteps];
+    var s = initialSteps.slice();
     setSteps(s); stepsRef.current = s;
-
     var errs: string[] = [];
-    var parsedResult: ParsedResult | null = null;
-    var assetResult: AssetResult | null = null;
-    var needsMoreInfo = false;
+    var parsedResult: any = null;
+    var assetResult: any = null;
 
     try {
-      // ====== PHASE 1: PARALLEL — parse-incident + resolve-asset ======
-      s = updateStep(0, { status: "running" }, s); s = updateStep(1, { status: "running" }, s); setSteps([...s]);
+      // ====== PARALLEL: parse + asset ======
+      s = updateStep(0, { status: "running" }, s); s = updateStep(1, { status: "running" }, s); setSteps(s.slice());
 
       var [parseRes, assetRes] = await Promise.allSettled([
         callAPI("parse-incident", { transcript: inputText }),
@@ -819,94 +304,60 @@ export default function VoiceInspectionPage() {
       ]);
 
       if (parseRes.status === "fulfilled") {
-        parsedResult = parseRes.value.parsed || parseRes.value; setParsed(parsedResult);
-        if (parseRes.value.ai_interpretation) {
-          setAiInterpretation(parseRes.value.ai_interpretation);
-          if (parseRes.value.needs_input && parseRes.value.questions) { setAiQuestions(parseRes.value.questions); setAiUnderstood(parseRes.value.understood || ""); needsMoreInfo = true; }
-          if (parseRes.value.resolved && !assetResult) { assetResult = parseRes.value.resolved; setAsset(assetResult); }
-        }
-        s = updateStep(0, { status: "done", detail: (parsedResult?.events?.length || 0) + " events (" + (parseRes.value.ai_interpretation?.status || "no_ai") + ")" }, s);
-      } else { s = updateStep(0, { status: "error", detail: parseRes.reason?.message }, s); errs.push("parse-incident: " + parseRes.reason?.message); parsedResult = { events: [], environment: [], numeric_values: {}, raw_text: inputText }; setParsed(parsedResult); }
-
-      if (assetRes.status === "fulfilled") {
-        var resolveResult = assetRes.value.resolved || assetRes.value;
-        var aiResolved = parseRes.status === "fulfilled" ? parseRes.value.resolved : null;
-        assetResult = (aiResolved && resolveResult.confidence < 0.5 && aiResolved.confidence > 0.5) ? aiResolved : resolveResult;
-        setAsset(assetResult);
-        s = updateStep(1, { status: "done", detail: (assetResult?.asset_class || "") + " (" + Math.round((assetResult?.confidence || 0) * 100) + "%)" }, s);
-      } else { s = updateStep(1, { status: "error" }, s); errs.push("resolve-asset: " + assetRes.reason?.message); assetResult = { asset_class: "pressure_vessel", asset_type: "pressure_vessel", confidence: 0.3 }; setAsset(assetResult); }
-      setSteps([...s]);
-
-      // ====== AI QUESTIONS FLOW CONTROL ======
-      if (needsMoreInfo) {
-        for (var wi = 2; wi < s.length; wi++) s = updateStep(wi, { status: "waiting", detail: "waiting for your answers" }, s);
-        setSteps([...s]); stepsRef.current = s; setErrors(errs); errorsRef.current = errs;
-        setIsGenerating(false); setPipelinePaused(true);
-        setTimeout(function() { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: "smooth" }); }, 200);
-        return;
-      }
-
-      // ====== REALITY LOCK (Domain Gate) ======
-      s = updateStep(2, { status: "running" }, s); setSteps([...s]);
-      try {
-        var rlRes = await callAPI("reality-lock", {
-          transcript: inputText,
-          parsed_asset_class: assetResult?.asset_class || "unknown",
-          parsed_asset_confidence: assetResult?.confidence || 0
-        });
-        var rlResult = rlRes.reality_lock || rlRes;
-        setRealityLock(rlResult);
-
-        var rlDetail = (rlResult.detected_domain_label || rlResult.detected_domain || "unknown") + " (" + (rlResult.domain_supported ? "supported" : "unsupported") + ")";
-        if (rlResult.asset_conflict) rlDetail += " \u2014 CONFLICT";
-        s = updateStep(2, { status: "done", detail: rlDetail }, s);
-
-        // Handle unsupported domain — skip deterministic chain
-        if (!rlResult.domain_supported) {
-          setDomainUnsupported(true);
-          // Mark chain steps as skipped
-          for (var usi = 3; usi < s.length; usi++) {
-            if (usi === 8) continue; // AI Narrative still runs
-            s = updateStep(usi, { status: "done", detail: "skipped \u2014 domain not supported" }, s);
+        parsedResult = parseRes.value.parsed || parseRes.value;
+        setParsed(parsedResult);
+        if (parseRes.value.needs_input && parseRes.value.questions) {
+          setAiQuestions(parseRes.value.questions);
+          setAiUnderstood(parseRes.value.understood || "");
+          // Pause pipeline for questions
+          for (var wi = 2; wi < s.length; wi++) s = updateStep(wi, { status: "waiting", detail: "waiting for answers" }, s);
+          s = updateStep(0, { status: "done", detail: (parsedResult?.events?.length || 0) + " events" }, s);
+          if (assetRes.status === "fulfilled") {
+            assetResult = assetRes.value.resolved || assetRes.value;
+            setAsset(assetResult);
+            s = updateStep(1, { status: "done", detail: assetResult?.asset_class || "" }, s);
           }
-
-          // Still run AI Narrative for unsupported domains
-          s = updateStep(8, { status: "running" }, s); setSteps([...s]);
-          try {
-            var unsupCtx = "DOMAIN CONTEXT (AI INTERPRETATION ONLY \u2014 NO DETERMINISTIC CHAIN):\n";
-            unsupCtx += "Detected domain: " + (rlResult.detected_domain_label || "") + " (not supported by deterministic engines)\n";
-            unsupCtx += "Asset: " + (assetResult?.asset_class || "unknown") + "\n";
-            unsupCtx += "Events: " + (parsedResult?.events?.join(", ") || "none") + "\n";
-            unsupCtx += "Environment: " + (parsedResult?.environment?.join(", ") || "none") + "\n";
-            unsupCtx += "NOTE: Provide AI interpretation only. Do NOT cite specific inspection codes. Acknowledge that this domain requires specialized expertise beyond the platform's deterministic coverage.\n";
-            var unsupTranscript = "=== DOMAIN CONTEXT ===\n" + unsupCtx + "\n=== ORIGINAL TRANSCRIPT ===\n" + inputText;
-            var unsupPlanRes = await callAPI("voice-incident-plan", { transcript: unsupTranscript });
-            var unsupNarrative = unsupPlanRes?.plan || unsupPlanRes?.text || unsupPlanRes?.result || JSON.stringify(unsupPlanRes);
-            setAiNarrative(typeof unsupNarrative === "string" ? unsupNarrative : JSON.stringify(unsupNarrative));
-            s = updateStep(8, { status: "done", detail: "AI interpretation narrative" }, s);
-          } catch (e2: any) { s = updateStep(8, { status: "error", detail: e2.message }, s); errs.push("narrative: " + e2.message); }
-
-          setSteps([...s]); setErrors(errs); setIsGenerating(false);
-          setTimeout(function() { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: "smooth" }); }, 200);
+          setSteps(s.slice()); stepsRef.current = s; setErrors(errs); errorsRef.current = errs;
+          setIsGenerating(false); setPipelinePaused(true);
           return;
         }
-
-        // Handle asset conflict on supported domain — override asset
-        if (rlResult.asset_conflict && rlResult.asset_override) {
-          assetResult = { asset_class: rlResult.asset_override, asset_type: rlResult.asset_override, confidence: (assetResult?.confidence || 0.5) };
-          setAsset(assetResult);
-          s = updateStep(1, { status: "done", detail: rlResult.asset_override + " (overridden by reality lock)" }, s);
-        }
-
-      } catch (e: any) {
-        s = updateStep(2, { status: "error", detail: e.message }, s);
-        errs.push("reality-lock: " + e.message);
-        // On error, continue pipeline normally — don't block on reality-lock failure
+        s = updateStep(0, { status: "done", detail: (parsedResult?.events?.length || 0) + " events" }, s);
+      } else {
+        s = updateStep(0, { status: "error", detail: parseRes.reason?.message }, s);
+        errs.push("parse-incident: " + parseRes.reason?.message);
+        parsedResult = { events: [], environment: [], numeric_values: {}, raw_text: inputText };
+        setParsed(parsedResult);
       }
-      setSteps([...s]);
 
-      // ====== EVIDENCE CONFIRMATION PAUSE (supported domains only) ======
-      setDomainUnsupported(false);
+      if (assetRes.status === "fulfilled") {
+        assetResult = assetRes.value.resolved || assetRes.value;
+        setAsset(assetResult);
+        // Reality lock (inline — uses same call or separate)
+        try {
+          var rlRes = await callAPI("reality-lock", {
+            transcript: inputText,
+            parsed_asset_class: assetResult?.asset_class || "unknown",
+            parsed_asset_confidence: assetResult?.confidence || 0
+          });
+          var rlResult = rlRes.reality_lock || rlRes;
+          setRealityLock(rlResult);
+          if (rlResult.asset_conflict && rlResult.asset_override) {
+            assetResult = { asset_class: rlResult.asset_override, asset_type: rlResult.asset_override, confidence: assetResult?.confidence || 0.5 };
+            setAsset(assetResult);
+          }
+          s = updateStep(1, { status: "done", detail: (assetResult?.asset_class || "") + " | " + (rlResult.detected_domain_label || "domain ok") }, s);
+        } catch (rlErr: any) {
+          s = updateStep(1, { status: "done", detail: assetResult?.asset_class || "" }, s);
+        }
+      } else {
+        s = updateStep(1, { status: "error" }, s);
+        errs.push("resolve-asset: " + assetRes.reason?.message);
+        assetResult = { asset_class: "unknown", asset_type: "unknown", confidence: 0.3 };
+        setAsset(assetResult);
+      }
+      setSteps(s.slice());
+
+      // ====== EVIDENCE CONFIRMATION PAUSE ======
       parsedRef.current = parsedResult;
       assetRef.current = assetResult;
       stepsRef.current = s;
@@ -916,11 +367,10 @@ export default function VoiceInspectionPage() {
       setPreliminaryEvidence(prelimEvidence);
       setEvidenceConfirmPending(true);
 
-      for (var ei = 3; ei < s.length; ei++) s = updateStep(ei, { status: "waiting", detail: "waiting for evidence confirmation" }, s);
-      setSteps([...s]); stepsRef.current = s;
+      for (var ei = 2; ei < s.length; ei++) s = updateStep(ei, { status: "waiting", detail: "waiting for evidence confirmation" }, s);
+      setSteps(s.slice()); stepsRef.current = s;
       setErrors(errs); errorsRef.current = errs;
       setIsGenerating(false);
-
       setTimeout(function() { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: "smooth" }); }, 200);
 
     } catch (e: any) {
@@ -930,116 +380,67 @@ export default function VoiceInspectionPage() {
   }
 
   // ============================================================================
-  // PHASE 2: Continue pipeline after evidence confirmation (steps 3-11)
+  // PHASE 2: Decision Core + AI Narrative (after evidence confirmation)
   // ============================================================================
-  async function continuePipeline(confirmedFlags: { [key: string]: any } | null) {
+  async function continuePipeline(confirmedFlags: any) {
     setIsGenerating(true); setEvidenceConfirmPending(false);
-
     var parsedResult = parsedRef.current;
     var assetResult = assetRef.current;
     var inputText = inputTextRef.current;
-    var s = [...stepsRef.current];
-    var errs = [...errorsRef.current];
-    var chainResult: ChainResult | null = null;
-    var dominanceResult: any = null;
-    var assetClass = assetResult?.asset_class || "pressure_vessel";
+    var s = stepsRef.current.slice();
+    var errs = errorsRef.current.slice();
 
     try {
-      // ====== PHASE 2: PARALLEL — governance + code-authority ======
-      s = updateStep(3, { status: "running" }, s); s = updateStep(4, { status: "running" }, s); setSteps([...s]);
-      var [govRes, codeAuthRes] = await Promise.allSettled([
-        callAPI("governance-matrix", { raw_text: inputText, asset_class: assetClass }),
-        callAPI("code-authority-resolution", { raw_text: inputText, asset_class: assetClass }),
-      ]);
-      if (govRes.status === "fulfilled") { setGovernance(govRes.value); s = updateStep(3, { status: "done" }, s); }
-      else { s = updateStep(3, { status: "error" }, s); errs.push("governance: " + govRes.reason?.message); }
-      if (codeAuthRes.status === "fulfilled") { setCodeAuthority(codeAuthRes.value); s = updateStep(4, { status: "done" }, s); }
-      else { s = updateStep(4, { status: "error" }, s); errs.push("code-authority: " + codeAuthRes.reason?.message); }
-      setSteps([...s]);
-
-      // ====== PHASE 3: SEQUENTIAL — master-router ======
-      s = updateStep(5, { status: "running" }, s); setSteps([...s]);
-      try { var routerRes = await callAPI("master-router", { transcript: inputText }); setMasterRoute(routerRes); s = updateStep(5, { status: "done", detail: routerRes?.intake_path || "" }, s); }
-      catch (e: any) { s = updateStep(5, { status: "error", detail: e.message }, s); errs.push("master-router: " + e.message); }
-      setSteps([...s]);
-
-      // ====== PHASE 4: INCIDENT-TO-INSPECTION CHAIN ======
-      s = updateStep(6, { status: "running" }, s); setSteps([...s]);
+      // ====== DECISION CORE (1 call replaces 9) ======
+      s = updateStep(2, { status: "running", detail: "6 Klein bottle states..." }, s); setSteps(s.slice());
+      var coreResult: any = null;
       try {
-        var chainRes = await callAPI("incident-inspection-chain", { parsed: parsedResult, asset: assetResult });
-        chainResult = chainRes.chain || chainRes; setChain(chainResult); setChainPerformance(chainRes.performance || null);
-        var mc = chainResult?.engine_1_damage_mechanisms?.length || 0;
-        var zc = chainResult?.engine_2_affected_zones?.length || 0;
-        var mtc = chainResult?.engine_3_inspection_methods?.length || 0;
-        s = updateStep(6, { status: "done", detail: mc + " mechanisms, " + zc + " zones, " + mtc + " methods in " + (chainRes.performance?.total_ms || "?") + "ms" }, s);
-      } catch (e: any) { s = updateStep(6, { status: "error", detail: e.message }, s); errs.push("chain: " + e.message); }
-      setSteps([...s]);
+        var coreRes = await callAPI("decision-core", {
+          parsed: parsedResult,
+          asset: assetResult,
+          confirmed_flags: confirmedFlags,
+          transcript: inputText,
+          reality_lock: realityLock
+        });
+        coreResult = coreRes.decision_core || coreRes;
+        setDecisionCore(coreResult);
+        var tier = coreResult?.consequence_reality?.consequence_tier || "?";
+        var disp = coreResult?.decision_reality?.disposition || "?";
+        var elapsed = coreResult?.elapsed_ms || "?";
+        s = updateStep(2, { status: "done", detail: tier + " | " + disp + " | " + elapsed + "ms" }, s);
+      } catch (e: any) {
+        s = updateStep(2, { status: "error", detail: e.message }, s);
+        errs.push("decision-core: " + e.message);
+      }
+      setSteps(s.slice());
 
-      // ====== PHASE 4.5: DECISION DOMINANCE LAYER (Engine 8) — with confirmed_flags ======
-      s = updateStep(7, { status: "running", detail: confirmedFlags ? "inspector-confirmed evidence" : "auto-derived evidence" }, s); setSteps([...s]);
+      // ====== AI NARRATIVE (constrained by Decision Core) ======
+      s = updateStep(3, { status: "running" }, s); setSteps(s.slice());
       try {
-        var ddlBody: any = { parsed: parsedResult, chain: chainResult, asset: assetResult };
-        if (confirmedFlags) {
-          ddlBody.confirmed_flags = confirmedFlags;
-        }
-        var ddlRes = await callAPI("decision-dominance", ddlBody);
-        dominanceResult = ddlRes.dominance || ddlRes;
-        setDominance(dominanceResult);
-        var surv = dominanceResult.surviving_count || dominanceResult.mechanism_summary?.surviving_count || 0;
-        var supp = dominanceResult.suppressed_count || dominanceResult.mechanism_summary?.suppressed_count || 0;
-        var confirmLabel = dominanceResult.confirmation_status === "inspector_confirmed" ? " (confirmed)" : "";
-        s = updateStep(7, { status: "done", detail: surv + " survived, " + supp + " suppressed, " + (dominanceResult.disposition_label || "") + confirmLabel + " in " + (dominanceResult.elapsed_ms || "?") + "ms" }, s);
-      } catch (e: any) { s = updateStep(7, { status: "error", detail: e.message }, s); errs.push("decision-dominance: " + e.message); }
-      setSteps([...s]);
-
-      // ====== PHASE 5: AI NARRATIVE POLISH ======
-      s = updateStep(8, { status: "running" }, s); setSteps([...s]);
-      try {
-        var lockedContext = "DETERMINISTIC CHAIN RESULTS (DO NOT OVERRIDE):\n";
-        if (chainResult) {
-          lockedContext += "Asset: " + (chainResult.input_summary?.asset_class || "unknown") + "\n";
-          lockedContext += "Events: " + (chainResult.input_summary?.events?.join(", ") || "none") + "\n";
-          var activeMechs = (chainResult.engine_1_damage_mechanisms || []).filter(function(m: DamageMechanism) { return !m.id.startsWith("TEMP_FILTERED"); });
-          lockedContext += "Damage Mechanisms: " + activeMechs.map(function(m: DamageMechanism) { return m.name + " [" + m.severity + "]"; }).join("; ") + "\n";
-          lockedContext += "Affected Zones: " + (chainResult.engine_2_affected_zones || []).map(function(z: AffectedZone) { return "P" + z.priority + " " + z.zone_name; }).join("; ") + "\n";
-        }
-        if (dominanceResult) {
-          lockedContext += "DDL Disposition: " + (dominanceResult.disposition_label || "") + "\n";
-          lockedContext += "Structural Authority: " + (dominanceResult.structural_authority?.status_label || "") + "\n";
-          lockedContext += "DDL Surviving Mechanisms: " + (dominanceResult.surviving_mechanisms || []).map(function(m: any) { return m.family_name; }).join("; ") + "\n";
-          lockedContext += "DDL Confidence: " + (dominanceResult.final_confidence || "") + "%\n";
-          if (dominanceResult.confirmation_status === "inspector_confirmed") {
-            lockedContext += "Evidence Status: INSPECTOR CONFIRMED (" + (dominanceResult.override_count || 0) + " overrides)\n";
+        var lockedContext = "PHYSICS-FIRST DECISION CORE RESULTS (DO NOT OVERRIDE):\n";
+        if (coreResult) {
+          lockedContext += "Consequence Tier: " + (coreResult.consequence_reality?.consequence_tier || "unknown") + "\n";
+          lockedContext += "Failure Physics: " + (coreResult.consequence_reality?.failure_physics || "") + "\n";
+          lockedContext += "Damage State: " + (coreResult.consequence_reality?.damage_state || "") + "\n";
+          lockedContext += "Primary Mechanism: " + (coreResult.damage_reality?.primary_mechanism?.name || "none") + "\n";
+          lockedContext += "Authority: " + (coreResult.authority_reality?.primary_authority || "unknown") + "\n";
+          lockedContext += "Inspection Verdict: " + (coreResult.inspection_reality?.sufficiency_verdict || "") + "\n";
+          lockedContext += "Disposition: " + (coreResult.decision_reality?.disposition || "") + "\n";
+          lockedContext += "Reality Confidence: " + (coreResult.reality_confidence?.overall || "") + " (" + (coreResult.reality_confidence?.band || "") + ")\n";
+          if (coreResult.decision_reality?.guided_recovery && coreResult.decision_reality.guided_recovery.length > 0) {
+            lockedContext += "Recovery Actions: " + coreResult.decision_reality.guided_recovery.map(function(r: any) { return r.action; }).join("; ") + "\n";
           }
         }
-        var constrainedTranscript = "=== LOCKED DETERMINISTIC CONTEXT ===\n" + lockedContext + "\n=== ORIGINAL TRANSCRIPT ===\n" + inputText;
+        var constrainedTranscript = "=== LOCKED PHYSICS CONTEXT ===\n" + lockedContext + "\n=== ORIGINAL TRANSCRIPT ===\n" + inputText;
         var planRes = await callAPI("voice-incident-plan", { transcript: constrainedTranscript });
         var narrative = planRes?.plan || planRes?.text || planRes?.result || JSON.stringify(planRes);
         setAiNarrative(typeof narrative === "string" ? narrative : JSON.stringify(narrative));
-        s = updateStep(8, { status: "done", detail: "prose generated" }, s);
-      } catch (e: any) { s = updateStep(8, { status: "error", detail: e.message }, s); errs.push("narrative: " + e.message); }
-      setSteps([...s]);
-
-      // ====== PHASE 6: EVENT ENRICHMENT ======
-      s = updateStep(9, { status: "running" }, s); setSteps([...s]);
-      try { var enrichRes = await callAPI("event-enrich", { transcript: inputText, plan: aiNarrative || "", parsed: parsedResult }); setEventEnrich(enrichRes); s = updateStep(9, { status: "done" }, s); }
-      catch (e: any) { s = updateStep(9, { status: "error", detail: e.message }, s); errs.push("event-enrich: " + e.message); }
-      setSteps([...s]);
-
-      // ====== PHASE 7: PARALLEL — time-progression + code-trace ======
-      s = updateStep(10, { status: "running" }, s); s = updateStep(11, { status: "running" }, s); setSteps([...s]);
-      var sevForTime = chainResult?.engine_1_damage_mechanisms?.find(function(m: DamageMechanism) { return m.severity === "critical"; }) ? "critical" : "medium";
-      var findingsForTrace = chainResult?.engine_4_code_action_paths?.map(function(p: CodeActionPath) { return p.finding_type; }) || [];
-      var methForTrace: string[] = []; (chainResult?.engine_3_inspection_methods || []).forEach(function(m: InspectionMethod) { if (methForTrace.indexOf(m.method_name) === -1) methForTrace.push(m.method_name); });
-      var [timeRes, traceRes] = await Promise.allSettled([
-        callAPI("time-progression", { asset_type: assetResult?.asset_type || "pressure_vessel", severity: sevForTime, service_env: parsedResult?.environment || [] }),
-        callAPI("code-trace", { findings: findingsForTrace, methods: methForTrace, disposition: chainResult?.engine_4_code_action_paths?.[0]?.required_action || "", asset_class: assetClass }),
-      ]);
-      if (timeRes.status === "fulfilled") { setTimeProgression(timeRes.value); s = updateStep(10, { status: "done" }, s); }
-      else { s = updateStep(10, { status: "error" }, s); errs.push("time: " + timeRes.reason?.message); }
-      if (traceRes.status === "fulfilled") { setCodeTrace(traceRes.value); s = updateStep(11, { status: "done" }, s); }
-      else { s = updateStep(11, { status: "error" }, s); errs.push("trace: " + traceRes.reason?.message); }
-      setSteps([...s]);
+        s = updateStep(3, { status: "done", detail: "narrative generated" }, s);
+      } catch (e: any) {
+        s = updateStep(3, { status: "error", detail: e.message }, s);
+        errs.push("narrative: " + e.message);
+      }
+      setSteps(s.slice());
 
     } catch (e: any) { errs.push("Pipeline error: " + e.message); }
 
@@ -1047,119 +448,73 @@ export default function VoiceInspectionPage() {
     setTimeout(function() { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: "smooth" }); }, 200);
   }
 
-  function handleConfirmEvidence(confirmedEvidence: { [key: string]: any }) {
-    continuePipeline(confirmedEvidence);
-  }
-
-  function handleSkipEvidence() {
-    continuePipeline(null);
-  }
-
+  function handleConfirmEvidence(confirmed: any) { continuePipeline(confirmed); }
+  function handleSkipEvidence() { continuePipeline(null); }
   function handleGenerateWithAnswers() {
     var answers = Object.values(selectedAnswers).join(". ") + ".";
-    var enrichedTranscript = transcript + " " + answers;
-    setTranscript(enrichedTranscript); setAiQuestions(null); setSelectedAnswers({}); setPipelinePaused(false);
-    handleGenerate(enrichedTranscript);
+    var enriched = transcript + " " + answers;
+    setTranscript(enriched); setAiQuestions(null); setSelectedAnswers({}); setPipelinePaused(false);
+    handleGenerate(enriched);
   }
+
+  // Shorthand
+  var dc = decisionCore;
+  var phy = dc?.physical_reality;
+  var dmg = dc?.damage_reality;
+  var con = dc?.consequence_reality;
+  var auth = dc?.authority_reality;
+  var insp = dc?.inspection_reality;
+  var comp = dc?.physics_computations;
+  var conf = dc?.reality_confidence;
+  var dec = dc?.decision_reality;
 
   // ============================================================================
   // RENDER
   // ============================================================================
   return (
-    <div className="voice-inspection-page" style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
+    <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>NDT Superbrain {"\u2014"} Voice Inspection Intelligence</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Just have a conversation with the really smart AI. Speak or type {"\u2014"} it understands any industry, any asset, any scenario.</p>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} Physics-First Decision Core</h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Describe the inspection scenario. The system starts with physics, not codes. Every answer is inarguable.</p>
       </div>
 
-      {/* ---- INPUT AREA ---- */}
+      {/* INPUT AREA */}
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
-        <textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} placeholder="Describe what happened \u2014 speak or type the incident, inspection scenario, or assessment request..." style={{ width: "100%", minHeight: "120px", padding: "14px 16px", fontSize: "14px", lineHeight: "1.6", border: "none", outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+        <textarea value={transcript} onChange={function(e) { setTranscript(e.target.value); }} placeholder="Describe the scenario \u2014 asset, damage, method, conditions..." style={{ width: "100%", minHeight: "120px", padding: "14px 16px", fontSize: "14px", lineHeight: "1.6", border: "none", outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", backgroundColor: "#f9fafb", borderTop: "1px solid #e5e7eb" }}>
           <span style={{ fontSize: "12px", color: "#9ca3af" }}>{transcript.length > 0 ? transcript.split(/\s+/).filter(Boolean).length + " words" : "Speak or type"}</span>
           <div style={{ display: "flex", gap: "8px" }}>
             <button onClick={toggleMic} style={{ padding: "8px 16px", fontSize: "14px", fontWeight: 700, color: isListening ? "#fff" : "#dc2626", backgroundColor: isListening ? "#dc2626" : "#fff", border: "2px solid #dc2626", borderRadius: "6px", cursor: "pointer" }}>{isListening ? "\uD83D\uDD34 Listening..." : "\uD83C\uDF99\uFE0F Mic"}</button>
-            <button onClick={() => handleGenerate()} disabled={isGenerating || !transcript.trim()} style={{ padding: "8px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#2563eb", border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer" }}>{isGenerating ? "Generating..." : "Generate Inspection Plan"}</button>
+            <button onClick={function() { handleGenerate(); }} disabled={isGenerating || !transcript.trim()} style={{ padding: "8px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#2563eb", border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer" }}>{isGenerating ? "Analyzing..." : "Analyze"}</button>
           </div>
         </div>
       </div>
 
       {steps.length > 0 && <StepTracker steps={steps} />}
 
-      {pipelinePaused && (
-        <div style={{ margin: "0 0 16px 0", padding: "12px 16px", backgroundColor: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
-          <span style={{ fontSize: "20px" }}>{"\u23F8\uFE0F"}</span>
-          <div><div style={{ fontWeight: 700, fontSize: "13px", color: "#92400e" }}>Pipeline paused {"\u2014"} AI needs more information</div><div style={{ fontSize: "12px", color: "#a16207" }}>Answer the questions below, then tap "Generate with Answers".</div></div>
-        </div>
-      )}
-
-      {evidenceConfirmPending && (
-        <div style={{ margin: "0 0 16px 0", padding: "12px 16px", backgroundColor: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
-          <span style={{ fontSize: "20px" }}>{"\uD83D\uDD0D"}</span>
-          <div><div style={{ fontWeight: 700, fontSize: "13px", color: "#1e40af" }}>Evidence confirmation required</div><div style={{ fontSize: "12px", color: "#3b82f6" }}>Review the extracted evidence flags below. Correct any errors, then confirm to continue analysis.</div></div>
-        </div>
-      )}
-
-      {/* ==== DOMAIN STATUS BANNER ==== */}
-      {realityLock && !realityLock.domain_supported && (
-        <div style={{ margin: "0 0 16px 0", padding: "14px 18px", backgroundColor: "#fffbeb", border: "2px solid #f59e0b", borderRadius: "8px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
-            <span style={{ fontSize: "22px" }}>{"\u26A0\uFE0F"}</span>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: "15px", color: "#92400e" }}>AI INTERPRETATION ONLY</div>
-              <div style={{ fontSize: "12px", color: "#a16207" }}>Domain not covered by deterministic inspection engines</div>
-            </div>
-          </div>
-          <div style={{ fontSize: "13px", color: "#374151", lineHeight: "1.5" }}>
-            <strong>Detected domain:</strong> {realityLock.detected_domain_label || realityLock.detected_domain || "Unknown"} (score: {realityLock.domain_score || 0})
-            {realityLock.asset_conflict && <span style={{ color: "#dc2626", fontWeight: 700 }}> {"\u2014"} ASSET CONFLICT: parsed as "{asset?.asset_class || "?"}", should be "{realityLock.asset_override || "?"}"</span>}
-          </div>
-          <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "6px" }}>
-            The deterministic chain (mechanisms, methods, hard locks, code citations) is not available for this domain. The analysis below is AI-generated interpretation only and has not been validated against domain-specific codes or standards.
-          </div>
-          {realityLock.domain_keyword_hits && realityLock.domain_keyword_hits.length > 0 && (
-            <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "6px" }}>Keywords matched: {realityLock.domain_keyword_hits.join(", ")}</div>
-          )}
-        </div>
-      )}
-
-      {realityLock && realityLock.domain_supported && realityLock.asset_conflict && (
-        <div style={{ margin: "0 0 16px 0", padding: "12px 16px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
-          <span style={{ fontSize: "20px" }}>{"\uD83D\uDD04"}</span>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: "13px", color: "#dc2626" }}>Asset Overridden by Reality Lock</div>
-            <div style={{ fontSize: "12px", color: "#374151" }}>Domain detected as <strong>{realityLock.detected_domain_label}</strong> but asset was classified as "{asset?.asset_class || "?"}". Asset has been corrected to "{realityLock.asset_override || "?"}" for downstream analysis.</div>
-          </div>
-        </div>
-      )}
-
-      {realityLock && realityLock.domain_supported && !realityLock.asset_conflict && (
-        <div style={{ margin: "0 0 16px 0", padding: "10px 16px", backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
-          <span style={{ fontSize: "16px" }}>{"\u2705"}</span>
-          <div style={{ fontSize: "12px", color: "#16a34a" }}><strong>Domain: {realityLock.detected_domain_label}</strong> {"\u2014"} Full deterministic pipeline active</div>
-        </div>
-      )}
-
-      {errors.length > 0 && (<div style={{ margin: "12px 0", padding: "12px 16px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px" }}>{errors.map((e, i) => (<div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0" }}>{e}</div>))}</div>)}
+      {errors.length > 0 && (<div style={{ margin: "12px 0", padding: "12px 16px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px" }}>{errors.map(function(e, i) { return <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0" }}>{e}</div>; })}</div>)}
 
       <div ref={resultsRef}>
 
-        {/* ---- AI FOLLOW-UP QUESTIONS ---- */}
-        {aiQuestions && aiQuestions.length > 0 && (
+        {/* EVIDENCE CONFIRMATION */}
+        {evidenceConfirmPending && preliminaryEvidence && (
+          <EvidenceConfirmationCard evidence={preliminaryEvidence} onConfirm={handleConfirmEvidence} onSkip={handleSkipEvidence} isGenerating={isGenerating} />
+        )}
+
+        {/* AI QUESTIONS (if parser needs more info) */}
+        {pipelinePaused && aiQuestions && aiQuestions.length > 0 && (
           <Card title="AI Needs More Information" icon={"\uD83E\uDD14"} collapsible={false}>
-            {aiUnderstood && (<div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px", padding: "8px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", borderLeft: "3px solid #16a34a" }}><strong>Understood so far:</strong> {aiUnderstood}</div>)}
-            <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px" }}>Tap your answers below, then hit <strong>Generate with Answers</strong>:</div>
-            {aiQuestions.map((q: any, i: number) => {
+            {aiUnderstood && <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px", padding: "8px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", borderLeft: "3px solid #16a34a" }}><strong>Understood:</strong> {aiUnderstood}</div>}
+            {aiQuestions.map(function(q: any, i: number) {
               var qKey = "q" + i; var selected = selectedAnswers[qKey] || "";
               return (
                 <div key={i} style={{ marginBottom: "14px", padding: "10px 12px", backgroundColor: selected ? "#f0fdf4" : "#fafafa", borderRadius: "6px", borderLeft: selected ? "3px solid #16a34a" : "3px solid #2563eb" }}>
-                  <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "4px" }}>{i + 1}. {q.question}{selected && <span style={{ marginLeft: "8px", color: "#16a34a", fontSize: "12px" }}>{"\u2705"} {selected}</span>}</div>
-                  {q.why && <div style={{ fontSize: "11px", color: "#6b7280", marginBottom: "6px" }}>Why: {q.why}</div>}
+                  <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "4px" }}>{i + 1}. {q.question}</div>
                   {q.options && q.options.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
-                      {q.options.map((opt: string, oi: number) => {
+                      {q.options.map(function(opt: string, oi: number) {
                         var isSel = selected === opt;
-                        return (<button key={oi} onClick={() => { setSelectedAnswers((prev) => { var n = { ...prev }; if (isSel) delete n[qKey]; else n[qKey] = opt; return n; }); }} style={{ padding: "6px 14px", fontSize: "13px", fontWeight: isSel ? 700 : 400, backgroundColor: isSel ? "#16a34a" : "#fff", color: isSel ? "#fff" : "#1e40af", border: isSel ? "2px solid #16a34a" : "2px solid #bfdbfe", borderRadius: "6px", cursor: "pointer" }}>{opt}</button>);
+                        return <button key={oi} onClick={function() { setSelectedAnswers(function(prev: any) { var n = Object.assign({}, prev); if (isSel) delete n[qKey]; else n[qKey] = opt; return n; }); }} style={{ padding: "6px 14px", fontSize: "13px", fontWeight: isSel ? 700 : 400, backgroundColor: isSel ? "#16a34a" : "#fff", color: isSel ? "#fff" : "#1e40af", border: isSel ? "2px solid #16a34a" : "2px solid #bfdbfe", borderRadius: "6px", cursor: "pointer" }}>{opt}</button>;
                       })}
                     </div>
                   )}
@@ -1167,315 +522,303 @@ export default function VoiceInspectionPage() {
               );
             })}
             {Object.keys(selectedAnswers).length > 0 && (
-              <div style={{ marginTop: "16px", padding: "12px", backgroundColor: "#eff6ff", borderRadius: "8px", border: "1px solid #bfdbfe" }}>
-                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "8px" }}><strong>Your answers:</strong> {Object.values(selectedAnswers).join(" | ")}</div>
-                <button onClick={handleGenerateWithAnswers} disabled={isGenerating} style={{ padding: "10px 28px", fontSize: "15px", fontWeight: 700, color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#16a34a", border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer", width: "100%" }}>{isGenerating ? "Generating..." : "\u2705 Generate with Answers"}</button>
-              </div>
+              <button onClick={handleGenerateWithAnswers} disabled={isGenerating} style={{ width: "100%", padding: "10px 28px", fontSize: "15px", fontWeight: 700, color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#16a34a", border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer", marginTop: "12px" }}>{"\u2705"} Generate with Answers</button>
             )}
           </Card>
         )}
 
-        {/* ==== EVIDENCE CONFIRMATION CARD ==== */}
-        {evidenceConfirmPending && preliminaryEvidence && (
-          <EvidenceConfirmationCard
-            evidence={preliminaryEvidence}
-            onConfirm={handleConfirmEvidence}
-            onSkip={handleSkipEvidence}
-            isGenerating={isGenerating}
-          />
-        )}
+        {/* ================================================================
+            PHYSICS-FIRST DECISION CORE CARDS
+            Only render when decisionCore has data
+            ================================================================ */}
 
-        {/* ==== DOWNLOAD REPORT BAR ==== */}
-        {dominance && !isGenerating && !evidenceConfirmPending && (
-          <div style={{ marginBottom: "16px", padding: "12px 16px", backgroundColor: "#f0f4f8", borderRadius: "8px", border: "1px solid #d1d5db", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: "13px", color: "#1e3a5f" }}>Inspection Report Ready</div>
-              <div style={{ fontSize: "11px", color: "#6b7280" }}>Download as Word document or save as PDF via print dialog.</div>
+        {/* 1. REALITY CONFIDENCE BANNER */}
+        {conf && (
+          <div style={{ marginBottom: "16px", padding: "14px 18px", backgroundColor: conf.band === "TRUSTED" || conf.band === "HIGH" ? "#f0fdf4" : conf.band === "GUARDED" ? "#fffbeb" : "#fef2f2", border: "2px solid " + bandColor(conf.band), borderRadius: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "22px" }}>{conf.band === "TRUSTED" || conf.band === "HIGH" ? "\u2705" : conf.band === "GUARDED" ? "\u26A0\uFE0F" : "\uD83D\uDED1"}</span>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: "16px", color: bandColor(conf.band) }}>Reality Confidence: {conf.band}</div>
+                  <div style={{ fontSize: "12px", color: "#374151" }}>Overall: {Math.round(conf.overall * 100)}% {"\u2014"} {conf.certainty_state === "blocked" ? "Disposition BLOCKED" : conf.certainty_state === "escalated" ? "Escalation Required" : "Decision Eligible"}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: "28px", fontWeight: 800, color: bandColor(conf.band) }}>{Math.round(conf.overall * 100)}%</div>
             </div>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={function() { var html = buildReportHTML({ dominance: dominance, chain: chain, parsed: parsed, asset: asset, aiNarrative: aiNarrative, transcript: transcript }); downloadAsWord(html); }} style={{ padding: "8px 18px", fontSize: "13px", fontWeight: 700, color: "#fff", backgroundColor: "#1e3a5f", border: "none", borderRadius: "6px", cursor: "pointer" }}>{"\uD83D\uDCC4"} Word</button>
-              <button onClick={function() { var html = buildReportHTML({ dominance: dominance, chain: chain, parsed: parsed, asset: asset, aiNarrative: aiNarrative, transcript: transcript }); openPrintView(html); }} style={{ padding: "8px 18px", fontSize: "13px", fontWeight: 700, color: "#1e3a5f", backgroundColor: "#fff", border: "2px solid #1e3a5f", borderRadius: "6px", cursor: "pointer" }}>{"\uD83D\uDDA8\uFE0F"} PDF</button>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: "8px" }}>
+              {[
+                { label: "Physics", value: conf.physics_confidence },
+                { label: "Damage", value: conf.damage_confidence },
+                { label: "Consequence", value: conf.consequence_confidence },
+                { label: "Authority", value: conf.authority_confidence },
+                { label: "Inspection", value: conf.inspection_confidence },
+              ].map(function(dim, i) {
+                var pct = Math.round(dim.value * 100);
+                var c = pct >= 70 ? "#16a34a" : pct >= 50 ? "#ca8a04" : "#dc2626";
+                return (
+                  <div key={i} style={{ textAlign: "center", padding: "6px", backgroundColor: "#fff", borderRadius: "6px", border: "1px solid #e5e7eb" }}>
+                    <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>{dim.label}</div>
+                    <div style={{ fontSize: "16px", fontWeight: 700, color: c }}>{pct}%</div>
+                  </div>
+                );
+              })}
             </div>
+            {conf.limiting_factors && conf.limiting_factors.length > 0 && (
+              <div style={{ marginTop: "10px", fontSize: "12px", color: "#6b7280" }}>
+                <strong>Limiting:</strong> {conf.limiting_factors.join(" | ")}
+              </div>
+            )}
           </div>
         )}
 
-        {/* ==== DDL DISPOSITION CARD (Engine 8) ==== */}
-        {dominance && (
-          <Card title={dominance.disposition_label || "DISPOSITION"} icon={dominance.disposition === "no_go" ? "\uD83D\uDED1" : dominance.disposition === "repair_before_restart" ? "\u26D4" : "\u26A0\uFE0F"} collapsible={false}>
-            <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "18px", color: "#fff", backgroundColor: dispositionColor(dominance.disposition), textAlign: "center" }}>
-              {dominance.disposition_label}
+        {/* 2. CONSEQUENCE REALITY — the big banner */}
+        {con && (
+          <Card title={"Consequence: " + con.consequence_tier} icon={con.consequence_tier === "CRITICAL" ? "\uD83D\uDED1" : con.consequence_tier === "HIGH" ? "\u26A0\uFE0F" : "\u2139\uFE0F"} collapsible={false}>
+            <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "18px", color: "#fff", backgroundColor: tierColor(con.consequence_tier), textAlign: "center" }}>
+              {con.consequence_tier} CONSEQUENCE {"\u2014"} {con.failure_mode.replace(/_/g, " ").toUpperCase()}
             </div>
-            {/* Evidence confirmation badge */}
-            {dominance.confirmation_status === "inspector_confirmed" && (
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", marginBottom: "12px", border: "1px solid #bbf7d0" }}>
-                <span style={{ fontSize: "14px" }}>{"\u2705"}</span>
-                <span style={{ fontSize: "12px", fontWeight: 700, color: "#16a34a" }}>Evidence Inspector-Confirmed</span>
-                {dominance.override_count > 0 && <span style={{ fontSize: "11px", color: "#6b7280" }}>({dominance.override_count} override{dominance.override_count > 1 ? "s" : ""} applied)</span>}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+              <div style={{ padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", textAlign: "center" }}>
+                <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>Human Impact</div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111" }}>{con.human_impact}</div>
               </div>
-            )}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "12px" }}>
-              <div style={{ textAlign: "center", padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontSize: "11px", color: "#6b7280", textTransform: "uppercase" }}>Risk Band</div>
-                <div style={{ fontSize: "15px", fontWeight: 700, color: severityColor(dominance.risk_band) }}>{(dominance.risk_band || "").toUpperCase()}</div>
+              <div style={{ padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", textAlign: "center" }}>
+                <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>Damage State</div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: con.damage_state === "TRANSITION_RISK" ? "#dc2626" : con.damage_state === "APPROACHING_THRESHOLD" ? "#ea580c" : "#111" }}>{(con.damage_state || "STABLE").replace(/_/g, " ")}</div>
               </div>
-              <div style={{ textAlign: "center", padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontSize: "11px", color: "#6b7280", textTransform: "uppercase" }}>Confidence</div>
-                <div style={{ fontSize: "15px", fontWeight: 700, color: dominance.final_confidence < 50 ? "#dc2626" : "#ca8a04" }}>{dominance.final_confidence}%</div>
-              </div>
-              <div style={{ textAlign: "center", padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontSize: "11px", color: "#6b7280", textTransform: "uppercase" }}>Evidence</div>
-                <div style={{ fontSize: "15px", fontWeight: 700 }}>{dominance.evidence_sufficiency?.label || "\u2014"}</div>
+              <div style={{ padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", textAlign: "center" }}>
+                <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>Monitoring</div>
+                <div style={{ fontSize: "13px", fontWeight: 600 }}>{con.monitoring_urgency || "Routine"}</div>
               </div>
             </div>
-            {dominance.management_summary && <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151" }}>{dominance.management_summary}</div>}
+            {con.failure_physics && <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "10px", padding: "10px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}><strong>Failure Physics:</strong> {con.failure_physics}</div>}
+            {con.damage_trajectory && <div style={{ fontSize: "12px", color: "#374151", marginBottom: "8px" }}><strong>Trajectory:</strong> {con.damage_trajectory}</div>}
+            {con.consequence_basis && con.consequence_basis.map(function(b: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#374151", padding: "2px 0" }}>{b}</div>; })}
           </Card>
         )}
 
-        {/* ==== EVIDENCE OVERRIDES CARD (only if inspector confirmed with overrides) ==== */}
-        {dominance?.evidence_overrides && dominance.evidence_overrides.length > 0 && (
-          <Card title="Evidence Overrides (Audit)" icon={"\uD83D\uDD04"} status={dominance.evidence_overrides.length + " override" + (dominance.evidence_overrides.length > 1 ? "s" : "")}>
-            {dominance.evidence_overrides.map(function(ov: any, i: number) {
-              var impactColor = ov.impact === "hard_lock_critical" ? "#dc2626" : ov.impact === "mechanism_suppression" ? "#ea580c" : ov.impact === "confidence_affecting" ? "#ca8a04" : "#6b7280";
+        {/* 3. PHYSICS REALITY */}
+        {phy && (
+          <Card title="Physical Reality" icon={"\u269B\uFE0F"} status={"confidence: " + Math.round(phy.physics_confidence * 100) + "%"}>
+            <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "12px", padding: "10px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}>{phy.physics_summary}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+              <div style={{ padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Stress State</div>
+                <div style={{ fontSize: "12px" }}>Loads: {phy.stress.primary_load_types.join(", ") || "none identified"}</div>
+                <div style={{ fontSize: "12px" }}>Cyclic: {phy.stress.cyclic_loading ? "\u2705 " + (phy.stress.cyclic_source || "yes") : "\u274c No"}</div>
+                <div style={{ fontSize: "12px" }}>Stress concentration: {phy.stress.stress_concentration_present ? "\u2705 " + phy.stress.stress_concentration_locations.join(", ") : "\u274c No"}</div>
+                <div style={{ fontSize: "12px" }}>Load path: {phy.stress.load_path_criticality}</div>
+              </div>
+              <div style={{ padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Environment</div>
+                <div style={{ fontSize: "12px" }}>Corrosive: {phy.chemical.corrosive_environment ? "\u2705 " + phy.chemical.environment_agents.join(", ") : "\u274c No"}</div>
+                <div style={{ fontSize: "12px" }}>Thermal: {phy.thermal.fire_exposure ? "\uD83D\uDD25 Fire exposure" : phy.thermal.creep_range ? "\u2622\uFE0F Creep range" : "Normal"}</div>
+                <div style={{ fontSize: "12px" }}>Pressure cycling: {phy.energy.pressure_cycling ? "\u2705 Yes" : "\u274c No"}</div>
+                <div style={{ fontSize: "12px" }}>Stored energy: {phy.energy.stored_energy_significant ? "\u26A0\uFE0F Significant" : "Low"}</div>
+              </div>
+            </div>
+            {phy.field_interaction && phy.field_interaction.hotspots.length > 0 && (
+              <div style={{ padding: "10px 12px", backgroundColor: phy.field_interaction.interaction_level === "HIGH" ? "#fef2f2" : "#fffbeb", borderRadius: "6px", borderLeft: "3px solid " + (phy.field_interaction.interaction_level === "HIGH" ? "#dc2626" : "#ca8a04") }}>
+                <div style={{ fontWeight: 700, fontSize: "12px", color: phy.field_interaction.interaction_level === "HIGH" ? "#dc2626" : "#92400e", marginBottom: "4px" }}>Field Interaction: {phy.field_interaction.interaction_level} ({phy.field_interaction.interaction_score}/100)</div>
+                {phy.field_interaction.warnings.map(function(w: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#374151", padding: "2px 0" }}>{w}</div>; })}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* 4. DAMAGE REALITY */}
+        {dmg && (
+          <Card title="Damage Reality" icon={"\uD83E\uDDEA"} status={(dmg.validated_mechanisms?.length || 0) + " validated, " + (dmg.rejected_mechanisms?.length || 0) + " impossible"}>
+            {dmg.primary_mechanism && (
+              <div style={{ padding: "10px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", borderLeft: "3px solid #16a34a", marginBottom: "12px" }}>
+                <div style={{ fontWeight: 700, fontSize: "14px", color: "#16a34a" }}>Primary: {dmg.primary_mechanism.name}</div>
+                <div style={{ fontSize: "12px", color: "#374151" }}>Physics basis: {dmg.primary_mechanism.physics_basis}</div>
+                <div style={{ fontSize: "12px", color: "#374151" }}>Reality: {dmg.primary_mechanism.reality_state} (score: {dmg.primary_mechanism.reality_score}) | Severity: {dmg.primary_mechanism.severity}</div>
+                {dmg.primary_mechanism.evidence_for.length > 0 && <div style={{ fontSize: "11px", color: "#16a34a", marginTop: "4px" }}>Evidence: {dmg.primary_mechanism.evidence_for.join(", ")}</div>}
+              </div>
+            )}
+            {dmg.validated_mechanisms && dmg.validated_mechanisms.length > 1 && (
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Other Validated Mechanisms</div>
+                {dmg.validated_mechanisms.slice(1).map(function(m: any, i: number) {
+                  return <div key={i} style={{ fontSize: "12px", padding: "4px 10px", marginBottom: "3px", backgroundColor: "#f9fafb", borderRadius: "4px" }}>{m.name} ({m.reality_state}, score: {m.reality_score}) {"\u2014"} {m.physics_basis}</div>;
+                })}
+              </div>
+            )}
+            {dmg.rejected_mechanisms && dmg.rejected_mechanisms.length > 0 && (
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "6px" }}>Physically Impossible ({dmg.rejected_mechanisms.length})</div>
+                {dmg.rejected_mechanisms.slice(0, 5).map(function(m: any, i: number) {
+                  return <div key={i} style={{ fontSize: "11px", padding: "3px 10px", marginBottom: "2px", backgroundColor: "#fef2f2", borderRadius: "4px", color: "#991b1b", opacity: 0.8 }}>{m.name}: {m.rejection_reason}</div>;
+                })}
+                {dmg.rejected_mechanisms.length > 5 && <div style={{ fontSize: "11px", color: "#6b7280", padding: "3px 10px" }}>...and {dmg.rejected_mechanisms.length - 5} more rejected</div>}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* 5. AUTHORITY REALITY */}
+        {auth && (
+          <Card title="Authority Reality" icon={"\uD83D\uDCDC"} status={auth.primary_authority} defaultCollapsed={true}>
+            <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>Primary: {auth.primary_authority}</div>
+            {auth.secondary_authorities && auth.secondary_authorities.length > 0 && <div style={{ fontSize: "12px", color: "#374151", marginBottom: "6px" }}>Secondary: {auth.secondary_authorities.join(", ")}</div>}
+            <div style={{ fontSize: "12px", color: "#374151", padding: "8px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", marginBottom: "8px" }}>{auth.physics_code_alignment}</div>
+            {auth.design_state_warning && <div style={{ fontSize: "12px", color: "#ea580c", fontWeight: 700, padding: "6px 12px", backgroundColor: "#fffbeb", borderRadius: "6px", marginBottom: "6px" }}>{"\u26A0\uFE0F"} {auth.design_state_warning}</div>}
+            {auth.code_gaps && auth.code_gaps.length > 0 && (
+              <div style={{ marginTop: "6px" }}>
+                {auth.code_gaps.map(function(g: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0" }}>{"\u274c"} {g}</div>; })}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* 6. INSPECTION REALITY */}
+        {insp && (
+          <Card title="Inspection Reality" icon={"\uD83D\uDD2C"} status={insp.sufficiency_verdict + " | " + insp.proposed_methods.join(", ")}>
+            <div style={{ padding: "10px 14px", borderRadius: "6px", marginBottom: "12px", fontWeight: 700, fontSize: "14px", color: "#fff", backgroundColor: insp.sufficiency_verdict === "BLOCKED" ? "#dc2626" : insp.sufficiency_verdict === "INSUFFICIENT" ? "#ea580c" : "#16a34a", textAlign: "center" }}>
+              {insp.sufficiency_verdict === "BLOCKED" ? "\uD83D\uDED1 BLOCKED" : insp.sufficiency_verdict === "INSUFFICIENT" ? "\u26A0\uFE0F INSUFFICIENT" : "\u2705 SUFFICIENT"} {"\u2014"} {insp.proposed_methods.join(", ") || "No methods proposed"}
+            </div>
+            <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "12px" }}>{insp.physics_reason}</div>
+            {insp.missing_coverage && insp.missing_coverage.length > 0 && (
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "4px" }}>Physics Gaps</div>
+                {insp.missing_coverage.map(function(m: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#991b1b", padding: "4px 10px", marginBottom: "3px", backgroundColor: "#fef2f2", borderRadius: "4px" }}>{"\u274c"} {m}</div>; })}
+              </div>
+            )}
+            {insp.best_method && (
+              <div style={{ padding: "8px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", marginBottom: "10px" }}>
+                <div style={{ fontWeight: 700, fontSize: "13px", color: "#16a34a" }}>Best Method: {insp.best_method.method} (score: {insp.best_method.overall_score}/100)</div>
+                <div style={{ fontSize: "11px", color: "#374151" }}>{insp.best_method.physics_principle}</div>
+                {insp.best_method.blind_spots && insp.best_method.blind_spots.length > 0 && <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "4px" }}>Blind spots: {insp.best_method.blind_spots.join("; ")}</div>}
+                {insp.best_method.complementary_methods && insp.best_method.complementary_methods.length > 0 && <div style={{ fontSize: "11px", color: "#1e40af", marginTop: "2px" }}>Complementary: {insp.best_method.complementary_methods.join(", ")}</div>}
+              </div>
+            )}
+            {insp.constraint_analysis && insp.constraint_analysis.truth_quality !== "HIGH" && (
+              <div style={{ padding: "8px 12px", backgroundColor: insp.constraint_analysis.truth_quality === "UNRELIABLE" ? "#fef2f2" : "#fffbeb", borderRadius: "6px", borderLeft: "3px solid " + (insp.constraint_analysis.truth_quality === "UNRELIABLE" ? "#dc2626" : "#ca8a04") }}>
+                <div style={{ fontWeight: 700, fontSize: "12px", color: insp.constraint_analysis.truth_quality === "UNRELIABLE" ? "#dc2626" : "#92400e" }}>Truth Quality: {insp.constraint_analysis.truth_quality} ({insp.constraint_analysis.constraint_score}/100)</div>
+                {insp.constraint_analysis.warnings.map(function(w: string, i: number) { return <div key={i} style={{ fontSize: "11px", color: "#374151", padding: "2px 0" }}>{w}</div>; })}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* 7. DECISION REALITY */}
+        {dec && (
+          <Card title={"Decision: " + (dec.disposition || "").replace(/_/g, " ").toUpperCase()} icon={dec.disposition === "no_go" ? "\uD83D\uDED1" : dec.disposition === "hold_for_review" ? "\u23F8\uFE0F" : dec.disposition === "engineering_review_required" ? "\u26A0\uFE0F" : "\u2705"} collapsible={false}>
+            <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "16px", color: "#fff", backgroundColor: dec.disposition === "no_go" ? "#dc2626" : dec.disposition === "repair_before_restart" ? "#ea580c" : dec.disposition === "hold_for_review" || dec.disposition === "engineering_review_required" ? "#ca8a04" : "#16a34a", textAlign: "center" }}>
+              {(dec.disposition || "").replace(/_/g, " ").toUpperCase()}
+            </div>
+            <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px" }}>{dec.disposition_basis}</div>
+            {/* Precedence Gates */}
+            <div style={{ marginBottom: "12px" }}>
+              <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Precedence Gates</div>
+              {dec.gates && dec.gates.map(function(g: any, i: number) {
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 10px", marginBottom: "3px", backgroundColor: g.result === "BLOCKED" ? "#fef2f2" : g.result === "ESCALATED" ? "#fffbeb" : "#f0fdf4", borderRadius: "4px" }}>
+                    <span style={{ fontSize: "14px" }}>{gateIcon(g.result)}</span>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontWeight: 600, fontSize: "12px", color: gateColor(g.result) }}>{g.gate.replace(/_/g, " ")}</span>
+                      <span style={{ fontSize: "11px", color: "#6b7280", marginLeft: "8px" }}>{g.reason}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Hard Locks */}
+            {dec.hard_locks && dec.hard_locks.length > 0 && (
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "6px" }}>Hard Locks ({dec.hard_locks.length})</div>
+                {dec.hard_locks.map(function(hl: any, i: number) {
+                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#fef2f2", borderRadius: "4px", borderLeft: "3px solid #dc2626" }}><strong>{hl.code}:</strong> {hl.reason} <span style={{ fontSize: "11px", color: "#6b7280" }}>({hl.physics_basis})</span></div>;
+                })}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* 8. GUIDED RECOVERY */}
+        {dec && dec.guided_recovery && dec.guided_recovery.length > 0 && (
+          <Card title="Guided Recovery" icon={"\uD83D\uDEE0\uFE0F"} status={dec.guided_recovery.length + " actions to resolve"}>
+            <div style={{ fontSize: "12px", color: "#374151", marginBottom: "10px" }}>These are the specific actions needed to resolve blocked gates and move toward disposition.</div>
+            {dec.guided_recovery.map(function(r: any, i: number) {
               return (
-                <div key={i} style={{ marginBottom: "6px", padding: "8px 12px", backgroundColor: "#fefce8", borderRadius: "6px", borderLeft: "3px solid " + impactColor }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ fontWeight: 700, fontSize: "13px" }}>{ov.flag.replace(/_/g, " ")}</span>
-                    <span style={{ fontSize: "10px", fontWeight: 700, color: impactColor, backgroundColor: impactColor + "15", padding: "1px 5px", borderRadius: "3px" }}>{ov.impact.replace(/_/g, " ").toUpperCase()}</span>
+                <div key={i} style={{ padding: "10px 12px", marginBottom: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                    <span style={{ fontWeight: 800, fontSize: "14px", color: "#2563eb" }}>#{r.priority}</span>
+                    <span style={{ fontWeight: 700, fontSize: "13px" }}>{r.action}</span>
                   </div>
-                  <div style={{ fontSize: "12px", color: "#374151", marginTop: "2px" }}>
-                    Auto-derived: <span style={{ fontWeight: 600, color: "#dc2626" }}>{String(ov.auto_derived)}</span>
-                    {" \u2192 "}
-                    Inspector: <span style={{ fontWeight: 600, color: "#16a34a" }}>{String(ov.inspector_confirmed)}</span>
-                  </div>
+                  <div style={{ fontSize: "12px", color: "#6b7280" }}>Physics: {r.physics_reason}</div>
+                  <div style={{ fontSize: "11px", color: "#374151" }}>Who: {r.who}</div>
                 </div>
               );
             })}
           </Card>
         )}
 
-        {/* ==== STRUCTURAL AUTHORITY CARD ==== */}
-        {dominance?.structural_authority && (
-          <Card title={"Structural Authority: " + (dominance.structural_authority.status_label || "")} icon={dominance.structural_authority.status === "unstable" ? "\uD83D\uDEA8" : dominance.structural_authority.status === "stable" ? "\u2705" : "\u26A0\uFE0F"}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-              {[
-                { label: "Primary Member Damage", value: dominance.structural_authority.primary_member_damage },
-                { label: "Load Path Concern", value: dominance.structural_authority.load_path_concern },
-                { label: "Shoring/Isolation Recommended", value: dominance.structural_authority.immediate_shoring_or_isolation_recommended },
-              ].map(function(item, i) {
-                return (<div key={i} style={{ padding: "8px 12px", backgroundColor: item.value ? "#fef2f2" : "#f0fdf4", borderRadius: "6px", borderLeft: "3px solid " + (item.value ? "#dc2626" : "#16a34a") }}>
-                  <div style={{ fontSize: "12px", color: "#6b7280" }}>{item.label}</div>
-                  <div style={{ fontSize: "14px", fontWeight: 700, color: item.value ? "#dc2626" : "#16a34a" }}>{item.value ? "YES" : "NO"}</div>
-                </div>);
-              })}
-            </div>
-            {dominance.structural_authority.rationale && dominance.structural_authority.rationale.map(function(r: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#374151", padding: "2px 0" }}>{i + 1}. {r}</div>; })}
-          </Card>
-        )}
-
-        {/* ==== HARD LOCKS CARD ==== */}
-        {dominance?.hard_lock_triggers && dominance.hard_lock_triggers.filter(function(t: any) { return t.fired; }).length > 0 && (
-          <Card title="Hard Lock Triggers" icon={"\uD83D\uDD12"} status={dominance.fired_lock_count + " of " + dominance.hard_lock_triggers.length + " fired"}>
-            {dominance.hard_lock_triggers.filter(function(t: any) { return t.fired; }).map(function(t: any, i: number) {
-              return (<div key={i} style={{ marginBottom: "10px", padding: "10px 12px", backgroundColor: "#fef2f2", borderRadius: "6px", borderLeft: "4px solid #dc2626" }}>
-                <div style={{ fontWeight: 700, fontSize: "13px", color: "#dc2626" }}>{t.name}</div>
-                <div style={{ fontSize: "12px", color: "#374151", marginTop: "2px" }}>{t.rationale}</div>
-                <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>Code basis: {t.code_basis}</div>
-              </div>);
-            })}
-          </Card>
-        )}
-
-        {/* ==== DDL CONFIDENCE CARD (grouped penalties) ==== */}
-        {dominance?.confidence_adjustments && dominance.confidence_adjustments.length > 0 && (
-          <Card title="Decision Confidence" icon={"\uD83C\uDFAF"} status={dominance.initial_confidence + "% \u2192 " + dominance.final_confidence + "%"}>
-            <div style={{ marginBottom: "12px" }}>
-              {confidenceBar(dominance.final_confidence / 100, "Final Confidence")}
-            </div>
-            {dominance.confidence_adjustments.map(function(g: any, i: number) {
-              return (<div key={i} style={{ marginBottom: "8px", padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                  <span style={{ fontWeight: 700, fontSize: "12px" }}>{g.group}</span>
-                  <span style={{ fontSize: "12px", color: "#dc2626", fontWeight: 700 }}>{g.capped_delta}%{g.capped_delta !== g.raw_delta ? " (capped from " + g.raw_delta + "%)" : ""}</span>
+        {/* 9. PHASED STRATEGY */}
+        {dec && dec.phased_strategy && dec.phased_strategy.length > 0 && (
+          <Card title="Phased Inspection Strategy" icon={"\uD83D\uDCCB"} status="4-phase plan" defaultCollapsed={true}>
+            {dec.phased_strategy.map(function(phase: any, i: number) {
+              return (
+                <div key={i} style={{ padding: "10px 12px", marginBottom: "10px", backgroundColor: i === 0 ? "#fef2f2" : "#f9fafb", borderRadius: "6px", borderLeft: "3px solid " + (i === 0 ? "#dc2626" : i === 1 ? "#ea580c" : i === 2 ? "#ca8a04" : "#16a34a") }}>
+                  <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "4px" }}>Phase {phase.phase}: {phase.name}</div>
+                  <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>{phase.objective}</div>
+                  {phase.actions.map(function(a: string, ai: number) { return <div key={ai} style={{ fontSize: "12px", color: "#374151", padding: "2px 0", paddingLeft: "8px" }}>{ai + 1}. {a}</div>; })}
+                  <div style={{ fontSize: "11px", color: "#2563eb", marginTop: "6px", fontWeight: 600 }}>Gate: {phase.gate} | Time: {phase.time_frame}</div>
                 </div>
-                {g.reasons.map(function(r: string, ri: number) { return <div key={ri} style={{ fontSize: "11px", color: "#6b7280", paddingLeft: "8px" }}>{"\u2022"} {r}</div>; })}
-              </div>);
+              );
             })}
           </Card>
         )}
 
-        {/* ==== MECHANISM FILTER CARD (surviving vs suppressed) ==== */}
-        {dominance && (dominance.surviving_mechanisms || dominance.mechanism_summary) && (
-          <Card title="Mechanism Filter (Engine 8)" icon={"\uD83E\uDDEA"} status={(dominance.mechanism_summary?.surviving_count || dominance.surviving_mechanisms?.length || 0) + " survived, " + (dominance.mechanism_summary?.suppressed_count || dominance.suppressed_mechanisms?.length || 0) + " suppressed"}>
-            <div style={{ fontSize: "12px", fontWeight: 700, color: "#16a34a", textTransform: "uppercase", marginBottom: "8px" }}>Surviving Mechanisms</div>
-            {(dominance.surviving_mechanisms || []).map(function(m: any, i: number) {
-              return (<div key={i} style={{ marginBottom: "6px", padding: "6px 10px", backgroundColor: "#f0fdf4", borderRadius: "4px", borderLeft: "3px solid " + severityColor(m.severity || m.adjusted_severity) }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  {severityBadge(m.severity || m.adjusted_severity)}
-                  <span style={{ fontWeight: 600, fontSize: "13px" }}>{m.family_name || m.name}</span>
-                  <span style={{ fontSize: "11px", color: "#6b7280" }}>({m.relevance_score || m.score})</span>
-                </div>
-                {m.merged_codes && m.merged_codes.length > 1 && <div style={{ fontSize: "10px", color: "#6b7280", marginTop: "2px" }}>Merged: {m.merged_codes.join(", ")}</div>}
-                <div style={{ fontSize: "10px", color: "#16a34a" }}>{(m.reasons || []).join(", ")}</div>
-              </div>);
-            })}
-            <div style={{ fontSize: "12px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginTop: "16px", marginBottom: "8px" }}>Suppressed Mechanisms</div>
-            {(dominance.suppressed_mechanisms || []).map(function(m: any, i: number) {
-              return (<div key={i} style={{ marginBottom: "4px", padding: "4px 10px", backgroundColor: "#fef2f2", borderRadius: "4px", fontSize: "12px", color: "#991b1b", opacity: 0.8 }}>
-                <span style={{ fontWeight: 600 }}>{m.family_name || m.name}</span>
-                <span style={{ marginLeft: "8px", fontSize: "10px", color: "#6b7280" }}>({(m.reasons || []).join(", ")})</span>
-              </div>);
-            })}
-          </Card>
-        )}
-
-        {/* ==== AI REASONING (from parser, if interpreted) ==== */}
-        {aiInterpretation && aiInterpretation.status === "interpreted" && aiInterpretation.reasoning && (
-          <Card title="AI Reasoning Chain" icon={"\uD83E\uDDE0"} status={"confidence: " + Math.round((aiInterpretation.confidence || 0) * 100) + "%"}>
-            <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151" }}>{aiInterpretation.reasoning}</div>
-          </Card>
-        )}
-
-        {/* ==== VERIFIED EXTRACTION ==== */}
-        {parsed && asset && !pipelinePaused && !evidenceConfirmPending && (
-          <Card title="Verified Extraction" icon={"\uD83D\uDD12"} status={(parsed.events?.length || 0) + " events, " + (parsed.environment?.length || 0) + " environments"}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Asset Resolution</div>
-                {realityLock && realityLock.asset_conflict ? (
-                  <div>
-                    <div style={{ fontSize: "13px", color: "#991b1b", textDecoration: "line-through", opacity: 0.6 }}>{asset.asset_class?.replace(/_/g, " ")} ({Math.round((asset.confidence || 0) * 100)}%)</div>
-                    <div style={{ fontSize: "15px", fontWeight: 700, color: "#1e40af" }}>{(realityLock.detected_domain_label || realityLock.asset_override || "").replace(/_/g, " ")}</div>
-                    <div style={{ fontSize: "11px", color: "#1e40af" }}>Corrected by Reality Lock (domain score: {realityLock.domain_score || 0})</div>
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ fontSize: "15px", fontWeight: 700, color: "#111" }}>{asset.asset_class?.replace(/_/g, " ")}</div>
-                    <div style={{ fontSize: "12px", color: "#6b7280" }}>Confidence: {Math.round((asset.confidence || 0) * 100)}%</div>
-                  </div>
-                )}
+        {/* 10. PHYSICS COMPUTATIONS (if available) */}
+        {comp && (comp.fatigue.enabled || comp.critical_flaw.enabled || comp.wall_loss.enabled || comp.leak_vs_burst.enabled) && (
+          <Card title="Physics Computations" icon={"\uD83D\uDCCA"} status="Paris Law, Critical Flaw, Wall Loss" defaultCollapsed={true}>
+            {comp.fatigue.enabled && (
+              <div style={{ marginBottom: "10px", padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
+                <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Fatigue Crack Growth (Paris Law)</div>
+                <div style={{ fontSize: "12px", color: "#374151" }}>{comp.fatigue.narrative}</div>
+                {comp.fatigue.delta_k && <div style={{ fontSize: "11px", color: "#6b7280" }}>{"\u0394"}K = {comp.fatigue.delta_k} MPa{"\u221A"}m{comp.fatigue.days_to_critical ? " | Days to critical: " + comp.fatigue.days_to_critical : ""}</div>}
               </div>
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Detected Events</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                  {(parsed.events || []).map((e, i) => (<span key={i} style={{ padding: "2px 8px", backgroundColor: "#fee2e2", color: "#991b1b", borderRadius: "4px", fontSize: "12px", fontWeight: 600 }}>{e}</span>))}
-                  {(parsed.events || []).length === 0 && <span style={{ fontSize: "12px", color: "#9ca3af" }}>None</span>}
-                </div>
+            )}
+            {comp.critical_flaw.enabled && (
+              <div style={{ marginBottom: "10px", padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
+                <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Critical Flaw Threshold</div>
+                <div style={{ fontSize: "12px", color: "#374151" }}>{comp.critical_flaw.narrative}</div>
               </div>
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Environment</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                  {(parsed.environment || []).map((e, i) => (<span key={i} style={{ padding: "2px 8px", backgroundColor: "#dbeafe", color: "#1e40af", borderRadius: "4px", fontSize: "12px", fontWeight: 600 }}>{e.replace(/_/g, " ")}</span>))}
-                </div>
+            )}
+            {comp.wall_loss.enabled && (
+              <div style={{ marginBottom: "10px", padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
+                <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Wall Loss Remaining Life</div>
+                <div style={{ fontSize: "12px", color: "#374151" }}>{comp.wall_loss.narrative}</div>
               </div>
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Numerics</div>
-                {parsed.numeric_values && Object.entries(parsed.numeric_values).filter(function([, v]) { return v !== undefined; }).length > 0 ? Object.entries(parsed.numeric_values).filter(function([, v]) { return v !== undefined; }).map(function([k, v], i) { return <div key={i} style={{ fontSize: "13px" }}><span style={{ fontWeight: 600 }}>{k.replace(/_/g, " ")}:</span> {v}</div>; }) : <span style={{ fontSize: "12px", color: "#9ca3af" }}>None</span>}
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {/* ==== PRIORITIZED INSPECTION ZONES ==== */}
-        {(dominance?.prioritized_inspection_sequence || chain?.engine_2_affected_zones) && (dominance?.prioritized_inspection_sequence?.length > 0 || (chain?.engine_2_affected_zones && chain.engine_2_affected_zones.length > 0)) && (
-          <Card title="Prioritized Inspection Zones" icon={"\uD83D\uDCCD"} status={dominance ? "DDL-prioritized" : "chain output"}>
-            {(dominance?.prioritized_inspection_sequence || chain?.engine_2_affected_zones || []).map(function(z: any, i: number) {
-              var zName = z.zone_name || z.zone || "";
-              var zPri = z.priority || 2;
-              return (<div key={i} style={{ marginBottom: "8px", padding: "8px 12px", backgroundColor: zPri === 1 ? "#fef2f2" : "#f9fafb", borderRadius: "6px", borderLeft: "3px solid " + (zPri === 1 ? "#dc2626" : zPri === 2 ? "#ea580c" : "#6b7280") }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span style={{ fontSize: "14px", fontWeight: 700 }}>{i + 1}.</span>
-                  {priorityBadge(zPri)}
-                  <span style={{ fontWeight: 700, fontSize: "13px" }}>{zName}</span>
-                </div>
-                {z.rationale && <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>{z.rationale}</div>}
-              </div>);
-            })}
-          </Card>
-        )}
-
-        {/* ==== TOP METHODS (from DDL or chain) ==== */}
-        {dominance?.top_methods && dominance.top_methods.length > 0 && (
-          <Card title="Priority Methods" icon={"\uD83D\uDD2C"} status={dominance.method_filter ? (dominance.method_filter.surviving_count + " survived, " + dominance.method_filter.suppressed_count + " suppressed") : "DDL-ranked"}>
-            <div style={{ fontSize: "12px", fontWeight: 700, color: "#16a34a", textTransform: "uppercase", marginBottom: "6px" }}>Top Methods Now</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
-              {dominance.top_methods.map(function(m: string, i: number) {
-                return <span key={i} style={{ padding: "6px 14px", backgroundColor: "#eff6ff", color: "#1e40af", borderRadius: "6px", fontSize: "13px", fontWeight: 700, border: "1px solid #bfdbfe" }}>{i + 1}. {m}</span>;
-              })}
-            </div>
-            {dominance.method_filter?.suppressed_methods && dominance.method_filter.suppressed_methods.length > 0 && (
-              <div>
-                <div style={{ fontSize: "12px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "6px" }}>Suppressed Methods (material/asset mismatch)</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                  {dominance.method_filter.suppressed_methods.map(function(m: any, i: number) {
-                    return <span key={i} style={{ padding: "4px 10px", backgroundColor: "#fef2f2", color: "#991b1b", borderRadius: "4px", fontSize: "12px", opacity: 0.8 }}>{m.method_name} <span style={{ fontSize: "10px", color: "#6b7280" }}>({m.reason.replace(/_/g, " ")})</span></span>;
-                  })}
-                </div>
+            )}
+            {comp.leak_vs_burst.enabled && (
+              <div style={{ padding: "8px 12px", backgroundColor: comp.leak_vs_burst.tendency === "BURST_FAVORED" ? "#fef2f2" : "#f9fafb", borderRadius: "6px" }}>
+                <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Leak vs Burst Tendency</div>
+                <div style={{ fontSize: "12px", color: "#374151" }}>{comp.leak_vs_burst.narrative}</div>
+                <div style={{ fontSize: "11px", color: "#6b7280" }}>Tendency: {comp.leak_vs_burst.tendency} | Through-wall risk: {comp.leak_vs_burst.through_wall_risk} | Fracture risk: {comp.leak_vs_burst.fracture_risk}</div>
               </div>
             )}
           </Card>
         )}
 
-        {/* ==== ENGINE 4: CODE ACTION PATHS ==== */}
-        {chain?.engine_4_code_action_paths && chain.engine_4_code_action_paths.length > 0 && (
-          <Card title={"Engine 4 \u2014 Code Action Paths"} icon={"\uD83D\uDCDC"} status={chain.engine_4_code_action_paths.length + " finding types"}>
-            {chain.engine_4_code_action_paths.map(function(p, i) {
-              return (<div key={i} style={{ marginBottom: "12px", padding: "10px 12px", backgroundColor: "#fafafa", borderRadius: "6px", borderLeft: "3px solid " + (p.engineering_review_required ? "#dc2626" : "#2563eb") }}>
-                <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "4px" }}>{p.finding_type.replace(/_/g, " ")}{p.engineering_review_required && <span style={{ fontSize: "11px", color: "#dc2626", marginLeft: "8px" }}>ENGINEERING REVIEW REQUIRED</span>}</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}><strong>Code:</strong> {p.code_section} | <strong>FFS:</strong> {p.ffs_assessment}</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}><strong>Repair:</strong> {p.repair_standard} | <strong>Action:</strong> {p.required_action}</div>
-              </div>);
-            })}
-          </Card>
-        )}
-
-        {/* ==== ENGINE 5: ESCALATION TIMELINE ==== */}
-        {chain?.engine_5_escalation_timeline && chain.engine_5_escalation_timeline.length > 0 && (
-          <Card title={"Engine 5 \u2014 Escalation Timeline"} icon={"\u23F1\uFE0F"} status={chain.engine_5_escalation_timeline.length + " tiers"}>
-            <div style={{ display: "flex", gap: "4px", marginBottom: "12px", flexWrap: "wrap" }}>
-              {chain.engine_5_escalation_timeline.map(function(tier, i) { return (<button key={i} onClick={() => setActiveTimelineTier(i)} style={{ padding: "6px 12px", fontSize: "12px", fontWeight: activeTimelineTier === i ? 700 : 400, color: activeTimelineTier === i ? "#fff" : "#374151", backgroundColor: activeTimelineTier === i ? (i === 0 ? "#dc2626" : i === 1 ? "#ea580c" : i === 2 ? "#ca8a04" : "#2563eb") : "#f3f4f6", border: "none", borderRadius: "4px", cursor: "pointer" }}>{tier.tier_name} ({tier.time_window})</button>); })}
-            </div>
-            {(() => { var tier = chain.engine_5_escalation_timeline[activeTimelineTier]; if (!tier) return null; return (<div><div style={{ marginBottom: "10px" }}><div style={{ fontSize: "12px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Actions</div>{tier.actions.map(function(a, i) { return <div key={i} style={{ fontSize: "12px", padding: "3px 0", color: "#374151" }}>{i+1}. {a}</div>; })}</div><div><div style={{ fontSize: "12px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Personnel</div>{tier.personnel_required.map(function(p, i) { return <div key={i} style={{ fontSize: "12px", color: "#374151" }}>{p}</div>; })}</div></div>); })()}
-          </Card>
-        )}
-
-        {/* ==== ENGINE 6: EXECUTION PACKAGES ==== */}
-        {chain?.engine_6_execution_packages && chain.engine_6_execution_packages.length > 0 && (
-          <Card title={"Engine 6 \u2014 Execution Packages"} icon={"\uD83D\uDCCA"} status="Supervisor | Engineer | Executive">
-            <div style={{ display: "flex", gap: "4px", marginBottom: "12px" }}>
-              {chain.engine_6_execution_packages.map(function(pkg, i) { return (<button key={i} onClick={() => setActivePackageTab(i)} style={{ padding: "6px 12px", fontSize: "12px", fontWeight: activePackageTab === i ? 700 : 400, color: activePackageTab === i ? "#fff" : "#374151", backgroundColor: activePackageTab === i ? "#2563eb" : "#f3f4f6", border: "none", borderRadius: "4px", cursor: "pointer" }}>{pkg.role.split(" / ")[0]}</button>); })}
-            </div>
-            {(() => { var pkg = chain.engine_6_execution_packages[activePackageTab]; if (!pkg) return null; return (<div><div style={{ fontSize: "13px", fontWeight: 700, marginBottom: "4px" }}>{pkg.role}</div><div style={{ fontSize: "12px", color: "#374151", marginBottom: "10px" }}>{pkg.summary}</div><div style={{ marginBottom: "10px" }}><div style={{ fontSize: "12px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Action Items</div>{pkg.action_items.map(function(a, i) { return <div key={i} style={{ fontSize: "12px", padding: "3px 0", color: "#374151" }}>{i+1}. {a}</div>; })}</div></div>); })()}
-          </Card>
-        )}
-
-        {/* ==== AI NARRATIVE ==== */}
+        {/* AI NARRATIVE */}
         {aiNarrative && (
-          <Card title="AI Narrative Summary" icon={"\uD83E\uDD16"} status="GPT-4o prose \u2014 constrained by chain + DDL">
+          <Card title="AI Narrative Summary" icon={"\uD83E\uDD16"} status="GPT-4o constrained by physics core" defaultCollapsed={true}>
             <div style={{ fontSize: "13px", lineHeight: "1.7", color: "#374151", whiteSpace: "pre-wrap" }}>{aiNarrative}</div>
           </Card>
         )}
 
-        {/* ==== DECISION TRACE (audit trail) ==== */}
-        {dominance?.decision_trace && dominance.decision_trace.length > 0 && (
-          <Card title="Decision Trace (Audit)" icon={"\uD83D\uDCCB"}>
-            {dominance.decision_trace.map(function(t: string, i: number) {
+        {/* DECISION TRACE (audit) */}
+        {dec && dec.decision_trace && dec.decision_trace.length > 0 && (
+          <Card title="Decision Trace (Audit)" icon={"\uD83D\uDCCB"} defaultCollapsed={true}>
+            {dec.decision_trace.map(function(t: string, i: number) {
               var isLock = t.indexOf("HARD LOCK") !== -1;
-              var isOverride = t.indexOf("OVERRIDE") !== -1;
-              return <div key={i} style={{ fontSize: "12px", color: isLock ? "#dc2626" : isOverride ? "#92400e" : "#374151", fontWeight: (isLock || isOverride) ? 700 : 400, backgroundColor: isOverride ? "#fefce8" : "transparent", padding: isOverride ? "4px 8px" : "3px 0", borderRadius: isOverride ? "4px" : "0", marginBottom: isOverride ? "2px" : "0" }}>{i + 1}. {t}</div>;
+              var isBlocked = t.indexOf("BLOCKED") !== -1;
+              var isPhysics = t.indexOf("PHYSICS") !== -1;
+              return <div key={i} style={{ fontSize: "12px", color: isLock ? "#dc2626" : isBlocked ? "#ea580c" : isPhysics ? "#2563eb" : "#374151", fontWeight: (isLock || isBlocked) ? 700 : 400, padding: "3px 0" }}>{i + 1}. {t}</div>;
             })}
-          </Card>
-        )}
-
-        {/* ==== REMAINING CARDS (governance, code authority, time, event, code trace) ==== */}
-        {governance && (<Card title="Governance Matrix" icon={"\uD83C\uDFDB\uFE0F"}><pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "200px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>{JSON.stringify(governance, null, 2)}</pre></Card>)}
-        {codeAuthority && (<Card title="Code Authority Resolution" icon={"\uD83D\uDCD6"}><pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "200px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>{JSON.stringify(codeAuthority, null, 2)}</pre></Card>)}
-        {timeProgression && (<Card title="Time Progression" icon={"\uD83D\uDCC8"}><pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "200px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>{JSON.stringify(timeProgression, null, 2)}</pre></Card>)}
-        {eventEnrich && (<Card title="Event Classification" icon={"\uD83C\uDF10"}><pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "200px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>{JSON.stringify(eventEnrich, null, 2)}</pre></Card>)}
-        {codeTrace && (<Card title="Code Trace" icon={"\uD83D\uDD0D"}><pre style={{ fontSize: "12px", overflow: "auto", maxHeight: "200px", backgroundColor: "#f9fafb", padding: "10px", borderRadius: "4px" }}>{JSON.stringify(codeTrace, null, 2)}</pre></Card>)}
-
-        {chain?.warnings && chain.warnings.length > 0 && (
-          <Card title="Chain Warnings" icon={"\u26A0\uFE0F"} collapsible={false}>
-            {chain.warnings.map(function(w, i) { return <div key={i} style={{ fontSize: "12px", color: "#92400e", padding: "3px 0" }}>{w}</div>; })}
           </Card>
         )}
 
