@@ -1,4 +1,4 @@
-// DEPLOY100 — VoiceInspectionPage.tsx v12.0
+﻿// DEPLOY100 — VoiceInspectionPage.tsx v12.0
 // PHYSICS-FIRST DECISION CORE — Frontend Integration
 // 4 API calls (parse, asset+reality-lock, decision-core, narrative)
 // 9 physics-grounded cards replacing 14+ scattered engine cards
@@ -486,6 +486,15 @@ export default function VoiceInspectionPage() {
   var [asset, setAsset] = useState<any>(null);
   var [realityLock, setRealityLock] = useState<any>(null);
   var [decisionCore, setDecisionCore] = useState<any>(null);
+  var [engineeringResult, setEngineeringResult] = useState<any>(null);
+  var [engineeringLoading, setEngineeringLoading] = useState(false);
+  var [engineeringError, setEngineeringError] = useState<string | null>(null);
+  var [showExpertMode, setShowExpertMode] = useState(false);
+  var [architectureResult, setArchitectureResult] = useState<any>(null);
+  var [architectureLoading, setArchitectureLoading] = useState(false);
+  var [materialsResult, setMaterialsResult] = useState<any>(null);
+  var [materialsLoading, setMaterialsLoading] = useState(false);
+  var [showLayer3, setShowLayer3] = useState(false);
   var [aiNarrative, setAiNarrative] = useState<string | null>(null);
   var [errors, setErrors] = useState<string[]>([]);
   var [isListening, setIsListening] = useState(false);
@@ -495,6 +504,72 @@ export default function VoiceInspectionPage() {
   var [selectedAnswers, setSelectedAnswers] = useState<any>({});
   var [pipelinePaused, setPipelinePaused] = useState(false);
   var resultsRef = useRef<HTMLDivElement>(null);
+
+  var callEngineeringCore = async function(decResult: any, narrativeText: string) {
+    setEngineeringLoading(true); setEngineeringError(null);
+    var ei: Record<string, any> = {
+      caseId: 'ENG-' + String(Date.now()),
+      assetClass: (decResult.asset_class || decResult.assetClass || 'unknown'),
+      consequenceTier: (decResult.consequence_reality || decResult.consequence || 'MODERATE'),
+      ndtVerdict: (decResult.disposition || 'INDETERMINATE'),
+      ndtConfidence: (decResult.reality_confidence || 0.5),
+      primaryMechanism: (decResult.primary_mechanism || ''),
+      governingStandard: (decResult.authority_reality || ''),
+      incidentNarrative: narrativeText, isCyclicService: false, materialClass: ''
+    };
+    var nr = narrativeText.toLowerCase();
+    if (nr.indexOf('stainless') >= 0 || nr.indexOf('316') >= 0 || nr.indexOf('304') >= 0) { ei.materialClass = 'austenitic_ss'; }
+    else if (nr.indexOf('duplex') >= 0 || nr.indexOf('2205') >= 0) { ei.materialClass = 'duplex_ss'; }
+    else if (nr.indexOf('carbon steel') >= 0 || nr.indexOf('a36') >= 0) { ei.materialClass = 'carbon_steel'; }
+    else if (nr.indexOf('low alloy') >= 0 || nr.indexOf('p91') >= 0) { ei.materialClass = 'low_alloy'; }
+    ei.isCyclicService = (nr.indexOf('cyclic') >= 0 || nr.indexOf('fatigue') >= 0 || nr.indexOf('vibrat') >= 0);
+    if (nr.indexOf('crack') >= 0) { ei.flawType = 'crack'; } else if (nr.indexOf('corrosion') >= 0 || nr.indexOf('thinning') >= 0) { ei.flawType = 'corrosion'; } else if (nr.indexOf('pitting') >= 0) { ei.flawType = 'pitting'; } else if (nr.indexOf('dent') >= 0) { ei.flawType = 'dent'; }
+    if (nr.indexOf('h2s') >= 0 || nr.indexOf('sour') >= 0) { ei.h2sPartialPressureMPa = 0.001; }
+    if (nr.indexOf('chloride') >= 0 || nr.indexOf('seawater') >= 0) { ei.chloridePPM = 1000; }
+    if (nr.indexOf('creep') >= 0 || nr.indexOf('elevated temp') >= 0) { ei.operatingTempC = 400; }
+    try {
+      var er = await fetch('/.netlify/functions/engineering-core', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ei) });
+      if (er.ok) { var ed = await er.json(); setEngineeringResult(ed); }
+      else { setEngineeringError('Engineering core status ' + er.status); }
+    } catch(ex: any) { setEngineeringError('Engineering layer: ' + (ex.message || String(ex))); }
+    finally { setEngineeringLoading(false); }
+  };
+
+  var callArchitectureCore = async function(decResult: any, narrativeText: string) {
+    setArchitectureLoading(true);
+    var ai: Record<string, any> = {
+      caseId: 'ARCH-' + String(Date.now()),
+      assetClass: (decResult.asset_class || decResult.assetClass || 'unknown'),
+      consequenceTier: (decResult.consequence_reality || 'MODERATE'),
+      engineeringSignificance: (decResult.engineering_significance || 'MODERATE'),
+      ndtVerdict: (decResult.disposition || 'INDETERMINATE'),
+      riskRanking: (decResult.risk_ranking || 'MEDIUM'),
+      incidentNarrative: narrativeText
+    };
+    try {
+      var ar = await fetch('/.netlify/functions/architecture-core', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ai) });
+      if (ar.ok) { var ad = await ar.json(); setArchitectureResult(ad); }
+    } catch(ex) {} finally { setArchitectureLoading(false); }
+  };
+
+  var callMaterialsCore = async function(decResult: any, narrativeText: string) {
+    setMaterialsLoading(true);
+    var mi: Record<string, any> = {
+      caseId: 'MAT-' + String(Date.now()),
+      assetClass: (decResult.asset_class || decResult.assetClass || 'unknown'),
+      incidentNarrative: narrativeText
+    };
+    var nr2 = narrativeText.toLowerCase();
+    if (nr2.indexOf('stainless') >= 0 || nr2.indexOf('316') >= 0) { mi.materialClass = 'austenitic_ss'; } else if (nr2.indexOf('duplex') >= 0) { mi.materialClass = 'duplex_ss'; } else if (nr2.indexOf('carbon steel') >= 0) { mi.materialClass = 'carbon_steel'; } else if (nr2.indexOf('low alloy') >= 0) { mi.materialClass = 'low_alloy'; }
+    if (nr2.indexOf('pwht') >= 0 || nr2.indexOf('post weld heat') >= 0) { mi.pwhtApplied = true; }
+    if (nr2.indexOf('h2s') >= 0 || nr2.indexOf('sour') >= 0) { mi.h2sPartialPressureMPa = 0.001; }
+    if (nr2.indexOf('chloride') >= 0 || nr2.indexOf('seawater') >= 0) { mi.chloridePPM = 1000; }
+    if (nr2.indexOf('cyclic') >= 0 || nr2.indexOf('fatigue') >= 0) { mi.isCyclicService = true; }
+    try {
+      var mr = await fetch('/.netlify/functions/materials-core', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mi) });
+      if (mr.ok) { var md = await mr.json(); setMaterialsResult(md); }
+    } catch(ex) {} finally { setMaterialsLoading(false); }
+  };
 
   // Refs for continuation
   var parsedRef = useRef<any>(null);
@@ -660,6 +735,13 @@ export default function VoiceInspectionPage() {
         });
         coreResult = coreRes.decision_core || coreRes;
         setDecisionCore(coreResult);
+          if (coreResult) {
+            var txVal = '';
+            try { if (typeof transcriptRef !== 'undefined' && transcriptRef && transcriptRef.current) { txVal = String(transcriptRef.current); } } catch(ex) {}
+            callEngineeringCore(coreResult, txVal);
+            callArchitectureCore(coreResult, txVal);
+            callMaterialsCore(coreResult, txVal);
+          }
         var tier = coreResult?.consequence_reality?.consequence_tier || "?";
         var disp = coreResult?.decision_reality?.disposition || "?";
         var elapsed = coreResult?.elapsed_ms || "?";
@@ -1086,6 +1168,195 @@ export default function VoiceInspectionPage() {
           <Card title="AI Narrative Summary" icon={"\uD83E\uDD16"} status="GPT-4o constrained by physics core" defaultCollapsed={true}>
             <div style={{ fontSize: "13px", lineHeight: "1.7", color: "#374151", whiteSpace: "pre-wrap" }}>{aiNarrative}</div>
           </Card>
+        )}
+
+        {engineeringLoading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', background: 'rgba(68,170,255,0.05)', border: '1px solid rgba(68,170,255,0.2)', borderRadius: '8px', margin: '8px 0' }}>
+            <div style={{ width: '16px', height: '16px', border: '2px solid rgba(68,170,255,0.2)', borderTopColor: '#44aaff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            <div style={{ fontSize: '13px', color: '#44aaff' }}>Engineering Intelligence Layer analyzing...</div>
+          </div>
+        )}
+
+        {engineeringError && (
+          <div style={{ padding: '10px 14px', background: 'rgba(255,150,0,0.08)', border: '1px solid rgba(255,150,0,0.3)', borderRadius: '6px', fontSize: '12px', color: '#ffaa44', margin: '8px 0' }}>{'Engineering layer: ' + (engineeringError || '')}</div>
+        )}
+
+        {engineeringResult && (
+          <div style={{ marginTop: '4px' }}>
+            {engineeringResult.engineeringOverrideFlag && (
+              <div style={{ background: '#1a0000', border: '2px solid #ff3333', borderRadius: '8px', padding: '14px 16px', margin: '10px 0', boxShadow: '0 0 12px rgba(255,51,51,0.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>{'!'}</span>
+                  <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '0.08em', color: '#ff4444', textTransform: 'uppercase' as const }}>{'ENGINEERING OVERRIDE ACTIVE'}</span>
+                </div>
+                <div style={{ fontSize: '12px', color: '#ffaaaa', lineHeight: 1.5, marginBottom: '6px' }}>{engineeringResult.overrideReason}</div>
+                {engineeringResult.arbitration && engineeringResult.arbitration.disagreementSummary && (<div style={{ fontSize: '11px', color: '#ff8888', borderTop: '1px solid #440000', paddingTop: '8px', fontStyle: 'italic' }}>{engineeringResult.arbitration.disagreementSummary}</div>)}
+                <div style={{ marginTop: '8px', fontSize: '11px', color: '#ffcccc', fontWeight: 600, textTransform: 'uppercase' as const }}>{'Engineering sign-off required before return to service'}</div>
+              </div>
+            )}
+            <div style={{ background: '#0f1a2a', border: '1px solid #1e3a5a', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', color: '#4488aa', textTransform: 'uppercase' as const, marginBottom: '10px' }}>{'DUAL-CORE VERDICT'}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 36px 1fr', alignItems: 'center', gap: '8px' }}>
+                <div>
+                  <div style={{ fontSize: '10px', color: '#666', textTransform: 'uppercase' as const, marginBottom: '4px' }}>{'NDT INSPECTOR'}</div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#4488ff' }}>{decisionCore ? (decisionCore.disposition || 'HOLD') : '-'}</div>
+                  <div style={{ fontSize: '11px', color: '#446' }}>{decisionCore ? (decisionCore.authority_reality || '-') : '-'}</div>
+                </div>
+                <div style={{ textAlign: 'center' as const, color: '#444', fontSize: '12px', fontWeight: 600 }}>{'vs'}</div>
+                <div>
+                  <div style={{ fontSize: '10px', color: '#666', textTransform: 'uppercase' as const, marginBottom: '4px' }}>{'ENGINEER'}</div>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: engineeringResult.engineeringSignificance === 'CRITICAL' ? '#ff4444' : engineeringResult.engineeringSignificance === 'HIGH' ? '#ff8c00' : '#44ff88' }}>{(engineeringResult.engineeringVerdict || '').replace(/_/g, ' ')}</div>
+                  <div style={{ fontSize: '11px', color: '#446' }}>{engineeringResult.primaryAuthority || '-'}</div>
+                </div>
+              </div>
+              {engineeringResult.engineeringOverrideFlag && (<div style={{ textAlign: 'center' as const, marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #330000', fontSize: '11px', color: '#ff6666', fontWeight: 600, textTransform: 'uppercase' as const }}>{'Verdicts disagree - Engineering governs'}</div>)}
+            </div>
+            <div style={{ background: '#0f1a0f', border: '1px solid #2a4a2a', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: '#44aa44', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'STRUCTURAL SAFETY MARGIN (FAD)'}</div>
+              <div style={{ fontSize: '16px', fontWeight: 700, color: engineeringResult.safetyMarginPct === null ? '#888' : engineeringResult.safetyMarginPct < 10 ? '#ff4444' : engineeringResult.safetyMarginPct < 30 ? '#ff8c00' : '#44ff88' }}>{engineeringResult.safetyMarginPct !== null ? (String(engineeringResult.safetyMarginPct) + '% from failure boundary') : 'Flaw dimensions required for FAD'}</div>
+              <div style={{ fontSize: '11px', color: '#557', marginTop: '4px' }}>{(engineeringResult.e3 && engineeringResult.e3.fadStatus || '').replace(/_/g, ' ')}</div>
+              {engineeringResult.e3 && engineeringResult.e3.kr !== null && (<div style={{ fontSize: '11px', color: '#668', marginTop: '4px', fontFamily: 'monospace' }}>{'K_r=' + (engineeringResult.e3.kr || 0).toFixed(3) + ' | L_r=' + (engineeringResult.e3.lr || 0).toFixed(3)}</div>)}
+              {engineeringResult.e3 && engineeringResult.e3.hardGate && (<div style={{ marginTop: '8px', background: 'rgba(255,50,50,0.15)', border: '1px solid rgba(255,50,50,0.4)', borderRadius: '4px', padding: '5px 8px', fontSize: '11px', color: '#ff8888', fontWeight: 600 }}>{'HARD GATE - Level 3 Engineering Review Required'}</div>)}
+            </div>
+            <div style={{ background: '#1a100a', border: '1px solid #3a2010', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: '#cc8844', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'FAILURE MODE'}</div>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: '#ffaa55' }}>{(engineeringResult.dominantFailureMode || '').replace(/_/g, ' ')}</div>
+              <div style={{ fontSize: '11px', color: '#887766', marginTop: '4px' }}>{'Confidence: ' + String(engineeringResult.failureModeConfidencePct || 0) + '% | Env: ' + (engineeringResult.e2 && engineeringResult.e2.environmentSeverity || '-')}</div>
+              {engineeringResult.e2 && engineeringResult.e2.secondaryMode && (<div style={{ fontSize: '11px', color: '#aa7744', marginTop: '4px' }}>{'Secondary: ' + engineeringResult.e2.secondaryMode.replace(/_/g, ' ')}</div>)}
+              <div style={{ fontSize: '11px', color: '#668', marginTop: '4px' }}>{'Recommended NDT: ' + (engineeringResult.recommendedNDTMethod || '').replace(/_/g, '/')}</div>
+            </div>
+            <div style={{ background: '#0a0a1a', border: '1px solid #2244aa', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: '#4466cc', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'REMAINING LIFE ESTIMATE'}</div>
+              <div style={{ fontSize: '15px', fontWeight: 700, color: engineeringResult.e5 && engineeringResult.e5.calendarMonthsLow !== null && engineeringResult.e5.calendarMonthsLow < 12 ? '#ff4444' : '#6688ff' }}>{engineeringResult.remainingLifeSummary || 'Insufficient data for life estimate'}</div>
+              {engineeringResult.e5 && engineeringResult.e5.minerDamageFraction !== null && (<div style={{ fontSize: '11px', color: '#557', marginTop: '4px' }}>{'Fatigue damage: ' + ((engineeringResult.e5.minerDamageFraction || 0) * 100).toFixed(0) + '% (Miner Rule)'}</div>)}
+              {engineeringResult.e5 && engineeringResult.e5.criticalFlawSizeMM !== null && (<div style={{ fontSize: '11px', color: '#668', marginTop: '4px', fontFamily: 'monospace' }}>{'Critical flaw size a_c: ' + (engineeringResult.e5.criticalFlawSizeMM || 0).toFixed(1) + 'mm'}</div>)}
+              {engineeringResult.e5 && engineeringResult.e5.hardGate && (<div style={{ marginTop: '8px', background: 'rgba(255,50,50,0.15)', border: '1px solid rgba(255,50,50,0.4)', borderRadius: '4px', padding: '5px 8px', fontSize: '11px', color: '#ff8888', fontWeight: 600 }}>{'GATE: ' + (engineeringResult.e5.hardGateReason || 'Life below safe threshold')}</div>)}
+            </div>
+            <div style={{ background: '#0d0a00', border: '1px solid #443300', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: '#aaaa44', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'RISK RANKING (API 580/581 RBI)'}</div>
+              <div style={{ fontSize: '16px', fontWeight: 800, color: engineeringResult.riskRanking === 'CRITICAL' ? '#ff4444' : engineeringResult.riskRanking === 'HIGH' ? '#ff8c00' : engineeringResult.riskRanking === 'MEDIUM' ? '#ffd700' : '#44ff88' }}>{engineeringResult.riskRanking}</div>
+              {engineeringResult.e6 && (<div style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>{'PoF: ' + String(engineeringResult.e6.pofCategory) + '/5 x CoF: ' + String(engineeringResult.e6.cofCategory) + '/5 = ' + String(engineeringResult.e6.riskScore) + '/25'}</div>)}
+              <div style={{ fontSize: '11px', color: '#778', marginTop: '4px' }}>{'Next inspection: ' + (engineeringResult.inspectionIntervalMonths === 0 ? 'IMMEDIATE' : String(engineeringResult.inspectionIntervalMonths) + ' months')}</div>
+            </div>
+            {engineeringResult.engineeringRestrictions && engineeringResult.engineeringRestrictions.length > 0 && (
+              <div style={{ background: '#1a0d00', border: '1px solid #553300', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: '#cc6600', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'ENGINEERING RESTRICTIONS'}</div>
+                {engineeringResult.engineeringRestrictions.map(function(r: string, i: number) { return <div key={i} style={{ fontSize: '12px', color: '#ffaa66', padding: '3px 0' }}>{'+ ' + r}</div>; })}
+              </div>
+            )}
+            <div style={{ background: '#111', border: '1px solid #333', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: '#555', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'ENGINEERING SUMMARY'}</div>
+              <div style={{ fontSize: '12px', color: '#aaa', lineHeight: 1.6 }}>{engineeringResult.simpleNarrative}</div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '12px 0' }}>
+              <button onClick={function() { setShowExpertMode(!showExpertMode); }} style={{ background: 'transparent', border: '1px solid ' + (showExpertMode ? '#44aaff' : '#555'), color: showExpertMode ? '#44aaff' : '#888', padding: '7px 14px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}>{showExpertMode ? 'Hide Expert Detail' : 'Show Expert Detail (FAD / Audit / Assumptions)'}</button>
+            </div>
+            {showExpertMode && (
+              <div style={{ borderTop: '1px solid #222', paddingTop: '10px' }}>
+                <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', padding: '12px', margin: '6px 0' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#555', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'EVIDENCE INTEGRITY'}</div>
+                  <div style={{ fontSize: '12px', color: '#777' }}>{String(engineeringResult.evidenceIntegrityScore || 0) + '% measured | ' + (engineeringResult.evidenceIntegrityLabel || '').replace(/_/g, ' ')}</div>
+                </div>
+                {engineeringResult.domainViolations && engineeringResult.domainViolations.length > 0 && (
+                  <div style={{ background: '#1a0000', border: '1px solid #550000', borderRadius: '8px', padding: '12px', margin: '6px 0' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 700, color: '#aa3333', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'DOMAIN VIOLATIONS'}</div>
+                    {engineeringResult.domainViolations.map(function(v: string, i: number) { return <div key={i} style={{ fontSize: '11px', color: '#ff8888', padding: '3px 0' }}>{'!! ' + v}</div>; })}
+                  </div>
+                )}
+                <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', padding: '12px', margin: '6px 0' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#555', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'ASSUMPTIONS (' + String((engineeringResult.assumptionFlags && engineeringResult.assumptionFlags.length) || 0) + ')'}</div>
+                  {engineeringResult.assumptionFlags && engineeringResult.assumptionFlags.map(function(a: string, i: number) { return <div key={i} style={{ fontSize: '11px', color: '#666', padding: '2px 0' }}>{'[' + String(i + 1) + '] ' + a}</div>; })}
+                </div>
+                <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', padding: '12px', margin: '6px 0' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#555', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'ENGINE AUDIT TRAIL'}</div>
+                  {engineeringResult.auditTrail && engineeringResult.auditTrail.map(function(line: string, i: number) { return <div key={i} style={{ fontSize: '10px', color: '#555', fontFamily: 'monospace', padding: '2px 0', borderBottom: '1px solid #181818' }}>{line}</div>; })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {(architectureLoading || materialsLoading) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(170,68,255,0.05)', border: '1px solid rgba(170,68,255,0.2)', borderRadius: '8px', margin: '8px 0' }}>
+            <div style={{ width: '16px', height: '16px', border: '2px solid rgba(170,68,255,0.2)', borderTopColor: '#aa44ff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            <div style={{ fontSize: '12px', color: '#aa44ff' }}>{'Layer 3 - Architecture + Materials Intelligence analyzing...'}</div>
+          </div>
+        )}
+
+        {(architectureResult || materialsResult) && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '10px 0' }}>
+              <button onClick={function() { setShowLayer3(!showLayer3); }} style={{ background: 'transparent', border: '1px solid ' + (showLayer3 ? '#aa44ff' : '#555'), color: showLayer3 ? '#aa44ff' : '#888', padding: '7px 14px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}>{showLayer3 ? 'Hide Layer 3' : 'Show Layer 3: Architecture + Materials Intelligence'}</button>
+            </div>
+            {showLayer3 && architectureResult && (
+              <div>
+                {architectureResult.architectureOverrideFlag && (
+                  <div style={{ background: '#1a001a', border: '2px solid #aa44ff', borderRadius: '8px', padding: '14px 16px', margin: '10px 0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '18px' }}>{'!!'}</span>
+                      <span style={{ fontSize: '13px', fontWeight: 800, color: '#cc66ff', textTransform: 'uppercase' as const }}>{'ARCHITECTURE OVERRIDE ACTIVE'}</span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#ddaaff', lineHeight: 1.5 }}>{architectureResult.simpleNarrative}</div>
+                    {architectureResult.engineeringRecomputeRequired && (<div style={{ marginTop: '8px', fontSize: '11px', color: '#cc88ff', fontWeight: 600, textTransform: 'uppercase' as const }}>{'System consequence exceeds component-only engineering - re-assessment required'}</div>)}
+                  </div>
+                )}
+                <div style={{ background: '#0f0a1a', border: '1px solid #2a1a4a', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#8855cc', textTransform: 'uppercase' as const, marginBottom: '8px', letterSpacing: '0.08em' }}>{'SYSTEM ARCHITECTURE'}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div><div style={{ fontSize: '10px', color: '#666', marginBottom: '3px' }}>{'FACILITY TYPE'}</div><div style={{ fontSize: '12px', fontWeight: 700, color: '#aa88ff' }}>{(architectureResult.facilityType || '').replace(/_/g, ' ').toUpperCase()}</div></div>
+                    <div><div style={{ fontSize: '10px', color: '#666', marginBottom: '3px' }}>{'SYSTEM ROLE'}</div><div style={{ fontSize: '12px', fontWeight: 700, color: architectureResult.criticalityClass === 'CRITICAL' ? '#ff4444' : '#aa88ff' }}>{architectureResult.criticalityClass || ''}</div></div>
+                    <div><div style={{ fontSize: '10px', color: '#666', marginBottom: '3px' }}>{'REDUNDANCY'}</div><div style={{ fontSize: '11px', fontWeight: 600, color: architectureResult.spofFlag ? '#ff4444' : '#aa88ff' }}>{(architectureResult.redundancyState || '').replace(/_/g, ' ')}</div></div>
+                    <div><div style={{ fontSize: '10px', color: '#666', marginBottom: '3px' }}>{'FACILITY RISK'}</div><div style={{ fontSize: '13px', fontWeight: 700, color: architectureResult.facilityRiskRanking === 'CRITICAL' ? '#ff4444' : architectureResult.facilityRiskRanking === 'HIGH' ? '#ff8c00' : '#44ff88' }}>{architectureResult.facilityRiskRanking}</div></div>
+                  </div>
+                  {architectureResult.spofFlag && (<div style={{ marginTop: '10px', background: 'rgba(255,50,50,0.12)', border: '1px solid rgba(255,50,50,0.4)', borderRadius: '4px', padding: '6px 10px', fontSize: '11px', color: '#ff8888', fontWeight: 600 }}>{'SINGLE POINT OF FAILURE - No backup capacity at this location'}</div>)}
+                </div>
+                {architectureResult.combinedRiskScenarios && architectureResult.combinedRiskScenarios.length > 0 && (
+                  <div style={{ background: '#100a1a', border: '1px solid #3a1a5a', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 700, color: '#8855cc', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'CASCADE RISK - ' + ((architectureResult.cascadeProbability || 0) * 100).toFixed(0) + '%'}</div>
+                    {architectureResult.combinedRiskScenarios.map(function(s: string, i: number) { return <div key={i} style={{ fontSize: '11px', color: '#aa66ee', padding: '2px 0' }}>{'> ' + s}</div>; })}
+                  </div>
+                )}
+                {architectureResult.regulatoryOverrideFlag && (
+                  <div style={{ background: '#0a0a1a', border: '1px solid #334', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 700, color: '#6688cc', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'REGULATORY OVERRIDE'}</div>
+                    <div style={{ fontSize: '12px', color: '#8899dd', lineHeight: 1.5 }}>{architectureResult.regulatoryNarrative}</div>
+                    {architectureResult.requiredDocumentation && architectureResult.requiredDocumentation.slice(0, 3).map(function(d: string, i: number) { return <div key={i} style={{ fontSize: '11px', color: '#6677bb', padding: '2px 0', marginTop: '4px' }}>{'- ' + d}</div>; })}
+                  </div>
+                )}
+                <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', padding: '12px', margin: '6px 0' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#555', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'REPAIR PRIORITY'}</div>
+                  <div style={{ fontSize: '14px', fontWeight: 700, color: architectureResult.repairPriority === 'IMMEDIATE' ? '#ff4444' : architectureResult.repairPriority === 'URGENT' ? '#ff8c00' : '#aaa' }}>{(architectureResult.repairPriority || '').replace(/_/g, ' ')}</div>
+                  <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>{'Trend: ' + (architectureResult.trendState || '').replace(/_/g, ' ') + ' | ' + (architectureResult.regulatoryBody || '-')}</div>
+                </div>
+              </div>
+            )}
+            {showLayer3 && materialsResult && (
+              <div>
+                <div style={{ background: '#0a1a0a', border: '1px solid #1a4a1a', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#44bb44', textTransform: 'uppercase' as const, marginBottom: '8px', letterSpacing: '0.08em' }}>{'MATERIALS INTELLIGENCE'}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div><div style={{ fontSize: '10px', color: '#666', marginBottom: '3px' }}>{'HAZ HARDNESS'}</div><div style={{ fontSize: '12px', fontWeight: 700, color: materialsResult.hardnessStatus === 'ACCEPTABLE' ? '#44ff88' : materialsResult.hardnessStatus === 'NEAR_LIMIT' ? '#ffd700' : '#ff4444' }}>{String(materialsResult.hvHAZPeak || 0) + ' HV'}</div></div>
+                    <div><div style={{ fontSize: '10px', color: '#666', marginBottom: '3px' }}>{'MATERIALS RISK'}</div><div style={{ fontSize: '12px', fontWeight: 700, color: materialsResult.materialsRiskLevel === 'CRITICAL' ? '#ff4444' : materialsResult.materialsRiskLevel === 'HIGH' ? '#ff8c00' : '#44ff88' }}>{materialsResult.materialsRiskLevel}</div></div>
+                  </div>
+                  <div style={{ marginTop: '10px', fontSize: '11px', color: '#557755' }}>{'Mechanism: ' + (materialsResult.dominantDamageMechanism || '').replace(/_/g, ' ')}</div>
+                </div>
+                <div style={{ background: '#1a0a00', border: '1px solid #3a2200', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#dd8822', textTransform: 'uppercase' as const, marginBottom: '6px', letterSpacing: '0.08em' }}>{'PRE-FLAW PREDICTION'}</div>
+                  {materialsResult.likelyInitiationZones && materialsResult.likelyInitiationZones.map(function(z: string, i: number) { return <div key={i} style={{ fontSize: '11px', color: '#ffaa44', padding: '3px 0' }}>{'[' + String(i + 1) + '] ' + z}</div>; })}
+                  {materialsResult.timeToInitiationMonths !== null && materialsResult.timeToInitiationMonths !== undefined && (<div style={{ marginTop: '8px', fontSize: '12px', color: '#ff8844', fontWeight: 600 }}>{'Time to initiation: ' + materialsResult.timeToInitiationMonths.toFixed(0) + ' months'}</div>)}
+                  <div style={{ marginTop: '6px', fontSize: '11px', color: '#886644', fontStyle: 'italic' }}>{materialsResult.expectedFlawMorphology}</div>
+                </div>
+                <div style={{ background: '#0a1a0a', border: '1px solid #1a4a1a', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#44bb44', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'INSPECTION DIRECTIVES'}</div>
+                  {materialsResult.inspectionPriority && materialsResult.inspectionPriority.map(function(p: string, i: number) { return <div key={i} style={{ fontSize: '11px', color: '#88cc88', padding: '3px 0' }}>{'> ' + p}</div>; })}
+                </div>
+                <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', padding: '12px', margin: '6px 0' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#555', textTransform: 'uppercase' as const, marginBottom: '4px' }}>{'MATERIALS SUMMARY'}</div>
+                  <div style={{ fontSize: '11px', color: '#777', lineHeight: 1.6 }}>{materialsResult.simpleNarrative}</div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {/* DECISION TRACE (audit) */}
