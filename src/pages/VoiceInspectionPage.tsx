@@ -6,6 +6,7 @@
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
+import { generateInspectionReport } from "./generateReport";
 
 // ============================================================================
 // API HELPER
@@ -531,6 +532,15 @@ export default function VoiceInspectionPage() {
             PHYSICS-FIRST DECISION CORE CARDS
             Only render when decisionCore has data
             ================================================================ */}
+
+        {/* SAVE REPORT BUTTON */}
+        {dc && (
+          <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+            <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative }); }} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: "#1e40af", border: "none", borderRadius: "6px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+              {"\uD83D\uDCC4"} Save Report as PDF
+            </button>
+          </div>
+        )}
 
         {/* 1. REALITY CONFIDENCE BANNER */}
         {conf && (
