@@ -1,7 +1,10 @@
-// DEPLOY92 — VoiceInspectionPage.tsx v10.1
-// v10.1: Add 4 new confirmable evidence flags for expanded hard locks (6 → 10)
-//   - through_wall_leak_confirmed, support_collapse_confirmed,
-//   - critical_wall_loss_confirmed, fire_property_degradation_confirmed
+// DEPLOY93 — VoiceInspectionPage.tsx v10.2
+// v10.2: Inspection Report Export (Word + PDF)
+//   - buildReportHTML() generates professional inspection report from all pipeline data
+//   - downloadWord() exports as .doc (HTML with Word XML headers)
+//   - downloadPDF() opens print-optimized window for browser PDF save
+//   - Download Report dropdown appears after pipeline completes
+// v10.1 (retained): 19 confirmable evidence flags, 10 hard locks
 // v10 (retained): Evidence Confirmation Card, pipeline split, confirmed_flags
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
@@ -408,6 +411,295 @@ function EvidenceConfirmationCard({
 }
 
 // ============================================================================
+// REPORT BUILDER — generates professional HTML inspection report
+// ============================================================================
+
+var REPORT_CSS = "body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#111;line-height:1.5;margin:40px;}" +
+  "h1{font-size:18pt;color:#1e3a5f;margin:0 0 4px 0;}" +
+  "h2{font-size:14pt;color:#1e3a5f;border-bottom:2px solid #1e3a5f;padding-bottom:4px;margin:24px 0 12px 0;}" +
+  "h3{font-size:12pt;color:#333;margin:16px 0 8px 0;}" +
+  ".header{border-bottom:3px solid #1e3a5f;padding-bottom:12px;margin-bottom:20px;}" +
+  ".subtitle{font-size:10pt;color:#666;margin:0;}" +
+  ".disposition-banner{padding:12px 20px;color:#fff;font-size:16pt;font-weight:bold;text-align:center;border-radius:4px;margin:16px 0;}" +
+  ".no_go{background-color:#dc2626;}" +
+  ".repair_before_restart{background-color:#ea580c;}" +
+  ".engineering_review_required{background-color:#ca8a04;}" +
+  ".conditional_go{background-color:#16a34a;}" +
+  "table{border-collapse:collapse;width:100%;margin:8px 0 16px 0;}" +
+  "th{background-color:#f0f4f8;color:#1e3a5f;font-size:10pt;text-align:left;padding:6px 10px;border:1px solid #ccc;}" +
+  "td{font-size:10pt;padding:6px 10px;border:1px solid #ddd;vertical-align:top;}" +
+  "tr:nth-child(even){background-color:#f9fafb;}" +
+  ".badge{display:inline-block;padding:2px 8px;border-radius:3px;font-size:9pt;font-weight:bold;color:#fff;}" +
+  ".critical{background-color:#dc2626;}.high{background-color:#ea580c;}.medium{background-color:#ca8a04;}.low{background-color:#16a34a;}" +
+  ".lock-box{padding:8px 12px;border-left:4px solid #dc2626;background-color:#fef2f2;margin:6px 0;}" +
+  ".override-box{padding:6px 12px;border-left:4px solid #f59e0b;background-color:#fefce8;margin:4px 0;font-size:10pt;}" +
+  ".trace-line{font-size:9pt;color:#374151;padding:2px 0;}" +
+  ".trace-lock{font-size:9pt;color:#dc2626;font-weight:bold;}" +
+  ".trace-override{font-size:9pt;color:#92400e;font-weight:bold;}" +
+  ".sig-block{margin-top:40px;border-top:1px solid #ccc;padding-top:20px;}" +
+  ".sig-line{border-bottom:1px solid #333;width:250px;display:inline-block;margin:0 20px;}" +
+  ".narrative{white-space:pre-wrap;font-size:10pt;line-height:1.6;color:#374151;padding:10px;background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;}" +
+  ".summary-grid{display:flex;gap:20px;margin:12px 0;}" +
+  ".summary-cell{flex:1;text-align:center;padding:8px;background-color:#f0f4f8;border-radius:4px;}" +
+  ".summary-label{font-size:9pt;color:#666;text-transform:uppercase;}" +
+  ".summary-value{font-size:14pt;font-weight:bold;}" +
+  "@media print{body{margin:20px;}.disposition-banner{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}";
+
+function buildReportHTML(data: any): string {
+  var dom = data.dominance;
+  var ch = data.chain;
+  var pr = data.parsed;
+  var as = data.asset;
+  var nar = data.aiNarrative;
+  var tx = data.transcript;
+  var now = new Date();
+  var dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  var timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  var caseRef = "FORGED-" + now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + String(now.getDate()).padStart(2, "0") + "-" + String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0") + String(now.getSeconds()).padStart(2, "0");
+
+  var h = "";
+
+  // Header
+  h += "<div class='header'>";
+  h += "<h1>FORGED NDT Intelligence OS</h1>";
+  h += "<p class='subtitle'>Inspection Plan Report</p>";
+  h += "<table style='border:none;margin-top:8px;'><tr style='background:none;'>";
+  h += "<td style='border:none;padding:2px 0;font-size:10pt;'><strong>Case Reference:</strong> " + caseRef + "</td>";
+  h += "<td style='border:none;padding:2px 0;font-size:10pt;text-align:right;'><strong>Date:</strong> " + dateStr + " " + timeStr + "</td>";
+  h += "</tr><tr style='background:none;'>";
+  h += "<td style='border:none;padding:2px 0;font-size:10pt;'><strong>Asset:</strong> " + ((as && as.asset_class) || "Unknown").replace(/_/g, " ") + " (" + Math.round(((as && as.confidence) || 0) * 100) + "% confidence)</td>";
+  h += "<td style='border:none;padding:2px 0;font-size:10pt;text-align:right;'><strong>Engine:</strong> " + ((dom && dom.engine_version) || "decision-dominance-v2.3") + "</td>";
+  h += "</tr></table></div>";
+
+  // Disposition Banner
+  if (dom) {
+    h += "<div class='disposition-banner " + (dom.disposition || "") + "'>" + (dom.disposition_label || "PENDING") + "</div>";
+
+    // Confirmation badge
+    if (dom.confirmation_status === "inspector_confirmed") {
+      h += "<p style='text-align:center;font-size:10pt;color:#16a34a;font-weight:bold;'>";
+      h += "EVIDENCE INSPECTOR-CONFIRMED";
+      if (dom.override_count > 0) h += " (" + dom.override_count + " override" + (dom.override_count > 1 ? "s" : "") + " applied)";
+      h += "</p>";
+    }
+
+    // Executive Summary Grid
+    h += "<table style='margin:16px 0;'><tr>";
+    h += "<th style='text-align:center;'>Risk Band</th><th style='text-align:center;'>Confidence</th><th style='text-align:center;'>Evidence Sufficiency</th><th style='text-align:center;'>Hard Locks Fired</th>";
+    h += "</tr><tr>";
+    h += "<td style='text-align:center;font-weight:bold;'>" + ((dom.risk_band || "").toUpperCase()) + "</td>";
+    h += "<td style='text-align:center;font-weight:bold;'>" + (dom.final_confidence || "?") + "%</td>";
+    h += "<td style='text-align:center;font-weight:bold;'>" + ((dom.evidence_sufficiency && dom.evidence_sufficiency.label) || "?") + " (" + ((dom.evidence_sufficiency && dom.evidence_sufficiency.score) || "?") + "/100)</td>";
+    h += "<td style='text-align:center;font-weight:bold;'>" + (dom.fired_lock_count || 0) + " of " + ((dom.hard_lock_triggers && dom.hard_lock_triggers.length) || 0) + "</td>";
+    h += "</tr></table>";
+
+    if (dom.management_summary) {
+      h += "<p style='font-size:10pt;color:#374151;line-height:1.6;'>" + dom.management_summary + "</p>";
+    }
+  }
+
+  // Structural Authority
+  if (dom && dom.structural_authority) {
+    var sa = dom.structural_authority;
+    h += "<h2>Structural Authority: " + (sa.status_label || "") + "</h2>";
+    h += "<table><tr><th>Factor</th><th>Status</th></tr>";
+    h += "<tr><td>Primary Member Damage</td><td style='font-weight:bold;color:" + (sa.primary_member_damage ? "#dc2626" : "#16a34a") + ";'>" + (sa.primary_member_damage ? "YES" : "NO") + "</td></tr>";
+    h += "<tr><td>Load Path Concern</td><td style='font-weight:bold;color:" + (sa.load_path_concern ? "#dc2626" : "#16a34a") + ";'>" + (sa.load_path_concern ? "YES" : "NO") + "</td></tr>";
+    h += "<tr><td>Immediate Shoring / Isolation Recommended</td><td style='font-weight:bold;color:" + (sa.immediate_shoring_or_isolation_recommended ? "#dc2626" : "#16a34a") + ";'>" + (sa.immediate_shoring_or_isolation_recommended ? "YES" : "NO") + "</td></tr>";
+    h += "</table>";
+    if (sa.rationale && sa.rationale.length > 0) {
+      for (var ri = 0; ri < sa.rationale.length; ri++) {
+        h += "<p style='font-size:10pt;margin:2px 0;'>" + (ri + 1) + ". " + sa.rationale[ri] + "</p>";
+      }
+    }
+  }
+
+  // Hard Lock Triggers
+  if (dom && dom.hard_lock_triggers) {
+    var firedLocks = dom.hard_lock_triggers.filter(function(t: any) { return t.fired; });
+    if (firedLocks.length > 0) {
+      h += "<h2>Hard Lock Triggers (" + firedLocks.length + " of " + dom.hard_lock_triggers.length + " fired)</h2>";
+      for (var li = 0; li < firedLocks.length; li++) {
+        var lk = firedLocks[li];
+        h += "<div class='lock-box'>";
+        h += "<p style='margin:0;font-weight:bold;color:#dc2626;'>" + lk.name + "</p>";
+        h += "<p style='margin:2px 0;font-size:10pt;'>" + lk.rationale + "</p>";
+        h += "<p style='margin:2px 0;font-size:9pt;color:#666;'>Code basis: " + lk.code_basis + "</p>";
+        h += "</div>";
+      }
+    }
+  }
+
+  // Evidence Overrides
+  if (dom && dom.evidence_overrides && dom.evidence_overrides.length > 0) {
+    h += "<h2>Evidence Overrides (Inspector Corrections)</h2>";
+    h += "<table><tr><th>Flag</th><th>Auto-Derived</th><th>Inspector Confirmed</th><th>Impact</th></tr>";
+    for (var oi = 0; oi < dom.evidence_overrides.length; oi++) {
+      var ov = dom.evidence_overrides[oi];
+      h += "<tr><td>" + ov.flag.replace(/_/g, " ") + "</td>";
+      h += "<td style='color:#dc2626;'>" + String(ov.auto_derived) + "</td>";
+      h += "<td style='color:#16a34a;font-weight:bold;'>" + String(ov.inspector_confirmed) + "</td>";
+      h += "<td>" + ov.impact.replace(/_/g, " ") + "</td></tr>";
+    }
+    h += "</table>";
+  }
+
+  // Surviving Mechanisms
+  if (dom && dom.surviving_mechanisms && dom.surviving_mechanisms.length > 0) {
+    h += "<h2>Surviving Damage Mechanisms (" + dom.surviving_mechanisms.length + ")</h2>";
+    h += "<table><tr><th>Mechanism</th><th>Severity</th><th>Relevance</th><th>Reasons</th></tr>";
+    for (var si = 0; si < dom.surviving_mechanisms.length; si++) {
+      var sm = dom.surviving_mechanisms[si];
+      h += "<tr><td style='font-weight:bold;'>" + (sm.family_name || sm.name || "") + "</td>";
+      h += "<td><span class='badge " + (sm.severity || "medium") + "'>" + (sm.severity || "medium").toUpperCase() + "</span></td>";
+      h += "<td>" + (sm.relevance_score || "") + "</td>";
+      h += "<td style='font-size:9pt;'>" + (sm.reasons || []).join(", ") + "</td></tr>";
+    }
+    h += "</table>";
+  }
+
+  // Suppressed Mechanisms
+  if (dom && dom.suppressed_mechanisms && dom.suppressed_mechanisms.length > 0) {
+    h += "<h2>Suppressed Mechanisms (" + dom.suppressed_mechanisms.length + ")</h2>";
+    h += "<table><tr><th>Mechanism</th><th>Reasons</th></tr>";
+    for (var xi = 0; xi < dom.suppressed_mechanisms.length; xi++) {
+      var xm = dom.suppressed_mechanisms[xi];
+      h += "<tr><td>" + (xm.family_name || xm.name || "") + "</td>";
+      h += "<td style='font-size:9pt;'>" + (xm.reasons || []).join(", ") + "</td></tr>";
+    }
+    h += "</table>";
+  }
+
+  // Priority Methods
+  if (dom && dom.top_methods && dom.top_methods.length > 0) {
+    h += "<h2>Priority Inspection Methods</h2>";
+    h += "<table><tr><th>#</th><th>Method</th></tr>";
+    for (var mi = 0; mi < dom.top_methods.length; mi++) {
+      h += "<tr><td>" + (mi + 1) + "</td><td style='font-weight:bold;'>" + dom.top_methods[mi] + "</td></tr>";
+    }
+    h += "</table>";
+    if (dom.method_filter && dom.method_filter.suppressed_methods && dom.method_filter.suppressed_methods.length > 0) {
+      h += "<h3>Suppressed Methods (material/asset mismatch)</h3>";
+      h += "<table><tr><th>Method</th><th>Reason</th></tr>";
+      for (var msi = 0; msi < dom.method_filter.suppressed_methods.length; msi++) {
+        var msm = dom.method_filter.suppressed_methods[msi];
+        h += "<tr><td>" + msm.method_name + "</td><td style='font-size:9pt;'>" + msm.reason.replace(/_/g, " ") + "</td></tr>";
+      }
+      h += "</table>";
+    }
+  }
+
+  // Prioritized Inspection Zones
+  var zones = (dom && dom.prioritized_inspection_sequence) || (ch && ch.engine_2_affected_zones) || [];
+  if (zones.length > 0) {
+    h += "<h2>Prioritized Inspection Zones</h2>";
+    h += "<table><tr><th>Priority</th><th>Zone</th><th>Rationale</th></tr>";
+    for (var zi = 0; zi < zones.length; zi++) {
+      var zn = zones[zi];
+      h += "<tr><td style='text-align:center;font-weight:bold;'>P" + (zn.priority || 2) + "</td>";
+      h += "<td style='font-weight:bold;'>" + (zn.zone_name || zn.zone || "") + "</td>";
+      h += "<td style='font-size:9pt;'>" + (zn.rationale || "") + "</td></tr>";
+    }
+    h += "</table>";
+  }
+
+  // Confidence Breakdown
+  if (dom && dom.confidence_adjustments && dom.confidence_adjustments.length > 0) {
+    h += "<h2>Confidence Analysis</h2>";
+    h += "<p style='font-size:10pt;'>Initial: <strong>" + (dom.initial_confidence || "?") + "%</strong> &rarr; Final: <strong>" + (dom.final_confidence || "?") + "%</strong> (delta: " + (dom.confidence_total_delta || "?") + "%)</p>";
+    h += "<table><tr><th>Group</th><th>Raw Delta</th><th>Capped Delta</th><th>Reasons</th></tr>";
+    for (var ci = 0; ci < dom.confidence_adjustments.length; ci++) {
+      var cg = dom.confidence_adjustments[ci];
+      h += "<tr><td style='font-weight:bold;'>" + cg.group + "</td>";
+      h += "<td>" + cg.raw_delta + "%</td>";
+      h += "<td style='font-weight:bold;color:#dc2626;'>" + cg.capped_delta + "%" + (cg.capped_delta !== cg.raw_delta ? " (capped)" : "") + "</td>";
+      h += "<td style='font-size:9pt;'>" + cg.reasons.join("; ") + "</td></tr>";
+    }
+    h += "</table>";
+  }
+
+  // Code Action Paths
+  if (ch && ch.engine_4_code_action_paths && ch.engine_4_code_action_paths.length > 0) {
+    h += "<h2>Code Action Paths</h2>";
+    h += "<table><tr><th>Finding Type</th><th>Code Section</th><th>Required Action</th><th>FFS Assessment</th><th>Eng. Review</th></tr>";
+    for (var cpi = 0; cpi < ch.engine_4_code_action_paths.length; cpi++) {
+      var cp = ch.engine_4_code_action_paths[cpi];
+      h += "<tr><td style='font-weight:bold;'>" + cp.finding_type.replace(/_/g, " ") + "</td>";
+      h += "<td>" + cp.code_section + "</td>";
+      h += "<td>" + cp.required_action + "</td>";
+      h += "<td>" + cp.ffs_assessment + "</td>";
+      h += "<td style='text-align:center;color:" + (cp.engineering_review_required ? "#dc2626" : "#16a34a") + ";font-weight:bold;'>" + (cp.engineering_review_required ? "YES" : "NO") + "</td></tr>";
+    }
+    h += "</table>";
+  }
+
+  // AI Narrative
+  if (nar) {
+    h += "<h2>AI Narrative Summary</h2>";
+    h += "<p style='font-size:9pt;color:#666;margin-bottom:4px;'>Generated by GPT-4o, constrained by deterministic chain + DDL output.</p>";
+    h += "<div class='narrative'>" + nar.replace(/\n/g, "<br>") + "</div>";
+  }
+
+  // Decision Trace
+  if (dom && dom.decision_trace && dom.decision_trace.length > 0) {
+    h += "<h2>Decision Trace (Audit Trail)</h2>";
+    for (var ti = 0; ti < dom.decision_trace.length; ti++) {
+      var tl = dom.decision_trace[ti];
+      var trClass = "trace-line";
+      if (tl.indexOf("HARD LOCK") !== -1) trClass = "trace-lock";
+      if (tl.indexOf("OVERRIDE") !== -1) trClass = "trace-override";
+      h += "<p class='" + trClass + "'>" + (ti + 1) + ". " + tl + "</p>";
+    }
+  }
+
+  // Original Input
+  if (tx) {
+    h += "<h2>Original Input Transcript</h2>";
+    h += "<div style='font-size:10pt;color:#374151;padding:10px;background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;white-space:pre-wrap;'>" + tx + "</div>";
+  }
+
+  // Signature Block
+  h += "<div class='sig-block'>";
+  h += "<table style='border:none;width:100%;'><tr style='background:none;'>";
+  h += "<td style='border:none;width:50%;'><p style='margin:0 0 4px 0;font-size:10pt;font-weight:bold;'>Inspector:</p><div class='sig-line'>&nbsp;</div></td>";
+  h += "<td style='border:none;width:50%;'><p style='margin:0 0 4px 0;font-size:10pt;font-weight:bold;'>Date:</p><div class='sig-line'>&nbsp;</div></td>";
+  h += "</tr><tr style='background:none;'>";
+  h += "<td style='border:none;padding-top:20px;'><p style='margin:0 0 4px 0;font-size:10pt;font-weight:bold;'>Reviewed By:</p><div class='sig-line'>&nbsp;</div></td>";
+  h += "<td style='border:none;padding-top:20px;'><p style='margin:0 0 4px 0;font-size:10pt;font-weight:bold;'>Date:</p><div class='sig-line'>&nbsp;</div></td>";
+  h += "</tr></table>";
+  h += "</div>";
+
+  // Footer
+  h += "<p style='text-align:center;font-size:8pt;color:#999;margin-top:30px;border-top:1px solid #ddd;padding-top:8px;'>Generated by FORGED NDT Intelligence OS &mdash; " + dateStr + " " + timeStr + " &mdash; " + caseRef + "<br>Engine: " + ((dom && dom.engine_version) || "decision-dominance-v2.3") + " | Evidence: " + ((dom && dom.confirmation_status) || "auto_derived") + "</p>";
+
+  return h;
+}
+
+function downloadAsWord(reportHTML: string) {
+  var wordDoc = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
+    "<head><meta charset='utf-8'><style>" + REPORT_CSS + "</style></head><body>" + reportHTML + "</body></html>";
+  var blob = new Blob(["\ufeff" + wordDoc], { type: "application/msword" });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  var now = new Date();
+  var ts = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+  a.href = url;
+  a.download = "FORGED_Inspection_Report_" + ts + ".doc";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function openPrintView(reportHTML: string) {
+  var printWin = window.open("", "_blank");
+  if (!printWin) { alert("Pop-up blocked. Please allow pop-ups for this site."); return; }
+  printWin.document.write("<!DOCTYPE html><html><head><meta charset='utf-8'><title>FORGED Inspection Report</title><style>" + REPORT_CSS + "</style></head><body>" + reportHTML + "</body></html>");
+  printWin.document.close();
+  setTimeout(function() { printWin.print(); }, 500);
+}
+
+// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
@@ -784,6 +1076,20 @@ export default function VoiceInspectionPage() {
             onSkip={handleSkipEvidence}
             isGenerating={isGenerating}
           />
+        )}
+
+        {/* ==== DOWNLOAD REPORT BAR ==== */}
+        {dominance && !isGenerating && !evidenceConfirmPending && (
+          <div style={{ marginBottom: "16px", padding: "12px 16px", backgroundColor: "#f0f4f8", borderRadius: "8px", border: "1px solid #d1d5db", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: "13px", color: "#1e3a5f" }}>Inspection Report Ready</div>
+              <div style={{ fontSize: "11px", color: "#6b7280" }}>Download as Word document or save as PDF via print dialog.</div>
+            </div>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button onClick={function() { var html = buildReportHTML({ dominance: dominance, chain: chain, parsed: parsed, asset: asset, aiNarrative: aiNarrative, transcript: transcript }); downloadAsWord(html); }} style={{ padding: "8px 18px", fontSize: "13px", fontWeight: 700, color: "#fff", backgroundColor: "#1e3a5f", border: "none", borderRadius: "6px", cursor: "pointer" }}>{"\uD83D\uDCC4"} Word</button>
+              <button onClick={function() { var html = buildReportHTML({ dominance: dominance, chain: chain, parsed: parsed, asset: asset, aiNarrative: aiNarrative, transcript: transcript }); openPrintView(html); }} style={{ padding: "8px 18px", fontSize: "13px", fontWeight: 700, color: "#1e3a5f", backgroundColor: "#fff", border: "2px solid #1e3a5f", borderRadius: "6px", cursor: "pointer" }}>{"\uD83D\uDDA8\uFE0F"} PDF</button>
+            </div>
+          </div>
         )}
 
         {/* ==== DDL DISPOSITION CARD (Engine 8) ==== */}
