@@ -1,13 +1,19 @@
-// DEPLOY88 — VoiceInspectionPage.tsx v9
-// Decision Dominance Layer (Engine 8) integrated into pipeline
-// New cards: DDL Disposition, Structural Authority, Hard Locks, Mechanism Filter,
-//            DDL Confidence with grouped penalties, Evidence Sufficiency
+// DEPLOY90 — VoiceInspectionPage.tsx v10
+// Evidence Confirmation Card — inspector verifies extracted evidence before DDL runs
+// Pipeline flow: parse+asset → evidence confirmation pause → rest of pipeline
+// v10 changes:
+//   - extractPreliminaryEvidence() derives key flags client-side after parse
+//   - Evidence Confirmation Card with grouped toggles
+//   - handleConfirmEvidence() resumes pipeline with confirmed flags
+//   - handleSkipEvidence() resumes pipeline with auto-derived flags
+//   - DDL call includes confirmed_flags when inspector-confirmed
+//   - Audit: DDL output includes confirmation_status + overrides
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
 
 // ============================================================================
-// TYPES (unchanged from DEPLOY86 — abbreviated for brevity)
+// TYPES
 // ============================================================================
 
 interface NumericValues { [key: string]: number | undefined; }
@@ -27,6 +33,42 @@ interface CodeTraceResult { [key: string]: any; }
 interface EventEnrichResult { [key: string]: any; }
 
 // ============================================================================
+// EVIDENCE FLAG DEFINITIONS — what gets shown in the confirmation card
+// ============================================================================
+
+interface EvidenceFlagDef {
+  key: string;
+  label: string;
+  group: string;
+  type: "boolean" | "number";
+  hardLockCritical: boolean;
+  description: string;
+}
+
+var CONFIRMABLE_FLAGS: EvidenceFlagDef[] = [
+  // Damage Indicators
+  { key: "visible_deformation", label: "Visible Deformation", group: "Damage Indicators", type: "boolean", hardLockCritical: true, description: "Buckling, bending, denting, or permanent distortion observed" },
+  { key: "visible_cracking", label: "Cracking Suspected", group: "Damage Indicators", type: "boolean", hardLockCritical: false, description: "Possible cracking observed but not confirmed" },
+  { key: "crack_confirmed", label: "Cracking CONFIRMED", group: "Damage Indicators", type: "boolean", hardLockCritical: true, description: "Cracking confirmed by visual or NDE — triggers hard lock if in primary member" },
+  { key: "dent_or_gouge_present", label: "Dent / Gouge Present", group: "Damage Indicators", type: "boolean", hardLockCritical: false, description: "Localized mechanical damage (dent, gouge, scrape)" },
+  // Structural / Load Path
+  { key: "primary_member_involved", label: "Primary Member Involved", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Damage involves primary load-carrying member (leg, girder, brace, main beam)" },
+  { key: "load_path_interruption_possible", label: "Load Path Interruption", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Possible interruption or redistribution of structural load path" },
+  { key: "support_shift", label: "Support / Restraint Shift", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Support or restraint displacement, misalignment, or abnormal positioning" },
+  { key: "bearing_displacement", label: "Bearing Displacement", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Bearing shifted, displaced, or showing abnormal movement" },
+  // Fire / Thermal
+  { key: "fire_exposure", label: "Fire / Thermal Exposure", group: "Fire / Thermal", type: "boolean", hardLockCritical: true, description: "Component exposed to fire, flame impingement, or elevated temperature" },
+  { key: "fire_duration_minutes", label: "Fire Duration (minutes)", group: "Fire / Thermal", type: "number", hardLockCritical: false, description: "Approximate duration of fire exposure — affects mechanism suppression" },
+  // Pressure / Leaks
+  { key: "pressure_boundary_involved", label: "Pressure Boundary Involved", group: "Pressure / Leaks", type: "boolean", hardLockCritical: true, description: "Piping, vessel, PSV, flange, or other pressure-containing component" },
+  { key: "leak_suspected", label: "Leak Suspected", group: "Pressure / Leaks", type: "boolean", hardLockCritical: false, description: "Staining, seepage, or other indicators of possible leak" },
+  { key: "leak_confirmed", label: "Leak CONFIRMED", group: "Pressure / Leaks", type: "boolean", hardLockCritical: true, description: "Active or confirmed leak — triggers hard lock with pressure boundary" },
+  // Access / Data Quality
+  { key: "underwater_access_limited", label: "Underwater / Limited Access", group: "Access / Data Quality", type: "boolean", hardLockCritical: false, description: "Inspection area is underwater, confined, or has restricted access" },
+  { key: "unknown_material", label: "Material Unknown", group: "Access / Data Quality", type: "boolean", hardLockCritical: false, description: "Material grade/type not specified or confirmed — degrades confidence" },
+];
+
+// ============================================================================
 // API HELPER
 // ============================================================================
 
@@ -43,6 +85,47 @@ async function callAPI(endpoint: string, body: any): Promise<any> {
     throw new Error(endpoint + " failed (" + res.status + "): " + text);
   }
   return res.json();
+}
+
+// ============================================================================
+// CLIENT-SIDE EVIDENCE EXTRACTION — preview for confirmation card
+// Mirrors DDL's buildEvidenceFlags but runs in browser
+// ============================================================================
+
+function extractPreliminaryEvidence(parsed: ParsedResult | null, asset: AssetResult | null): { [key: string]: any } {
+  var events = (parsed && parsed.events) || [];
+  var transcript = (parsed && parsed.raw_text) || "";
+  var lt = transcript.toLowerCase();
+
+  function hasEvent(term: string): boolean {
+    for (var i = 0; i < events.length; i++) {
+      if (events[i].toLowerCase().indexOf(term) !== -1) return true;
+    }
+    return false;
+  }
+  function inText(term: string): boolean { return lt.indexOf(term) !== -1; }
+
+  var fireDuration: number | null = null;
+  var fireMatch = /(\d+)\s*(?:minutes?|mins?)\s*(?:before|fire|burn|controlled|extinguish)/i.exec(transcript);
+  if (fireMatch) fireDuration = parseInt(fireMatch[1], 10);
+
+  return {
+    visible_deformation: hasEvent("deformation") || inText("dent") || inText("deform") || inText("buckl"),
+    visible_cracking: hasEvent("possible_cracking") || hasEvent("cracking") || inText("crack"),
+    crack_confirmed: inText("crack confirmed") || inText("cracking confirmed"),
+    primary_member_involved: inText("jacket leg") || inText("primary") || inText("girder") || inText("main member") || inText("brace"),
+    load_path_interruption_possible: inText("load path"),
+    leak_suspected: hasEvent("possible_leakage") || inText("leak") || inText("staining"),
+    leak_confirmed: inText("confirmed leak") || inText("active leak"),
+    pressure_boundary_involved: inText("piping") || inText("psv") || inText("flange") || inText("pressure"),
+    fire_exposure: hasEvent("fire") || inText("fire"),
+    fire_duration_minutes: fireDuration,
+    bearing_displacement: inText("bearing") && (inText("displace") || inText("shift")),
+    support_shift: inText("support") && (inText("displace") || inText("shift") || inText("misalign") || inText("abnormal alignment")),
+    dent_or_gouge_present: inText("dent") || inText("gouge"),
+    underwater_access_limited: inText("ft of water") || inText("feet of water") || inText("underwater") || inText("subsea"),
+    unknown_material: !inText("carbon steel") && !inText("stainless") && !inText("alloy"),
+  };
 }
 
 // ============================================================================
@@ -137,6 +220,187 @@ function StepTracker({ steps }: { steps: StepState[] }) {
 }
 
 // ============================================================================
+// EVIDENCE CONFIRMATION CARD
+// ============================================================================
+
+function EvidenceConfirmationCard({
+  evidence,
+  onConfirm,
+  onSkip,
+  isGenerating
+}: {
+  evidence: { [key: string]: any };
+  onConfirm: (confirmed: { [key: string]: any }) => void;
+  onSkip: () => void;
+  isGenerating: boolean;
+}) {
+  var [editedEvidence, setEditedEvidence] = useState<{ [key: string]: any }>({ ...evidence });
+  var [overrideCount, setOverrideCount] = useState(0);
+
+  // Count overrides whenever editedEvidence changes
+  useEffect(function() {
+    var count = 0;
+    for (var i = 0; i < CONFIRMABLE_FLAGS.length; i++) {
+      var flag = CONFIRMABLE_FLAGS[i];
+      if (editedEvidence[flag.key] !== evidence[flag.key]) count++;
+    }
+    setOverrideCount(count);
+  }, [editedEvidence, evidence]);
+
+  function toggleFlag(key: string) {
+    setEditedEvidence(function(prev: { [key: string]: any }) {
+      var next = { ...prev };
+      next[key] = !next[key];
+      return next;
+    });
+  }
+
+  function setNumericFlag(key: string, val: string) {
+    setEditedEvidence(function(prev: { [key: string]: any }) {
+      var next = { ...prev };
+      var parsed = parseInt(val, 10);
+      next[key] = isNaN(parsed) ? null : parsed;
+      return next;
+    });
+  }
+
+  // Group flags by category
+  var groups: { [key: string]: EvidenceFlagDef[] } = {};
+  for (var i = 0; i < CONFIRMABLE_FLAGS.length; i++) {
+    var flag = CONFIRMABLE_FLAGS[i];
+    if (!groups[flag.group]) groups[flag.group] = [];
+    groups[flag.group].push(flag);
+  }
+
+  var groupNames = Object.keys(groups);
+
+  return (
+    <Card title="Evidence Confirmation" icon={"\uD83D\uDD0D"} collapsible={false}>
+      <div style={{ padding: "10px 14px", backgroundColor: "#eff6ff", borderRadius: "6px", marginBottom: "16px", borderLeft: "4px solid #2563eb" }}>
+        <div style={{ fontWeight: 700, fontSize: "13px", color: "#1e40af", marginBottom: "4px" }}>Review Extracted Evidence Before Final Analysis</div>
+        <div style={{ fontSize: "12px", color: "#374151", lineHeight: "1.5" }}>
+          These evidence flags were auto-extracted from your description. They directly control hard locks, structural authority, and disposition. Correct any flags the AI got wrong before proceeding. Red-bordered flags are hard-lock-critical.
+        </div>
+      </div>
+
+      {groupNames.map(function(groupName, gi) {
+        var groupFlags = groups[groupName];
+        return (
+          <div key={gi} style={{ marginBottom: "16px" }}>
+            <div style={{ fontSize: "12px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "8px", borderBottom: "1px solid #e5e7eb", paddingBottom: "4px" }}>{groupName}</div>
+            {groupFlags.map(function(flag, fi) {
+              var currentVal = editedEvidence[flag.key];
+              var originalVal = evidence[flag.key];
+              var wasOverridden = currentVal !== originalVal;
+              var isActive = flag.type === "boolean" ? !!currentVal : (currentVal !== null && currentVal !== undefined);
+              var isCritical = flag.hardLockCritical;
+
+              if (flag.type === "number") {
+                return (
+                  <div key={fi} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "8px 12px", marginBottom: "4px", borderRadius: "6px",
+                    backgroundColor: wasOverridden ? "#fefce8" : "#fafafa",
+                    border: "1px solid " + (wasOverridden ? "#fde68a" : isCritical ? "#fecaca" : "#e5e7eb")
+                  }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span style={{ fontWeight: 600, fontSize: "13px", color: "#111" }}>{flag.label}</span>
+                        {isCritical && <span style={{ fontSize: "9px", fontWeight: 700, color: "#dc2626", backgroundColor: "#fef2f2", padding: "1px 5px", borderRadius: "3px" }}>LOCK-CRITICAL</span>}
+                        {wasOverridden && <span style={{ fontSize: "9px", fontWeight: 700, color: "#92400e", backgroundColor: "#fef3c7", padding: "1px 5px", borderRadius: "3px" }}>OVERRIDDEN</span>}
+                      </div>
+                      <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>{flag.description}</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <input
+                        type="number"
+                        value={currentVal !== null && currentVal !== undefined ? String(currentVal) : ""}
+                        onChange={function(e) { setNumericFlag(flag.key, e.target.value); }}
+                        placeholder="min"
+                        style={{
+                          width: "70px", padding: "4px 8px", fontSize: "13px", fontWeight: 700,
+                          border: "1px solid " + (wasOverridden ? "#f59e0b" : "#d1d5db"),
+                          borderRadius: "4px", textAlign: "center", outline: "none"
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={fi} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "8px 12px", marginBottom: "4px", borderRadius: "6px",
+                  backgroundColor: wasOverridden ? "#fefce8" : (isActive ? "#f0fdf4" : "#fafafa"),
+                  border: "1px solid " + (wasOverridden ? "#fde68a" : isCritical ? "#fecaca" : "#e5e7eb"),
+                  cursor: "pointer"
+                }} onClick={function() { toggleFlag(flag.key); }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontWeight: 600, fontSize: "13px", color: "#111" }}>{flag.label}</span>
+                      {isCritical && <span style={{ fontSize: "9px", fontWeight: 700, color: "#dc2626", backgroundColor: "#fef2f2", padding: "1px 5px", borderRadius: "3px" }}>LOCK-CRITICAL</span>}
+                      {wasOverridden && <span style={{ fontSize: "9px", fontWeight: 700, color: "#92400e", backgroundColor: "#fef3c7", padding: "1px 5px", borderRadius: "3px" }}>OVERRIDDEN</span>}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>{flag.description}</div>
+                  </div>
+                  <div style={{
+                    width: "44px", height: "24px", borderRadius: "12px",
+                    backgroundColor: isActive ? "#16a34a" : "#d1d5db",
+                    position: "relative", transition: "background-color 0.2s", flexShrink: 0
+                  }}>
+                    <div style={{
+                      width: "20px", height: "20px", borderRadius: "10px",
+                      backgroundColor: "#fff", position: "absolute", top: "2px",
+                      left: isActive ? "22px" : "2px",
+                      transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)"
+                    }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+
+      {/* Override summary */}
+      {overrideCount > 0 && (
+        <div style={{ padding: "8px 12px", backgroundColor: "#fefce8", borderRadius: "6px", marginBottom: "12px", border: "1px solid #fde68a" }}>
+          <div style={{ fontSize: "12px", fontWeight: 700, color: "#92400e" }}>{overrideCount} flag{overrideCount > 1 ? "s" : ""} overridden from auto-derived values</div>
+          <div style={{ fontSize: "11px", color: "#a16207", marginTop: "2px" }}>Overrides will be logged in the audit trail.</div>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div style={{ display: "flex", gap: "8px", marginTop: "16px" }}>
+        <button
+          onClick={function() { onConfirm(editedEvidence); }}
+          disabled={isGenerating}
+          style={{
+            flex: 2, padding: "12px 24px", fontSize: "14px", fontWeight: 700,
+            color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#16a34a",
+            border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer"
+          }}
+        >
+          {isGenerating ? "Running..." : ("\u2705 Confirm Evidence & Continue" + (overrideCount > 0 ? " (" + overrideCount + " override" + (overrideCount > 1 ? "s" : "") + ")" : ""))}
+        </button>
+        <button
+          onClick={onSkip}
+          disabled={isGenerating}
+          style={{
+            flex: 1, padding: "12px 16px", fontSize: "13px", fontWeight: 600,
+            color: isGenerating ? "#9ca3af" : "#6b7280", backgroundColor: "#f3f4f6",
+            border: "1px solid #d1d5db", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer"
+          }}
+        >
+          Skip {"\u2014"} Trust Auto-Derived
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+// ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
@@ -145,6 +409,8 @@ export default function VoiceInspectionPage() {
   var [isGenerating, setIsGenerating] = useState(false);
   var [steps, setSteps] = useState<StepState[]>([]);
   var [pipelinePaused, setPipelinePaused] = useState(false);
+  var [evidenceConfirmPending, setEvidenceConfirmPending] = useState(false);
+  var [preliminaryEvidence, setPreliminaryEvidence] = useState<{ [key: string]: any } | null>(null);
 
   // API results
   var [parsed, setParsed] = useState<ParsedResult | null>(null);
@@ -170,6 +436,13 @@ export default function VoiceInspectionPage() {
   var [aiInterpretation, setAiInterpretation] = useState<any>(null);
   var [selectedAnswers, setSelectedAnswers] = useState<{ [key: string]: string }>({});
 
+  // Refs to hold parse/asset results for continuePipeline
+  var parsedRef = useRef<ParsedResult | null>(null);
+  var assetRef = useRef<AssetResult | null>(null);
+  var stepsRef = useRef<StepState[]>([]);
+  var errorsRef = useRef<string[]>([]);
+  var inputTextRef = useRef<string>("");
+
   useEffect(() => {
     var SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SR) {
@@ -191,20 +464,21 @@ export default function VoiceInspectionPage() {
   }
 
   // ============================================================================
-  // MAIN GENERATE — now includes Decision Dominance (Engine 8) as step 6
-  // Steps: 0=Parser, 1=Asset, 2=Gov, 3=CodeAuth, 4=Router, 5=Chain,
-  //        6=DDL, 7=Narrative, 8=Enrich, 9=TimeProg, 10=CodeTrace
+  // PHASE 1: Parse + Asset → Evidence Confirmation
+  // Steps: 0=Parser, 1=Asset — then pause for evidence confirmation
   // ============================================================================
   async function handleGenerate(transcriptOverride?: string) {
     var inputText = transcriptOverride || transcript;
     if (!inputText.trim()) return;
 
-    setIsGenerating(true); setPipelinePaused(false); setErrors([]);
+    setIsGenerating(true); setPipelinePaused(false); setEvidenceConfirmPending(false);
+    setPreliminaryEvidence(null); setErrors([]);
     setParsed(null); setAsset(null); setGovernance(null); setCodeAuthority(null);
     setMasterRoute(null); setChain(null); setDominance(null); setAiNarrative(null);
     setEventEnrich(null); setTimeProgression(null); setCodeTrace(null);
     setChainPerformance(null); setAiQuestions(null); setAiUnderstood(null);
     setAiInterpretation(null); setSelectedAnswers({});
+    inputTextRef.current = inputText;
 
     var initialSteps: StepState[] = [
       { label: "AI Incident Parser (GPT-4o)", status: "pending" },
@@ -220,13 +494,11 @@ export default function VoiceInspectionPage() {
       { label: "Code Trace", status: "pending" },
     ];
     var s = [...initialSteps];
-    setSteps(s);
+    setSteps(s); stepsRef.current = s;
 
     var errs: string[] = [];
     var parsedResult: ParsedResult | null = null;
     var assetResult: AssetResult | null = null;
-    var chainResult: ChainResult | null = null;
-    var dominanceResult: any = null;
     var needsMoreInfo = false;
 
     try {
@@ -257,17 +529,58 @@ export default function VoiceInspectionPage() {
       } else { s = updateStep(1, { status: "error" }, s); errs.push("resolve-asset: " + assetRes.reason?.message); assetResult = { asset_class: "pressure_vessel", asset_type: "pressure_vessel", confidence: 0.3 }; setAsset(assetResult); }
       setSteps([...s]);
 
-      // ====== FLOW CONTROL ======
+      // ====== AI QUESTIONS FLOW CONTROL ======
       if (needsMoreInfo) {
         for (var wi = 2; wi < s.length; wi++) s = updateStep(wi, { status: "waiting", detail: "waiting for your answers" }, s);
-        setSteps([...s]); setErrors(errs); setIsGenerating(false); setPipelinePaused(true);
-        setTimeout(() => { resultsRef.current?.scrollIntoView({ behavior: "smooth" }); }, 200);
+        setSteps([...s]); stepsRef.current = s; setErrors(errs); errorsRef.current = errs;
+        setIsGenerating(false); setPipelinePaused(true);
+        setTimeout(function() { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: "smooth" }); }, 200);
         return;
       }
 
+      // ====== EVIDENCE CONFIRMATION PAUSE ======
+      parsedRef.current = parsedResult;
+      assetRef.current = assetResult;
+      stepsRef.current = s;
+      errorsRef.current = errs;
+
+      // Extract preliminary evidence for confirmation card
+      var prelimEvidence = extractPreliminaryEvidence(parsedResult, assetResult);
+      setPreliminaryEvidence(prelimEvidence);
+      setEvidenceConfirmPending(true);
+
+      // Mark remaining steps as waiting for evidence confirmation
+      for (var ei = 2; ei < s.length; ei++) s = updateStep(ei, { status: "waiting", detail: "waiting for evidence confirmation" }, s);
+      setSteps([...s]); stepsRef.current = s;
+      setErrors(errs); errorsRef.current = errs;
+      setIsGenerating(false);
+
+      setTimeout(function() { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: "smooth" }); }, 200);
+
+    } catch (e: any) {
+      errs.push("Pipeline error: " + e.message);
+      setErrors(errs); setIsGenerating(false);
+    }
+  }
+
+  // ============================================================================
+  // PHASE 2: Continue pipeline after evidence confirmation (steps 2-10)
+  // ============================================================================
+  async function continuePipeline(confirmedFlags: { [key: string]: any } | null) {
+    setIsGenerating(true); setEvidenceConfirmPending(false);
+
+    var parsedResult = parsedRef.current;
+    var assetResult = assetRef.current;
+    var inputText = inputTextRef.current;
+    var s = [...stepsRef.current];
+    var errs = [...errorsRef.current];
+    var chainResult: ChainResult | null = null;
+    var dominanceResult: any = null;
+    var assetClass = assetResult?.asset_class || "pressure_vessel";
+
+    try {
       // ====== PHASE 2: PARALLEL — governance + code-authority ======
       s = updateStep(2, { status: "running" }, s); s = updateStep(3, { status: "running" }, s); setSteps([...s]);
-      var assetClass = assetResult?.asset_class || "pressure_vessel";
       var [govRes, codeAuthRes] = await Promise.allSettled([
         callAPI("governance-matrix", { raw_text: inputText, asset_class: assetClass }),
         callAPI("code-authority-resolution", { raw_text: inputText, asset_class: assetClass }),
@@ -296,15 +609,20 @@ export default function VoiceInspectionPage() {
       } catch (e: any) { s = updateStep(5, { status: "error", detail: e.message }, s); errs.push("chain: " + e.message); }
       setSteps([...s]);
 
-      // ====== PHASE 4.5: DECISION DOMINANCE LAYER (Engine 8) ======
-      s = updateStep(6, { status: "running" }, s); setSteps([...s]);
+      // ====== PHASE 4.5: DECISION DOMINANCE LAYER (Engine 8) — with confirmed_flags ======
+      s = updateStep(6, { status: "running", detail: confirmedFlags ? "inspector-confirmed evidence" : "auto-derived evidence" }, s); setSteps([...s]);
       try {
-        var ddlRes = await callAPI("decision-dominance", { parsed: parsedResult, chain: chainResult, asset: assetResult });
+        var ddlBody: any = { parsed: parsedResult, chain: chainResult, asset: assetResult };
+        if (confirmedFlags) {
+          ddlBody.confirmed_flags = confirmedFlags;
+        }
+        var ddlRes = await callAPI("decision-dominance", ddlBody);
         dominanceResult = ddlRes.dominance || ddlRes;
         setDominance(dominanceResult);
         var surv = dominanceResult.surviving_count || dominanceResult.mechanism_summary?.surviving_count || 0;
         var supp = dominanceResult.suppressed_count || dominanceResult.mechanism_summary?.suppressed_count || 0;
-        s = updateStep(6, { status: "done", detail: surv + " survived, " + supp + " suppressed, " + (dominanceResult.disposition_label || "") + " in " + (dominanceResult.elapsed_ms || "?") + "ms" }, s);
+        var confirmLabel = dominanceResult.confirmation_status === "inspector_confirmed" ? " (confirmed)" : "";
+        s = updateStep(6, { status: "done", detail: surv + " survived, " + supp + " suppressed, " + (dominanceResult.disposition_label || "") + confirmLabel + " in " + (dominanceResult.elapsed_ms || "?") + "ms" }, s);
       } catch (e: any) { s = updateStep(6, { status: "error", detail: e.message }, s); errs.push("decision-dominance: " + e.message); }
       setSteps([...s]);
 
@@ -324,6 +642,9 @@ export default function VoiceInspectionPage() {
           lockedContext += "Structural Authority: " + (dominanceResult.structural_authority?.status_label || "") + "\n";
           lockedContext += "DDL Surviving Mechanisms: " + (dominanceResult.surviving_mechanisms || []).map(function(m: any) { return m.family_name; }).join("; ") + "\n";
           lockedContext += "DDL Confidence: " + (dominanceResult.final_confidence || "") + "%\n";
+          if (dominanceResult.confirmation_status === "inspector_confirmed") {
+            lockedContext += "Evidence Status: INSPECTOR CONFIRMED (" + (dominanceResult.override_count || 0) + " overrides)\n";
+          }
         }
         var constrainedTranscript = "=== LOCKED DETERMINISTIC CONTEXT ===\n" + lockedContext + "\n=== ORIGINAL TRANSCRIPT ===\n" + inputText;
         var planRes = await callAPI("voice-incident-plan", { transcript: constrainedTranscript });
@@ -357,7 +678,15 @@ export default function VoiceInspectionPage() {
     } catch (e: any) { errs.push("Pipeline error: " + e.message); }
 
     setErrors(errs); setIsGenerating(false);
-    setTimeout(() => { resultsRef.current?.scrollIntoView({ behavior: "smooth" }); }, 200);
+    setTimeout(function() { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: "smooth" }); }, 200);
+  }
+
+  function handleConfirmEvidence(confirmedEvidence: { [key: string]: any }) {
+    continuePipeline(confirmedEvidence);
+  }
+
+  function handleSkipEvidence() {
+    continuePipeline(null);
   }
 
   function handleGenerateWithAnswers() {
@@ -373,13 +702,13 @@ export default function VoiceInspectionPage() {
   return (
     <div className="voice-inspection-page" style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>NDT Superbrain — Voice Inspection Intelligence</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Just have a conversation with the really smart AI. Speak or type — it understands any industry, any asset, any scenario.</p>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>NDT Superbrain {"\u2014"} Voice Inspection Intelligence</h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Just have a conversation with the really smart AI. Speak or type {"\u2014"} it understands any industry, any asset, any scenario.</p>
       </div>
 
       {/* ---- INPUT AREA ---- */}
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
-        <textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} placeholder="Describe what happened — speak or type the incident, inspection scenario, or assessment request..." style={{ width: "100%", minHeight: "120px", padding: "14px 16px", fontSize: "14px", lineHeight: "1.6", border: "none", outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+        <textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} placeholder="Describe what happened \u2014 speak or type the incident, inspection scenario, or assessment request..." style={{ width: "100%", minHeight: "120px", padding: "14px 16px", fontSize: "14px", lineHeight: "1.6", border: "none", outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", backgroundColor: "#f9fafb", borderTop: "1px solid #e5e7eb" }}>
           <span style={{ fontSize: "12px", color: "#9ca3af" }}>{transcript.length > 0 ? transcript.split(/\s+/).filter(Boolean).length + " words" : "Speak or type"}</span>
           <div style={{ display: "flex", gap: "8px" }}>
@@ -394,7 +723,14 @@ export default function VoiceInspectionPage() {
       {pipelinePaused && (
         <div style={{ margin: "0 0 16px 0", padding: "12px 16px", backgroundColor: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
           <span style={{ fontSize: "20px" }}>{"\u23F8\uFE0F"}</span>
-          <div><div style={{ fontWeight: 700, fontSize: "13px", color: "#92400e" }}>Pipeline paused — AI needs more information</div><div style={{ fontSize: "12px", color: "#a16207" }}>Answer the questions below, then tap "Generate with Answers".</div></div>
+          <div><div style={{ fontWeight: 700, fontSize: "13px", color: "#92400e" }}>Pipeline paused {"\u2014"} AI needs more information</div><div style={{ fontSize: "12px", color: "#a16207" }}>Answer the questions below, then tap "Generate with Answers".</div></div>
+        </div>
+      )}
+
+      {evidenceConfirmPending && (
+        <div style={{ margin: "0 0 16px 0", padding: "12px 16px", backgroundColor: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
+          <span style={{ fontSize: "20px" }}>{"\uD83D\uDD0D"}</span>
+          <div><div style={{ fontWeight: 700, fontSize: "13px", color: "#1e40af" }}>Evidence confirmation required</div><div style={{ fontSize: "12px", color: "#3b82f6" }}>Review the extracted evidence flags below. Correct any errors, then confirm to continue analysis.</div></div>
         </div>
       )}
 
@@ -433,12 +769,30 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* ==== DDL DISPOSITION CARD (Engine 8 — replaces old AI Disposition) ==== */}
+        {/* ==== EVIDENCE CONFIRMATION CARD ==== */}
+        {evidenceConfirmPending && preliminaryEvidence && (
+          <EvidenceConfirmationCard
+            evidence={preliminaryEvidence}
+            onConfirm={handleConfirmEvidence}
+            onSkip={handleSkipEvidence}
+            isGenerating={isGenerating}
+          />
+        )}
+
+        {/* ==== DDL DISPOSITION CARD (Engine 8) ==== */}
         {dominance && (
           <Card title={dominance.disposition_label || "DISPOSITION"} icon={dominance.disposition === "no_go" ? "\uD83D\uDED1" : dominance.disposition === "repair_before_restart" ? "\u26D4" : "\u26A0\uFE0F"} collapsible={false}>
             <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "18px", color: "#fff", backgroundColor: dispositionColor(dominance.disposition), textAlign: "center" }}>
               {dominance.disposition_label}
             </div>
+            {/* Evidence confirmation badge */}
+            {dominance.confirmation_status === "inspector_confirmed" && (
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", marginBottom: "12px", border: "1px solid #bbf7d0" }}>
+                <span style={{ fontSize: "14px" }}>{"\u2705"}</span>
+                <span style={{ fontSize: "12px", fontWeight: 700, color: "#16a34a" }}>Evidence Inspector-Confirmed</span>
+                {dominance.override_count > 0 && <span style={{ fontSize: "11px", color: "#6b7280" }}>({dominance.override_count} override{dominance.override_count > 1 ? "s" : ""} applied)</span>}
+              </div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "12px" }}>
               <div style={{ textAlign: "center", padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
                 <div style={{ fontSize: "11px", color: "#6b7280", textTransform: "uppercase" }}>Risk Band</div>
@@ -450,10 +804,32 @@ export default function VoiceInspectionPage() {
               </div>
               <div style={{ textAlign: "center", padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
                 <div style={{ fontSize: "11px", color: "#6b7280", textTransform: "uppercase" }}>Evidence</div>
-                <div style={{ fontSize: "15px", fontWeight: 700 }}>{dominance.evidence_sufficiency?.label || "—"}</div>
+                <div style={{ fontSize: "15px", fontWeight: 700 }}>{dominance.evidence_sufficiency?.label || "\u2014"}</div>
               </div>
             </div>
             {dominance.management_summary && <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151" }}>{dominance.management_summary}</div>}
+          </Card>
+        )}
+
+        {/* ==== EVIDENCE OVERRIDES CARD (only if inspector confirmed with overrides) ==== */}
+        {dominance?.evidence_overrides && dominance.evidence_overrides.length > 0 && (
+          <Card title="Evidence Overrides (Audit)" icon={"\uD83D\uDD04"} status={dominance.evidence_overrides.length + " override" + (dominance.evidence_overrides.length > 1 ? "s" : "")}>
+            {dominance.evidence_overrides.map(function(ov: any, i: number) {
+              var impactColor = ov.impact === "hard_lock_critical" ? "#dc2626" : ov.impact === "mechanism_suppression" ? "#ea580c" : ov.impact === "confidence_affecting" ? "#ca8a04" : "#6b7280";
+              return (
+                <div key={i} style={{ marginBottom: "6px", padding: "8px 12px", backgroundColor: "#fefce8", borderRadius: "6px", borderLeft: "3px solid " + impactColor }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontWeight: 700, fontSize: "13px" }}>{ov.flag.replace(/_/g, " ")}</span>
+                    <span style={{ fontSize: "10px", fontWeight: 700, color: impactColor, backgroundColor: impactColor + "15", padding: "1px 5px", borderRadius: "3px" }}>{ov.impact.replace(/_/g, " ").toUpperCase()}</span>
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#374151", marginTop: "2px" }}>
+                    Auto-derived: <span style={{ fontWeight: 600, color: "#dc2626" }}>{String(ov.auto_derived)}</span>
+                    {" \u2192 "}
+                    Inspector: <span style={{ fontWeight: 600, color: "#16a34a" }}>{String(ov.inspector_confirmed)}</span>
+                  </div>
+                </div>
+              );
+            })}
           </Card>
         )}
 
@@ -540,7 +916,7 @@ export default function VoiceInspectionPage() {
         )}
 
         {/* ==== VERIFIED EXTRACTION ==== */}
-        {parsed && asset && !pipelinePaused && (
+        {parsed && asset && !pipelinePaused && !evidenceConfirmPending && (
           <Card title="Verified Extraction" icon={"\uD83D\uDD12"} status={(parsed.events?.length || 0) + " events, " + (parsed.environment?.length || 0) + " environments"}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
               <div>
@@ -569,7 +945,7 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* ==== ENGINE 2: AFFECTED ZONES (prioritized by DDL if available) ==== */}
+        {/* ==== PRIORITIZED INSPECTION ZONES ==== */}
         {(dominance?.prioritized_inspection_sequence || chain?.engine_2_affected_zones) && (dominance?.prioritized_inspection_sequence?.length > 0 || (chain?.engine_2_affected_zones && chain.engine_2_affected_zones.length > 0)) && (
           <Card title="Prioritized Inspection Zones" icon={"\uD83D\uDCCD"} status={dominance ? "DDL-prioritized" : "chain output"}>
             {(dominance?.prioritized_inspection_sequence || chain?.engine_2_affected_zones || []).map(function(z: any, i: number) {
@@ -644,7 +1020,7 @@ export default function VoiceInspectionPage() {
 
         {/* ==== AI NARRATIVE ==== */}
         {aiNarrative && (
-          <Card title="AI Narrative Summary" icon={"\uD83E\uDD16"} status="GPT-4o prose — constrained by chain + DDL">
+          <Card title="AI Narrative Summary" icon={"\uD83E\uDD16"} status="GPT-4o prose \u2014 constrained by chain + DDL">
             <div style={{ fontSize: "13px", lineHeight: "1.7", color: "#374151", whiteSpace: "pre-wrap" }}>{aiNarrative}</div>
           </Card>
         )}
@@ -654,7 +1030,8 @@ export default function VoiceInspectionPage() {
           <Card title="Decision Trace (Audit)" icon={"\uD83D\uDCCB"}>
             {dominance.decision_trace.map(function(t: string, i: number) {
               var isLock = t.indexOf("HARD LOCK") !== -1;
-              return <div key={i} style={{ fontSize: "12px", padding: "3px 0", color: isLock ? "#dc2626" : "#374151", fontWeight: isLock ? 700 : 400 }}>{i + 1}. {t}</div>;
+              var isOverride = t.indexOf("OVERRIDE") !== -1;
+              return <div key={i} style={{ fontSize: "12px", padding: "3px 0", color: isLock ? "#dc2626" : isOverride ? "#92400e" : "#374151", fontWeight: (isLock || isOverride) ? 700 : 400, backgroundColor: isOverride ? "#fefce8" : "transparent", padding: isOverride ? "4px 8px" : "3px 0", borderRadius: isOverride ? "4px" : "0", marginBottom: isOverride ? "2px" : "0" }}>{i + 1}. {t}</div>;
             })}
           </Card>
         )}
