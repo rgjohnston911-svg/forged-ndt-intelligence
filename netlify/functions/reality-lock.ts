@@ -69,6 +69,12 @@ var DOMAIN_KEYWORDS: { [key: string]: string[] } = {
   "wind_energy": [
     "wind turbine", "nacelle", "blade", "tower base", "rotor hub",
     "yaw bearing", "wind farm"
+  ],
+  "aircraft_aviation": [
+    "aircraft", "airplane", "cargo aircraft", "landing gear", "wing root",
+    "fuselage", "brake fire", "hard landing", "runway", "rollout",
+    "wing spar", "skin wrinkling", "wheel well", "flight control",
+    "airworthiness", "airframe", "turbine blade", "engine pylon"
   ]
 };
 
@@ -104,7 +110,8 @@ var DOMAIN_ASSET_MAP: { [key: string]: string[] } = {
   "nuclear": ["nuclear_vessel", "nuclear_piping"],
   "marine_vessel": ["marine_vessel", "ship"],
   "power_generation": ["boiler", "turbine", "hrsg"],
-  "wind_energy": ["wind_turbine"]
+  "wind_energy": ["wind_turbine"],
+  "aircraft_aviation": ["aircraft", "airframe"]
 };
 
 // ================================================================
@@ -124,7 +131,8 @@ var DOMAIN_LABELS: { [key: string]: string } = {
   "nuclear": "Nuclear",
   "marine_vessel": "Marine Vessel",
   "power_generation": "Power Generation",
-  "wind_energy": "Wind Energy"
+  "wind_energy": "Wind Energy",
+  "aircraft_aviation": "Aircraft / Aviation"
 };
 
 // ================================================================
