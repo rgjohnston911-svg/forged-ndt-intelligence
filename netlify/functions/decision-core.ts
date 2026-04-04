@@ -129,7 +129,8 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   var co2 = hasWord(lt, "co2") || hasWord(lt, "sweet corros");
   // CRITICAL: "marine" only triggers chlorides if NOT explicitly denied
   // "diving" or "commercial diving" is an INDUSTRY, not an environment
-  var chlorides = !negMarine && !negChloride && (hasWord(lt, "chloride") || hasWord(lt, "seawater") || hasWord(lt, "splash zone"));
+  var chlorides = !negMarine && !negChloride && (hasWord(lt, "chloride") || hasWord(lt, "seawater") || hasWord(lt, "splash zone") || hasWord(lt, "salt"));
+  // "salt-laden" or "brine" = chloride exposure possible
   // "marine" keyword only counts if not negated
   if (!negMarine && hasWord(lt, "marine") && !hasWord(lt, "marine environment. no") && !hasWord(lt, "marine environment: no") && !hasWord(lt, "no. marine") && !hasWord(lt, "no marine")) {
     // Check if "marine" appears as a positive assertion, not a denial
@@ -365,6 +366,34 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
     // Transcript keyword boost
     var words = md.name.toLowerCase().split(/[\s\/()]+/);
     for (var wi = 0; wi < words.length; wi++) { if (words[wi].length > 3 && hasWord(lt, words[wi])) { score += 0.05; break; } }
+
+    // PHYSICS-CONTEXT DOMINANCE SCORING
+    // The mechanism that best matches the DOMINANT PHYSICS DRIVERS should rank highest
+    // For cyclic loaded vessels with stress concentrations → fatigue outranks corrosion
+    // For corrosive environments without cyclic loading → corrosion outranks fatigue
+    if (md.id === "fatigue_mechanical" || md.id === "fatigue_thermal" || md.id === "fatigue_vibration") {
+      // Fatigue boost: cyclic loading is the dominant physics driver
+      if (s.cyclic_loading) score += 0.10;
+      if (s.stress_concentration_present) score += 0.08;
+      // Synergy: both cyclic AND stress concentration = strong fatigue case
+      if (s.cyclic_loading && s.stress_concentration_present) score += 0.07;
+    }
+    if (md.id === "general_corrosion" || md.id === "co2_corrosion" || md.id === "cui" || md.id === "erosion") {
+      // Corrosion: only dominant when cyclic loading is NOT the primary driver
+      if (s.cyclic_loading && s.stress_concentration_present) {
+        // Cyclic vessel with stress concentrations: corrosion is secondary, not primary
+        score -= 0.10;
+      }
+      // Corrosion without direct evidence should not promote above fatigue
+      if (!obs && !hasWord(lt, "corrosion") && !hasWord(lt, "thinning") && !hasWord(lt, "wall loss")) {
+        score -= 0.05;
+      }
+    }
+    if (md.id === "pitting") {
+      // Pitting: coating breakdown + rust + salt = strong indicator even without explicit chemistry
+      if (hasWord(lt, "coating breakdown") || hasWord(lt, "coating damage") || hasWord(lt, "paint breakdown")) score += 0.05;
+      if (hasWord(lt, "rust") || hasWord(lt, "stain")) score += 0.05;
+    }
     if (score > 1) score = 1;
     var state = score >= 0.75 ? "confirmed" : score >= 0.55 ? "probable" : score >= 0.35 ? "possible" : "unverified";
     validated.push({ id: md.id, name: md.name, physics_basis: md.preLabels.join(" + "),
@@ -476,6 +505,16 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   }
   if (!failPhysics) failPhysics = "Damage progression reduces integrity below safe operating threshold.";
 
+  // PHYSICS-CONTEXT FAILURE MODE OVERRIDE
+  // For cyclic loaded vessels with stress concentrations, crack propagation is the dominant failure path
+  // even when corrosion coexists — because cracks reach critical size before uniform thinning reaches minimum wall
+  if (physics.stress.cyclic_loading && physics.stress.stress_concentration_present && physics.energy.stored_energy_significant) {
+    if (failPhysics.indexOf("wall thinning") !== -1 || failPhysics.indexOf("Damage progression") !== -1) {
+      failPhysics = "Cyclic pressure loading drives fatigue crack initiation at stress concentrations (weld toes, nozzles, geometric transitions). Crack propagates per Paris Law until critical size is reached. Failure mode: pressure boundary breach via crack-through (leak-before-break if ductile, catastrophic burst if insufficient toughness). Corrosion may accelerate initiation but crack propagation is the dominant failure path.";
+      failMode = "crack_propagation_pressure_breach";
+    }
+  }
+
   if (tier === "CRITICAL") {
     requirements = ["Multi-method NDE (surface + volumetric)", "Zero uncertainty tolerance", "Full engineering review mandatory", "Human adjudication before return to service", "All evidence traceable"];
   } else if (tier === "HIGH") {
@@ -516,6 +555,18 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   if (physics.time.service_years && physics.time.service_years > 15) { thresholdScore += 8; thresholdReasons.push("Extended service life (" + physics.time.service_years + " years) increases accumulated damage."); }
   if (physics.time.time_since_inspection_years && physics.time.time_since_inspection_years > 3) { thresholdScore += 5; thresholdReasons.push("Gap since last inspection (" + physics.time.time_since_inspection_years + " years) means current state is less certain."); }
   if (thresholdScore > 100) thresholdScore = 100;
+
+  // DEGRADATION CERTAINTY GATE — threshold state cannot exceed evidence
+  // Without confirmed or suspected damage, the asset cannot be APPROACHING_THRESHOLD
+  if (degradationCertainty === "UNVERIFIED" && thresholdScore >= 55) {
+    thresholdScore = 48; // Cap at DEGRADING level
+    thresholdReasons.push("Threshold capped: no confirmed or suspected damage evidence supports APPROACHING_THRESHOLD state.");
+  }
+  if (degradationCertainty === "UNVERIFIED" && !hasDamageEvidence && !hasAnyVisibleDamage) {
+    if (thresholdScore >= 40) {
+      thresholdReasons.push("Note: damage state is based on physics potential, not confirmed observations. Inspection needed to verify actual condition.");
+    }
+  }
 
   var damageState = "STABLE";
   var damageTrajectory = "";
@@ -956,25 +1007,46 @@ function resolveInspectionReality(damage: any, consequence: any, physics: any, t
   if (missing.length > 0 && consequence.consequence_tier === "CRITICAL") verdict = "BLOCKED";
   else if (missing.length > 0) verdict = "INSUFFICIENT";
 
-  // FIX: Generate recommended method package when no methods proposed but best method is viable
+  // Generate recommended method package when:
+  // 1) No methods proposed, OR
+  // 2) Proposed methods are insufficient for CRITICAL/HIGH tier (missing surface/volumetric coverage)
   var recommendedPackage: string[] = [];
-  if (proposed.length === 0 && bestMethod && bestMethod.scores.overall >= 50) {
+  var needsRecommendation = false;
+  if (proposed.length === 0) needsRecommendation = true;
+  if (missing.length > 0 && (consequence.consequence_tier === "CRITICAL" || consequence.consequence_tier === "HIGH")) needsRecommendation = true;
+  if (needsRecommendation && bestMethod && bestMethod.scores.overall >= 50) {
     // Build recommended inspection path from physics scoring
-    recommendedPackage.push("VT"); // Always start with visual
+    if (proposed.indexOf("VT") === -1) recommendedPackage.push("VT"); // Always start with visual
     // Add surface method for ferromagnetic steel
-    if (!hasWord(lt, "stainless") && !hasWord(lt, "austenitic") && !hasWord(lt, "aluminum") && !hasWord(lt, "titanium")) {
-      recommendedPackage.push("MT");
-    } else {
-      recommendedPackage.push("PT");
+    if (!hasSurf) {
+      if (!hasWord(lt, "stainless") && !hasWord(lt, "austenitic") && !hasWord(lt, "aluminum") && !hasWord(lt, "titanium")) {
+        if (proposed.indexOf("MT") === -1) recommendedPackage.push("MT");
+      } else {
+        if (proposed.indexOf("PT") === -1) recommendedPackage.push("PT");
+      }
     }
     // Add volumetric if CRITICAL/HIGH or if damage mechanism requires it
     if (consequence.consequence_tier === "CRITICAL" || consequence.consequence_tier === "HIGH" || (damage.primary && damage.primary.id.indexOf("fatigue") !== -1)) {
-      if (bestMethod.method === "PAUT" || bestMethod.method === "UT") recommendedPackage.push(bestMethod.method);
-      else recommendedPackage.push("UT");
+      if (!hasVol) {
+        if (bestMethod.method === "PAUT" || bestMethod.method === "UT") {
+          if (proposed.indexOf(bestMethod.method) === -1) recommendedPackage.push(bestMethod.method);
+        } else {
+          if (proposed.indexOf("UT") === -1) recommendedPackage.push("UT");
+        }
+      }
     }
-    // Add best method if not already included
-    if (recommendedPackage.indexOf(bestMethod.method) === -1 && bestMethod.scores.overall >= 65) {
+    // Add best method if not already included and not already proposed
+    if (bestMethod.scores.overall >= 65 && recommendedPackage.indexOf(bestMethod.method) === -1 && proposed.indexOf(bestMethod.method) === -1) {
       recommendedPackage.push(bestMethod.method);
+    }
+    // Add targeted UT for thickness where corrosion suspected
+    if (damage.validated && damage.validated.length > 0) {
+      for (var dvi = 0; dvi < damage.validated.length; dvi++) {
+        if (damage.validated[dvi].id.indexOf("corrosion") !== -1 || damage.validated[dvi].id === "pitting") {
+          if (proposed.indexOf("UT") === -1 && recommendedPackage.indexOf("UT") === -1) recommendedPackage.push("UT");
+          break;
+        }
+      }
     }
   }
 
