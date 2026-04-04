@@ -1,4 +1,5 @@
-// DEPLOY97 — decision-core.ts v1.0
+// DEPLOY98 — decision-core.ts v1.1
+// v1.1: Fixed cyclic loading — decompression/pressure vessels inherently cycle
 // PHYSICS-FIRST DECISION CORE — Klein Bottle Architecture
 // 6 States + Reality Confidence + Contradiction Detector + Physics Computations
 // Single API: POST /api/decision-core
@@ -56,6 +57,18 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
   if (hasWord(lt, "cycl") || (hasWord(lt, "pressuri") && hasWord(lt, "depressuri")) || hasWord(lt, "startup") || hasWord(lt, "shutdown")) {
     cyclic = true; cyclicSrc = "pressure_or_operational_cycling";
+  }
+  // Domain knowledge: decompression chambers, autoclaves, and similar vessels inherently pressure-cycle
+  if (hasWord(lt, "decompression") || hasWord(lt, "recompression") || hasWord(lt, "hyperbaric") || hasWord(lt, "autoclave") || hasWord(lt, "pressure test") || hasWord(lt, "hydro test") || hasWord(lt, "hydrotest")) {
+    cyclic = true; cyclicSrc = cyclicSrc ? cyclicSrc + "+inherent_pressure_cycling" : "inherent_pressure_cycling";
+  }
+  // Pressure vessels inherently experience pressure cycling from operation
+  if ((assetClass === "pressure_vessel" || assetClass === "piping" || assetClass === "pipeline") && !cyclic) {
+    cyclic = true; cyclicSrc = "operational_pressure_cycling_implied";
+  }
+  // Crack at weld on pressure equipment strongly implies fatigue loading history
+  if ((hasWord(lt, "crack") || hasWord(lt, "indication")) && hasWord(lt, "weld") && (assetClass === "pressure_vessel" || assetClass === "piping")) {
+    if (!cyclic) { cyclic = true; cyclicSrc = "crack_at_weld_implies_cyclic_history"; }
   }
   if (hasWord(lt, "vibrat")) { cyclic = true; cyclicSrc = cyclicSrc ? cyclicSrc + "+vibration" : "vibration"; loads.push("vibration"); }
   if (hasWord(lt, "fatigue") || hasWord(lt, "cyclic load")) { cyclic = true; if (!cyclicSrc) cyclicSrc = "fatigue_indicated"; }
