@@ -1201,8 +1201,20 @@ function resolveDecisionReality(physics: any, damage: any, consequence: any, aut
     gates.push({ gate: "life_safety", result: "BLOCKED", reason: "CRITICAL life-safety asset with insufficient evidence/methods", required_action: "Complete ALL critical-tier requirements" });
     blocked = true; blockGate = "life_safety";
     trace.push("GATE BLOCKED: Life safety — " + consequence.human_impact);
+  } else if (consequence.consequence_tier === "CRITICAL" && inspection.constraint_analysis && (inspection.constraint_analysis.truth_quality === "UNRELIABLE" || inspection.constraint_analysis.truth_quality === "DEGRADED")) {
+    // LIFE-SAFETY TRUTH QUALITY ENFORCEMENT
+    // CRITICAL assets with degraded/unreliable truth quality cannot receive GO disposition
+    gates.push({ gate: "life_safety", result: "BLOCKED", reason: "CRITICAL life-safety asset with " + inspection.constraint_analysis.truth_quality + " truth quality (" + inspection.constraint_analysis.constraint_score + "/100). Results may not represent actual condition.", required_action: "Improve inspection conditions or collect additional evidence before disposition" });
+    blocked = true; blockGate = "life_safety";
+    trace.push("GATE BLOCKED: Life safety — truth quality " + inspection.constraint_analysis.truth_quality);
+  } else if (consequence.consequence_tier === "CRITICAL" && consequence.degradation_certainty !== "CONFIRMED" && consequence.degradation_certainty !== "PROBABLE") {
+    // LIFE-SAFETY DEGRADATION CERTAINTY ENFORCEMENT
+    // CRITICAL assets with UNVERIFIED or SUSPECTED degradation cannot receive GO — must verify first
+    gates.push({ gate: "life_safety", result: "BLOCKED", reason: "CRITICAL life-safety asset with " + (consequence.degradation_certainty || "UNVERIFIED") + " degradation state. Subsurface condition not verified. Inspection required before disposition.", required_action: "Complete inspection to verify actual condition before return to service" });
+    blocked = true; blockGate = "life_safety";
+    trace.push("GATE BLOCKED: Life safety — degradation " + consequence.degradation_certainty);
   } else {
-    gates.push({ gate: "life_safety", result: consequence.consequence_tier === "CRITICAL" ? "WARNING" : "PASS",
+    gates.push({ gate: "life_safety", result: consequence.consequence_tier === "CRITICAL" ? "INFO" : "PASS",
       reason: consequence.consequence_tier === "CRITICAL" ? "CRITICAL asset — elevated scrutiny" : "Not CRITICAL life-safety", required_action: null });
   }
 
@@ -1421,16 +1433,18 @@ var handler: Handler = async function(event: HandlerEvent) {
     // Rule: transcript keywords take precedence over AI parser when strong aliases exist
     var assetCorrected = false;
     var assetCorrectionReason = "";
-    // Hyperbaric / diving chambers
-    if (hasWord(lt_handler, "decompression chamber") || hasWord(lt_handler, "recompression chamber") || hasWord(lt_handler, "double lock") || hasWord(lt_handler, "hyperbaric chamber") || hasWord(lt_handler, "diving bell") || hasWord(lt_handler, "dive system") || hasWord(lt_handler, "pvho") || hasWord(lt_handler, "man-rated") || hasWord(lt_handler, "personnel chamber")) {
+    // Hyperbaric / diving chambers — HIGHEST PRIORITY, cannot be overridden
+    var isHyperbaricLocked = false;
+    if (hasWord(lt_handler, "decompression chamber") || hasWord(lt_handler, "recompression chamber") || hasWord(lt_handler, "double lock") || hasWord(lt_handler, "hyperbaric chamber") || hasWord(lt_handler, "hyperbaric") || hasWord(lt_handler, "diving bell") || hasWord(lt_handler, "dive system") || hasWord(lt_handler, "pvho") || hasWord(lt_handler, "man-rated") || hasWord(lt_handler, "personnel chamber") || hasWord(lt_handler, "saturation div")) {
       if (assetClass !== "pressure_vessel") {
         assetClass = "pressure_vessel";
         assetCorrected = true;
         assetCorrectionReason = "Transcript describes hyperbaric/diving pressure chamber. Overriding upstream classification (" + (asset.asset_class || "unknown") + ") to pressure_vessel.";
       }
+      isHyperbaricLocked = true; // Prevent later aliases from overriding
     }
     // Boilers
-    if (hasWord(lt_handler, "boiler") || hasWord(lt_handler, "steam drum") || hasWord(lt_handler, "economizer")) {
+    if (!isHyperbaricLocked && (hasWord(lt_handler, "boiler") || hasWord(lt_handler, "steam drum") || hasWord(lt_handler, "economizer"))) {
       if (assetClass !== "pressure_vessel" && assetClass !== "boiler") {
         assetClass = "pressure_vessel";
         assetCorrected = true;
@@ -1438,21 +1452,21 @@ var handler: Handler = async function(event: HandlerEvent) {
       }
     }
     // Piping
-    if ((hasWord(lt_handler, "pipe") || hasWord(lt_handler, "piping") || hasWord(lt_handler, "pipeline")) && assetClass !== "piping" && assetClass !== "pipeline") {
+    if (!isHyperbaricLocked && (hasWord(lt_handler, "pipe") || hasWord(lt_handler, "piping") || hasWord(lt_handler, "pipeline")) && assetClass !== "piping" && assetClass !== "pipeline") {
       if (assetClass === "unknown" || assetClass === "bridge_concrete" || assetClass === "bridge") {
         assetClass = "piping";
         assetCorrected = true;
         assetCorrectionReason = "Transcript describes piping. Overriding upstream classification.";
       }
     }
-    // Storage tanks
-    if ((hasWord(lt_handler, "storage tank") || hasWord(lt_handler, "ast ") || hasWord(lt_handler, "aboveground storage")) && assetClass !== "tank") {
+    // Storage tanks — use specific phrases only, NOT "ast " which matches "last", "fast", etc.
+    if (!isHyperbaricLocked && (hasWord(lt_handler, "storage tank") || hasWord(lt_handler, "aboveground storage") || hasWord(lt_handler, "aboveground tank")) && assetClass !== "tank") {
       assetClass = "tank";
       assetCorrected = true;
       assetCorrectionReason = "Transcript describes storage tank.";
     }
     // Pressure vessel generic
-    if ((hasWord(lt_handler, "pressure vessel") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "heat exchanger") || hasWord(lt_handler, "autoclave")) && assetClass !== "pressure_vessel") {
+    if (!isHyperbaricLocked && (hasWord(lt_handler, "pressure vessel") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "heat exchanger") || hasWord(lt_handler, "autoclave")) && assetClass !== "pressure_vessel") {
       assetClass = "pressure_vessel";
       assetCorrected = true;
       assetCorrectionReason = "Transcript describes pressure equipment. Overriding to pressure_vessel.";
