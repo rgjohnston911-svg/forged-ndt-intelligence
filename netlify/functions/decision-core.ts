@@ -1,4 +1,10 @@
-// DEPLOY98 — decision-core.ts v1.1
+// DEPLOY99 — decision-core.ts v2.0
+// v2.0: Production Physics Sufficiency Engine (State 5 upgraded)
+//   - 8-dimension physics scoring for every NDE method
+//   - Detectability, sizing, material, geometry, orientation, surface, access, execution
+//   - All 7 methods scored against actual physics scenario (not just proposed ones)
+//   - Blind spots, complementary methods, physics-computed verdicts
+//   - Paris Law depth sizing requirements for crack mechanisms
 // v1.1: Fixed cyclic loading — decompression/pressure vessels inherently cycle
 // PHYSICS-FIRST DECISION CORE — Klein Bottle Architecture
 // 6 States + Reality Confidence + Contradiction Detector + Physics Computations
@@ -516,100 +522,266 @@ function resolveAuthorityReality(assetClass: string, transcript: string, consequ
 }
 
 // ============================================================================
-// STATE 5: INSPECTION REALITY ENGINE
-// Every method is a physics experiment with known capabilities.
+// STATE 5: PHYSICS SUFFICIENCY ENGINE (Production)
+// Every method is a physics experiment. Scores across 8 dimensions.
+// Physics decides what works — not tradition, not checklists.
 // ============================================================================
-var METHOD_DATA = [
-  { m: "VT", det: "Surface conditions, geometry", cant: "Subsurface, tight cracks", surf: true, vol: false, thick: false, prin: "Photon reflection" },
-  { m: "PT", det: "Surface-breaking discontinuities", cant: "Subsurface, porous/rough surfaces", surf: true, vol: false, thick: false, prin: "Capillary action" },
-  { m: "MT", det: "Surface + near-surface (ferromagnetic)", cant: "Subsurface >6mm, non-ferromagnetic", surf: true, vol: false, thick: false, prin: "Magnetic flux leakage" },
-  { m: "UT", det: "Internal flaws, wall thickness, crack depth", cant: "Coarse-grain scatter", surf: false, vol: true, thick: true, prin: "Acoustic impedance mismatch" },
-  { m: "PAUT", det: "Complex geometry flaws, crack sizing", cant: "Similar to UT, better coverage", surf: false, vol: true, thick: true, prin: "Multi-element beam steering" },
-  { m: "TOFD", det: "Crack height/depth sizing", cant: "Surface flaw tips, thin sections", surf: false, vol: true, thick: false, prin: "Diffracted wave timing" },
-  { m: "RT", det: "Volumetric flaws (porosity, inclusions)", cant: "Tight cracks parallel to beam", surf: false, vol: true, thick: false, prin: "Differential radiation absorption" },
-  { m: "ET", det: "Surface/near-surface cracks, conductivity", cant: "Deep subsurface", surf: true, vol: false, thick: false, prin: "Electromagnetic induction" },
-  { m: "MFL", det: "Wall loss, pitting (ferromagnetic)", cant: "Crack orientation", surf: false, vol: false, thick: false, prin: "Flux leakage mapping" },
-  { m: "AE", det: "Active crack growth, leak sources", cant: "Static/inactive flaws", surf: false, vol: false, thick: false, prin: "Stress wave emission" },
-  { m: "PMI", det: "Material composition", cant: "Mechanical properties, damage", surf: true, vol: false, thick: false, prin: "XRF/OES" }
-];
+
+// Method physics baselines — intrinsic sensing capabilities per method
+var METHOD_BASELINES: any = {
+  UT:   { surfSens: 35, subSens: 88, planar: 82, volumetric: 65, sizing: 70, singleSide: 85, coatTol: 35, roughTol: 45, magnetic: false, couplant: true,  prin: "Acoustic impedance mismatch (wave mechanics)", det: "Internal flaws, wall thickness, crack depth", cant: "Coarse-grain scatter, near-surface dead zone" },
+  PAUT: { surfSens: 40, subSens: 92, planar: 90, volumetric: 72, sizing: 82, singleSide: 88, coatTol: 30, roughTol: 45, magnetic: false, couplant: true,  prin: "Multi-element acoustic beam steering", det: "Complex geometry flaws, crack sizing, volumetric scanning", cant: "Requires setup discipline, coupling stability" },
+  TOFD: { surfSens: 20, subSens: 95, planar: 93, volumetric: 38, sizing: 90, singleSide: 30, coatTol: 25, roughTol: 40, magnetic: false, couplant: true,  prin: "Diffracted wave timing", det: "Crack height/depth sizing with high accuracy", cant: "Surface/near-surface dead zone, thin sections" },
+  MT:   { surfSens: 94, subSens: 55, planar: 88, volumetric: 10, sizing: 20, singleSide: 90, coatTol: 35, roughTol: 60, magnetic: true,  couplant: false, prin: "Magnetic flux leakage (Maxwell equations)", det: "Surface + near-surface in ferromagnetic materials", cant: "Subsurface >6mm, non-ferromagnetic, no depth sizing" },
+  PT:   { surfSens: 96, subSens: 0,  planar: 85, volumetric: 0,  sizing: 18, singleSide: 94, coatTol: 5,  roughTol: 35, magnetic: false, couplant: false, prin: "Capillary action + fluorescence/contrast", det: "Surface-breaking discontinuities only", cant: "Subsurface, porous surfaces, coated surfaces, no sizing" },
+  ET:   { surfSens: 86, subSens: 52, planar: 75, volumetric: 12, sizing: 42, singleSide: 95, coatTol: 62, roughTol: 40, magnetic: false, couplant: false, prin: "Electromagnetic induction (eddy currents)", det: "Surface/near-surface cracks, conductivity changes, coating thickness", cant: "Deep subsurface, ferromagnetic interference, lift-off sensitivity" },
+  RT:   { surfSens: 30, subSens: 75, planar: 35, volumetric: 90, sizing: 45, singleSide: 15, coatTol: 50, roughTol: 70, magnetic: false, couplant: false, prin: "Differential radiation absorption (Beer-Lambert law)", det: "Volumetric flaws (porosity, inclusions, voids)", cant: "Tight planar cracks parallel to beam, requires backside access" }
+};
+var ALL_METHODS = ["UT", "PAUT", "TOFD", "MT", "PT", "ET", "RT"];
+
+function scoreMethodPhysics(method: string, damage: any, physics: any, consequence: any, transcript: string, flags: any) {
+  var bl = METHOD_BASELINES[method];
+  if (!bl) return null;
+  var fl = flags || {};
+  var lt = transcript.toLowerCase();
+  var pm = damage.primary;
+  var pmId = pm ? pm.id : "";
+  var reasonsFor: string[] = [];
+  var reasonsAgainst: string[] = [];
+  var blindSpots: string[] = [];
+  var complementary: string[] = [];
+
+  // 1. DETECTABILITY — can this method's physics detect the expected damage?
+  var detectScore = 50;
+  var isCrackType = pmId.indexOf("fatigue") !== -1 || pmId.indexOf("crack") !== -1 || pmId.indexOf("scc") !== -1 || pmId.indexOf("ssc") !== -1 || pmId.indexOf("hic") !== -1;
+  var isCorrosionType = pmId.indexOf("corrosion") !== -1 || pmId.indexOf("pitting") !== -1 || pmId.indexOf("erosion") !== -1 || pmId.indexOf("cui") !== -1 || pmId.indexOf("wall_loss") !== -1;
+  var isDeformation = pmId.indexOf("overload") !== -1 || pmId.indexOf("buckl") !== -1;
+  var isFire = pmId.indexOf("fire") !== -1;
+
+  if (isCrackType) {
+    // Cracks are planar — need methods that detect planar reflectors
+    detectScore = (bl.planar * 0.6 + bl.subSens * 0.4);
+    reasonsFor.push("Scored against planar discontinuity detection capability");
+    if (bl.subSens < 30) { reasonsAgainst.push("Method cannot detect subsurface crack propagation"); blindSpots.push("Subsurface crack growth invisible to this method"); }
+    if (bl.sizing < 40) { reasonsAgainst.push("Method cannot size crack depth — only length"); blindSpots.push("Crack depth unknown — remaining life calculation impossible"); }
+  } else if (isCorrosionType) {
+    detectScore = (bl.subSens * 0.5 + bl.volumetric * 0.3 + bl.surfSens * 0.2);
+    reasonsFor.push("Scored against wall loss / corrosion mapping capability");
+    if (bl.volumetric < 20 && bl.subSens < 30) { reasonsAgainst.push("Method cannot quantify wall thickness loss"); blindSpots.push("Remaining wall thickness unknown"); }
+  } else if (isDeformation) {
+    detectScore = bl.surfSens * 0.8 + 10;
+    reasonsFor.push("Deformation is primarily surface-observable");
+  } else if (isFire) {
+    detectScore = bl.surfSens * 0.4 + bl.subSens * 0.3 + 15;
+    reasonsFor.push("Fire damage assessment requires surface + property evaluation");
+  } else {
+    detectScore = (bl.surfSens + bl.subSens) / 2;
+  }
+
+  // 2. SIZING — can this method provide engineering-grade measurements?
+  var sizingScore = bl.sizing;
+  if (isCrackType && method === "TOFD") { sizingScore += 8; reasonsFor.push("TOFD excels at crack depth sizing via diffraction timing"); }
+  if (isCrackType && method === "PAUT") { sizingScore += 6; reasonsFor.push("PAUT provides crack sizing via beam steering"); }
+  if (isCrackType && (method === "MT" || method === "PT")) { sizingScore -= 15; reasonsAgainst.push("Surface methods provide crack length only — depth requires volumetric"); }
+  if (isCorrosionType && (method === "UT" || method === "PAUT")) { sizingScore += 10; reasonsFor.push("UT/PAUT measures remaining wall thickness directly"); }
+
+  // 3. MATERIAL COMPATIBILITY — does the material support this method's physics?
+  var matScore = 75;
+  if (method === "MT" && !hasWord(lt, "carbon steel") && !hasWord(lt, "ferritic") && !hasWord(lt, "low alloy")) {
+    // Check if material might be non-ferromagnetic
+    if (hasWord(lt, "stainless") || hasWord(lt, "austenitic") || hasWord(lt, "duplex") || hasWord(lt, "aluminum") || hasWord(lt, "titanium") || hasWord(lt, "nickel")) {
+      matScore = 0; reasonsAgainst.push("MT PHYSICS GATE: Material is non-ferromagnetic — magnetic flux leakage cannot occur"); blindSpots.push("Method completely invalid for this material");
+    } else {
+      matScore = 80; reasonsFor.push("Material assumed ferromagnetic (carbon steel default)");
+    }
+  }
+  if (method === "ET" && hasWord(lt, "carbon steel")) { matScore -= 10; reasonsAgainst.push("Carbon steel ferromagnetic response can interfere with ET"); }
+  if ((method === "UT" || method === "PAUT" || method === "TOFD") && (hasWord(lt, "cast") || hasWord(lt, "casting"))) {
+    matScore -= 25; reasonsAgainst.push("Cast material grain structure may attenuate/scatter ultrasonic energy");
+  }
+  if (method === "PT") { matScore = 88; reasonsFor.push("PT is material-agnostic if surface is open and clean"); }
+
+  // 4. GEOMETRY COMPATIBILITY
+  var geoScore = 75;
+  if (method === "TOFD" && hasWord(lt, "fillet")) { geoScore -= 30; reasonsAgainst.push("TOFD geometry problematic for fillet welds"); }
+  if ((method === "UT" || method === "PAUT") && hasWord(lt, "butt") || hasWord(lt, "circumferential")) { geoScore += 8; reasonsFor.push("Butt/circumferential weld geometry suits ultrasonic scanning"); }
+  if (method === "TOFD" && hasWord(lt, "nozzle")) { geoScore -= 20; reasonsAgainst.push("Nozzle geometry restricts TOFD probe arrangement"); }
+  if ((method === "MT" || method === "PT") && hasWord(lt, "complex")) { geoScore -= 8; }
+
+  // 5. ORIENTATION SENSITIVITY — can the method detect flaws in the expected orientation?
+  var orientScore = 70;
+  if (isCrackType) {
+    if (method === "UT" || method === "PAUT") {
+      if (hasWord(lt, "circumferential")) { orientScore = 85; reasonsFor.push("UT/PAUT beam can be oriented perpendicular to circumferential cracks"); }
+      else { orientScore = 75; }
+    }
+    if (method === "TOFD") { orientScore = 82; reasonsFor.push("TOFD detects diffracted energy regardless of reflector orientation"); }
+    if (method === "MT" || method === "PT") { orientScore = 80; reasonsFor.push("Surface methods detect surface-breaking cracks regardless of orientation"); }
+  }
+  if (isCorrosionType && method === "TOFD") { orientScore = 40; reasonsAgainst.push("TOFD is not a corrosion mapping method"); }
+
+  // 6. SURFACE COMPATIBILITY
+  var surfScore = 78;
+  if (hasWord(lt, "coated") || hasWord(lt, "painted") || hasWord(lt, "coating")) {
+    if (method === "PT") { surfScore = 0; reasonsAgainst.push("PT requires bare surface — coating blocks capillary access"); blindSpots.push("Coating prevents penetrant application"); }
+    if (method === "MT") { surfScore -= 25; reasonsAgainst.push("Coating reduces MT sensitivity — flux leakage attenuated"); }
+    if (method === "ET") { surfScore -= 10; }
+  }
+  if (hasWord(lt, "rough") || hasWord(lt, "corroded surface") || hasWord(lt, "scale")) {
+    if (method === "PT") { surfScore -= 35; reasonsAgainst.push("Rough/contaminated surface reduces penetrant reliability"); }
+    if (method === "UT" || method === "PAUT" || method === "TOFD") { surfScore -= 15; reasonsAgainst.push("Poor surface degrades ultrasonic coupling"); }
+  }
+  if (fl.underwater_access_limited) {
+    if (method === "PT") { surfScore = 0; reasonsAgainst.push("PT not feasible underwater"); blindSpots.push("Underwater environment prevents penetrant testing"); }
+    if (method === "MT") { surfScore -= 15; }
+    if (method === "UT" || method === "PAUT") { surfScore -= 8; reasonsFor.push("UT feasible underwater with proper procedure"); }
+  }
+
+  // 7. ACCESS COMPATIBILITY
+  var accessScore = 75;
+  if (method === "TOFD") { accessScore -= 20; reasonsAgainst.push("TOFD requires dual-side or wrap-around access for probe pair"); }
+  if (method === "RT") { accessScore -= 25; reasonsAgainst.push("RT requires backside access for film/detector placement"); }
+  if (method === "PAUT") { accessScore += 5; reasonsFor.push("PAUT beam steering compensates for limited access"); }
+  if (method === "MT" || method === "PT" || method === "ET") { accessScore += 10; reasonsFor.push("Single-side surface access sufficient"); }
+
+  // 8. EXECUTION ROBUSTNESS
+  var execScore = 76;
+  if ((method === "UT" || method === "PAUT" || method === "TOFD") && fl.underwater_access_limited) {
+    execScore -= 10; reasonsAgainst.push("Underwater execution requires specialized procedure and signal validation");
+  }
+  if (method === "PAUT") { execScore -= 5; reasonsAgainst.push("PAUT requires qualified setup — poor focal law strategy creates false confidence"); }
+
+  // OVERALL COMPOSITE SCORE
+  var overall = (detectScore * 0.25 + sizingScore * 0.15 + matScore * 0.15 + geoScore * 0.10 + orientScore * 0.10 + surfScore * 0.10 + accessScore * 0.05 + execScore * 0.10);
+  if (matScore === 0) overall = 0; // Hard physics gate — material incompatible
+  if (surfScore === 0 && (method === "PT")) overall = 0; // Hard physics gate — surface blocks method
+  overall = clamp(overall, 0, 100);
+
+  // Complementary methods
+  if ((method === "MT" || method === "PT") && isCrackType) { complementary.push("UT"); complementary.push("PAUT"); }
+  if (method === "UT" && isCrackType) { complementary.push("TOFD"); complementary.push("MT"); }
+  if (method === "PAUT" && isCrackType) { complementary.push("TOFD"); }
+  if ((method === "MT" || method === "PT") && isCorrosionType) { complementary.push("UT"); }
+
+  // Method-specific blind spots
+  if (method === "PT") { blindSpots.push("Cannot detect subsurface discontinuities"); blindSpots.push("Cannot size depth"); }
+  if (method === "MT") { blindSpots.push("Limited to ferromagnetic materials"); blindSpots.push("Depth penetration limited to ~6mm"); blindSpots.push("Cannot provide crack depth measurement"); }
+  if (method === "UT") { blindSpots.push("Near-surface dead zone may miss shallow flaws"); blindSpots.push("Beam orientation mismatch can miss unfavorable reflectors"); }
+  if (method === "PAUT") { blindSpots.push("Requires strong setup discipline"); blindSpots.push("Very rough surfaces reduce reliability"); }
+  if (method === "TOFD") { blindSpots.push("Surface/near-surface dead zone"); blindSpots.push("Not effective for corrosion mapping"); }
+  if (method === "RT") { blindSpots.push("Tight planar cracks parallel to beam are invisible"); blindSpots.push("Requires backside access"); }
+  if (method === "ET") { blindSpots.push("Depth penetration limited"); blindSpots.push("Lift-off and geometry variation distort signals"); }
+
+  return {
+    method: method, physics_principle: bl.prin, detects: bl.det, cannot_detect: bl.cant,
+    scores: { detectability: roundN(detectScore, 1), sizing: roundN(sizingScore, 1), material: roundN(matScore, 1),
+      geometry: roundN(geoScore, 1), orientation: roundN(orientScore, 1), surface: roundN(surfScore, 1),
+      access: roundN(accessScore, 1), execution: roundN(execScore, 1), overall: roundN(overall, 1) },
+    verdict: overall >= 80 ? "SUFFICIENT" : overall >= 65 ? "SUFFICIENT_WITH_LIMITATIONS" : overall >= 50 ? "CONDITIONALLY_SUFFICIENT" : "INSUFFICIENT",
+    reasons_for: reasonsFor, reasons_against: reasonsAgainst,
+    blind_spots: blindSpots, complementary_methods: complementary,
+    is_surface_only: bl.subSens < 30, is_volumetric: bl.subSens >= 60, can_size_depth: bl.sizing >= 60
+  };
+}
 
 function resolveInspectionReality(damage: any, consequence: any, physics: any, transcript: string, flags: any) {
   var lt = transcript.toLowerCase();
+  // Extract proposed methods from transcript
   var proposed: string[] = [];
-  // Extract methods from transcript
-  var nameMap: any = { "visual": "VT", "magnetic particle": "MT", "penetrant": "PT", "ultrasonic": "UT", "radiograph": "RT", "phased array": "PAUT", "eddy current": "ET", "x-ray": "RT" };
+  var nameMap: any = { "visual": "VT", "magnetic particle": "MT", "penetrant": "PT", "ultrasonic": "UT", "radiograph": "RT", "phased array": "PAUT", "eddy current": "ET", "x-ray": "RT", "tofd": "TOFD" };
   var keys = Object.keys(nameMap);
   for (var ki = 0; ki < keys.length; ki++) { if (hasWord(lt, keys[ki]) && proposed.indexOf(nameMap[keys[ki]]) === -1) proposed.push(nameMap[keys[ki]]); }
-  var abbrevs = ["VT", "PT", "MT", "UT", "PAUT", "TOFD", "RT", "ET", "MFL", "AE", "PMI"];
-  for (var ai = 0; ai < abbrevs.length; ai++) { if (hasWord(lt, " " + abbrevs[ai].toLowerCase() + " ") || hasWord(lt, " " + abbrevs[ai].toLowerCase() + ",") || hasWord(lt, " " + abbrevs[ai].toLowerCase() + ".")) { if (proposed.indexOf(abbrevs[ai]) === -1) proposed.push(abbrevs[ai]); } }
-  // Also check exact case
-  for (var ai2 = 0; ai2 < abbrevs.length; ai2++) { if (transcript.indexOf(abbrevs[ai2]) !== -1 && proposed.indexOf(abbrevs[ai2]) === -1) proposed.push(abbrevs[ai2]); }
+  for (var ai2 = 0; ai2 < ALL_METHODS.length; ai2++) { if (transcript.indexOf(ALL_METHODS[ai2]) !== -1 && proposed.indexOf(ALL_METHODS[ai2]) === -1) proposed.push(ALL_METHODS[ai2]); }
 
-  // Build assessments
+  // Score ALL methods against physics — not just proposed ones
+  var allScores: any[] = [];
+  for (var mi = 0; mi < ALL_METHODS.length; mi++) {
+    var score = scoreMethodPhysics(ALL_METHODS[mi], damage, physics, consequence, transcript, flags);
+    if (score) allScores.push(score);
+  }
+  allScores.sort(function(a: any, b: any) { return b.scores.overall - a.scores.overall; });
+
+  // Build assessments for proposed methods with full physics scoring
   var assessments: MethodWeight[] = [];
   for (var pi = 0; pi < proposed.length; pi++) {
-    var md: any = null;
-    for (var mdi = 0; mdi < METHOD_DATA.length; mdi++) { if (METHOD_DATA[mdi].m === proposed[pi]) { md = METHOD_DATA[mdi]; break; } }
-    if (!md) continue;
-    var lims: string[] = [];
-    if (md.surf && !md.vol) lims.push("Surface detection only");
-    if (flags && flags.underwater_access_limited) lims.push("Underwater/limited access");
-    assessments.push({ method: md.m, physics_principle: md.prin, detects: md.det, cannot_detect: md.cant,
-      reliability: 0.80, coverage: 0.70, limitations: lims });
+    var ms: any = null;
+    for (var si = 0; si < allScores.length; si++) { if (allScores[si].method === proposed[pi]) { ms = allScores[si]; break; } }
+    if (!ms) continue;
+    assessments.push({ method: ms.method, physics_principle: ms.physics_principle, detects: ms.detects,
+      cannot_detect: ms.cannot_detect, reliability: roundN(ms.scores.overall / 100, 2),
+      coverage: roundN(ms.scores.detectability / 100, 2), limitations: ms.reasons_against });
   }
 
-  // Determine physics requirements
+  // Physics-computed requirements
   var required: Array<{ method: string; physics_basis: string }> = [];
   var missing: string[] = [];
-  var hasSurf = false; var hasVol = false; var hasThick = false;
+
+  // Check what physics NEEDS based on damage + consequence
+  var hasSurf = false; var hasVol = false; var hasDepthSizing = false;
   for (var asi = 0; asi < assessments.length; asi++) {
-    for (var mdi2 = 0; mdi2 < METHOD_DATA.length; mdi2++) {
-      if (METHOD_DATA[mdi2].m === assessments[asi].method) {
-        if (METHOD_DATA[mdi2].surf) hasSurf = true;
-        if (METHOD_DATA[mdi2].vol) hasVol = true;
-        if (METHOD_DATA[mdi2].thick) hasThick = true;
-      }
-    }
+    var ms2: any = null;
+    for (var si2 = 0; si2 < allScores.length; si2++) { if (allScores[si2].method === assessments[asi].method) { ms2 = allScores[si2]; break; } }
+    if (ms2) { if (!ms2.is_volumetric && ms2.is_surface_only) hasSurf = true; if (ms2.is_volumetric) hasVol = true; if (ms2.can_size_depth) hasDepthSizing = true; }
   }
+
+  var bestMethod = allScores.length > 0 ? allScores[0] : null;
+  var bestProposed: any = null;
+  for (var bpi = 0; bpi < allScores.length; bpi++) { if (proposed.indexOf(allScores[bpi].method) !== -1) { bestProposed = allScores[bpi]; break; } }
 
   if (consequence.consequence_tier === "CRITICAL") {
-    required.push({ method: "Surface (MT/PT)", physics_basis: "Flux leakage or capillary action detects surface cracks" });
-    required.push({ method: "Volumetric (UT/PAUT)", physics_basis: "Acoustic mismatch detects subsurface flaws and depth" });
-    required.push({ method: "Thickness (UT)", physics_basis: "Transit time measures remaining wall" });
-    if (!hasSurf) missing.push("Surface NDE — cannot characterize surface condition");
-    if (!hasVol) missing.push("Volumetric NDE — surface methods cannot detect subsurface crack propagation");
-    if (!hasThick) missing.push("Thickness verification — pressure integrity requires wall data");
+    required.push({ method: "Surface (MT/PT)", physics_basis: "Magnetic flux leakage or capillary action detects surface-breaking cracks at stress concentrations" });
+    required.push({ method: "Volumetric (UT/PAUT)", physics_basis: "Acoustic impedance mismatch detects subsurface flaws invisible to surface methods" });
+    required.push({ method: "Depth sizing (PAUT/TOFD)", physics_basis: "Crack depth measurement required for fracture mechanics remaining life calculation" });
+    required.push({ method: "Thickness (UT)", physics_basis: "Through-wall transit time measures remaining wall for pressure integrity" });
+    if (!hasSurf) missing.push("Surface NDE — physics: cannot characterize surface crack morphology without surface-sensitive method");
+    if (!hasVol) missing.push("Volumetric NDE — physics: surface methods cannot detect subsurface crack propagation (acoustic/electromagnetic depth limitation)");
+    if (!hasDepthSizing) missing.push("Depth sizing — physics: Paris Law crack growth calculation requires measured depth, surface methods provide length only");
   } else if (consequence.consequence_tier === "HIGH") {
-    required.push({ method: "Primary NDE", physics_basis: "Detect dominant damage mechanism" });
-    if (!hasSurf && !hasVol) missing.push("At least one NDE method required");
-    if (physics.energy.stored_energy_significant && !hasThick) missing.push("Thickness for pressure boundary");
+    required.push({ method: "Primary NDE", physics_basis: "Method must be physically capable of detecting dominant damage mechanism" });
+    if (!hasSurf && !hasVol) missing.push("At least one NDE method with detection capability for " + (damage.primary ? damage.primary.name : "expected damage"));
+    if (physics.energy.stored_energy_significant && !hasVol) missing.push("Volumetric method required — pressure boundary integrity assessment needs subsurface characterization");
   } else if (consequence.consequence_tier === "MEDIUM") {
-    required.push({ method: "Primary NDE", physics_basis: "Method appropriate for indication type" });
-    if (proposed.length === 0) missing.push("At least one method");
+    required.push({ method: "Primary NDE", physics_basis: "Method appropriate for expected discontinuity type" });
+    if (proposed.length === 0) missing.push("At least one inspection method");
   }
 
-  // Crack depth check
-  if (damage.primary && (damage.primary.id.indexOf("crack") !== -1 || damage.primary.id.indexOf("fatigue") !== -1 || damage.primary.id.indexOf("scc") !== -1) && !hasVol && consequence.consequence_tier !== "LOW") {
-    if (missing.indexOf("Volumetric NDE — surface methods cannot detect subsurface crack propagation") === -1) {
-      missing.push("Crack depth sizing requires volumetric method — surface gives length only");
+  // Physics gap: crack damage without volumetric coverage
+  if (damage.primary && damage.primary.id.indexOf("fatigue") !== -1 && !hasVol && consequence.consequence_tier !== "LOW") {
+    if (missing.indexOf("Volumetric NDE — physics: surface methods cannot detect subsurface crack propagation (acoustic/electromagnetic depth limitation)") === -1) {
+      missing.push("Crack depth sizing — physics: fatigue crack growth rate (Paris Law) requires measured depth. Surface methods give length only.");
     }
+  }
+
+  // Physics gap: proposed method scored poorly
+  if (bestProposed && bestProposed.scores.overall < 50 && consequence.consequence_tier !== "LOW") {
+    missing.push("Proposed method (" + bestProposed.method + ") scored " + bestProposed.scores.overall + "/100 — physics sufficiency is weak for this scenario. Best method: " + (bestMethod ? bestMethod.method + " (" + bestMethod.scores.overall + "/100)" : "unknown"));
   }
 
   var verdict = "SUFFICIENT";
   if (missing.length > 0 && consequence.consequence_tier === "CRITICAL") verdict = "BLOCKED";
   else if (missing.length > 0) verdict = "INSUFFICIENT";
 
-  var physReason = verdict === "BLOCKED" ? "CRITICAL asset requires complete characterization. Physics gaps: " + missing.join("; ") :
-    verdict === "INSUFFICIENT" ? "Method gaps: " + missing.join("; ") :
-    "Adequate coverage for " + consequence.consequence_tier + " tier";
+  var physReason = "";
+  if (verdict === "BLOCKED") {
+    physReason = "CRITICAL consequence requires complete damage characterization. Physics gaps: " + missing.join("; ") + ". These are physics limitations — not code preferences or procedural suggestions.";
+  } else if (verdict === "INSUFFICIENT") {
+    physReason = "Method coverage has physics gaps: " + missing.join("; ");
+  } else {
+    physReason = "Proposed methods provide adequate physics coverage for " + consequence.consequence_tier + " consequence tier.";
+    if (bestProposed) physReason += " Best proposed: " + bestProposed.method + " scored " + bestProposed.scores.overall + "/100.";
+  }
 
-  var inspConf = 0.8 - missing.length * 0.15;
+  var inspConf = 0.8;
+  if (missing.length > 0) inspConf -= missing.length * 0.12;
   if (verdict === "BLOCKED") inspConf = Math.min(inspConf, 0.35);
   if (proposed.length === 0) inspConf = 0.2;
+  if (bestProposed && bestProposed.scores.overall < 50) inspConf -= 0.15;
   inspConf = clamp(inspConf, 0.1, 1.0);
 
-  return { proposed_methods: proposed, method_assessments: assessments, sufficiency_verdict: verdict,
-    physics_reason: physReason, required_methods: required, missing_coverage: missing,
+  return { proposed_methods: proposed, method_assessments: assessments,
+    all_method_scores: allScores, best_method: bestMethod,
+    sufficiency_verdict: verdict, physics_reason: physReason,
+    required_methods: required, missing_coverage: missing,
     inspection_confidence: roundN(inspConf, 2) };
 }
 
@@ -991,6 +1163,8 @@ var handler: Handler = async function(event: HandlerEvent) {
           inspection_reality: {
             proposed_methods: inspection.proposed_methods,
             method_assessments: inspection.method_assessments,
+            all_method_scores: inspection.all_method_scores,
+            best_method: inspection.best_method ? { method: inspection.best_method.method, overall_score: inspection.best_method.scores.overall, verdict: inspection.best_method.verdict, scores: inspection.best_method.scores, reasons_for: inspection.best_method.reasons_for, reasons_against: inspection.best_method.reasons_against, blind_spots: inspection.best_method.blind_spots, complementary_methods: inspection.best_method.complementary_methods } : null,
             sufficiency_verdict: inspection.sufficiency_verdict,
             physics_reason: inspection.physics_reason,
             required_methods: inspection.required_methods,
