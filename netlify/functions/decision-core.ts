@@ -157,12 +157,60 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (storedE) parts.push("Stored pressure energy");
   var summary = parts.length ? parts.join(". ") + "." : "Limited physical context from transcript.";
 
+  // FIELD INTERACTION — where do forces converge and amplify?
+  var hotspots: string[] = [];
+  var interactionScore = 0;
+  var interactionWarnings: string[] = [];
+
+  // Corrosion + Cyclic Stress = corrosion-fatigue (much worse than either alone)
+  if (corrosive && cyclic) {
+    interactionScore += 25;
+    hotspots.push("Corrosion + cyclic stress at same location");
+    interactionWarnings.push("Corrosion creates surface pits that become stress risers, accelerating fatigue crack initiation. Combined damage rate is faster than either mechanism alone.");
+  }
+  // Stress concentration + Cyclic = classic fatigue hotspot
+  if (stressConc && cyclic) {
+    interactionScore += 20;
+    for (var hi = 0; hi < stressConcLocs.length; hi++) hotspots.push("Cyclic loading at " + stressConcLocs[hi]);
+    interactionWarnings.push("Cyclic stress concentrates at geometric discontinuities (" + stressConcLocs.join(", ") + "). These are the most likely crack initiation sites.");
+  }
+  // Corrosion + Stress Concentration = accelerated local attack
+  if (corrosive && stressConc) {
+    interactionScore += 15;
+    hotspots.push("Corrosion attack at stress concentration");
+    interactionWarnings.push("Corrosion preferentially attacks areas of high stress and geometric change. Weld toes, crevices, and transitions are most vulnerable.");
+  }
+  // Fire + Pressure = property degradation under load
+  if (fireExp && storedE) {
+    interactionScore += 20;
+    hotspots.push("Fire-exposed pressure boundary");
+    interactionWarnings.push("Fire may degrade material properties while pressure maintains load. Reduced strength under sustained stress creates failure risk.");
+  }
+  // H2S + Tensile = sulfide stress cracking hotspot
+  if (h2s && tensile) {
+    interactionScore += 25;
+    hotspots.push("Sour environment under tensile stress");
+    interactionWarnings.push("H2S charges hydrogen into material under tensile stress. This can cause sudden cracking with little warning. High-priority inspection zone.");
+  }
+  // Impact + Pressure = dent under pressure
+  if (impactEv && storedE) {
+    interactionScore += 15;
+    hotspots.push("Impact damage on pressurized component");
+    interactionWarnings.push("Impact creates local deformation and residual stress. Under pressure, this zone becomes a stress concentration that may initiate cracking.");
+  }
+  if (interactionScore > 100) interactionScore = 100;
+  var interactionLevel = interactionScore >= 60 ? "HIGH" : interactionScore >= 30 ? "MODERATE" : "LOW";
+  if (hotspots.length === 0) {
+    interactionWarnings.push("No significant force interaction detected. Individual force assessment applies.");
+  }
+
   return {
     stress: { primary_load_types: loads, cyclic_loading: cyclic, cyclic_source: cyclicSrc, stress_concentration_present: stressConc, stress_concentration_locations: stressConcLocs, tensile_stress: tensile, compressive_stress: compress, load_path_criticality: loadPath, residual_stress_likely: residual } as StressState,
     thermal: { operating_temp_c: tempC, operating_temp_f: tempF, thermal_cycling: thermalCyc, fire_exposure: fireExp, fire_duration_min: fireDur, creep_range: creep, cryogenic: cryo } as ThermalState,
     chemical: { corrosive_environment: corrosive, environment_agents: agents, h2s_present: h2s, co2_present: co2, chlorides_present: chlorides, caustic_present: caustic, hydrogen_present: hydrogen, material_susceptibility: suscept, coating_intact: coatingOk, sour_service: h2s } as ChemicalState,
     energy: { pressure_cycling: presCyc, vibration: vib, impact_event: impactEv, impact_description: impactEv ? "Impact event in transcript" : null, flow_erosion_risk: flowEro, cavitation: cav, stored_energy_significant: storedE } as EnergyState,
     time: { service_years: svcYears, cycles_estimated: cyclesEst, time_since_inspection_years: timeSinceInsp } as TimeState,
+    field_interaction: { hotspots: hotspots, interaction_score: interactionScore, interaction_level: interactionLevel, warnings: interactionWarnings },
     physics_summary: summary,
     physics_confidence: roundN(conf, 2)
   };
@@ -347,10 +395,59 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   if (damage.primary && damage.primary.reality_score > 0.6) consConf += 0.1;
   if (consConf > 1) consConf = 1;
 
+  // DAMAGE STATE / THRESHOLD — where is this asset on the damage curve?
+  var thresholdScore = 15;
+  var thresholdReasons: string[] = [];
+  // Field interaction amplifies threshold risk
+  if (physics.field_interaction && physics.field_interaction.interaction_score > 50) {
+    thresholdScore += 18;
+    thresholdReasons.push("Multiple damage forces are interacting and amplifying each other at this location.");
+  }
+  // Confirmed damage with active mechanism
+  if (damage.primary && damage.primary.observation_basis) {
+    thresholdScore += 15;
+    thresholdReasons.push("Damage mechanism (" + damage.primary.name + ") is evidenced by direct observation — this is not theoretical.");
+  }
+  // Crack-type mechanisms have threshold behavior (stable until critical, then sudden)
+  if (damage.primary && (damage.primary.id.indexOf("fatigue") !== -1 || damage.primary.id.indexOf("scc") !== -1 || damage.primary.id.indexOf("ssc") !== -1)) {
+    thresholdScore += 12;
+    thresholdReasons.push("Active mechanism (" + damage.primary.name + ") has threshold behavior — stable until critical size, then rapid failure.");
+  }
+  // High consequence amplifies threshold urgency
+  if (tier === "CRITICAL") { thresholdScore += 15; thresholdReasons.push("CRITICAL consequence means threshold crossing has catastrophic impact."); }
+  else if (tier === "HIGH") { thresholdScore += 8; }
+  // Time factors
+  if (physics.time.service_years && physics.time.service_years > 15) { thresholdScore += 8; thresholdReasons.push("Extended service life (" + physics.time.service_years + " years) increases accumulated damage."); }
+  if (physics.time.time_since_inspection_years && physics.time.time_since_inspection_years > 3) { thresholdScore += 5; thresholdReasons.push("Gap since last inspection (" + physics.time.time_since_inspection_years + " years) means current state is less certain."); }
+  if (thresholdScore > 100) thresholdScore = 100;
+
+  var damageState = "STABLE";
+  var damageTrajectory = "";
+  var monitoringUrgency = "Routine";
+  if (thresholdScore >= 75) {
+    damageState = "TRANSITION_RISK";
+    damageTrajectory = "Asset may be at or near a critical damage threshold. Damage progression could accelerate suddenly. Immediate characterization and engineering review required.";
+    monitoringUrgency = "Immediate";
+  } else if (thresholdScore >= 55) {
+    damageState = "APPROACHING_THRESHOLD";
+    damageTrajectory = "Damage indicators suggest the asset is moving toward a critical state. Accelerated inspection and monitoring recommended before the next operating cycle.";
+    monitoringUrgency = "Within 7 days";
+  } else if (thresholdScore >= 35) {
+    damageState = "DEGRADING";
+    damageTrajectory = "Active damage mechanism present with gradual progression. Standard monitoring intervals should be maintained or tightened.";
+    monitoringUrgency = "Within 30 days";
+  } else {
+    damageTrajectory = "No significant threshold indicators. Damage state appears stable under current conditions.";
+    monitoringUrgency = "Routine interval";
+  }
+
   return {
     consequence_tier: tier, failure_mode: failMode, failure_physics: failPhysics,
     consequence_basis: basis, human_impact: humanImpact, environmental_impact: envImpact,
     operational_impact: opImpact, enforcement_requirements: requirements,
+    damage_state: damageState, damage_trajectory: damageTrajectory,
+    threshold_score: thresholdScore, threshold_reasons: thresholdReasons,
+    monitoring_urgency: monitoringUrgency,
     consequence_confidence: roundN(consConf, 2)
   };
 }
@@ -761,6 +858,56 @@ function resolveInspectionReality(damage: any, consequence: any, physics: any, t
   if (missing.length > 0 && consequence.consequence_tier === "CRITICAL") verdict = "BLOCKED";
   else if (missing.length > 0) verdict = "INSUFFICIENT";
 
+  // CONSTRAINT TRUTH DISTORTION — do execution conditions allow reliable results?
+  var constraintScore = 0;
+  var constraintWarnings: string[] = [];
+  var truthQuality = "HIGH";
+  if (hasWord(lt, "coated") || hasWord(lt, "coating") || hasWord(lt, "painted")) {
+    constraintScore += 15;
+    constraintWarnings.push("Coating/paint may reduce sensitivity or block surface methods entirely. Results may understate actual condition.");
+  }
+  if (hasWord(lt, "rough") || hasWord(lt, "corroded surface") || hasWord(lt, "scale") || hasWord(lt, "rust")) {
+    constraintScore += 12;
+    constraintWarnings.push("Rough or corroded surface degrades coupling quality and indication clarity. Findings may be less reliable.");
+  }
+  if (hasWord(lt, "underwater") || hasWord(lt, "subsea") || (flags && flags.underwater_access_limited)) {
+    constraintScore += 18;
+    constraintWarnings.push("Underwater execution increases complexity. Signal quality and scan stability may be reduced.");
+  }
+  if (hasWord(lt, "rope access") || hasWord(lt, "scaffolding") || hasWord(lt, "confined")) {
+    constraintScore += 14;
+    constraintWarnings.push("Limited access affects scan stability and coverage completeness. Inspector may not reach all areas.");
+  }
+  if (hasWord(lt, "online") || hasWord(lt, "in service") || hasWord(lt, "running")) {
+    constraintScore += 10;
+    constraintWarnings.push("Equipment in service during inspection. Vibration, temperature, or flow may affect results.");
+  }
+  if (hasWord(lt, "limited access") || hasWord(lt, "partial access") || hasWord(lt, "restricted")) {
+    constraintScore += 16;
+    constraintWarnings.push("Access restriction means some areas cannot be inspected. Uninspected zones remain unknown — not clean.");
+  }
+  if (hasWord(lt, "hot") || hasWord(lt, "elevated temperature") || (physics.thermal.operating_temp_f && physics.thermal.operating_temp_f > 200)) {
+    constraintScore += 12;
+    constraintWarnings.push("Elevated temperature may require special procedures and correction factors. Standard calibration may not apply.");
+  }
+  if (constraintScore > 100) constraintScore = 100;
+
+  if (constraintScore >= 50) {
+    truthQuality = "UNRELIABLE";
+    constraintWarnings.push("WARNING: Execution conditions significantly degrade result reliability. More data under these conditions may increase false confidence rather than truth. Consider improving conditions before trusting results.");
+  } else if (constraintScore >= 30) {
+    truthQuality = "DEGRADED";
+    constraintWarnings.push("Execution conditions may reduce result quality. Interpret findings conservatively.");
+  } else if (constraintScore >= 15) {
+    truthQuality = "MODERATE";
+  }
+
+  // Constraint distortion adjusts confidence
+  if (constraintScore >= 30) inspConf -= 0.10;
+  if (constraintScore >= 50) inspConf -= 0.10;
+  if (truthQuality === "UNRELIABLE" && verdict === "SUFFICIENT") verdict = "SUFFICIENT_WITH_CONSTRAINTS";
+  inspConf = clamp(inspConf, 0.1, 1.0);
+
   var physReason = "";
   if (verdict === "BLOCKED") {
     physReason = "CRITICAL consequence requires complete damage characterization. Physics gaps: " + missing.join("; ") + ". These are physics limitations — not code preferences or procedural suggestions.";
@@ -782,6 +929,7 @@ function resolveInspectionReality(damage: any, consequence: any, physics: any, t
     all_method_scores: allScores, best_method: bestMethod,
     sufficiency_verdict: verdict, physics_reason: physReason,
     required_methods: required, missing_coverage: missing,
+    constraint_analysis: { constraint_score: constraintScore, truth_quality: truthQuality, warnings: constraintWarnings },
     inspection_confidence: roundN(inspConf, 2) };
 }
 
@@ -1118,6 +1266,7 @@ var handler: Handler = async function(event: HandlerEvent) {
           physical_reality: {
             stress: physics.stress, thermal: physics.thermal, chemical: physics.chemical,
             energy: physics.energy, time: physics.time,
+            field_interaction: physics.field_interaction,
             physics_summary: physics.physics_summary,
             physics_confidence: physics.physics_confidence
           },
@@ -1147,6 +1296,11 @@ var handler: Handler = async function(event: HandlerEvent) {
             environmental_impact: consequence.environmental_impact,
             operational_impact: consequence.operational_impact,
             enforcement_requirements: consequence.enforcement_requirements,
+            damage_state: consequence.damage_state,
+            damage_trajectory: consequence.damage_trajectory,
+            threshold_score: consequence.threshold_score,
+            threshold_reasons: consequence.threshold_reasons,
+            monitoring_urgency: consequence.monitoring_urgency,
             consequence_confidence: consequence.consequence_confidence
           },
           // State 4
@@ -1169,6 +1323,7 @@ var handler: Handler = async function(event: HandlerEvent) {
             physics_reason: inspection.physics_reason,
             required_methods: inspection.required_methods,
             missing_coverage: inspection.missing_coverage,
+            constraint_analysis: inspection.constraint_analysis,
             inspection_confidence: inspection.inspection_confidence
           },
           // Physics Computations
