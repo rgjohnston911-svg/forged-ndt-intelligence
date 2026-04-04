@@ -107,11 +107,30 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (fireExp) conf += 0.05;
   if (tempC !== null) conf += 0.05;
 
-  // CHEMICAL
+  // CHEMICAL — with EXPLICIT NEGATIVE LOCKING
+  // Rule: When user explicitly denies an environment, downstream cannot override
   var corrosive = false; var agents: string[] = [];
-  var h2s = hasWord(lt, "h2s") || hasWord(lt, "hydrogen sulfide") || hasWord(lt, "sour");
+  // Detect explicit negatives FIRST
+  var negMarine = hasWord(lt, "no marine") || hasWord(lt, "not marine") || hasWord(lt, "marine: no") || hasWord(lt, "marine environment: no") || hasWord(lt, "marine environment. no") || hasWord(lt, "non-marine") || hasWord(lt, "non marine");
+  var negH2s = hasWord(lt, "no h2s") || hasWord(lt, "not sour") || hasWord(lt, "no sour") || hasWord(lt, "h2s: no");
+  var negChloride = hasWord(lt, "no chloride") || hasWord(lt, "no chlor") || hasWord(lt, "chloride: no");
+  var negCorrosion = hasWord(lt, "no corros") || hasWord(lt, "corrosion: no") || hasWord(lt, "not corroded");
+
+  var h2s = !negH2s && (hasWord(lt, "h2s") || hasWord(lt, "hydrogen sulfide") || hasWord(lt, "sour"));
   var co2 = hasWord(lt, "co2") || hasWord(lt, "sweet corros");
-  var chlorides = hasWord(lt, "chloride") || hasWord(lt, "seawater") || hasWord(lt, "marine") || hasWord(lt, "splash zone");
+  // CRITICAL: "marine" only triggers chlorides if NOT explicitly denied
+  // "diving" or "commercial diving" is an INDUSTRY, not an environment
+  var chlorides = !negMarine && !negChloride && (hasWord(lt, "chloride") || hasWord(lt, "seawater") || hasWord(lt, "splash zone"));
+  // "marine" keyword only counts if not negated
+  if (!negMarine && hasWord(lt, "marine") && !hasWord(lt, "marine environment. no") && !hasWord(lt, "marine environment: no") && !hasWord(lt, "no. marine") && !hasWord(lt, "no marine")) {
+    // Check if "marine" appears as a positive assertion, not a denial
+    // Look for patterns like "marine environment" without preceding "no" or "not"
+    var marineIdx = lt.indexOf("marine");
+    var preMarineChunk = lt.substring(Math.max(0, marineIdx - 15), marineIdx);
+    if (preMarineChunk.indexOf("no") === -1 && preMarineChunk.indexOf("not") === -1 && preMarineChunk.indexOf("non") === -1) {
+      chlorides = true;
+    }
+  }
   var caustic = hasWord(lt, "caustic") || hasWord(lt, "naoh") || hasWord(lt, "amine");
   var hydrogen = hasWord(lt, "hydrogen") && !h2s || hasWord(lt, "htha");
   if (h2s) { corrosive = true; agents.push("H2S"); }
@@ -119,7 +138,7 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (chlorides) { corrosive = true; agents.push("chlorides"); }
   if (caustic) { corrosive = true; agents.push("caustic"); }
   if (hydrogen) agents.push("hydrogen");
-  if (hasWord(lt, "corros") || hasWord(lt, "rust") || hasWord(lt, "scale")) corrosive = true;
+  if (!negCorrosion && (hasWord(lt, "corros") || hasWord(lt, "rust") || hasWord(lt, "scale"))) corrosive = true;
   if (hasWord(lt, "soil") || hasWord(lt, "buried")) { corrosive = true; agents.push("soil"); }
   var suscept: string[] = [];
   if (h2s && tensile) suscept.push("SSC");
@@ -363,6 +382,34 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   }
   if (basis.length === 0) basis.push("Standard asset — default MEDIUM");
 
+  // ROUTINE INSPECTION CONSERVATISM
+  // Separate ASSET CRITICALITY from CURRENT DEGRADATION EVIDENCE
+  var isRoutine = hasWord(lt, "routine") || hasWord(lt, "general condition") || hasWord(lt, "condition assessment") || hasWord(lt, "general inspection") || hasWord(lt, "periodic");
+  var hasNoHistory = hasWord(lt, "no history") || hasWord(lt, "no damage") || hasWord(lt, "no previous") || hasWord(lt, "first inspection");
+  var hasDamageEvidence = !!fl.crack_confirmed || !!fl.critical_wall_loss_confirmed || !!fl.leak_confirmed || !!fl.through_wall_leak_confirmed || !!fl.fire_property_degradation_confirmed || !!fl.support_collapse_confirmed;
+  var hasAnyVisibleDamage = !!fl.visible_cracking || !!fl.visible_deformation || !!fl.dent_or_gouge_present || !!fl.leak_suspected;
+
+  // degradation_certainty: how certain are we that active damage exists right now?
+  var degradationCertainty = "UNVERIFIED";
+  if (hasDamageEvidence) { degradationCertainty = "CONFIRMED"; }
+  else if (hasAnyVisibleDamage) { degradationCertainty = "SUSPECTED"; }
+  else if (damage.primary && damage.primary.observation_basis) { degradationCertainty = "SUSPECTED"; }
+  else if (damage.primary && damage.primary.reality_score >= 0.6) { degradationCertainty = "PROBABLE"; }
+  else { degradationCertainty = "UNVERIFIED"; }
+
+  // For routine inspections with no confirmed damage, do NOT inflate to max alarm
+  if (isRoutine && degradationCertainty === "UNVERIFIED" && !hasDamageEvidence) {
+    // Asset criticality stays (tier stays CRITICAL/HIGH for human occupancy etc.)
+    // But failure mode should reflect inspection state, not active degradation
+    if (failMode === "equipment_degradation" || failMode === "pressure_boundary_failure") {
+      failMode = "inspection_required";
+    }
+    if (humanImpact.indexOf("FATAL") !== -1) {
+      humanImpact = "FATAL potential (life-safety asset) — current degradation NOT confirmed";
+    }
+    opImpact = "Routine inspection — no immediate operational impact established";
+  }
+
   // Failure physics from primary mechanism
   if (damage.primary) {
     var pm = damage.primary.id;
@@ -445,6 +492,7 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     consequence_tier: tier, failure_mode: failMode, failure_physics: failPhysics,
     consequence_basis: basis, human_impact: humanImpact, environmental_impact: envImpact,
     operational_impact: opImpact, enforcement_requirements: requirements,
+    degradation_certainty: degradationCertainty, is_routine_inspection: isRoutine,
     damage_state: damageState, damage_trajectory: damageTrajectory,
     threshold_score: thresholdScore, threshold_reasons: thresholdReasons,
     monitoring_urgency: monitoringUrgency,
@@ -858,6 +906,28 @@ function resolveInspectionReality(damage: any, consequence: any, physics: any, t
   if (missing.length > 0 && consequence.consequence_tier === "CRITICAL") verdict = "BLOCKED";
   else if (missing.length > 0) verdict = "INSUFFICIENT";
 
+  // FIX: Generate recommended method package when no methods proposed but best method is viable
+  var recommendedPackage: string[] = [];
+  if (proposed.length === 0 && bestMethod && bestMethod.scores.overall >= 50) {
+    // Build recommended inspection path from physics scoring
+    recommendedPackage.push("VT"); // Always start with visual
+    // Add surface method for ferromagnetic steel
+    if (!hasWord(lt, "stainless") && !hasWord(lt, "austenitic") && !hasWord(lt, "aluminum") && !hasWord(lt, "titanium")) {
+      recommendedPackage.push("MT");
+    } else {
+      recommendedPackage.push("PT");
+    }
+    // Add volumetric if CRITICAL/HIGH or if damage mechanism requires it
+    if (consequence.consequence_tier === "CRITICAL" || consequence.consequence_tier === "HIGH" || (damage.primary && damage.primary.id.indexOf("fatigue") !== -1)) {
+      if (bestMethod.method === "PAUT" || bestMethod.method === "UT") recommendedPackage.push(bestMethod.method);
+      else recommendedPackage.push("UT");
+    }
+    // Add best method if not already included
+    if (recommendedPackage.indexOf(bestMethod.method) === -1 && bestMethod.scores.overall >= 65) {
+      recommendedPackage.push(bestMethod.method);
+    }
+  }
+
   // CONSTRAINT TRUTH DISTORTION — do execution conditions allow reliable results?
   var constraintScore = 0;
   var constraintWarnings: string[] = [];
@@ -911,8 +981,14 @@ function resolveInspectionReality(damage: any, consequence: any, physics: any, t
   var physReason = "";
   if (verdict === "BLOCKED") {
     physReason = "CRITICAL consequence requires complete damage characterization. Physics gaps: " + missing.join("; ") + ". These are physics limitations — not code preferences or procedural suggestions.";
+    if (recommendedPackage.length > 0) {
+      physReason += " RECOMMENDED INSPECTION PATH: " + recommendedPackage.join(" + ") + ". Best scoring method: " + (bestMethod ? bestMethod.method + " (" + bestMethod.scores.overall + "/100)" : "unknown") + ". Disposition is blocked until required coverage is achieved — methods are NOT blocked.";
+    }
   } else if (verdict === "INSUFFICIENT") {
     physReason = "Method coverage has physics gaps: " + missing.join("; ");
+    if (recommendedPackage.length > 0) {
+      physReason += " Recommended additions: " + recommendedPackage.join(" + ") + ".";
+    }
   } else {
     physReason = "Proposed methods provide adequate physics coverage for " + consequence.consequence_tier + " consequence tier.";
     if (bestProposed) physReason += " Best proposed: " + bestProposed.method + " scored " + bestProposed.scores.overall + "/100.";
@@ -921,11 +997,12 @@ function resolveInspectionReality(damage: any, consequence: any, physics: any, t
   var inspConf = 0.8;
   if (missing.length > 0) inspConf -= missing.length * 0.12;
   if (verdict === "BLOCKED") inspConf = Math.min(inspConf, 0.35);
-  if (proposed.length === 0) inspConf = 0.2;
+  if (proposed.length === 0 && recommendedPackage.length > 0) inspConf = 0.35; // Has recommendation, just not proposed yet
+  else if (proposed.length === 0) inspConf = 0.2;
   if (bestProposed && bestProposed.scores.overall < 50) inspConf -= 0.15;
   inspConf = clamp(inspConf, 0.1, 1.0);
 
-  return { proposed_methods: proposed, method_assessments: assessments,
+  return { proposed_methods: proposed, recommended_package: recommendedPackage, method_assessments: assessments,
     all_method_scores: allScores, best_method: bestMethod,
     sufficiency_verdict: verdict, physics_reason: physReason,
     required_methods: required, missing_coverage: missing,
@@ -1216,6 +1293,48 @@ var handler: Handler = async function(event: HandlerEvent) {
     var assetClass = asset.asset_class || "unknown";
     var events = parsed.events || [];
     var numVals = parsed.numeric_values || {};
+    var lt_handler = transcript.toLowerCase();
+
+    // ASSET ALIAS CORRECTION — fix upstream misclassification
+    // Rule: transcript keywords take precedence over AI parser when strong aliases exist
+    var assetCorrected = false;
+    var assetCorrectionReason = "";
+    // Hyperbaric / diving chambers
+    if (hasWord(lt_handler, "decompression chamber") || hasWord(lt_handler, "recompression chamber") || hasWord(lt_handler, "double lock") || hasWord(lt_handler, "hyperbaric chamber") || hasWord(lt_handler, "diving bell") || hasWord(lt_handler, "dive system") || hasWord(lt_handler, "pvho") || hasWord(lt_handler, "man-rated") || hasWord(lt_handler, "personnel chamber")) {
+      if (assetClass !== "pressure_vessel") {
+        assetClass = "pressure_vessel";
+        assetCorrected = true;
+        assetCorrectionReason = "Transcript describes hyperbaric/diving pressure chamber. Overriding upstream classification (" + (asset.asset_class || "unknown") + ") to pressure_vessel.";
+      }
+    }
+    // Boilers
+    if (hasWord(lt_handler, "boiler") || hasWord(lt_handler, "steam drum") || hasWord(lt_handler, "economizer")) {
+      if (assetClass !== "pressure_vessel" && assetClass !== "boiler") {
+        assetClass = "pressure_vessel";
+        assetCorrected = true;
+        assetCorrectionReason = "Transcript describes boiler/steam equipment. Overriding to pressure_vessel.";
+      }
+    }
+    // Piping
+    if ((hasWord(lt_handler, "pipe") || hasWord(lt_handler, "piping") || hasWord(lt_handler, "pipeline")) && assetClass !== "piping" && assetClass !== "pipeline") {
+      if (assetClass === "unknown" || assetClass === "bridge_concrete" || assetClass === "bridge") {
+        assetClass = "piping";
+        assetCorrected = true;
+        assetCorrectionReason = "Transcript describes piping. Overriding upstream classification.";
+      }
+    }
+    // Storage tanks
+    if ((hasWord(lt_handler, "storage tank") || hasWord(lt_handler, "ast ") || hasWord(lt_handler, "aboveground storage")) && assetClass !== "tank") {
+      assetClass = "tank";
+      assetCorrected = true;
+      assetCorrectionReason = "Transcript describes storage tank.";
+    }
+    // Pressure vessel generic
+    if ((hasWord(lt_handler, "pressure vessel") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "heat exchanger") || hasWord(lt_handler, "autoclave")) && assetClass !== "pressure_vessel") {
+      assetClass = "pressure_vessel";
+      assetCorrected = true;
+      assetCorrectionReason = "Transcript describes pressure equipment. Overriding to pressure_vessel.";
+    }
 
     // STATE 1: Physical Reality
     var physics = resolvePhysicalReality(transcript, events, numVals, confirmedFlags, assetClass);
@@ -1259,9 +1378,10 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v1.0",
+          engine_version: "physics-first-decision-core-v2.0",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
+          asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason } : { corrected: false },
           // State 1
           physical_reality: {
             stress: physics.stress, thermal: physics.thermal, chemical: physics.chemical,
@@ -1297,6 +1417,8 @@ var handler: Handler = async function(event: HandlerEvent) {
             operational_impact: consequence.operational_impact,
             enforcement_requirements: consequence.enforcement_requirements,
             damage_state: consequence.damage_state,
+            degradation_certainty: consequence.degradation_certainty,
+            is_routine_inspection: consequence.is_routine_inspection,
             damage_trajectory: consequence.damage_trajectory,
             threshold_score: consequence.threshold_score,
             threshold_reasons: consequence.threshold_reasons,
@@ -1316,6 +1438,7 @@ var handler: Handler = async function(event: HandlerEvent) {
           // State 5
           inspection_reality: {
             proposed_methods: inspection.proposed_methods,
+            recommended_package: inspection.recommended_package,
             method_assessments: inspection.method_assessments,
             all_method_scores: inspection.all_method_scores,
             best_method: inspection.best_method ? { method: inspection.best_method.method, overall_score: inspection.best_method.scores.overall, verdict: inspection.best_method.verdict, scores: inspection.best_method.scores, reasons_for: inspection.best_method.reasons_for, reasons_against: inspection.best_method.reasons_against, blind_spots: inspection.best_method.blind_spots, complementary_methods: inspection.best_method.complementary_methods } : null,
