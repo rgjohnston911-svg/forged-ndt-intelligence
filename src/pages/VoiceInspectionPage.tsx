@@ -91,7 +91,13 @@ function generateInspectionReport(data: {
 
   // META GRID
   html += "<div class='meta-grid'>";
-  html += "<div class='meta-box'><div class='meta-label'>Asset Classification</div><div class='meta-value'>" + esc(data.asset?.asset_class || "unknown") + " (" + Math.round((data.asset?.confidence || 0) * 100) + "% confidence)</div></div>";
+  var displayAssetClass = data.asset?.asset_class || "unknown";
+  var assetNote = "";
+  if (dc.asset_correction && dc.asset_correction.corrected) {
+    displayAssetClass = dc.asset_correction.corrected_to;
+    assetNote = " (corrected from " + esc(dc.asset_correction.original) + ")";
+  }
+  html += "<div class='meta-box'><div class='meta-label'>Asset Classification</div><div class='meta-value'>" + esc(displayAssetClass) + assetNote + "</div></div>";
   html += "<div class='meta-box'><div class='meta-label'>Consequence Tier</div><div class='meta-value' style='color:" + tierColor + "'>" + esc(con.consequence_tier) + " - " + esc(con.failure_mode).replace(/_/g, " ") + "</div></div>";
   html += "<div class='meta-box'><div class='meta-label'>Disposition</div><div class='meta-value'>" + esc(dec.disposition).replace(/_/g, " ").toUpperCase() + "</div></div>";
   html += "<div class='meta-box'><div class='meta-label'>Primary Authority</div><div class='meta-value'>" + esc(auth.primary_authority) + "</div></div>";
@@ -177,7 +183,7 @@ function generateInspectionReport(data: {
   html += "<div class='section'>";
   html += "<div class='section-title'>Inspection Reality</div>";
   var inspColor = insp.sufficiency_verdict === "BLOCKED" ? "#dc2626" : insp.sufficiency_verdict === "INSUFFICIENT" ? "#ea580c" : "#16a34a";
-  html += "<div class='banner' style='background:" + inspColor + "'>" + esc(insp.sufficiency_verdict) + " - " + esc((insp.proposed_methods || []).join(", ") || "No methods proposed") + "</div>";
+  html += "<div class='banner' style='background:" + inspColor + "'>" + esc(insp.sufficiency_verdict) + " - " + esc((insp.proposed_methods || []).join(", ") || (insp.recommended_package && insp.recommended_package.length > 0 ? "Recommended: " + insp.recommended_package.join(" + ") : "No methods in transcript")) + "</div>";
   html += "<div style='font-size:11px;margin-bottom:8px;'>" + esc(insp.physics_reason) + "</div>";
   if (insp.missing_coverage && insp.missing_coverage.length > 0) {
     for (var mi = 0; mi < insp.missing_coverage.length; mi++) html += "<div class='gap-item'>" + esc(insp.missing_coverage[mi]) + "</div>";
@@ -657,6 +663,10 @@ export default function VoiceInspectionPage() {
         var tier = coreResult?.consequence_reality?.consequence_tier || "?";
         var disp = coreResult?.decision_reality?.disposition || "?";
         var elapsed = coreResult?.elapsed_ms || "?";
+        // Update asset display if Decision Core corrected the classification
+        if (coreResult?.asset_correction?.corrected) {
+          s = updateStep(1, { status: "done", detail: coreResult.asset_correction.corrected_to + " (corrected from " + coreResult.asset_correction.original + ")" }, s);
+        }
         s = updateStep(2, { status: "done", detail: tier + " | " + disp + " | " + elapsed + "ms" }, s);
       } catch (e: any) {
         s = updateStep(2, { status: "error", detail: e.message }, s);
