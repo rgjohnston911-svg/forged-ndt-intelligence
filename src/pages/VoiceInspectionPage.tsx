@@ -1031,7 +1031,7 @@ export default function VoiceInspectionPage() {
             {dominance.decision_trace.map(function(t: string, i: number) {
               var isLock = t.indexOf("HARD LOCK") !== -1;
               var isOverride = t.indexOf("OVERRIDE") !== -1;
-              return <div key={i} style={{ fontSize: "12px", padding: "3px 0", color: isLock ? "#dc2626" : isOverride ? "#92400e" : "#374151", fontWeight: (isLock || isOverride) ? 700 : 400, backgroundColor: isOverride ? "#fefce8" : "transparent", padding: isOverride ? "4px 8px" : "3px 0", borderRadius: isOverride ? "4px" : "0", marginBottom: isOverride ? "2px" : "0" }}>{i + 1}. {t}</div>;
+              return <div key={i} style={{ fontSize: "12px", color: isLock ? "#dc2626" : isOverride ? "#92400e" : "#374151", fontWeight: (isLock || isOverride) ? 700 : 400, backgroundColor: isOverride ? "#fefce8" : "transparent", padding: isOverride ? "4px 8px" : "3px 0", borderRadius: isOverride ? "4px" : "0", marginBottom: isOverride ? "2px" : "0" }}>{i + 1}. {t}</div>;
             })}
           </Card>
         )}
