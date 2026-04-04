@@ -23,7 +23,7 @@ interface ChemicalState { corrosive_environment: boolean; environment_agents: st
 interface EnergyState { pressure_cycling: boolean; vibration: boolean; impact_event: boolean; impact_description: string | null; flow_erosion_risk: boolean; cavitation: boolean; stored_energy_significant: boolean; }
 interface TimeState { service_years: number | null; cycles_estimated: string | null; time_since_inspection_years: number | null; }
 interface ValidatedMechanism { id: string; name: string; physics_basis: string; preconditions_met: string[]; reality_state: string; reality_score: number; evidence_for: string[]; evidence_against: string[]; observation_basis: boolean; severity: string; }
-interface RejectedMechanism { id: string; name: string; rejection_reason: string; missing_precondition: string; }
+interface RejectedMechanism { id: string; name: string; rejection_reason: string; missing_precondition: string; met_preconditions?: string[]; }
 interface MethodWeight { method: string; physics_principle: string; detects: string; cannot_detect: string; reliability: number; coverage: number; limitations: string[]; }
 interface PrecedenceGate { gate: string; result: string; reason: string; required_action: string | null; }
 interface RecoveryItem { priority: number; action: string; physics_reason: string; who: string; }
@@ -87,6 +87,15 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (hasWord(lt, "weld") && !stressConc) { stressConc = true; stressConcLocs.push("weld_general"); residual = true; }
   if (fl.dent_or_gouge_present) { stressConc = true; stressConcLocs.push("dent_or_gouge"); }
   if (hasWord(lt, "notch") || hasWord(lt, "gouge") || hasWord(lt, "thread")) { stressConc = true; stressConcLocs.push("geometric_discontinuity"); }
+  // Physics: pressure vessels, piping, and tanks are WELDED structures — welds are implied
+  // A pressure vessel without welds does not exist. Stress concentration at welds is a physical certainty.
+  if (!stressConc && (assetClass === "pressure_vessel" || assetClass === "piping" || assetClass === "pipeline" || assetClass === "tank")) {
+    stressConc = true; stressConcLocs.push("welds_implied_for_" + assetClass); residual = true;
+  }
+  // Nozzles, penetrations, heads are implied on pressure vessels
+  if (assetClass === "pressure_vessel" && stressConcLocs.indexOf("nozzle_junction") === -1) {
+    stressConcLocs.push("head_to_shell_junction_implied");
+  }
 
   if (fl.primary_member_involved || hasWord(lt, "primary") || hasWord(lt, "jacket leg") || hasWord(lt, "main girder")) loadPath = "primary";
   else if (hasWord(lt, "brace") || hasWord(lt, "secondary") || hasWord(lt, "stiffener")) loadPath = "secondary";
@@ -301,12 +310,52 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
   var rejected: RejectedMechanism[] = [];
   var s = physics.stress; var t = physics.thermal; var c = physics.chemical; var e = physics.energy;
 
+  // Individual precondition truth map — for identifying WHICH specific conditions are missing
+  var preCheckMap: any = {
+    "Cyclic loading": s.cyclic_loading,
+    "Stress concentration": s.stress_concentration_present,
+    "Thermal cycling": t.thermal_cycling,
+    "Vibration": e.vibration,
+    "Corrosive environment": c.corrosive_environment,
+    "Localized corrosive agent (Cl-/CO2)": c.chlorides_present || c.co2_present,
+    "Tensile stress": s.tensile_stress,
+    "Chlorides": c.chlorides_present,
+    "Susceptible material (austenitic/duplex)": c.material_susceptibility && c.material_susceptibility.indexOf("chloride_SCC") !== -1,
+    "Caustic environment": c.caustic_present,
+    "H2S present": c.h2s_present,
+    "H2S present (hydrogen source)": c.h2s_present,
+    "CO2 present": c.co2_present,
+    "Water phase": c.corrosive_environment,
+    "Temperature in creep range": t.creep_range,
+    "Sustained tensile stress": s.tensile_stress,
+    "Low temperature": t.cryogenic,
+    "Pre-existing flaw": !!fl.crack_confirmed || !!fl.visible_cracking || !!fl.dent_or_gouge_present,
+    "High flow velocity or erosive conditions": e.flow_erosion_risk,
+    "Compressive overload or impact energy": s.compressive_stress || e.impact_event,
+    "Fire or elevated temperature exposure": t.fire_exposure,
+    "Temperature in CUI range (0-350F)": t.operating_temp_f !== null && t.operating_temp_f >= 0 && t.operating_temp_f <= 350,
+    "Insulated equipment": false,
+    "Hydrogen environment": c.hydrogen_present,
+    "Elevated temperature (>400F)": t.operating_temp_f !== null && t.operating_temp_f > 400
+  };
+
   for (var i = 0; i < MECH_DEFS.length; i++) {
     var md = MECH_DEFS[i];
     if (!md.pre(s, t, c, e, fl)) {
+      // Identify which SPECIFIC preconditions are missing vs met
+      var missingPres: string[] = [];
+      var metPres: string[] = [];
+      for (var pi = 0; pi < md.preLabels.length; pi++) {
+        var label = md.preLabels[pi];
+        if (preCheckMap[label]) { metPres.push(label); }
+        else { missingPres.push(label); }
+      }
+      // If preCheckMap couldn't resolve (unknown labels), fall back to all
+      if (missingPres.length === 0 && metPres.length === 0) missingPres = md.preLabels.slice();
       rejected.push({ id: md.id, name: md.name,
-        rejection_reason: "PHYSICALLY IMPOSSIBLE: Missing required precondition(s): " + md.preLabels.join("; "),
-        missing_precondition: md.preLabels.join("; ") });
+        rejection_reason: "PHYSICALLY IMPOSSIBLE: Missing required precondition(s): " + missingPres.join("; "),
+        missing_precondition: missingPres.join("; "),
+        met_preconditions: metPres });
       continue;
     }
     var evFor: string[] = []; var evAg: string[] = []; var obs = false; var score = 0.4;
@@ -653,8 +702,9 @@ function resolveAuthorityReality(assetClass: string, transcript: string, consequ
   if (consequence.consequence_tier === "CRITICAL" && matched.pri.indexOf("PVHO") !== -1) {
     alignment = "CONSISTENT — PVHO-1 requires multi-method NDE for pressure boundary welds, aligning with physics requirement for CRITICAL consequence";
   }
-  // Check FFS need
-  if ((physics.stress.cyclic_loading || physics.chemical.corrosive_environment) && consequence.consequence_tier !== "LOW") {
+  // Check FFS need — but NOT for PVHO-1 (has own integrity framework)
+  // API 579 is relevant for refinery/process equipment, not for human-occupancy chambers
+  if ((physics.stress.cyclic_loading || physics.chemical.corrosive_environment) && consequence.consequence_tier !== "LOW" && matched.pri.indexOf("PVHO") === -1) {
     var hasFFS = false;
     for (var si = 0; si < matched.sec.length; si++) { if (matched.sec[si].indexOf("579") !== -1) hasFFS = true; }
     if (!hasFFS) gaps.push("Fitness-for-service (API 579) recommended but not in chain");
