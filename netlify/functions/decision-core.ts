@@ -58,6 +58,42 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   var tensile = false; var compress = false;
   var loadPath = "unknown"; var residual = false;
 
+  // ============================================================================
+  // PARSED EVENT → PHYSICS MAPPER
+  // The AI parser (GPT-4o) already understands conversational language.
+  // Map its structured output to physics states BEFORE raw keyword scanning.
+  // This eliminates the need for hundreds of manual keywords.
+  // ============================================================================
+  function hasEvent(term: string): boolean {
+    for (var ei = 0; ei < events.length; ei++) { if (events[ei].toLowerCase().indexOf(term) !== -1) return true; }
+    return false;
+  }
+  // Cyclic loading from parsed events
+  if (hasEvent("cycl") || hasEvent("fatigue") || hasEvent("vibrat") || hasEvent("traffic") || hasEvent("train") || hasEvent("railroad") || hasEvent("operational_cycling")) {
+    cyclic = true; cyclicSrc = cyclicSrc ? cyclicSrc + "+parsed_event" : "parsed_event_cyclic";
+  }
+  // Impact from parsed events
+  if (hasEvent("impact") || hasEvent("collision") || hasEvent("struck") || hasEvent("hit")) {
+    loads.push("impact"); compress = true;
+  }
+  // Stress concentration from parsed events
+  if (hasEvent("crack") || hasEvent("indication") || hasEvent("flaw") || hasEvent("defect")) {
+    stressConc = true; stressConcLocs.push("parsed_indication");
+  }
+  // Corrosion indicators from parsed events — handled in chemical section below
+  // Deformation from parsed events
+  if (hasEvent("deform") || hasEvent("buckl") || hasEvent("dent") || hasEvent("alignment")) {
+    compress = true; loads.push("deformation_indicator");
+  }
+  // Environmental loading from parsed events
+  if (hasEvent("flood") || hasEvent("storm") || hasEvent("wave") || hasEvent("wind") || hasEvent("earthquake") || hasEvent("seismic")) {
+    loads.push("environmental"); if (!cyclic) { cyclic = true; cyclicSrc = "environmental_event"; }
+  }
+  // Tensile from parsed events
+  if (hasEvent("tension") || hasEvent("fracture") || hasEvent("overload") || hasEvent("pressure")) {
+    tensile = true;
+  }
+
   if (hasWord(lt, "pressure") || assetClass === "pressure_vessel" || assetClass === "piping" || assetClass === "pipeline") {
     tensile = true; loads.push("internal_pressure"); loads.push("biaxial_tension");
   }
@@ -78,8 +114,28 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
   if (hasWord(lt, "vibrat")) { cyclic = true; cyclicSrc = cyclicSrc ? cyclicSrc + "+vibration" : "vibration"; loads.push("vibration"); }
   if (hasWord(lt, "fatigue") || hasWord(lt, "cyclic load")) { cyclic = true; if (!cyclicSrc) cyclicSrc = "fatigue_indicated"; }
-  if (hasWord(lt, "impact") || hasWord(lt, "struck") || hasWord(lt, "hit") || hasWord(lt, "collision")) { loads.push("impact"); compress = true; }
+  if (hasWord(lt, "impact") || hasWord(lt, "struck") || hasWord(lt, "hit") || hasWord(lt, "collision") || hasWord(lt, "hard hit")) { loads.push("impact"); compress = true; }
   if (hasWord(lt, "wind") || hasWord(lt, "wave") || hasWord(lt, "current")) { loads.push("environmental"); cyclic = true; cyclicSrc = cyclicSrc ? cyclicSrc + "+environmental" : "environmental"; }
+
+  // DOMAIN: Bridges and structural steel inherently experience cyclic loading from traffic
+  if (assetClass === "bridge" || assetClass === "rail_bridge" || hasWord(lt, "railroad") || hasWord(lt, "railway") || hasWord(lt, "train") || hasWord(lt, "rail bridge") || hasWord(lt, "highway bridge") || hasWord(lt, "traffic")) {
+    if (!cyclic) { cyclic = true; cyclicSrc = "traffic_cyclic_loading"; }
+    loads.push("traffic_loading");
+    // Bridges under traffic always have tensile stress in tension members
+    tensile = true;
+  }
+  // Fracture-critical members are primary load path by definition
+  if (hasWord(lt, "fracture-critical") || hasWord(lt, "fracture critical")) {
+    tensile = true; loadPath = "primary";
+    stressConc = true; stressConcLocs.push("fracture_critical_member");
+  }
+  // Gusset plates, riveted connections, bolt holes = stress concentrations
+  if (hasWord(lt, "gusset")) { stressConc = true; stressConcLocs.push("gusset_connection"); }
+  if (hasWord(lt, "rivet") || hasWord(lt, "bolt hole") || hasWord(lt, "bolted")) { stressConc = true; stressConcLocs.push("fastener_hole"); }
+  if (hasWord(lt, "tension member") || hasWord(lt, "lower chord") || hasWord(lt, "bottom chord")) { tensile = true; loadPath = "primary"; }
+  if (hasWord(lt, "floor beam") || hasWord(lt, "stringer")) { stressConc = true; stressConcLocs.push("beam_connection"); }
+  // Prior repair = stress concentration + residual stress
+  if (hasWord(lt, "prior repair") || hasWord(lt, "repair") && hasWord(lt, "member")) { stressConc = true; stressConcLocs.push("prior_repair_zone"); residual = true; }
 
   if (hasWord(lt, "weld toe") || hasWord(lt, "weld root")) { stressConc = true; stressConcLocs.push("weld_toe_or_root"); }
   if (hasWord(lt, "nozzle") || hasWord(lt, "branch")) { stressConc = true; stressConcLocs.push("nozzle_junction"); }
@@ -150,6 +206,17 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (hydrogen) agents.push("hydrogen");
   if (!negCorrosion && (hasWord(lt, "corros") || hasWord(lt, "rust") || hasWord(lt, "scale"))) corrosive = true;
   if (hasWord(lt, "soil") || hasWord(lt, "buried")) { corrosive = true; agents.push("soil"); }
+  // DOMAIN: Outdoor structures exposed to weather, rivers, floods = atmospheric corrosion
+  if (hasWord(lt, "river") || hasWord(lt, "flood") || hasWord(lt, "creek") || hasWord(lt, "water") || hasWord(lt, "submerge")) { corrosive = true; agents.push("water_exposure"); }
+  if (hasWord(lt, "atmospheric") || hasWord(lt, "outdoor") || hasWord(lt, "exposed") || hasWord(lt, "weather")) { corrosive = true; agents.push("atmospheric"); }
+  // Pack rust is corrosion evidence
+  if (hasWord(lt, "pack rust") || hasWord(lt, "rust stain") || hasWord(lt, "rust bleed") || hasWord(lt, "rusting")) { corrosive = true; if (agents.indexOf("atmospheric") === -1) agents.push("atmospheric"); }
+  // Bridges over water are inherently exposed to atmospheric corrosion
+  if ((assetClass === "bridge" || assetClass === "rail_bridge") && !corrosive) { corrosive = true; agents.push("atmospheric_implied_for_bridge"); }
+  // Parsed event-based corrosion/environment detection
+  if (hasEvent("corros") || hasEvent("rust") || hasEvent("oxide") || hasEvent("scale")) { corrosive = true; if (agents.indexOf("parsed_corrosion") === -1) agents.push("parsed_corrosion"); }
+  if (hasEvent("flood") || hasEvent("water") || hasEvent("river") || hasEvent("rain") || hasEvent("weather") || hasEvent("atmospheric")) { corrosive = true; if (agents.indexOf("environmental_exposure") === -1) agents.push("environmental_exposure"); }
+  if (hasEvent("marine") || hasEvent("salt") || hasEvent("seawater") || hasEvent("offshore")) { if (!negMarine) { chlorides = true; corrosive = true; if (agents.indexOf("chlorides") === -1) agents.push("chlorides"); } }
   var suscept: string[] = [];
   if (h2s && tensile) suscept.push("SSC");
   if (h2s) suscept.push("HIC");
@@ -453,10 +520,29 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     if (tier === "MEDIUM" || tier === "LOW") tier = "HIGH";
     basis.push("PHYSICS: Fire exposure degrades material properties");
   }
-  if (assetClass === "bridge") {
+  if (assetClass === "bridge" || assetClass === "rail_bridge") {
     if (tier === "MEDIUM" || tier === "LOW") tier = "HIGH";
     basis.push("PHYSICS: Public infrastructure — civilian exposure");
     humanImpact = "Public fatality risk";
+  }
+  // CONSEQUENCE ESCALATION: hazardous cargo
+  if (hasWord(lt, "crude oil") || hasWord(lt, "petroleum") || hasWord(lt, "hazmat") || hasWord(lt, "flammable") || hasWord(lt, "toxic cargo") || hasWord(lt, "lng") || hasWord(lt, "lpg") || hasWord(lt, "ammonia") || hasWord(lt, "chlorine")) {
+    tier = "CRITICAL";
+    basis.push("CONSEQUENCE: Hazardous cargo — release creates fatality/environmental catastrophe");
+    humanImpact = "FATAL — hazardous material release";
+    envImpact = "Major environmental contamination";
+  }
+  // CONSEQUENCE ESCALATION: fracture-critical members
+  if (hasWord(lt, "fracture-critical") || hasWord(lt, "fracture critical")) {
+    if (tier !== "CRITICAL") tier = "HIGH";
+    basis.push("CONSEQUENCE: Fracture-critical member — single-member failure = collapse");
+    if (humanImpact === "Low") humanImpact = "Fatality risk from structural collapse";
+  }
+  // CONSEQUENCE ESCALATION: train/railroad with loaded cars
+  if ((hasWord(lt, "train") || hasWord(lt, "railroad") || hasWord(lt, "locomotive")) && (hasWord(lt, "loaded") || hasWord(lt, "car") || hasWord(lt, "freight"))) {
+    if (tier === "MEDIUM" || tier === "LOW") tier = "HIGH";
+    basis.push("CONSEQUENCE: Loaded train — derailment risk");
+    if (humanImpact === "Low") humanImpact = "Derailment fatality risk";
   }
   if (basis.length === 0) basis.push("Standard asset — default MEDIUM");
 
