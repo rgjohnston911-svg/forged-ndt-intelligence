@@ -1,10 +1,12 @@
-// DEPLOY89 — decision-dominance.ts v2.2
+// DEPLOY91 — decision-dominance.ts v2.3
 // Decision Dominance Layer — Engine 8
-// v2.2: Evidence Confirmation support
-//   - Accepts optional confirmed_flags from frontend
-//   - Merges confirmed over auto-derived (inspector wins)
-//   - Tracks overrides in output for audit trail
-//   - confirmation_status: "auto_derived" | "inspector_confirmed"
+// v2.3: Near-universal support/restraint + 4 new hard locks (6 → 10)
+//   - SUPPORT_SYSTEM_FAILURE now near-universal (preserved on structural/piping/bridge/offshore/process)
+//   - HL_THROUGH_WALL_LEAK: confirmed through-wall leak
+//   - HL_SUPPORT_COLLAPSE: confirmed support/bearing structural failure
+//   - HL_CRITICAL_WALL_LOSS: confirmed wall-loss below minimum
+//   - HL_FIRE_PROPERTY_DEGRADATION: confirmed fire-degraded material properties
+// v2.2 (retained): Evidence Confirmation, confirmed_flags, overrides, audit trail
 // v2.1 (retained): Method suppression, universal mechanisms, grouped confidence,
 //   evidence sufficiency, hard locks, structural authority
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
@@ -63,6 +65,18 @@ var UNIVERSAL_MECHANISMS: { [key: string]: boolean } = {
   "LOAD_PATH_DISRUPTION": true,
   "STRUCTURAL_OVERLOAD": true,
   "STRUCTURAL_INSTABILITY": true
+};
+
+// Near-universal: preserved on most structural/process/piping assets but not auto-boosted like universals
+var NEAR_UNIVERSAL_MECHANISMS: { [key: string]: boolean } = {
+  "SUPPORT_SYSTEM_FAILURE": true
+};
+
+// Asset families where near-universal mechanisms are preserved
+var NEAR_UNIVERSAL_ASSETS: { [key: string]: boolean } = {
+  "offshore_platform": true, "bridge": true, "rail": true,
+  "pipeline": true, "pressure_vessel": true, "piping": true,
+  "storage_tank": true, "refinery": true
 };
 
 var CONCRETE_ONLY: { [key: string]: boolean } = {
@@ -173,7 +187,12 @@ function buildEvidenceFlags(parsed: any, chain: any, asset: any): any {
     unknown_geometry: !inText("inch") && !inText("diameter") && !inText("thickness"),
     unknown_operating_temperature: !inText("degrees") && !inText("temperature"),
     unknown_wall_thickness: true,
-    shutdown_in_place: inText("shut") || inText("evacuate")
+    shutdown_in_place: inText("shut") || inText("evacuate"),
+    // v2.3: New flags for expanded hard locks
+    through_wall_leak_confirmed: (inText("through-wall") || inText("through wall")) && inText("leak"),
+    support_collapse_confirmed: (inText("support") || inText("bearing")) && (inText("collapse") || inText("failed") || inText("buckled")),
+    critical_wall_loss_confirmed: (inText("below minimum") || inText("critical wall") || (inText("wall loss") && (inText("critical") || inText("below")))),
+    fire_property_degradation_confirmed: (inText("hardness") && (inText("failed") || inText("below") || inText("degraded"))) || inText("material degradation confirmed") || inText("properties degraded")
   };
 }
 
@@ -336,6 +355,20 @@ function evaluateFamily(family: any, assetFamily: string, materialFamily: string
     reasons.push("universal_mechanism_preserved");
     if (evidence.primary_member_involved || evidence.load_path_interruption_possible || evidence.visible_deformation || evidence.support_shift) {
       score = Math.max(score, 95);
+      reasons.push("evidence_supported");
+    }
+    family.relevance_score = clamp(score, 0, 100);
+    family.kept = true;
+    family.reasons = reasons;
+    return family;
+  }
+
+  // === NEAR-UNIVERSAL: preserved on approved asset families, floor at 55 ===
+  if (NEAR_UNIVERSAL_MECHANISMS[fc] && NEAR_UNIVERSAL_ASSETS[assetFamily]) {
+    reasons.push("near_universal_preserved");
+    score = Math.max(score, 55);
+    if (evidence.support_shift || evidence.bearing_displacement || evidence.visible_deformation) {
+      score = Math.max(score, 80);
       reasons.push("evidence_supported");
     }
     family.relevance_score = clamp(score, 0, 100);
@@ -512,6 +545,31 @@ function buildHardLocks(evidence: any): any[] {
       fired: !!evidence.visible_deformation,
       rationale: "Visible deformation in primary or connected components requires engineering disposition.",
       code_basis: "API 579 Part 8, AISC 303, AASHTO MBE Section 5"
+    },
+    // v2.3: 4 new hard locks (expanding from 6 to 10)
+    {
+      code: "HL_THROUGH_WALL_LEAK", name: "Confirmed Through-Wall Leak",
+      fired: !!evidence.through_wall_leak_confirmed,
+      rationale: "Confirmed through-wall leak indicates wall breach requiring immediate isolation and repair.",
+      code_basis: "API 570, API 510, ASME PCC-2 Article 2"
+    },
+    {
+      code: "HL_SUPPORT_COLLAPSE", name: "Support / Bearing Structural Failure",
+      fired: !!evidence.support_collapse_confirmed,
+      rationale: "Confirmed support or bearing structural failure requires immediate load redistribution assessment.",
+      code_basis: "AASHTO LRFD 14.8, API RP 2A Section 17, AISC 360"
+    },
+    {
+      code: "HL_CRITICAL_WALL_LOSS", name: "Critical Wall-Loss Threshold Exceedance",
+      fired: !!evidence.critical_wall_loss_confirmed,
+      rationale: "Confirmed wall thickness below minimum required by code; component cannot sustain design loads.",
+      code_basis: "API 579-1 Part 4, API 510, API 570, ASME B31.3"
+    },
+    {
+      code: "HL_FIRE_PROPERTY_DEGRADATION", name: "Fire-Degraded Material Properties",
+      fired: !!evidence.fire_property_degradation_confirmed,
+      rationale: "Post-fire testing confirms material properties degraded beyond acceptance criteria; component requires replacement or re-rating.",
+      code_basis: "API 579-1 Part 11, ASME PCC-2, AWS D1.1 Clause 5"
     }
   ];
 }
@@ -552,7 +610,7 @@ function resolveStructuralAuthority(evidence: any, hardLocks: any[], survivingFa
     rationale.push("Combined primary-member damage and load-path concern indicate unstable condition.");
   }
 
-  var unstableLocks = ["HL_PRIMARY_MEMBER_CRACK", "HL_LOAD_PATH_COMPROMISE"];
+  var unstableLocks = ["HL_PRIMARY_MEMBER_CRACK", "HL_LOAD_PATH_COMPROMISE", "HL_SUPPORT_COLLAPSE"];
   for (var h = 0; h < hardLocks.length; h++) {
     if (hardLocks[h].fired) {
       for (var u = 0; u < unstableLocks.length; u++) {
@@ -590,8 +648,8 @@ function resolveDisposition(evidence: any, hardLocks: any[], structural: any, ev
     return false;
   }
 
-  if (hasFired("HL_PRIMARY_MEMBER_CRACK") || hasFired("HL_LOAD_PATH_COMPROMISE") || hasFired("HL_PRESSURE_BOUNDARY")) return "no_go";
-  if (hasFired("HL_FIRE_NO_VALIDATION") || hasFired("HL_SUPPORT_DISPLACEMENT") || hasFired("HL_MAJOR_DEFORMATION")) return "repair_before_restart";
+  if (hasFired("HL_PRIMARY_MEMBER_CRACK") || hasFired("HL_LOAD_PATH_COMPROMISE") || hasFired("HL_PRESSURE_BOUNDARY") || hasFired("HL_THROUGH_WALL_LEAK") || hasFired("HL_SUPPORT_COLLAPSE")) return "no_go";
+  if (hasFired("HL_FIRE_NO_VALIDATION") || hasFired("HL_SUPPORT_DISPLACEMENT") || hasFired("HL_MAJOR_DEFORMATION") || hasFired("HL_CRITICAL_WALL_LOSS") || hasFired("HL_FIRE_PROPERTY_DEGRADATION")) return "repair_before_restart";
   if (structural.status === "unstable" || structural.status === "load_path_compromised") return "repair_before_restart";
   if (structural.status === "stability_uncertain" || evidenceLabel === "poor" || evidenceLabel === "limited") return "engineering_review_required";
   return "conditional_go";
@@ -814,7 +872,7 @@ function runDecisionDominance(parsed: any, chain: any, asset: any, confirmedFlag
   summary.push("Top methods: " + topMethods.join(", ") + ".");
 
   return {
-    engine_version: "decision-dominance-v2.2",
+    engine_version: "decision-dominance-v2.3",
     timestamp: new Date().toISOString(),
     elapsed_ms: Date.now() - startMs,
     confirmation_status: confirmationStatus,
