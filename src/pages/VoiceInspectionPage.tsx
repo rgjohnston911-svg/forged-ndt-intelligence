@@ -1,5 +1,6 @@
-// DEPLOY95 — VoiceInspectionPage.tsx v10.3
-// v10.3: Reality Lock + Domain Gate + AI Interpretation Display
+// DEPLOY95 — VoiceInspectionPage.tsx v10.3b
+// v10.3b: Verified Extraction card shows reality-lock corrected asset when conflict detected
+// v10.3 (retained): Reality Lock + Domain Gate + AI Interpretation Display
 //   - Calls /api/reality-lock after parse+asset to detect real domain
 //   - SUPPORTED domains: full 12-step deterministic pipeline
 //   - UNSUPPORTED domains: skip chain/DDL, show AI interpretation only
@@ -1340,8 +1341,18 @@ export default function VoiceInspectionPage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
               <div>
                 <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Asset Resolution</div>
-                <div style={{ fontSize: "15px", fontWeight: 700, color: "#111" }}>{asset.asset_class?.replace(/_/g, " ")}</div>
-                <div style={{ fontSize: "12px", color: "#6b7280" }}>Confidence: {Math.round((asset.confidence || 0) * 100)}%</div>
+                {realityLock && realityLock.asset_conflict ? (
+                  <div>
+                    <div style={{ fontSize: "13px", color: "#991b1b", textDecoration: "line-through", opacity: 0.6 }}>{asset.asset_class?.replace(/_/g, " ")} ({Math.round((asset.confidence || 0) * 100)}%)</div>
+                    <div style={{ fontSize: "15px", fontWeight: 700, color: "#1e40af" }}>{(realityLock.detected_domain_label || realityLock.asset_override || "").replace(/_/g, " ")}</div>
+                    <div style={{ fontSize: "11px", color: "#1e40af" }}>Corrected by Reality Lock (domain score: {realityLock.domain_score || 0})</div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ fontSize: "15px", fontWeight: 700, color: "#111" }}>{asset.asset_class?.replace(/_/g, " ")}</div>
+                    <div style={{ fontSize: "12px", color: "#6b7280" }}>Confidence: {Math.round((asset.confidence || 0) * 100)}%</div>
+                  </div>
+                )}
               </div>
               <div>
                 <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Detected Events</div>
