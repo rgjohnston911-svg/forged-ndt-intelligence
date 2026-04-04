@@ -692,8 +692,9 @@ function downloadAsWord(reportHTML: string) {
 }
 
 function openPrintView(reportHTML: string) {
-  var printWin = window.open("", "_blank");
-  if (!printWin) { alert("Pop-up blocked. Please allow pop-ups for this site."); return; }
+  var pw = window.open("", "_blank");
+  if (!pw) { alert("Pop-up blocked. Please allow pop-ups for this site."); return; }
+  var printWin: Window = pw;
   printWin.document.write("<!DOCTYPE html><html><head><meta charset='utf-8'><title>FORGED Inspection Report</title><style>" + REPORT_CSS + "</style></head><body>" + reportHTML + "</body></html>");
   printWin.document.close();
   setTimeout(function() { printWin.print(); }, 500);
