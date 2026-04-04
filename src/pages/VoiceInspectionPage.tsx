@@ -737,7 +737,7 @@ export default function VoiceInspectionPage() {
         setDecisionCore(coreResult);
           if (coreResult) {
             var txVal = '';
-            try { if (typeof transcriptRef !== 'undefined' && transcriptRef && transcriptRef.current) { txVal = String(transcriptRef.current); } } catch(ex) {}
+            try { if (transcript) { txVal = String(transcript); } } catch(ex) {}
             callEngineeringCore(coreResult, txVal);
             callArchitectureCore(coreResult, txVal);
             callMaterialsCore(coreResult, txVal);
