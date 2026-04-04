@@ -1,13 +1,8 @@
-// DEPLOY90 — VoiceInspectionPage.tsx v10
-// Evidence Confirmation Card — inspector verifies extracted evidence before DDL runs
-// Pipeline flow: parse+asset → evidence confirmation pause → rest of pipeline
-// v10 changes:
-//   - extractPreliminaryEvidence() derives key flags client-side after parse
-//   - Evidence Confirmation Card with grouped toggles
-//   - handleConfirmEvidence() resumes pipeline with confirmed flags
-//   - handleSkipEvidence() resumes pipeline with auto-derived flags
-//   - DDL call includes confirmed_flags when inspector-confirmed
-//   - Audit: DDL output includes confirmation_status + overrides
+// DEPLOY92 — VoiceInspectionPage.tsx v10.1
+// v10.1: Add 4 new confirmable evidence flags for expanded hard locks (6 → 10)
+//   - through_wall_leak_confirmed, support_collapse_confirmed,
+//   - critical_wall_loss_confirmed, fire_property_degradation_confirmed
+// v10 (retained): Evidence Confirmation Card, pipeline split, confirmed_flags
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
@@ -63,6 +58,13 @@ var CONFIRMABLE_FLAGS: EvidenceFlagDef[] = [
   { key: "pressure_boundary_involved", label: "Pressure Boundary Involved", group: "Pressure / Leaks", type: "boolean", hardLockCritical: true, description: "Piping, vessel, PSV, flange, or other pressure-containing component" },
   { key: "leak_suspected", label: "Leak Suspected", group: "Pressure / Leaks", type: "boolean", hardLockCritical: false, description: "Staining, seepage, or other indicators of possible leak" },
   { key: "leak_confirmed", label: "Leak CONFIRMED", group: "Pressure / Leaks", type: "boolean", hardLockCritical: true, description: "Active or confirmed leak — triggers hard lock with pressure boundary" },
+  { key: "through_wall_leak_confirmed", label: "Through-Wall Leak CONFIRMED", group: "Pressure / Leaks", type: "boolean", hardLockCritical: true, description: "Confirmed through-wall breach with active leak — triggers immediate NO GO" },
+  // Structural / Load Path (expanded)
+  { key: "support_collapse_confirmed", label: "Support/Bearing Collapse CONFIRMED", group: "Structural / Load Path", type: "boolean", hardLockCritical: true, description: "Confirmed structural failure of support or bearing — triggers NO GO" },
+  // Damage Indicators (expanded)
+  { key: "critical_wall_loss_confirmed", label: "Critical Wall Loss CONFIRMED", group: "Damage Indicators", type: "boolean", hardLockCritical: true, description: "Wall thickness confirmed below code minimum — triggers REPAIR BEFORE RESTART" },
+  // Fire / Thermal (expanded)
+  { key: "fire_property_degradation_confirmed", label: "Fire-Degraded Properties CONFIRMED", group: "Fire / Thermal", type: "boolean", hardLockCritical: true, description: "Post-fire testing confirms material properties beyond acceptance — triggers REPAIR BEFORE RESTART" },
   // Access / Data Quality
   { key: "underwater_access_limited", label: "Underwater / Limited Access", group: "Access / Data Quality", type: "boolean", hardLockCritical: false, description: "Inspection area is underwater, confined, or has restricted access" },
   { key: "unknown_material", label: "Material Unknown", group: "Access / Data Quality", type: "boolean", hardLockCritical: false, description: "Material grade/type not specified or confirmed — degrades confidence" },
@@ -125,6 +127,11 @@ function extractPreliminaryEvidence(parsed: ParsedResult | null, asset: AssetRes
     dent_or_gouge_present: inText("dent") || inText("gouge"),
     underwater_access_limited: inText("ft of water") || inText("feet of water") || inText("underwater") || inText("subsea"),
     unknown_material: !inText("carbon steel") && !inText("stainless") && !inText("alloy"),
+    // v10.1: New flags for expanded hard locks
+    through_wall_leak_confirmed: (inText("through-wall") || inText("through wall")) && inText("leak"),
+    support_collapse_confirmed: (inText("support") || inText("bearing")) && (inText("collapse") || inText("failed") || inText("buckled")),
+    critical_wall_loss_confirmed: inText("below minimum") || inText("critical wall") || (inText("wall loss") && (inText("critical") || inText("below"))),
+    fire_property_degradation_confirmed: (inText("hardness") && (inText("failed") || inText("below") || inText("degraded"))) || inText("material degradation confirmed"),
   };
 }
 
