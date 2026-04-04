@@ -1,9 +1,12 @@
-// DEPLOY93 — VoiceInspectionPage.tsx v10.2
-// v10.2: Inspection Report Export (Word + PDF)
-//   - buildReportHTML() generates professional inspection report from all pipeline data
-//   - downloadWord() exports as .doc (HTML with Word XML headers)
-//   - downloadPDF() opens print-optimized window for browser PDF save
-//   - Download Report dropdown appears after pipeline completes
+// DEPLOY95 — VoiceInspectionPage.tsx v10.3
+// v10.3: Reality Lock + Domain Gate + AI Interpretation Display
+//   - Calls /api/reality-lock after parse+asset to detect real domain
+//   - SUPPORTED domains: full 12-step deterministic pipeline
+//   - UNSUPPORTED domains: skip chain/DDL, show AI interpretation only
+//   - Asset conflict: override asset with reality-lock correction
+//   - Domain Status Banner shows detected domain + routing decision
+//   - AI Interpretation cards for unsupported domains
+// v10.2 (retained): Report export (Word + PDF)
 // v10.1 (retained): 19 confirmable evidence flags, 10 hard locks
 // v10 (retained): Evidence Confirmation Card, pipeline split, confirmed_flags
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
@@ -711,6 +714,8 @@ export default function VoiceInspectionPage() {
   var [pipelinePaused, setPipelinePaused] = useState(false);
   var [evidenceConfirmPending, setEvidenceConfirmPending] = useState(false);
   var [preliminaryEvidence, setPreliminaryEvidence] = useState<{ [key: string]: any } | null>(null);
+  var [realityLock, setRealityLock] = useState<any>(null);
+  var [domainUnsupported, setDomainUnsupported] = useState(false);
 
   // API results
   var [parsed, setParsed] = useState<ParsedResult | null>(null);
@@ -775,6 +780,7 @@ export default function VoiceInspectionPage() {
     setPreliminaryEvidence(null); setErrors([]);
     setParsed(null); setAsset(null); setGovernance(null); setCodeAuthority(null);
     setMasterRoute(null); setChain(null); setDominance(null); setAiNarrative(null);
+    setRealityLock(null); setDomainUnsupported(false);
     setEventEnrich(null); setTimeProgression(null); setCodeTrace(null);
     setChainPerformance(null); setAiQuestions(null); setAiUnderstood(null);
     setAiInterpretation(null); setSelectedAnswers({});
@@ -783,6 +789,7 @@ export default function VoiceInspectionPage() {
     var initialSteps: StepState[] = [
       { label: "AI Incident Parser (GPT-4o)", status: "pending" },
       { label: "Resolve Asset", status: "pending" },
+      { label: "Reality Lock (Domain Gate)", status: "pending" },
       { label: "Governance Matrix", status: "pending" },
       { label: "Code Authority Resolution", status: "pending" },
       { label: "Master Router", status: "pending" },
@@ -838,19 +845,77 @@ export default function VoiceInspectionPage() {
         return;
       }
 
-      // ====== EVIDENCE CONFIRMATION PAUSE ======
+      // ====== REALITY LOCK (Domain Gate) ======
+      s = updateStep(2, { status: "running" }, s); setSteps([...s]);
+      try {
+        var rlRes = await callAPI("reality-lock", {
+          transcript: inputText,
+          parsed_asset_class: assetResult?.asset_class || "unknown",
+          parsed_asset_confidence: assetResult?.confidence || 0
+        });
+        var rlResult = rlRes.reality_lock || rlRes;
+        setRealityLock(rlResult);
+
+        var rlDetail = (rlResult.detected_domain_label || rlResult.detected_domain || "unknown") + " (" + (rlResult.domain_supported ? "supported" : "unsupported") + ")";
+        if (rlResult.asset_conflict) rlDetail += " \u2014 CONFLICT";
+        s = updateStep(2, { status: "done", detail: rlDetail }, s);
+
+        // Handle unsupported domain — skip deterministic chain
+        if (!rlResult.domain_supported) {
+          setDomainUnsupported(true);
+          // Mark chain steps as skipped
+          for (var usi = 3; usi < s.length; usi++) {
+            if (usi === 8) continue; // AI Narrative still runs
+            s = updateStep(usi, { status: "done", detail: "skipped \u2014 domain not supported" }, s);
+          }
+
+          // Still run AI Narrative for unsupported domains
+          s = updateStep(8, { status: "running" }, s); setSteps([...s]);
+          try {
+            var unsupCtx = "DOMAIN CONTEXT (AI INTERPRETATION ONLY \u2014 NO DETERMINISTIC CHAIN):\n";
+            unsupCtx += "Detected domain: " + (rlResult.detected_domain_label || "") + " (not supported by deterministic engines)\n";
+            unsupCtx += "Asset: " + (assetResult?.asset_class || "unknown") + "\n";
+            unsupCtx += "Events: " + (parsedResult?.events?.join(", ") || "none") + "\n";
+            unsupCtx += "Environment: " + (parsedResult?.environment?.join(", ") || "none") + "\n";
+            unsupCtx += "NOTE: Provide AI interpretation only. Do NOT cite specific inspection codes. Acknowledge that this domain requires specialized expertise beyond the platform's deterministic coverage.\n";
+            var unsupTranscript = "=== DOMAIN CONTEXT ===\n" + unsupCtx + "\n=== ORIGINAL TRANSCRIPT ===\n" + inputText;
+            var unsupPlanRes = await callAPI("voice-incident-plan", { transcript: unsupTranscript });
+            var unsupNarrative = unsupPlanRes?.plan || unsupPlanRes?.text || unsupPlanRes?.result || JSON.stringify(unsupPlanRes);
+            setAiNarrative(typeof unsupNarrative === "string" ? unsupNarrative : JSON.stringify(unsupNarrative));
+            s = updateStep(8, { status: "done", detail: "AI interpretation narrative" }, s);
+          } catch (e2: any) { s = updateStep(8, { status: "error", detail: e2.message }, s); errs.push("narrative: " + e2.message); }
+
+          setSteps([...s]); setErrors(errs); setIsGenerating(false);
+          setTimeout(function() { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: "smooth" }); }, 200);
+          return;
+        }
+
+        // Handle asset conflict on supported domain — override asset
+        if (rlResult.asset_conflict && rlResult.asset_override) {
+          assetResult = { asset_class: rlResult.asset_override, asset_type: rlResult.asset_override, confidence: (assetResult?.confidence || 0.5) };
+          setAsset(assetResult);
+          s = updateStep(1, { status: "done", detail: rlResult.asset_override + " (overridden by reality lock)" }, s);
+        }
+
+      } catch (e: any) {
+        s = updateStep(2, { status: "error", detail: e.message }, s);
+        errs.push("reality-lock: " + e.message);
+        // On error, continue pipeline normally — don't block on reality-lock failure
+      }
+      setSteps([...s]);
+
+      // ====== EVIDENCE CONFIRMATION PAUSE (supported domains only) ======
+      setDomainUnsupported(false);
       parsedRef.current = parsedResult;
       assetRef.current = assetResult;
       stepsRef.current = s;
       errorsRef.current = errs;
 
-      // Extract preliminary evidence for confirmation card
       var prelimEvidence = extractPreliminaryEvidence(parsedResult, assetResult);
       setPreliminaryEvidence(prelimEvidence);
       setEvidenceConfirmPending(true);
 
-      // Mark remaining steps as waiting for evidence confirmation
-      for (var ei = 2; ei < s.length; ei++) s = updateStep(ei, { status: "waiting", detail: "waiting for evidence confirmation" }, s);
+      for (var ei = 3; ei < s.length; ei++) s = updateStep(ei, { status: "waiting", detail: "waiting for evidence confirmation" }, s);
       setSteps([...s]); stepsRef.current = s;
       setErrors(errs); errorsRef.current = errs;
       setIsGenerating(false);
@@ -864,7 +929,7 @@ export default function VoiceInspectionPage() {
   }
 
   // ============================================================================
-  // PHASE 2: Continue pipeline after evidence confirmation (steps 2-10)
+  // PHASE 2: Continue pipeline after evidence confirmation (steps 3-11)
   // ============================================================================
   async function continuePipeline(confirmedFlags: { [key: string]: any } | null) {
     setIsGenerating(true); setEvidenceConfirmPending(false);
@@ -880,37 +945,37 @@ export default function VoiceInspectionPage() {
 
     try {
       // ====== PHASE 2: PARALLEL — governance + code-authority ======
-      s = updateStep(2, { status: "running" }, s); s = updateStep(3, { status: "running" }, s); setSteps([...s]);
+      s = updateStep(3, { status: "running" }, s); s = updateStep(4, { status: "running" }, s); setSteps([...s]);
       var [govRes, codeAuthRes] = await Promise.allSettled([
         callAPI("governance-matrix", { raw_text: inputText, asset_class: assetClass }),
         callAPI("code-authority-resolution", { raw_text: inputText, asset_class: assetClass }),
       ]);
-      if (govRes.status === "fulfilled") { setGovernance(govRes.value); s = updateStep(2, { status: "done" }, s); }
-      else { s = updateStep(2, { status: "error" }, s); errs.push("governance: " + govRes.reason?.message); }
-      if (codeAuthRes.status === "fulfilled") { setCodeAuthority(codeAuthRes.value); s = updateStep(3, { status: "done" }, s); }
-      else { s = updateStep(3, { status: "error" }, s); errs.push("code-authority: " + codeAuthRes.reason?.message); }
+      if (govRes.status === "fulfilled") { setGovernance(govRes.value); s = updateStep(3, { status: "done" }, s); }
+      else { s = updateStep(3, { status: "error" }, s); errs.push("governance: " + govRes.reason?.message); }
+      if (codeAuthRes.status === "fulfilled") { setCodeAuthority(codeAuthRes.value); s = updateStep(4, { status: "done" }, s); }
+      else { s = updateStep(4, { status: "error" }, s); errs.push("code-authority: " + codeAuthRes.reason?.message); }
       setSteps([...s]);
 
       // ====== PHASE 3: SEQUENTIAL — master-router ======
-      s = updateStep(4, { status: "running" }, s); setSteps([...s]);
-      try { var routerRes = await callAPI("master-router", { transcript: inputText }); setMasterRoute(routerRes); s = updateStep(4, { status: "done", detail: routerRes?.intake_path || "" }, s); }
-      catch (e: any) { s = updateStep(4, { status: "error", detail: e.message }, s); errs.push("master-router: " + e.message); }
+      s = updateStep(5, { status: "running" }, s); setSteps([...s]);
+      try { var routerRes = await callAPI("master-router", { transcript: inputText }); setMasterRoute(routerRes); s = updateStep(5, { status: "done", detail: routerRes?.intake_path || "" }, s); }
+      catch (e: any) { s = updateStep(5, { status: "error", detail: e.message }, s); errs.push("master-router: " + e.message); }
       setSteps([...s]);
 
       // ====== PHASE 4: INCIDENT-TO-INSPECTION CHAIN ======
-      s = updateStep(5, { status: "running" }, s); setSteps([...s]);
+      s = updateStep(6, { status: "running" }, s); setSteps([...s]);
       try {
         var chainRes = await callAPI("incident-inspection-chain", { parsed: parsedResult, asset: assetResult });
         chainResult = chainRes.chain || chainRes; setChain(chainResult); setChainPerformance(chainRes.performance || null);
         var mc = chainResult?.engine_1_damage_mechanisms?.length || 0;
         var zc = chainResult?.engine_2_affected_zones?.length || 0;
         var mtc = chainResult?.engine_3_inspection_methods?.length || 0;
-        s = updateStep(5, { status: "done", detail: mc + " mechanisms, " + zc + " zones, " + mtc + " methods in " + (chainRes.performance?.total_ms || "?") + "ms" }, s);
-      } catch (e: any) { s = updateStep(5, { status: "error", detail: e.message }, s); errs.push("chain: " + e.message); }
+        s = updateStep(6, { status: "done", detail: mc + " mechanisms, " + zc + " zones, " + mtc + " methods in " + (chainRes.performance?.total_ms || "?") + "ms" }, s);
+      } catch (e: any) { s = updateStep(6, { status: "error", detail: e.message }, s); errs.push("chain: " + e.message); }
       setSteps([...s]);
 
       // ====== PHASE 4.5: DECISION DOMINANCE LAYER (Engine 8) — with confirmed_flags ======
-      s = updateStep(6, { status: "running", detail: confirmedFlags ? "inspector-confirmed evidence" : "auto-derived evidence" }, s); setSteps([...s]);
+      s = updateStep(7, { status: "running", detail: confirmedFlags ? "inspector-confirmed evidence" : "auto-derived evidence" }, s); setSteps([...s]);
       try {
         var ddlBody: any = { parsed: parsedResult, chain: chainResult, asset: assetResult };
         if (confirmedFlags) {
@@ -922,12 +987,12 @@ export default function VoiceInspectionPage() {
         var surv = dominanceResult.surviving_count || dominanceResult.mechanism_summary?.surviving_count || 0;
         var supp = dominanceResult.suppressed_count || dominanceResult.mechanism_summary?.suppressed_count || 0;
         var confirmLabel = dominanceResult.confirmation_status === "inspector_confirmed" ? " (confirmed)" : "";
-        s = updateStep(6, { status: "done", detail: surv + " survived, " + supp + " suppressed, " + (dominanceResult.disposition_label || "") + confirmLabel + " in " + (dominanceResult.elapsed_ms || "?") + "ms" }, s);
-      } catch (e: any) { s = updateStep(6, { status: "error", detail: e.message }, s); errs.push("decision-dominance: " + e.message); }
+        s = updateStep(7, { status: "done", detail: surv + " survived, " + supp + " suppressed, " + (dominanceResult.disposition_label || "") + confirmLabel + " in " + (dominanceResult.elapsed_ms || "?") + "ms" }, s);
+      } catch (e: any) { s = updateStep(7, { status: "error", detail: e.message }, s); errs.push("decision-dominance: " + e.message); }
       setSteps([...s]);
 
       // ====== PHASE 5: AI NARRATIVE POLISH ======
-      s = updateStep(7, { status: "running" }, s); setSteps([...s]);
+      s = updateStep(8, { status: "running" }, s); setSteps([...s]);
       try {
         var lockedContext = "DETERMINISTIC CHAIN RESULTS (DO NOT OVERRIDE):\n";
         if (chainResult) {
@@ -950,18 +1015,18 @@ export default function VoiceInspectionPage() {
         var planRes = await callAPI("voice-incident-plan", { transcript: constrainedTranscript });
         var narrative = planRes?.plan || planRes?.text || planRes?.result || JSON.stringify(planRes);
         setAiNarrative(typeof narrative === "string" ? narrative : JSON.stringify(narrative));
-        s = updateStep(7, { status: "done", detail: "prose generated" }, s);
-      } catch (e: any) { s = updateStep(7, { status: "error", detail: e.message }, s); errs.push("narrative: " + e.message); }
+        s = updateStep(8, { status: "done", detail: "prose generated" }, s);
+      } catch (e: any) { s = updateStep(8, { status: "error", detail: e.message }, s); errs.push("narrative: " + e.message); }
       setSteps([...s]);
 
       // ====== PHASE 6: EVENT ENRICHMENT ======
-      s = updateStep(8, { status: "running" }, s); setSteps([...s]);
-      try { var enrichRes = await callAPI("event-enrich", { transcript: inputText, plan: aiNarrative || "", parsed: parsedResult }); setEventEnrich(enrichRes); s = updateStep(8, { status: "done" }, s); }
-      catch (e: any) { s = updateStep(8, { status: "error", detail: e.message }, s); errs.push("event-enrich: " + e.message); }
+      s = updateStep(9, { status: "running" }, s); setSteps([...s]);
+      try { var enrichRes = await callAPI("event-enrich", { transcript: inputText, plan: aiNarrative || "", parsed: parsedResult }); setEventEnrich(enrichRes); s = updateStep(9, { status: "done" }, s); }
+      catch (e: any) { s = updateStep(9, { status: "error", detail: e.message }, s); errs.push("event-enrich: " + e.message); }
       setSteps([...s]);
 
       // ====== PHASE 7: PARALLEL — time-progression + code-trace ======
-      s = updateStep(9, { status: "running" }, s); s = updateStep(10, { status: "running" }, s); setSteps([...s]);
+      s = updateStep(10, { status: "running" }, s); s = updateStep(11, { status: "running" }, s); setSteps([...s]);
       var sevForTime = chainResult?.engine_1_damage_mechanisms?.find(function(m: DamageMechanism) { return m.severity === "critical"; }) ? "critical" : "medium";
       var findingsForTrace = chainResult?.engine_4_code_action_paths?.map(function(p: CodeActionPath) { return p.finding_type; }) || [];
       var methForTrace: string[] = []; (chainResult?.engine_3_inspection_methods || []).forEach(function(m: InspectionMethod) { if (methForTrace.indexOf(m.method_name) === -1) methForTrace.push(m.method_name); });
@@ -969,10 +1034,10 @@ export default function VoiceInspectionPage() {
         callAPI("time-progression", { asset_type: assetResult?.asset_type || "pressure_vessel", severity: sevForTime, service_env: parsedResult?.environment || [] }),
         callAPI("code-trace", { findings: findingsForTrace, methods: methForTrace, disposition: chainResult?.engine_4_code_action_paths?.[0]?.required_action || "", asset_class: assetClass }),
       ]);
-      if (timeRes.status === "fulfilled") { setTimeProgression(timeRes.value); s = updateStep(9, { status: "done" }, s); }
-      else { s = updateStep(9, { status: "error" }, s); errs.push("time: " + timeRes.reason?.message); }
-      if (traceRes.status === "fulfilled") { setCodeTrace(traceRes.value); s = updateStep(10, { status: "done" }, s); }
-      else { s = updateStep(10, { status: "error" }, s); errs.push("trace: " + traceRes.reason?.message); }
+      if (timeRes.status === "fulfilled") { setTimeProgression(timeRes.value); s = updateStep(10, { status: "done" }, s); }
+      else { s = updateStep(10, { status: "error" }, s); errs.push("time: " + timeRes.reason?.message); }
+      if (traceRes.status === "fulfilled") { setCodeTrace(traceRes.value); s = updateStep(11, { status: "done" }, s); }
+      else { s = updateStep(11, { status: "error" }, s); errs.push("trace: " + traceRes.reason?.message); }
       setSteps([...s]);
 
     } catch (e: any) { errs.push("Pipeline error: " + e.message); }
@@ -1031,6 +1096,46 @@ export default function VoiceInspectionPage() {
         <div style={{ margin: "0 0 16px 0", padding: "12px 16px", backgroundColor: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
           <span style={{ fontSize: "20px" }}>{"\uD83D\uDD0D"}</span>
           <div><div style={{ fontWeight: 700, fontSize: "13px", color: "#1e40af" }}>Evidence confirmation required</div><div style={{ fontSize: "12px", color: "#3b82f6" }}>Review the extracted evidence flags below. Correct any errors, then confirm to continue analysis.</div></div>
+        </div>
+      )}
+
+      {/* ==== DOMAIN STATUS BANNER ==== */}
+      {realityLock && !realityLock.domain_supported && (
+        <div style={{ margin: "0 0 16px 0", padding: "14px 18px", backgroundColor: "#fffbeb", border: "2px solid #f59e0b", borderRadius: "8px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+            <span style={{ fontSize: "22px" }}>{"\u26A0\uFE0F"}</span>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: "15px", color: "#92400e" }}>AI INTERPRETATION ONLY</div>
+              <div style={{ fontSize: "12px", color: "#a16207" }}>Domain not covered by deterministic inspection engines</div>
+            </div>
+          </div>
+          <div style={{ fontSize: "13px", color: "#374151", lineHeight: "1.5" }}>
+            <strong>Detected domain:</strong> {realityLock.detected_domain_label || realityLock.detected_domain || "Unknown"} (score: {realityLock.domain_score || 0})
+            {realityLock.asset_conflict && <span style={{ color: "#dc2626", fontWeight: 700 }}> {"\u2014"} ASSET CONFLICT: parsed as "{asset?.asset_class || "?"}", should be "{realityLock.asset_override || "?"}"</span>}
+          </div>
+          <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "6px" }}>
+            The deterministic chain (mechanisms, methods, hard locks, code citations) is not available for this domain. The analysis below is AI-generated interpretation only and has not been validated against domain-specific codes or standards.
+          </div>
+          {realityLock.domain_keyword_hits && realityLock.domain_keyword_hits.length > 0 && (
+            <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "6px" }}>Keywords matched: {realityLock.domain_keyword_hits.join(", ")}</div>
+          )}
+        </div>
+      )}
+
+      {realityLock && realityLock.domain_supported && realityLock.asset_conflict && (
+        <div style={{ margin: "0 0 16px 0", padding: "12px 16px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
+          <span style={{ fontSize: "20px" }}>{"\uD83D\uDD04"}</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: "13px", color: "#dc2626" }}>Asset Overridden by Reality Lock</div>
+            <div style={{ fontSize: "12px", color: "#374151" }}>Domain detected as <strong>{realityLock.detected_domain_label}</strong> but asset was classified as "{asset?.asset_class || "?"}". Asset has been corrected to "{realityLock.asset_override || "?"}" for downstream analysis.</div>
+          </div>
+        </div>
+      )}
+
+      {realityLock && realityLock.domain_supported && !realityLock.asset_conflict && (
+        <div style={{ margin: "0 0 16px 0", padding: "10px 16px", backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", display: "flex", alignItems: "center", gap: "10px" }}>
+          <span style={{ fontSize: "16px" }}>{"\u2705"}</span>
+          <div style={{ fontSize: "12px", color: "#16a34a" }}><strong>Domain: {realityLock.detected_domain_label}</strong> {"\u2014"} Full deterministic pipeline active</div>
         </div>
       )}
 
