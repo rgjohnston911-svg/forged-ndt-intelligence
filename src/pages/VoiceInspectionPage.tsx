@@ -589,12 +589,23 @@ export default function VoiceInspectionPage() {
 
         {/* ==== TOP METHODS (from DDL or chain) ==== */}
         {dominance?.top_methods && dominance.top_methods.length > 0 && (
-          <Card title="Priority Methods (Top 6)" icon={"\uD83D\uDD2C"} status="DDL-ranked">
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+          <Card title="Priority Methods" icon={"\uD83D\uDD2C"} status={dominance.method_filter ? (dominance.method_filter.surviving_count + " survived, " + dominance.method_filter.suppressed_count + " suppressed") : "DDL-ranked"}>
+            <div style={{ fontSize: "12px", fontWeight: 700, color: "#16a34a", textTransform: "uppercase", marginBottom: "6px" }}>Top Methods Now</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
               {dominance.top_methods.map(function(m: string, i: number) {
                 return <span key={i} style={{ padding: "6px 14px", backgroundColor: "#eff6ff", color: "#1e40af", borderRadius: "6px", fontSize: "13px", fontWeight: 700, border: "1px solid #bfdbfe" }}>{i + 1}. {m}</span>;
               })}
             </div>
+            {dominance.method_filter?.suppressed_methods && dominance.method_filter.suppressed_methods.length > 0 && (
+              <div>
+                <div style={{ fontSize: "12px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "6px" }}>Suppressed Methods (material/asset mismatch)</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {dominance.method_filter.suppressed_methods.map(function(m: any, i: number) {
+                    return <span key={i} style={{ padding: "4px 10px", backgroundColor: "#fef2f2", color: "#991b1b", borderRadius: "4px", fontSize: "12px", opacity: 0.8 }}>{m.method_name} <span style={{ fontSize: "10px", color: "#6b7280" }}>({m.reason.replace(/_/g, " ")})</span></span>;
+                  })}
+                </div>
+              </div>
+            )}
           </Card>
         )}
 
