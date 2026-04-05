@@ -161,25 +161,30 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   // Maps field language to physics preconditions.
   // Inspectors describe EVENTS, not physics.
   // Engine translates events → physical state changes.
+  // Includes field slang from Universal Field Language Interpreter v1/v2.
   // ==========================================================================
   if (!thermalCyc) {
     var thermalEventInferred = false;
     // Rapid temperature change → thermal gradient → differential contraction
-    if (hasWord(lt, "rapid cool") || hasWord(lt, "rapid cooldown") || hasWord(lt, "cool-down rate") || hasWord(lt, "fast cooldown")) thermalEventInferred = true;
+    if (hasWord(lt, "rapid cool") || hasWord(lt, "rapid cooldown") || hasWord(lt, "cool-down rate") || hasWord(lt, "fast cooldown") || hasWord(lt, "crashed the temp") || hasWord(lt, "dropped temp fast")) thermalEventInferred = true;
     // Thermal shock / transient → sudden thermal stress
-    if (hasWord(lt, "thermal shock") || hasWord(lt, "thermal transient") || hasWord(lt, "thermal excursion") || hasWord(lt, "thermal upset")) thermalEventInferred = true;
+    if (hasWord(lt, "thermal shock") || hasWord(lt, "thermal transient") || hasWord(lt, "thermal excursion") || hasWord(lt, "thermal upset") || hasWord(lt, "heat checked") || hasWord(lt, "heat check")) thermalEventInferred = true;
     // Quench (not heat treatment quench-and-temper)
     if (hasWord(lt, "quench") && !hasWord(lt, "quench and temper") && !hasWord(lt, "quenched and tempered")) thermalEventInferred = true;
     // Temperature swing / spike
     if (hasWord(lt, "temperature swing") || hasWord(lt, "temperature excursion") || hasWord(lt, "temperature spike") || hasWord(lt, "temp swing") || hasWord(lt, "temp excursion")) thermalEventInferred = true;
     // Emergency / unplanned shutdown → rapid cooldown from operating temp
-    if (hasWord(lt, "emergency shutdown") || hasWord(lt, "emergency depressur") || hasWord(lt, "unplanned shutdown") || hasWord(lt, "forced shutdown") || hasWord(lt, "unit trip")) thermalEventInferred = true;
+    if (hasWord(lt, "emergency shutdown") || hasWord(lt, "emergency depressur") || hasWord(lt, "unplanned shutdown") || hasWord(lt, "forced shutdown") || hasWord(lt, "unit trip") || hasWord(lt, "tripped the unit") || hasWord(lt, "e-stop") || hasWord(lt, "esd")) thermalEventInferred = true;
     // Steam-out events → rapid heating/cooling of cold equipment
-    if (hasWord(lt, "steam-out") || hasWord(lt, "steamout") || hasWord(lt, "steam out")) thermalEventInferred = true;
+    if (hasWord(lt, "steam-out") || hasWord(lt, "steamout") || hasWord(lt, "steam out") || hasWord(lt, "steamed it out")) thermalEventInferred = true;
     // Intermittent / batch operation → inherent thermal cycling
-    if (hasWord(lt, "batch operation") || hasWord(lt, "intermittent") || hasWord(lt, "batch process")) thermalEventInferred = true;
+    if (hasWord(lt, "batch operation") || hasWord(lt, "intermittent") || hasWord(lt, "batch process") || hasWord(lt, "on-off service") || hasWord(lt, "swing service") || hasWord(lt, "cycling service")) thermalEventInferred = true;
     // Large temperature differential stated explicitly
     if ((hasWord(lt, "cooldown") || hasWord(lt, "cool down")) && (hasWord(lt, "200") || hasWord(lt, "300") || hasWord(lt, "400") || hasWord(lt, "500"))) thermalEventInferred = true;
+    // Field slang for thermal events
+    if (hasWord(lt, "burned up") || hasWord(lt, "fried") || hasWord(lt, "cooked") || hasWord(lt, "overheated")) thermalEventInferred = true;
+    // Water hammer / process upset → pressure + thermal transient
+    if (hasWord(lt, "water hammer") || hasWord(lt, "hammered") && (hasWord(lt, "line") || hasWord(lt, "pipe") || hasWord(lt, "system")) || hasWord(lt, "slugging") || hasWord(lt, "process upset")) thermalEventInferred = true;
     if (thermalEventInferred) {
       thermalCyc = true;
     }
@@ -236,53 +241,62 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   var contextInferred: string[] = [];
 
   // HYDROCRACKING / HYDROTREATING → H2S + hydrogen service
-  if (hasWord(lt, "hydrocrack") || hasWord(lt, "hydrotreater") || hasWord(lt, "hydrotreating") || hasWord(lt, "hydroprocessing") || hasWord(lt, "hydrodesulfur")) {
+  // Field slang: "the cracker", "H2 unit", "high pressure loop", "recycle gas"
+  if (hasWord(lt, "hydrocrack") || hasWord(lt, "hydrotreater") || hasWord(lt, "hydrotreating") || hasWord(lt, "hydroprocessing") || hasWord(lt, "hydrodesulfur") || hasWord(lt, "the cracker") || hasWord(lt, "high pressure loop") || hasWord(lt, "recycle gas") || hasWord(lt, "h2 unit") || hasWord(lt, "hp separator") || hasWord(lt, "lp separator") || hasWord(lt, "reactor effluent")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("hydrocracking/hydrotreating → H2S inferred"); }
     if (!hydrogen) { hydrogen = true; if (agents.indexOf("hydrogen") === -1) agents.push("hydrogen"); contextInferred.push("hydrocracking/hydrotreating → hydrogen inferred"); }
   }
 
   // CATALYTIC REFORMING → hydrogen service
-  if (hasWord(lt, "catalytic reform") || hasWord(lt, "platformer") || hasWord(lt, "reformer unit") || hasWord(lt, "naphtha reform")) {
+  // Field slang: "the reformer", "CCR", "regen section"
+  if (hasWord(lt, "catalytic reform") || hasWord(lt, "platformer") || hasWord(lt, "reformer unit") || hasWord(lt, "naphtha reform") || hasWord(lt, "ccr unit") || hasWord(lt, "the reformer") || hasWord(lt, "regen section") || hasWord(lt, "reformate")) {
     if (!hydrogen) { hydrogen = true; if (agents.indexOf("hydrogen") === -1) agents.push("hydrogen"); contextInferred.push("catalytic reformer → hydrogen inferred"); }
   }
 
   // AMINE UNIT → H2S + amine (caustic-like) environment
-  if (hasWord(lt, "amine unit") || hasWord(lt, "amine service") || hasWord(lt, "amine system") || hasWord(lt, "amine contactor") || hasWord(lt, "amine regenerat") || hasWord(lt, "amine absorber") || hasWord(lt, "amine stripper") || hasWord(lt, "mdea") || hasWord(lt, "dea unit") || hasWord(lt, "mea unit")) {
+  // Field slang: "the scrubber", "gas sweetener", "sweetening unit", "acid gas scrubber"
+  if (hasWord(lt, "amine unit") || hasWord(lt, "amine service") || hasWord(lt, "amine system") || hasWord(lt, "amine contactor") || hasWord(lt, "amine regenerat") || hasWord(lt, "amine absorber") || hasWord(lt, "amine stripper") || hasWord(lt, "mdea") || hasWord(lt, "dea unit") || hasWord(lt, "mea unit") || hasWord(lt, "gas sweeten") || hasWord(lt, "acid gas scrubber") || hasWord(lt, "the scrubber") || hasWord(lt, "lean amine") || hasWord(lt, "rich amine")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("amine unit → H2S inferred (acid gas service)"); }
     if (!caustic) { caustic = true; corrosive = true; if (agents.indexOf("caustic") === -1) agents.push("caustic"); contextInferred.push("amine unit → amine/caustic environment inferred"); }
   }
 
   // CRUDE UNIT / DISTILLATION → H2S + naphthenic acid potential
-  if (hasWord(lt, "crude unit") || hasWord(lt, "crude distill") || hasWord(lt, "atmospheric distill") || hasWord(lt, "vacuum distill") || hasWord(lt, "crude tower") || hasWord(lt, "atmospheric tower") || hasWord(lt, "vacuum tower")) {
+  // Field slang: "the tower", "the column", "CDU", "VDU", "pipe still", "crude side"
+  if (hasWord(lt, "crude unit") || hasWord(lt, "crude distill") || hasWord(lt, "atmospheric distill") || hasWord(lt, "vacuum distill") || hasWord(lt, "crude tower") || hasWord(lt, "atmospheric tower") || hasWord(lt, "vacuum tower") || hasWord(lt, "pipe still") || hasWord(lt, "cdu") || hasWord(lt, "vdu") || hasWord(lt, "crude column") || hasWord(lt, "overhead system") || hasWord(lt, "crude side")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("crude unit → H2S inferred"); }
     corrosive = true;
     if (agents.indexOf("naphthenic_acid") === -1) { agents.push("naphthenic_acid"); contextInferred.push("crude unit → naphthenic acid potential inferred"); }
   }
 
   // FCC / FLUID CATALYTIC CRACKING → H2S
-  if (hasWord(lt, "fluid catalytic") || hasWord(lt, "cat cracker") || hasWord(lt, "fccu")) {
+  // Field slang: "the cat", "cat unit", "the FCC", "riser reactor"
+  if (hasWord(lt, "fluid catalytic") || hasWord(lt, "cat cracker") || hasWord(lt, "fccu") || hasWord(lt, "the cat") || hasWord(lt, "cat unit") || hasWord(lt, "riser reactor") || hasWord(lt, "regenerator") && (hasWord(lt, "cat") || hasWord(lt, "fcc"))) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("FCC unit → H2S inferred"); }
   }
 
   // SULFUR RECOVERY / CLAUS → concentrated H2S
-  if (hasWord(lt, "sulfur recovery") || hasWord(lt, "claus unit") || hasWord(lt, "claus reactor") || hasWord(lt, "tail gas") || hasWord(lt, "sulfur plant")) {
+  // Field slang: "the SRU", "the Claus", "sulfur block", "tail gas unit", "TGTU"
+  if (hasWord(lt, "sulfur recovery") || hasWord(lt, "claus unit") || hasWord(lt, "claus reactor") || hasWord(lt, "tail gas") || hasWord(lt, "sulfur plant") || hasWord(lt, "the sru") || hasWord(lt, "sulfur block") || hasWord(lt, "tgtu")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("sulfur recovery → concentrated H2S inferred"); }
   }
 
   // DELAYED COKER → H2S + hydrogen + thermal cycling
-  if (hasWord(lt, "delayed coker") || hasWord(lt, "coker drum") || hasWord(lt, "coke drum")) {
+  // Field slang: "the coker", "the drum", "coke cutting", "decoking"
+  if (hasWord(lt, "delayed coker") || hasWord(lt, "coker drum") || hasWord(lt, "coke drum") || hasWord(lt, "the coker") || hasWord(lt, "coke cutting") || hasWord(lt, "decoking") || hasWord(lt, "coke heater")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("coker → H2S inferred"); }
     if (!hydrogen) { hydrogen = true; if (agents.indexOf("hydrogen") === -1) agents.push("hydrogen"); contextInferred.push("coker → hydrogen inferred"); }
     if (!thermalCyc) { thermalCyc = true; contextInferred.push("coker drum → thermal cycling inferred (heat/quench cycles)"); }
   }
 
   // SOUR WATER / SOUR GAS / ACID GAS → H2S
-  if (hasWord(lt, "sour water") || hasWord(lt, "sour gas") || hasWord(lt, "acid gas") || hasWord(lt, "sour service")) {
+  // Field slang: "sour drum", "KO drum", "knockout drum", "sour stripper", "the SWS"
+  if (hasWord(lt, "sour water") || hasWord(lt, "sour gas") || hasWord(lt, "acid gas") || hasWord(lt, "sour service") || hasWord(lt, "sour drum") || hasWord(lt, "knockout drum") || hasWord(lt, "ko drum") || hasWord(lt, "sour stripper") || hasWord(lt, "the sws")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("sour/acid gas service → H2S inferred"); }
   }
 
   // HYDROGEN UNIT / HYDROGEN PLANT → hydrogen environment
-  if (hasWord(lt, "hydrogen plant") || hasWord(lt, "hydrogen unit") || hasWord(lt, "hydrogen makeup") || hasWord(lt, "h2 makeup") || hasWord(lt, "hydrogen compressor") || hasWord(lt, "hydrogen header")) {
+  // Field slang: "H2 plant", "steam reformer", "SMR", "hydrogen loop", "H2 recycle"
+  if (hasWord(lt, "hydrogen plant") || hasWord(lt, "hydrogen unit") || hasWord(lt, "hydrogen makeup") || hasWord(lt, "h2 makeup") || hasWord(lt, "hydrogen compressor") || hasWord(lt, "hydrogen header") || hasWord(lt, "h2 plant") || hasWord(lt, "steam reform") || hasWord(lt, "smr unit") || hasWord(lt, "hydrogen loop") || hasWord(lt, "h2 recycle") || hasWord(lt, "psa unit") || hasWord(lt, "pressure swing adsorption")) {
     if (!hydrogen) { hydrogen = true; if (agents.indexOf("hydrogen") === -1) agents.push("hydrogen"); contextInferred.push("hydrogen unit → hydrogen environment inferred"); }
   }
 
@@ -292,7 +306,8 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // CAUSTIC SERVICE (explicit process)
-  if (hasWord(lt, "caustic wash") || hasWord(lt, "caustic injection") || hasWord(lt, "naoh injection") || hasWord(lt, "caustic tower") || hasWord(lt, "caustic scrubber") || hasWord(lt, "spent caustic")) {
+  // Field slang: "caustic tree", "caustic treating", "the caustic"
+  if (hasWord(lt, "caustic wash") || hasWord(lt, "caustic injection") || hasWord(lt, "naoh injection") || hasWord(lt, "caustic tower") || hasWord(lt, "caustic scrubber") || hasWord(lt, "spent caustic") || hasWord(lt, "caustic tree") || hasWord(lt, "caustic treating") || hasWord(lt, "the caustic") || hasWord(lt, "caustic drum")) {
     if (!caustic) { caustic = true; corrosive = true; if (agents.indexOf("caustic") === -1) agents.push("caustic"); contextInferred.push("caustic service → caustic environment inferred"); }
   }
 
@@ -303,13 +318,15 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // COOLING WATER → chlorides + microbiological
-  if (hasWord(lt, "cooling water") || hasWord(lt, "cooling tower") || hasWord(lt, "cw system") || hasWord(lt, "condenser water")) {
+  // Field slang: "circ water", "CW system", "the cooling", "basin water"
+  if (hasWord(lt, "cooling water") || hasWord(lt, "cooling tower") || hasWord(lt, "cw system") || hasWord(lt, "condenser water") || hasWord(lt, "circ water") || hasWord(lt, "the cooling") || hasWord(lt, "basin water") || hasWord(lt, "fin fan") || hasWord(lt, "air cooler") && hasWord(lt, "water")) {
     corrosive = true;
     if (!chlorides && !negChloride) { chlorides = true; if (agents.indexOf("chlorides") === -1) agents.push("chlorides"); contextInferred.push("cooling water → chloride potential inferred"); }
   }
 
   // FLARE SYSTEM → H2S + thermal cycling
-  if (hasWord(lt, "flare header") || hasWord(lt, "flare stack") || hasWord(lt, "flare system") || hasWord(lt, "flare line") || hasWord(lt, "flare tip")) {
+  // Field slang: "the flare", "LP flare", "HP flare", "flare KO drum"
+  if (hasWord(lt, "flare header") || hasWord(lt, "flare stack") || hasWord(lt, "flare system") || hasWord(lt, "flare line") || hasWord(lt, "flare tip") || hasWord(lt, "the flare") || hasWord(lt, "lp flare") || hasWord(lt, "hp flare") || hasWord(lt, "flare ko drum") || hasWord(lt, "flare knockout")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("flare system → H2S potential inferred"); }
     if (!thermalCyc) { thermalCyc = true; contextInferred.push("flare system → thermal cycling inferred (intermittent flaring)"); }
   }
@@ -320,10 +337,53 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // STEAM SYSTEM → thermal cycling + dissolved oxygen
-  if (hasWord(lt, "steam header") || hasWord(lt, "steam line") || hasWord(lt, "steam trap") || hasWord(lt, "condensate return") || hasWord(lt, "condensate system")) {
+  if (hasWord(lt, "steam header") || hasWord(lt, "steam line") || hasWord(lt, "steam trap") || hasWord(lt, "condensate return") || hasWord(lt, "condensate system") || hasWord(lt, "steam drum") && !hasWord(lt, "boiler")) {
     if (!thermalCyc) { thermalCyc = true; contextInferred.push("steam system → thermal cycling inferred"); }
     corrosive = true;
     if (agents.indexOf("dissolved_oxygen") === -1) { agents.push("dissolved_oxygen"); contextInferred.push("steam/condensate → dissolved oxygen + CO2 corrosion potential"); }
+  }
+
+  // FIRED HEATER / FURNACE → thermal cycling + creep potential
+  // Field slang: "the heater", "fire side", "radiant section", "convection section", "tube went soft"
+  if (hasWord(lt, "fired heater") || hasWord(lt, "process heater") || hasWord(lt, "the heater") || hasWord(lt, "fire side") || hasWord(lt, "radiant section") || hasWord(lt, "convection section") || hasWord(lt, "tube went soft") || hasWord(lt, "furnace tube") || hasWord(lt, "heater tube") || hasWord(lt, "radiant tube") || hasWord(lt, "convection tube")) {
+    if (!thermalCyc) { thermalCyc = true; contextInferred.push("fired heater → thermal cycling inferred (startup/shutdown cycles)"); }
+    contextInferred.push("fired heater/furnace → elevated temperature service, creep potential");
+  }
+
+  // DEAD LEG → stagnant corrosion risk
+  // Field slang: "dead leg", "dead end", "no flow", "stagnant line"
+  if (hasWord(lt, "dead leg") || hasWord(lt, "dead end") && (hasWord(lt, "pipe") || hasWord(lt, "line")) || hasWord(lt, "no flow") || hasWord(lt, "stagnant line") || hasWord(lt, "stagnant") && hasWord(lt, "piping")) {
+    corrosive = true;
+    if (agents.indexOf("stagnant_corrosion") === -1) { agents.push("stagnant_corrosion"); contextInferred.push("dead leg → stagnant/trapped fluid corrosion risk"); }
+  }
+
+  // HEAT EXCHANGER → context depends on shell/tube side
+  // Field slang: "the exchanger", "shell side", "tube side", "tube bundle"
+  if (hasWord(lt, "exchanger") || hasWord(lt, "shell side") || hasWord(lt, "tube side") || hasWord(lt, "tube bundle") || hasWord(lt, "u-tube") || hasWord(lt, "floating head")) {
+    corrosive = true;
+    if (agents.indexOf("exchanger_service") === -1) { agents.push("exchanger_service"); contextInferred.push("heat exchanger → multi-fluid service, corrosion potential on both sides"); }
+  }
+
+  // RAIN LINE ATTACK / OVERHEAD CORROSION
+  // Field slang: "rain line", "overhead", "top of line", "dew point corrosion"
+  if (hasWord(lt, "rain line") || hasWord(lt, "overhead corros") || hasWord(lt, "top of line") || hasWord(lt, "dew point") || hasWord(lt, "overhead system") || hasWord(lt, "overhead line")) {
+    corrosive = true;
+    if (!h2s && !negH2s) { h2s = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("overhead/rain line → H2S + HCl condensation zone inferred"); }
+    if (!chlorides && !negChloride) { chlorides = true; if (agents.indexOf("chlorides") === -1) agents.push("chlorides"); contextInferred.push("overhead/rain line → chloride (HCl) condensation inferred"); }
+  }
+
+  // FIELD LEAK / SEEPAGE LANGUAGE → flag corrosion + consequence
+  // Field slang: "sweating", "weeping", "bleeding", "dripping", "leaker"
+  if (hasWord(lt, "sweating") || hasWord(lt, "weeping") || hasWord(lt, "seeping") || hasWord(lt, "leaker") || hasWord(lt, "dripping") || hasWord(lt, "active leak")) {
+    corrosive = true;
+    if (agents.indexOf("active_leak_indicator") === -1) { agents.push("active_leak_indicator"); contextInferred.push("field leak language detected → active corrosion/degradation likely"); }
+  }
+
+  // POLYTHIONIC ACID CRACKING CONTEXT
+  // Field slang: "polythionic", "PTA cracking", "sensitized stainless"
+  if (hasWord(lt, "polythionic") || (hasWord(lt, "sensitized") && hasWord(lt, "stainless")) || hasWord(lt, "pta crack")) {
+    corrosive = true;
+    if (agents.indexOf("polythionic_acid") === -1) { agents.push("polythionic_acid"); contextInferred.push("polythionic acid cracking context → shutdown/turnaround risk for sensitized stainless"); }
   }
 
   var suscept: string[] = [];
@@ -341,6 +401,34 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   var impactEv = hasWord(lt, "impact") || hasWord(lt, "struck") || hasWord(lt, "collision") || hasWord(lt, "dropped object");
   var flowEro = hasWord(lt, "erosion") || hasWord(lt, "high velocity");
   var cav = hasWord(lt, "cavitat");
+
+  // FIELD SLANG — vibration indicators
+  if (!vib) {
+    if (hasWord(lt, "singing") || hasWord(lt, "chattering") || hasWord(lt, "shaking") || hasWord(lt, "humming") || hasWord(lt, "buzzing") || hasWord(lt, "rattling")) {
+      vib = true;
+      if (!cyclic) { cyclic = true; cyclicSrc = cyclicSrc ? cyclicSrc + "+vibration_field_language" : "vibration_field_language"; }
+    }
+  }
+
+  // FIELD SLANG — erosion / flow damage indicators
+  if (!flowEro) {
+    if (hasWord(lt, "eating the elbow") || (hasWord(lt, "chewed up") && (hasWord(lt, "elbow") || hasWord(lt, "bend") || hasWord(lt, "tee"))) || hasWord(lt, "washed out") || hasWord(lt, "channeling") || hasWord(lt, "grooved") || (hasWord(lt, "thinned out") && hasWord(lt, "elbow"))) {
+      flowEro = true;
+    }
+  }
+
+  // FIELD SLANG — impact indicators
+  if (!impactEv) {
+    if (hasWord(lt, "got hit") || hasWord(lt, "took a hit") || hasWord(lt, "hammered") || hasWord(lt, "beat up") || hasWord(lt, "banged up") || hasWord(lt, "dented") || hasWord(lt, "dinged")) {
+      impactEv = true;
+    }
+  }
+
+  // FIELD SLANG — corrosion/damage descriptors → wall loss confidence boost
+  if (hasWord(lt, "eaten up") || hasWord(lt, "rotted") || hasWord(lt, "eating away") || hasWord(lt, "rusted out") || hasWord(lt, "paper thin") || hasWord(lt, "necked down") || hasWord(lt, "metal loss")) {
+    corrosive = true;
+    if (agents.indexOf("field_corrosion_language") === -1) agents.push("field_corrosion_language");
+  }
   var storedE = assetClass === "pressure_vessel" || assetClass === "piping" || assetClass === "pipeline" || assetClass === "offshore_platform" || hasWord(lt, "pressur") || hasWord(lt, "production platform") || hasWord(lt, "hydrocarbon");
 
   var svcYears: number | null = nv.service_years || null;
