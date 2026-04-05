@@ -4,8 +4,7 @@ import { sbInsert, sbUpdate, callDecisionCore, generateId, ASSET_CLASS_MAP } fro
 
 // ============================================================================
 // NEW CASE — Voice-First / Paste-First Design
-// One transcript input. Mic button. Superbrain figures out the rest.
-// Inspectors in the field wearing gloves don't fill out forms.
+// Schema-matched to actual cases table (all NOT NULL columns populated)
 // ============================================================================
 
 export default function NewCase() {
@@ -23,12 +22,10 @@ export default function NewCase() {
   const recognitionRef = useRef<any>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Check for Web Speech API support
   const speechSupported = typeof window !== "undefined" && ("webkitSpeechRecognition" in window || "SpeechRecognition" in window);
 
   function startListening() {
     if (!speechSupported) return;
-
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
@@ -39,37 +36,25 @@ export default function NewCase() {
       let interim = "";
       let final = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          final += result[0].transcript;
+        if (event.results[i].isFinal) {
+          final += event.results[i][0].transcript;
         } else {
-          interim += result[0].transcript;
+          interim += event.results[i][0].transcript;
         }
       }
       if (final) {
-        setTranscript(prev => {
-          const separator = prev.trim() ? " " : "";
-          return prev + separator + final;
-        });
+        setTranscript(prev => prev.trim() ? prev + " " + final : final);
       }
       setInterimText(interim);
     };
 
     recognition.onerror = function (event: any) {
-      console.error("Speech error:", event.error);
-      if (event.error !== "no-speech") {
-        setIsListening(false);
-      }
+      if (event.error !== "no-speech") setIsListening(false);
     };
 
     recognition.onend = function () {
-      // Auto-restart if still in listening mode (handles browser timeouts)
-      if (recognitionRef.current && isListening) {
-        try {
-          recognition.start();
-        } catch (e) {
-          setIsListening(false);
-        }
+      if (recognitionRef.current) {
+        try { recognition.start(); } catch (e) { setIsListening(false); }
       }
     };
 
@@ -90,14 +75,9 @@ export default function NewCase() {
   }
 
   function toggleListening() {
-    if (isListening) {
-      stopListening();
-    } else {
-      startListening();
-    }
+    if (isListening) stopListening(); else startListening();
   }
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (recognitionRef.current) {
@@ -107,24 +87,30 @@ export default function NewCase() {
     };
   }, []);
 
-  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      const scrollHeight = textareaRef.current.scrollHeight;
-      textareaRef.current.style.height = Math.max(200, Math.min(scrollHeight, 500)) + "px";
+      textareaRef.current.style.height = Math.max(200, Math.min(textareaRef.current.scrollHeight, 500)) + "px";
     }
   }, [transcript, interimText]);
 
   function autoTitle(): string {
     if (title.trim()) return title.trim();
-    // Pull first meaningful line from transcript
     const lines = transcript.trim().split("\n").filter(l => l.trim().length > 5);
     if (lines.length > 0) {
       const first = lines[0].trim();
       return first.length > 80 ? first.substring(0, 77) + "..." : first;
     }
     return "Field Inspection — " + new Date().toLocaleDateString();
+  }
+
+  function generateCaseId(): string {
+    const now = new Date();
+    const y = String(now.getFullYear());
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    const r = String(Math.floor(Math.random() * 9000) + 1000);
+    return "CASE-" + y + m + d + "-" + r;
   }
 
   async function handleEvaluate() {
@@ -135,31 +121,43 @@ export default function NewCase() {
     setSubmitting(true);
     setError("");
     setStatusMsg("Creating case...");
-
-    // Stop listening if active
     if (isListening) stopListening();
 
     try {
-      const caseId = generateId();
+      const id = generateId();
+      const caseId = generateCaseId();
       const now = new Date().toISOString();
       const caseTitle = autoTitle();
-
-      // Determine asset class — if auto, let decision-core figure it out
+      const assetType = assetHint === "auto" ? "General" : assetHint;
       const engineAssetClass = assetHint === "auto" ? "pressure_vessel" : (ASSET_CLASS_MAP[assetHint] || "pressure_vessel");
 
-      // Step 1: Create case with raw transcript
+      // Step 1: Create case — all NOT NULL fields populated
       await sbInsert("cases", {
-        id: caseId,
+        id: id,
+        case_id: caseId,
+        case_name: caseTitle,
         title: caseTitle,
+        inspector_name: "Field Inspector",
+        organization: "",
+        asset_type: assetType,
         asset_class: assetHint === "auto" ? "" : assetHint,
+        location: "Field",
+        applicable_standard: "API 570",
+        initial_narrative: transcript.trim(),
         running_transcript: transcript.trim(),
+        input_mode: "typed",
+        priority: "normal",
         status: "open",
+        stage: "initial",
+        finding_count: 0,
+        rejectable_count: 0,
+        report_count: 0,
         created_at: now,
         updated_at: now
       });
       setStatusMsg("Case created. Running Superbrain evaluation...");
 
-      // Step 2: Call decision-core with raw field transcript
+      // Step 2: Call decision-core
       const dcResult = await callDecisionCore(transcript.trim(), engineAssetClass);
       const dc = dcResult.decision_core || dcResult;
 
@@ -169,14 +167,37 @@ export default function NewCase() {
       const confidence = dc.reality_confidence?.overall_confidence || 0;
       const mechanism = dc.damage_reality?.primary_damage_mechanism?.mechanism || "";
       const sufficiency = dc.decision_reality?.evidence_sufficiency || "";
+      const hardLocks = dc.decision_reality?.hard_lock_count || dc.decision_reality?.hard_locks?.length || 0;
 
-      // Pull asset info from decision-core if it parsed it
+      // Next action from guided_recovery
+      let nextAction = "";
+      if (dc.decision_reality?.guided_recovery?.length > 0) {
+        const first = dc.decision_reality.guided_recovery[0];
+        nextAction = typeof first === "string" ? first : (first.action || first.description || "");
+      }
+
+      // Confidence band
+      let band = "LOW";
+      if (confidence >= 0.8) band = "HIGH";
+      else if (confidence >= 0.6) band = "GUARDED";
+
+      // Parsed asset info from decision-core
       const parsedAssetName = dc.physical_reality?.asset_name || dc.physical_reality?.component || "";
-      const parsedAssetClass = dc.physical_reality?.asset_class || "";
       const parsedLocation = dc.physical_reality?.location || "";
 
-      // Step 3: Update case with superbrain state + parsed info
-      await sbUpdate("cases", caseId, {
+      // Step 3: Update case with superbrain state — BOTH column sets
+      await sbUpdate("cases", id, {
+        // Original schema superbrain columns
+        consequence_tier: consequence,
+        superbrain_disposition: disposition,
+        confidence_band: band,
+        confidence_overall: confidence,
+        primary_mechanism: mechanism,
+        sufficiency_verdict: sufficiency,
+        hard_lock_count: hardLocks,
+        next_action: nextAction,
+        highest_severity: consequence,
+        // sb_* columns
         sb_consequence: consequence,
         sb_disposition: disposition,
         sb_confidence: confidence,
@@ -184,9 +205,9 @@ export default function NewCase() {
         sb_sufficiency: sufficiency,
         sb_engine_version: dc.engine_version || "",
         sb_last_eval: now,
+        // Parsed info
         asset_name: parsedAssetName,
-        asset_class: parsedAssetClass || (assetHint === "auto" ? "" : assetHint),
-        location: parsedLocation,
+        location: parsedLocation || "Field",
         updated_at: now
       });
       setStatusMsg("Evaluation complete. Saving snapshot...");
@@ -195,7 +216,7 @@ export default function NewCase() {
       const snapshotId = generateId();
       await sbInsert("decision_core_snapshots", {
         id: snapshotId,
-        case_id: caseId,
+        case_id: id,
         snapshot_number: 1,
         transcript_at_eval: transcript.trim(),
         full_output: JSON.stringify(dc),
@@ -208,7 +229,10 @@ export default function NewCase() {
         created_at: now
       });
 
-      // Step 5: Generate checklist from phased_strategy
+      // Update latest_snapshot_id on case
+      await sbUpdate("cases", id, { latest_snapshot_id: snapshotId });
+
+      // Step 5: Generate checklist
       if (dc.inspection_reality?.phased_strategy) {
         const phases = dc.inspection_reality.phased_strategy;
         let checkOrder = 0;
@@ -221,7 +245,7 @@ export default function NewCase() {
             const itemText = typeof items[ai] === "string" ? items[ai] : (items[ai].action || items[ai].description || JSON.stringify(items[ai]));
             await sbInsert("checklist_items", {
               id: generateId(),
-              case_id: caseId,
+              case_id: id,
               snapshot_id: snapshotId,
               phase: phaseName,
               item_text: itemText,
@@ -236,15 +260,14 @@ export default function NewCase() {
       // Step 6: History
       await sbInsert("case_history", {
         id: generateId(),
-        case_id: caseId,
+        case_id: id,
         action: "superbrain_evaluation",
         details: "Initial evaluation — " + consequence + " / " + disposition + " / " + Math.round(confidence * 100) + "% confidence",
         snapshot_id: snapshotId,
         created_at: now
       });
 
-      setStatusMsg("Opening case...");
-      navigate("/cases/" + caseId);
+      navigate("/cases/" + id);
 
     } catch (err: any) {
       setError("Evaluation failed: " + (err.message || String(err)));
@@ -254,50 +277,60 @@ export default function NewCase() {
   }
 
   async function handleSaveOnly() {
-    if (!transcript.trim()) {
-      setError("Add a description before saving.");
-      return;
-    }
+    if (!transcript.trim()) { setError("Add a description before saving."); return; }
     setSubmitting(true);
     setError("");
     if (isListening) stopListening();
 
     try {
-      const caseId = generateId();
+      const id = generateId();
       const now = new Date().toISOString();
+      const caseTitle = autoTitle();
 
       await sbInsert("cases", {
-        id: caseId,
-        title: autoTitle(),
+        id: id,
+        case_id: generateCaseId(),
+        case_name: caseTitle,
+        title: caseTitle,
+        inspector_name: "Field Inspector",
+        organization: "",
+        asset_type: assetHint === "auto" ? "General" : assetHint,
         asset_class: assetHint === "auto" ? "" : assetHint,
+        location: "Field",
+        applicable_standard: "API 570",
+        initial_narrative: transcript.trim(),
         running_transcript: transcript.trim(),
+        input_mode: "typed",
+        priority: "normal",
         status: "open",
+        stage: "initial",
+        finding_count: 0,
+        rejectable_count: 0,
+        report_count: 0,
         created_at: now,
         updated_at: now
       });
 
       await sbInsert("case_history", {
         id: generateId(),
-        case_id: caseId,
+        case_id: id,
         action: "case_created",
         details: "Case created from field transcript",
         created_at: now
       });
 
-      navigate("/cases/" + caseId);
+      navigate("/cases/" + id);
     } catch (err: any) {
       setError("Save failed: " + (err.message || String(err)));
       setSubmitting(false);
     }
   }
 
-  // Display text = committed transcript + gray interim
   const displayTranscript = transcript + (interimText ? (transcript ? " " : "") + interimText : "");
 
   return (
     <div style={{ padding: "24px", maxWidth: "800px", margin: "0 auto", fontFamily: "'Inter', -apple-system, sans-serif", color: "#e2e8f0" }}>
 
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "28px" }}>
         <button onClick={() => navigate("/cases")}
           style={{ padding: "6px 14px", backgroundColor: "transparent", color: "#94a3b8", border: "1px solid #334155", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>
@@ -306,16 +339,13 @@ export default function NewCase() {
         <h1 style={{ fontSize: "22px", fontWeight: "700", color: "#f8fafc", margin: 0 }}>New Inspection Case</h1>
       </div>
 
-      {/* Main card */}
       <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "12px", padding: "28px" }}>
 
-        {/* Voice prompt */}
         <div style={{ textAlign: "center", marginBottom: "24px" }}>
           <div style={{ fontSize: "15px", color: "#cbd5e1", marginBottom: "16px" }}>
             Describe what you see. Speak it, paste it, or type it — field language works.
           </div>
 
-          {/* Mic button */}
           {speechSupported && (
             <button onClick={toggleListening} disabled={submitting}
               style={{
@@ -324,7 +354,6 @@ export default function NewCase() {
                 border: isListening ? "3px solid #fca5a5" : "3px solid #60a5fa",
                 cursor: submitting ? "not-allowed" : "pointer",
                 display: "inline-flex", alignItems: "center", justifyContent: "center",
-                transition: "all 0.2s",
                 boxShadow: isListening ? "0 0 20px rgba(239,68,68,0.4)" : "0 0 12px rgba(59,130,246,0.3)",
                 animation: isListening ? "pulse-mic 1.5s infinite" : "none"
               }}>
@@ -341,82 +370,54 @@ export default function NewCase() {
           </div>
         </div>
 
-        {/* Transcript input */}
         <div style={{ position: "relative", marginBottom: "20px" }}>
-          <textarea
-            ref={textareaRef}
-            value={displayTranscript}
-            onChange={e => {
-              setTranscript(e.target.value);
-              setInterimText("");
-            }}
-            placeholder={"Describe the inspection scenario in your own words...\n\nExamples:\n• \"24-inch transfer line downstream of coke drum, carbon steel, 780 to 920 degrees, cyclic operation, we're seeing hot spots under insulation near the elbow...\"\n• \"Decompression chamber, sat system, 15 years old, cracking near viewport weld, last inspection was 3 years ago...\"\n• \"Pipeline segment 14B, found wall loss at the 6 o'clock position, corrosion under coating, minimum readings 0.180 on a nominal 0.375...\""}
+          <textarea ref={textareaRef} value={displayTranscript}
+            onChange={e => { setTranscript(e.target.value); setInterimText(""); }}
+            placeholder={"Describe the inspection scenario in your own words...\n\nExamples:\n• \"24-inch transfer line downstream of coke drum, carbon steel, 780 to 920 degrees, cyclic operation, we're seeing hot spots under insulation near the elbow...\"\n• \"Decompression chamber, sat system, 15 years old, cracking near viewport weld...\"\n• \"Pipeline segment 14B, found wall loss at the 6 o'clock position, minimum readings 0.180 on a nominal 0.375...\""}
             style={{
               width: "100%", minHeight: "200px", padding: "16px",
               backgroundColor: "#1e293b", border: isListening ? "2px solid #ef4444" : "1px solid #334155",
               borderRadius: "10px", color: "#f8fafc", fontSize: "14px", lineHeight: "1.6",
               outline: "none", boxSizing: "border-box", resize: "vertical",
-              fontFamily: "'Inter', -apple-system, sans-serif",
-              transition: "border-color 0.2s"
-            }}
-          />
-          {/* Word count */}
+              fontFamily: "'Inter', -apple-system, sans-serif"
+            }} />
           <div style={{ position: "absolute", bottom: "8px", right: "12px", fontSize: "11px", color: "#475569" }}>
             {transcript.trim().split(/\s+/).filter(w => w).length} words
           </div>
         </div>
 
-        {/* Title (optional) */}
         <div style={{ marginBottom: "20px" }}>
           <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "#64748b", marginBottom: "6px" }}>
             CASE TITLE (optional — auto-generates if blank)
           </label>
           <input type="text" value={title} onChange={e => setTitle(e.target.value)}
             placeholder="Auto-generated from transcript if left blank"
-            style={{
-              width: "100%", padding: "10px 14px", backgroundColor: "#1e293b",
-              border: "1px solid #334155", borderRadius: "8px", color: "#f8fafc",
-              fontSize: "14px", outline: "none", boxSizing: "border-box"
-            }} />
+            style={{ width: "100%", padding: "10px 14px", backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px", color: "#f8fafc", fontSize: "14px", outline: "none", boxSizing: "border-box" }} />
         </div>
 
-        {/* Asset class hint (optional) */}
         <div style={{ marginBottom: "24px" }}>
           <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "#64748b", marginBottom: "6px" }}>
             ASSET TYPE HINT (optional — Superbrain detects this automatically)
           </label>
           <select value={assetHint} onChange={e => setAssetHint(e.target.value)}
-            style={{
-              width: "100%", padding: "10px 14px", backgroundColor: "#1e293b",
-              border: "1px solid #334155", borderRadius: "8px", color: "#f8fafc",
-              fontSize: "14px", outline: "none", boxSizing: "border-box", cursor: "pointer"
-            }}>
+            style={{ width: "100%", padding: "10px 14px", backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px", color: "#f8fafc", fontSize: "14px", outline: "none", boxSizing: "border-box", cursor: "pointer" }}>
             <option value="auto">Auto-detect from transcript</option>
             {Object.keys(ASSET_CLASS_MAP).map(opt => <option key={opt} value={opt}>{opt}</option>)}
           </select>
         </div>
 
-        {/* Error */}
         {error && (
-          <div style={{
-            padding: "12px 16px", backgroundColor: "#ef444422", color: "#fca5a5",
-            borderRadius: "8px", marginBottom: "16px", fontSize: "13px", border: "1px solid #ef444444"
-          }}>
+          <div style={{ padding: "12px 16px", backgroundColor: "#ef444422", color: "#fca5a5", borderRadius: "8px", marginBottom: "16px", fontSize: "13px", border: "1px solid #ef444444" }}>
             {error}
           </div>
         )}
 
-        {/* Status */}
         {statusMsg && (
-          <div style={{
-            padding: "12px 16px", backgroundColor: "#3b82f622", color: "#93c5fd",
-            borderRadius: "8px", marginBottom: "16px", fontSize: "13px", border: "1px solid #3b82f644"
-          }}>
+          <div style={{ padding: "12px 16px", backgroundColor: "#3b82f622", color: "#93c5fd", borderRadius: "8px", marginBottom: "16px", fontSize: "13px", border: "1px solid #3b82f644" }}>
             {statusMsg}
           </div>
         )}
 
-        {/* Action buttons */}
         <div style={{ display: "flex", gap: "12px" }}>
           <button onClick={handleEvaluate} disabled={submitting || !transcript.trim()}
             style={{
@@ -425,9 +426,7 @@ export default function NewCase() {
               color: !transcript.trim() ? "#475569" : "#fff",
               border: "none", borderRadius: "8px",
               cursor: submitting || !transcript.trim() ? "not-allowed" : "pointer",
-              fontSize: "15px", fontWeight: "600",
-              opacity: submitting ? 0.7 : 1,
-              transition: "all 0.2s"
+              fontSize: "15px", fontWeight: "600", opacity: submitting ? 0.7 : 1
             }}>
             {submitting ? statusMsg || "Processing..." : "Evaluate with Superbrain"}
           </button>
@@ -436,21 +435,14 @@ export default function NewCase() {
               padding: "14px 20px", backgroundColor: "transparent",
               color: !transcript.trim() ? "#334155" : "#94a3b8",
               border: "1px solid #334155", borderRadius: "8px",
-              cursor: submitting || !transcript.trim() ? "not-allowed" : "pointer",
-              fontSize: "14px"
+              cursor: submitting || !transcript.trim() ? "not-allowed" : "pointer", fontSize: "14px"
             }}>
             Save Only
           </button>
         </div>
       </div>
 
-      {/* Mic pulse animation */}
-      <style>{`
-        @keyframes pulse-mic {
-          0%, 100% { box-shadow: 0 0 20px rgba(239,68,68,0.4); }
-          50% { box-shadow: 0 0 35px rgba(239,68,68,0.6); }
-        }
-      `}</style>
+      <style>{`@keyframes pulse-mic { 0%, 100% { box-shadow: 0 0 20px rgba(239,68,68,0.4); } 50% { box-shadow: 0 0 35px rgba(239,68,68,0.6); } }`}</style>
     </div>
   );
 }
