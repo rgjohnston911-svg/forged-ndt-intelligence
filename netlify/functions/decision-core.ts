@@ -1045,16 +1045,42 @@ var AUTHORITY_MAP = [
 function resolveAuthorityReality(assetClass: string, transcript: string, consequence: any, physics: any) {
   var lt = transcript.toLowerCase();
   var matched: any = null;
+
+  // AUTHORITY MATCHING — v2.3 FIX
+  // Step 1: Find entries where BOTH asset class AND keywords match (most specific)
+  // Step 2: If no keyword+class match, use the most generic class match (last in array)
+  // This prevents PVHO-1 from matching generic pressure vessels
+  var keywordClassMatch: any = null;
+  var genericClassMatch: any = null;
+
   for (var ai = 0; ai < AUTHORITY_MAP.length; ai++) {
-    for (var asi = 0; asi < AUTHORITY_MAP[ai].ac.length; asi++) {
-      if (assetClass === AUTHORITY_MAP[ai].ac[asi]) { matched = AUTHORITY_MAP[ai]; break; }
+    var entry = AUTHORITY_MAP[ai];
+    var classMatches = false;
+    for (var asi = 0; asi < entry.ac.length; asi++) {
+      if (assetClass === entry.ac[asi]) { classMatches = true; break; }
     }
-    if (matched) break;
+    if (classMatches) {
+      // Check if any keywords also match
+      var kwMatches = false;
+      for (var ki = 0; ki < entry.kw.length; ki++) {
+        if (hasWord(lt, entry.kw[ki])) { kwMatches = true; break; }
+      }
+      if (kwMatches && !keywordClassMatch) {
+        keywordClassMatch = entry;
+      }
+      // Always update generic — last class match wins (most generic entries are later)
+      genericClassMatch = entry;
+    }
   }
+
+  // Prefer keyword+class match, fall back to generic class match
+  matched = keywordClassMatch || genericClassMatch;
+
+  // If no class match at all, try pure keyword match
   if (!matched) {
     for (var ri = 0; ri < AUTHORITY_MAP.length; ri++) {
       var r = AUTHORITY_MAP[ri];
-      for (var ki = 0; ki < r.kw.length; ki++) { if (hasWord(lt, r.kw[ki])) { matched = r; break; } }
+      for (var ki2 = 0; ki2 < r.kw.length; ki2++) { if (hasWord(lt, r.kw[ki2])) { matched = r; break; } }
       if (matched) break;
     }
   }
@@ -1772,6 +1798,19 @@ var handler: Handler = async function(event: HandlerEvent) {
         assetClass = "piping";
         assetCorrected = true;
         assetCorrectionReason = "Transcript describes piping. Overriding upstream classification.";
+      }
+    }
+    // FIELD LANGUAGE PIPING OVERRIDE — v2.3
+    // Field inspectors say "line" not "piping". "amine line", "steam line", "process line"
+    // If transcript says "[process] line" + no vessel/tank/drum keywords → piping
+    if (!isHyperbaricLocked && assetClass !== "piping" && assetClass !== "pipeline") {
+      var hasLineWord = hasWord(lt_handler, "line") || hasWord(lt_handler, "pipe");
+      var hasProcessContext = hasWord(lt_handler, "amine") || hasWord(lt_handler, "steam") || hasWord(lt_handler, "process") || hasWord(lt_handler, "sour") || hasWord(lt_handler, "flare") || hasWord(lt_handler, "condensate") || hasWord(lt_handler, "caustic") || hasWord(lt_handler, "hydrogen") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || hasWord(lt_handler, "tee") || hasWord(lt_handler, "reducer") || hasWord(lt_handler, "dead leg");
+      var hasVesselEvidence = hasWord(lt_handler, "vessel") || hasWord(lt_handler, "drum") || hasWord(lt_handler, "tank") || hasWord(lt_handler, "shell side") || hasWord(lt_handler, "tube side") || hasWord(lt_handler, "head") && hasWord(lt_handler, "shell") || hasWord(lt_handler, "nozzle") && !hasWord(lt_handler, "pipe nozzle");
+      if (hasLineWord && hasProcessContext && !hasVesselEvidence) {
+        assetClass = "piping";
+        assetCorrected = true;
+        assetCorrectionReason = "Field language indicates piping (process line/pipe + no vessel evidence). Overriding upstream classification (" + (asset.asset_class || "unknown") + ") to piping.";
       }
     }
     if (!isHyperbaricLocked && (hasWord(lt_handler, "storage tank") || hasWord(lt_handler, "aboveground storage") || hasWord(lt_handler, "aboveground tank")) && assetClass !== "tank") {
