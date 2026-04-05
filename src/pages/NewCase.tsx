@@ -1,396 +1,423 @@
-/**
- * DEPLOY46 — NewCase.tsx
- * src/pages/NewCase.tsx
- *
- * After successful case creation, automatically calls:
- *   1. run-universal-route (material/damage engine routing)
- *   2. run-code-applicability (governing code routing)
- * Then navigates to the case detail page with routing already done.
- *
- * CONSTRAINT: No backtick template literals
- */
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { supabase } from "../lib/supabase";
-import {
-  NDE_METHODS,
-  WELDING_PROCESSES,
-  WELD_POSITIONS,
-  HEAT_INPUT_LEVELS,
-  TRAVEL_SPEED_LEVELS,
-  INSPECTION_CONTEXT_OPTIONS,
-  MATERIAL_CLASS_OPTIONS,
-  MATERIAL_FAMILY_OPTIONS,
-  SURFACE_TYPE_OPTIONS,
-  SERVICE_ENVIRONMENT_OPTIONS,
-  LIFECYCLE_STAGE_OPTIONS,
-  INDUSTRY_SECTOR_OPTIONS,
-  ASSET_TYPE_OPTIONS
-} from "../lib/constants";
+import React, { useState } from "react";
+import { sbInsert, sbUpdate, callDecisionCore, generateId, ASSET_CLASS_MAP } from "../utils/supabase";
 
-var API_BASE = "/.netlify/functions";
+// ============================================================================
+// CREATE CASE PAGE — Form + "Create & Evaluate with Superbrain" button
+// ============================================================================
 
-export default function NewCase() {
-  var navigate = useNavigate();
+interface CreateCasePageProps {
+  onNavigate: (page: string, params?: any) => void;
+}
 
-  var [step, setStep] = useState(1);
-  var [loading, setLoading] = useState(false);
-  var [loadingMsg, setLoadingMsg] = useState("");
+export default function CreateCasePage({ onNavigate }: CreateCasePageProps) {
+  var [title, setTitle] = useState("");
+  var [assetName, setAssetName] = useState("");
+  var [assetClass, setAssetClass] = useState("Pressure Vessel");
+  var [location, setLocation] = useState("");
+  var [description, setDescription] = useState("");
+  var [events, setEvents] = useState("");
+  var [measurements, setMeasurements] = useState("");
+  var [submitting, setSubmitting] = useState(false);
+  var [statusMsg, setStatusMsg] = useState("");
   var [error, setError] = useState("");
 
-  /* Step 1 */
-  var [inspectionContext, setInspectionContext] = useState("");
+  var assetClassOptions = Object.keys(ASSET_CLASS_MAP);
 
-  /* Step 2 */
-  var [materialClass, setMaterialClass] = useState("");
-  var [materialFamily, setMaterialFamily] = useState("");
-  var [surfaceType, setSurfaceType] = useState("");
-  var [serviceEnvironment, setServiceEnvironment] = useState("");
-  var [lifecycleStage, setLifecycleStage] = useState("");
-  var [industrySector, setIndustrySector] = useState("");
-  var [assetType, setAssetType] = useState("");
-
-  /* Step 3 */
-  var [method, setMethod] = useState("");
-
-  /* Step 4 */
-  var [component, setComponent] = useState("");
-
-  /* Step 5 (weld only) */
-  var [weldProcess, setWeldProcess] = useState("");
-  var [weldPosition, setWeldPosition] = useState("");
-  var [heatInput, setHeatInput] = useState("");
-  var [travelSpeed, setTravelSpeed] = useState("");
-
-  /* Step 6 */
-  var [selectedCode, setSelectedCode] = useState("");
-
-  var isWeld = inspectionContext === "WELD";
-  var totalSteps = isWeld ? 6 : 5;
-
-  useEffect(function() { setMaterialFamily(""); }, [materialClass]);
-
-  var familyOptions = MATERIAL_FAMILY_OPTIONS[materialClass] || [];
-
-  function getStepLabel(s: number): string {
-    if (s === 1) return "Inspection Context";
-    if (s === 2) return "Material, Environment & Classification";
-    if (s === 3) return "NDT Method";
-    if (s === 4) return "Component";
-    if (isWeld && s === 5) return "Welding Process";
-    return "Code / Standard";
+  function buildTranscript(): string {
+    var parts: string[] = [];
+    parts.push("ASSET: " + assetName + " (" + assetClass + ")");
+    if (location) parts.push("LOCATION: " + location);
+    if (description) parts.push("DESCRIPTION: " + description);
+    if (events) parts.push("EVENTS / HISTORY: " + events);
+    if (measurements) parts.push("MEASUREMENTS / DATA: " + measurements);
+    return parts.join("\n");
   }
 
-  function canNext(): boolean {
-    if (step === 1) return inspectionContext !== "";
-    if (step === 2) return materialClass !== "";
-    if (step === 3) return method !== "";
-    if (step === 4) return component.trim() !== "";
-    if (isWeld && step === 5) return true;
-    return true;
-  }
-
-  function handleNext() { if (step < totalSteps) setStep(step + 1); }
-  function handleBack() { if (step > 1) setStep(step - 1); }
-
-  var CODE_OPTIONS = [
-    { value: "AWS_D1.1", label: "AWS D1.1 — Structural Welding Code" },
-    { value: "AWS_D1.5", label: "AWS D1.5 — Bridge Welding Code" },
-    { value: "ASME_SEC_VIII", label: "ASME Section VIII — Pressure Vessels" },
-    { value: "ASME_SEC_V", label: "ASME Section V — NDE" },
-    { value: "ASME_B31.3", label: "ASME B31.3 — Process Piping" },
-    { value: "ASME_B31.1", label: "ASME B31.1 — Power Piping" },
-    { value: "API_1104", label: "API 1104 — Pipeline Welding" },
-    { value: "API_510", label: "API 510 — Pressure Vessel Inspection" },
-    { value: "API_570", label: "API 570 — Piping Inspection" },
-    { value: "API_653", label: "API 653 — Tank Inspection" },
-    { value: "API_579", label: "API 579 — Fitness-for-Service" },
-    { value: "AMPP_COATING", label: "AMPP — Coating / Lining" },
-    { value: "ACI_CIVIL", label: "ACI — Concrete / Civil" },
-    { value: "ISO_GENERAL", label: "ISO — General Welding / NDT" },
-    { value: "TRAINING", label: "Training / Educational Only" },
-    { value: "OWNER_SPEC", label: "Owner / OEM Specification" },
-    { value: "OTHER", label: "Other" }
-  ];
-
-  /* ---- Submit + auto-route ---- */
-  async function handleSubmit() {
-    setLoading(true);
+  async function handleCreateOnly() {
+    if (!title.trim() || !assetName.trim()) {
+      setError("Title and Asset Name are required.");
+      return;
+    }
+    setSubmitting(true);
     setError("");
-    setLoadingMsg("Creating case...");
+    setStatusMsg("Creating case...");
 
     try {
-      var sessionRes = await supabase.auth.getSession();
-      var token = sessionRes.data.session?.access_token || "";
+      var caseId = generateId();
+      var now = new Date().toISOString();
+      var transcript = buildTranscript();
 
-      var processContext = null;
-      if (isWeld && weldProcess) {
-        processContext = {
-          process: weldProcess,
-          position: weldPosition || null,
-          heat_input: heatInput || null,
-          travel_speed: travelSpeed || null
-        };
-      }
-
-      var payload = {
-        method: method,
-        component: component,
-        code: selectedCode || null,
-        inspectionContext: inspectionContext,
-        materialClass: materialClass || null,
-        materialFamily: materialFamily || null,
-        surfaceType: surfaceType || null,
-        serviceEnvironment: serviceEnvironment || null,
-        lifecycleStage: lifecycleStage || null,
-        industrySector: industrySector || null,
-        assetType: assetType || null,
-        processContext: processContext
+      var caseRow = {
+        id: caseId,
+        title: title.trim(),
+        asset_name: assetName.trim(),
+        asset_class: assetClass,
+        location: location.trim(),
+        description: description.trim(),
+        running_transcript: transcript,
+        status: "open",
+        created_at: now,
+        updated_at: now
       };
 
-      /* 1. Create case */
-      var res = await fetch(API_BASE + "/create-case", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-        body: JSON.stringify(payload)
+      await sbInsert("cases", caseRow);
+
+      // History entry
+      await sbInsert("case_history", {
+        id: generateId(),
+        case_id: caseId,
+        action: "case_created",
+        details: "Case created: " + title.trim(),
+        created_at: now
       });
 
-      var data = await res.json();
+      setStatusMsg("Case created.");
+      onNavigate("case-detail", { caseId: caseId });
+    } catch (err: any) {
+      setError("Failed to create case: " + (err.message || String(err)));
+      setSubmitting(false);
+      setStatusMsg("");
+    }
+  }
 
-      if (!res.ok || !data.caseId) {
-        setError(data.detail || data.error || "Failed to create case");
-        setLoading(false);
-        setLoadingMsg("");
-        return;
+  async function handleCreateAndEvaluate() {
+    if (!title.trim() || !assetName.trim()) {
+      setError("Title and Asset Name are required.");
+      return;
+    }
+    setSubmitting(true);
+    setError("");
+    setStatusMsg("Creating case...");
+
+    try {
+      var caseId = generateId();
+      var now = new Date().toISOString();
+      var transcript = buildTranscript();
+      var engineAssetClass = ASSET_CLASS_MAP[assetClass] || "pressure_vessel";
+
+      // Parse events list
+      var eventsList: string[] = [];
+      if (events.trim()) {
+        eventsList = events.split(",").map(function (e) { return e.trim(); }).filter(function (e) { return e.length > 0; });
       }
 
-      var caseId = data.caseId;
+      // Step 1: Create case
+      var caseRow = {
+        id: caseId,
+        title: title.trim(),
+        asset_name: assetName.trim(),
+        asset_class: assetClass,
+        location: location.trim(),
+        description: description.trim(),
+        running_transcript: transcript,
+        status: "open",
+        created_at: now,
+        updated_at: now
+      };
+      await sbInsert("cases", caseRow);
+      setStatusMsg("Case created. Running Superbrain evaluation...");
 
-      /* 2. Auto-run Universal Inspection Context Router */
-      setLoadingMsg("Running inspection context router...");
-      try {
-        await fetch(API_BASE + "/run-universal-route", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-          body: JSON.stringify({ caseId: caseId })
-        });
-      } catch (e) {
-        console.log("universal-route call failed (non-blocking): " + String(e));
+      // Step 2: Call decision-core
+      var dcResult = await callDecisionCore(transcript, engineAssetClass, eventsList);
+      var dc = dcResult.decision_core || dcResult;
+
+      // Extract superbrain state from decision-core response
+      var consequence = "";
+      var disposition = "";
+      var confidence = 0;
+      var mechanism = "";
+      var sufficiency = "";
+
+      if (dc.consequence_reality) {
+        consequence = dc.consequence_reality.consequence_level || "";
+      }
+      if (dc.decision_reality) {
+        disposition = dc.decision_reality.disposition || "";
+        sufficiency = dc.decision_reality.evidence_sufficiency || "";
+      }
+      if (dc.reality_confidence) {
+        confidence = dc.reality_confidence.overall_confidence || 0;
+      }
+      if (dc.damage_reality && dc.damage_reality.primary_damage_mechanism) {
+        mechanism = dc.damage_reality.primary_damage_mechanism.mechanism || "";
       }
 
-      /* 3. Auto-run Code Applicability Router */
-      setLoadingMsg("Running code applicability router...");
-      try {
-        await fetch(API_BASE + "/run-code-applicability", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-          body: JSON.stringify({
-            caseId: caseId,
-            lifecycleStage: lifecycleStage || null,
-            industrySector: industrySector || null,
-            assetType: assetType || null,
-            educationalMode: lifecycleStage === "EDUCATIONAL_TRAINING"
-          })
-        });
-      } catch (e) {
-        console.log("code-applicability call failed (non-blocking): " + String(e));
+      // Step 3: Update case with superbrain state
+      await sbUpdate("cases", caseId, {
+        sb_consequence: consequence,
+        sb_disposition: disposition,
+        sb_confidence: confidence,
+        sb_mechanism: mechanism,
+        sb_sufficiency: sufficiency,
+        sb_engine_version: dc.engine_version || "",
+        sb_last_eval: now,
+        updated_at: now
+      });
+      setStatusMsg("Superbrain evaluation stored. Saving snapshot...");
+
+      // Step 4: Store decision-core snapshot
+      var snapshotId = generateId();
+      await sbInsert("decision_core_snapshots", {
+        id: snapshotId,
+        case_id: caseId,
+        snapshot_number: 1,
+        transcript_at_eval: transcript,
+        full_output: JSON.stringify(dc),
+        consequence_level: consequence,
+        disposition: disposition,
+        confidence: confidence,
+        primary_mechanism: mechanism,
+        evidence_sufficiency: sufficiency,
+        engine_version: dc.engine_version || "",
+        created_at: now
+      });
+
+      // Step 5: Generate checklist from phased_strategy
+      if (dc.inspection_reality && dc.inspection_reality.phased_strategy) {
+        var phases = dc.inspection_reality.phased_strategy;
+        var checkOrder = 0;
+        for (var pi = 0; pi < phases.length; pi++) {
+          var phase = phases[pi];
+          var phaseName = phase.phase || ("Phase " + (pi + 1));
+          var items = phase.actions || phase.steps || [];
+          for (var ai = 0; ai < items.length; ai++) {
+            checkOrder++;
+            var itemText = typeof items[ai] === "string" ? items[ai] : (items[ai].action || items[ai].description || JSON.stringify(items[ai]));
+            await sbInsert("checklist_items", {
+              id: generateId(),
+              case_id: caseId,
+              snapshot_id: snapshotId,
+              phase: phaseName,
+              item_text: itemText,
+              item_order: checkOrder,
+              is_checked: false,
+              created_at: now
+            });
+          }
+        }
       }
 
-      /* 4. Navigate to case */
-      navigate("/cases/" + caseId);
+      // Step 6: History entry
+      await sbInsert("case_history", {
+        id: generateId(),
+        case_id: caseId,
+        action: "superbrain_evaluation",
+        details: "Initial evaluation — " + consequence + " / " + disposition + " / " + Math.round(confidence * 100) + "% confidence",
+        snapshot_id: snapshotId,
+        created_at: now
+      });
+
+      setStatusMsg("Complete. Opening case...");
+      onNavigate("case-detail", { caseId: caseId });
 
     } catch (err: any) {
-      setError(String(err));
-      setLoading(false);
-      setLoadingMsg("");
+      setError("Evaluation failed: " + (err.message || String(err)));
+      setSubmitting(false);
+      setStatusMsg("");
     }
   }
 
-  /* ---- Render helpers ---- */
-  function renderOptionGrid(
-    options: Array<{ value: string; label: string }>,
-    selected: string,
-    onSelect: (v: string) => void
-  ) {
-    return (
-      <div className="option-grid">
-        {options.map(function(opt) {
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              className={"option-btn" + (selected === opt.value ? " selected" : "")}
-              onClick={function() { onSelect(opt.value); }}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
-      </div>
-    );
-  }
+  // ── RENDER ──
 
-  function renderSelect(
-    label: string,
-    value: string,
-    onChange: (v: string) => void,
-    options: Array<{ value: string; label: string }>,
-    placeholder?: string
-  ) {
-    return (
-      <div className="form-field">
-        <label className="form-label">{label}</label>
-        <select
-          className="form-select"
-          value={value}
-          onChange={function(e) { onChange(e.target.value); }}
-        >
-          <option value="">{placeholder || "Select..."}</option>
-          {options.map(function(opt) {
-            return <option key={opt.value} value={opt.value}>{opt.label}</option>;
-          })}
-        </select>
-      </div>
-    );
-  }
+  var containerStyle: React.CSSProperties = {
+    padding: "24px",
+    maxWidth: "720px",
+    margin: "0 auto",
+    fontFamily: "'Inter', -apple-system, sans-serif",
+    color: "#e2e8f0"
+  };
 
-  function renderStep() {
-    if (step === 1) {
-      return (
-        <div className="step-content">
-          <h3 className="step-title">What are you inspecting?</h3>
-          <p className="step-desc">
-            Select the inspection context. This determines which analysis engine will evaluate your findings.
-          </p>
-          {renderOptionGrid(INSPECTION_CONTEXT_OPTIONS, inspectionContext, setInspectionContext)}
-          {inspectionContext === "WELD" && (
-            <div className="step-note info">Weld context selected — welding process step will be included.</div>
-          )}
-          {inspectionContext && inspectionContext !== "WELD" && inspectionContext !== "UNKNOWN" && (
-            <div className="step-note info">
-              Non-weld context — the system will use the {inspectionContext.replace(/_/g, " ").toLowerCase()} damage engine.
-            </div>
-          )}
-        </div>
-      );
-    }
+  var fieldStyle: React.CSSProperties = {
+    marginBottom: "20px"
+  };
 
-    if (step === 2) {
-      return (
-        <div className="step-content">
-          <h3 className="step-title">Material, Environment & Classification</h3>
-          <p className="step-desc">
-            Identify the material, environment, lifecycle stage, industry sector, and asset type.
-          </p>
-          <div className="form-field">
-            <label className="form-label">Material Class</label>
-            {renderOptionGrid(MATERIAL_CLASS_OPTIONS, materialClass, setMaterialClass)}
-          </div>
-          {materialClass && familyOptions.length > 0 && renderSelect("Material Family", materialFamily, setMaterialFamily, familyOptions, "Select family...")}
-          {renderSelect("Surface / Component Type", surfaceType, setSurfaceType, SURFACE_TYPE_OPTIONS, "Select surface type...")}
-          {renderSelect("Service Environment", serviceEnvironment, setServiceEnvironment, SERVICE_ENVIRONMENT_OPTIONS, "Select environment...")}
-          <div className="form-divider"></div>
-          {renderSelect("Lifecycle Stage", lifecycleStage, setLifecycleStage, LIFECYCLE_STAGE_OPTIONS, "Select lifecycle stage...")}
-          {renderSelect("Industry Sector", industrySector, setIndustrySector, INDUSTRY_SECTOR_OPTIONS, "Select industry sector...")}
-          {renderSelect("Asset Type", assetType, setAssetType, ASSET_TYPE_OPTIONS, "Select asset type...")}
-        </div>
-      );
-    }
+  var labelStyle: React.CSSProperties = {
+    display: "block",
+    fontSize: "13px",
+    fontWeight: "600",
+    color: "#94a3b8",
+    marginBottom: "6px",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.5px"
+  };
 
-    if (step === 3) {
-      return (
-        <div className="step-content">
-          <h3 className="step-title">NDT Method</h3>
-          <p className="step-desc">Select the primary inspection method.</p>
-          {renderOptionGrid(NDE_METHODS, method, setMethod)}
-        </div>
-      );
-    }
+  var inputStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "10px 14px",
+    backgroundColor: "#1e293b",
+    border: "1px solid #334155",
+    borderRadius: "8px",
+    color: "#f8fafc",
+    fontSize: "14px",
+    outline: "none",
+    boxSizing: "border-box" as const
+  };
 
-    if (step === 4) {
-      return (
-        <div className="step-content">
-          <h3 className="step-title">Component Description</h3>
-          <p className="step-desc">Describe the component or area being inspected.</p>
-          <div className="form-field">
-            <input
-              type="text"
-              className="form-input"
-              placeholder="e.g. 12-inch carbon steel pipe, butt weld joint #47"
-              value={component}
-              onChange={function(e) { setComponent(e.target.value); }}
-            />
-          </div>
-        </div>
-      );
-    }
+  var textareaStyle: React.CSSProperties = {
+    ...inputStyle,
+    minHeight: "100px",
+    resize: "vertical" as const
+  };
 
-    if (isWeld && step === 5) {
-      return (
-        <div className="step-content">
-          <h3 className="step-title">Welding Process</h3>
-          <p className="step-desc">Providing welding process details dramatically improves convergence accuracy.</p>
-          {renderOptionGrid(WELDING_PROCESSES, weldProcess, setWeldProcess)}
-          {weldProcess && (
-            <div className="weld-details-grid">
-              {renderSelect("Weld Position", weldPosition, setWeldPosition, WELD_POSITIONS, "Select position...")}
-              {renderSelect("Heat Input", heatInput, setHeatInput, HEAT_INPUT_LEVELS, "Select heat input...")}
-              {renderSelect("Travel Speed", travelSpeed, setTravelSpeed, TRAVEL_SPEED_LEVELS, "Select travel speed...")}
-            </div>
-          )}
-        </div>
-      );
-    }
+  return React.createElement("div", { style: containerStyle },
 
-    return (
-      <div className="step-content">
-        <h3 className="step-title">Governing Code / Standard</h3>
-        <p className="step-desc">Select the code or standard governing this inspection.</p>
-        {renderOptionGrid(CODE_OPTIONS, selectedCode, setSelectedCode)}
-      </div>
-    );
-  }
+    // Header
+    React.createElement("div", {
+      style: { display: "flex", alignItems: "center", gap: "16px", marginBottom: "32px" }
+    },
+      React.createElement("button", {
+        onClick: function () { onNavigate("cases-dashboard"); },
+        style: {
+          padding: "6px 14px", backgroundColor: "transparent", color: "#94a3b8",
+          border: "1px solid #334155", borderRadius: "6px", cursor: "pointer", fontSize: "13px"
+        }
+      }, "← Back"),
+      React.createElement("h1", {
+        style: { fontSize: "22px", fontWeight: "700", color: "#f8fafc", margin: 0 }
+      }, "Create New Case")
+    ),
 
-  function renderProgress() {
-    var dots = [];
-    for (var i = 1; i <= totalSteps; i++) {
-      dots.push(
-        <div key={i} className={"progress-dot" + (i === step ? " active" : "") + (i < step ? " done" : "")}>{i}</div>
-      );
-    }
-    return <div className="progress-dots">{dots}</div>;
-  }
+    // Form card
+    React.createElement("div", {
+      style: {
+        backgroundColor: "#0f172a", border: "1px solid #1e293b",
+        borderRadius: "12px", padding: "28px"
+      }
+    },
 
-  return (
-    <div className="new-case-page">
-      <div className="new-case-header">
-        <h2>New Inspection Case</h2>
-        <p className="step-indicator">Step {step} of {totalSteps}: {getStepLabel(step)}</p>
-      </div>
+      // Title
+      React.createElement("div", { style: fieldStyle },
+        React.createElement("label", { style: labelStyle }, "Case Title *"),
+        React.createElement("input", {
+          type: "text", value: title,
+          onChange: function (e: any) { setTitle(e.target.value); },
+          placeholder: "e.g. Decompression Chamber Annual Inspection",
+          style: inputStyle
+        })
+      ),
 
-      {renderProgress()}
+      // Asset Name
+      React.createElement("div", { style: fieldStyle },
+        React.createElement("label", { style: labelStyle }, "Asset Name *"),
+        React.createElement("input", {
+          type: "text", value: assetName,
+          onChange: function (e: any) { setAssetName(e.target.value); },
+          placeholder: "e.g. DDC-101, Pipeline Segment 14B",
+          style: inputStyle
+        })
+      ),
 
-      {error && <div className="error-banner">{error}</div>}
+      // Asset Class
+      React.createElement("div", { style: fieldStyle },
+        React.createElement("label", { style: labelStyle }, "Asset Class"),
+        React.createElement("select", {
+          value: assetClass,
+          onChange: function (e: any) { setAssetClass(e.target.value); },
+          style: { ...inputStyle, cursor: "pointer" }
+        },
+          assetClassOptions.map(function (opt) {
+            return React.createElement("option", { key: opt, value: opt }, opt);
+          })
+        )
+      ),
 
-      {loading && loadingMsg && (
-        <div className="loading-banner">{loadingMsg}</div>
-      )}
+      // Location
+      React.createElement("div", { style: fieldStyle },
+        React.createElement("label", { style: labelStyle }, "Location"),
+        React.createElement("input", {
+          type: "text", value: location,
+          onChange: function (e: any) { setLocation(e.target.value); },
+          placeholder: "e.g. Gulf of Mexico Block 214, Plant Unit 3",
+          style: inputStyle
+        })
+      ),
 
-      {renderStep()}
+      // Description
+      React.createElement("div", { style: fieldStyle },
+        React.createElement("label", { style: labelStyle }, "Description / Situation"),
+        React.createElement("textarea", {
+          value: description,
+          onChange: function (e: any) { setDescription(e.target.value); },
+          placeholder: "Describe the inspection scenario, concerns, observations...",
+          style: textareaStyle
+        })
+      ),
 
-      <div className="step-nav">
-        {step > 1 && (
-          <button type="button" className="btn-secondary" onClick={handleBack} disabled={loading}>Back</button>
-        )}
-        {step < totalSteps && (
-          <button type="button" className="btn-primary" onClick={handleNext} disabled={!canNext()}>Next</button>
-        )}
-        {step === totalSteps && (
-          <button type="button" className="btn-primary submit-btn" onClick={handleSubmit} disabled={loading || !method || !component.trim()}>
-            {loading ? "Routing..." : "Create Case"}
-          </button>
-        )}
-      </div>
-    </div>
+      // Events
+      React.createElement("div", { style: fieldStyle },
+        React.createElement("label", { style: labelStyle }, "Events / History"),
+        React.createElement("textarea", {
+          value: events,
+          onChange: function (e: any) { setEvents(e.target.value); },
+          placeholder: "Fire exposure, hurricane, chemical spill, impact damage, years in service...",
+          style: { ...textareaStyle, minHeight: "70px" }
+        })
+      ),
+
+      // Measurements
+      React.createElement("div", { style: fieldStyle },
+        React.createElement("label", { style: labelStyle }, "Measurements / Data"),
+        React.createElement("textarea", {
+          value: measurements,
+          onChange: function (e: any) { setMeasurements(e.target.value); },
+          placeholder: "Wall thickness readings, temperatures, pressures, dimensions...",
+          style: { ...textareaStyle, minHeight: "70px" }
+        })
+      ),
+
+      // Error
+      error ? React.createElement("div", {
+        style: {
+          padding: "12px 16px", backgroundColor: "#ef444422", color: "#fca5a5",
+          borderRadius: "8px", marginBottom: "16px", fontSize: "13px",
+          border: "1px solid #ef444444"
+        }
+      }, error) : null,
+
+      // Status
+      statusMsg ? React.createElement("div", {
+        style: {
+          padding: "12px 16px", backgroundColor: "#3b82f622", color: "#93c5fd",
+          borderRadius: "8px", marginBottom: "16px", fontSize: "13px",
+          border: "1px solid #3b82f644"
+        }
+      }, statusMsg) : null,
+
+      // Action buttons
+      React.createElement("div", {
+        style: { display: "flex", gap: "12px", marginTop: "8px" }
+      },
+        React.createElement("button", {
+          onClick: handleCreateAndEvaluate,
+          disabled: submitting,
+          style: {
+            flex: "1",
+            padding: "12px 24px",
+            backgroundColor: submitting ? "#1e40af" : "#3b82f6",
+            color: "#fff",
+            border: "none",
+            borderRadius: "8px",
+            cursor: submitting ? "not-allowed" : "pointer",
+            fontSize: "14px",
+            fontWeight: "600",
+            opacity: submitting ? 0.7 : 1
+          }
+        }, submitting ? "Processing..." : "Create Case + Evaluate with Superbrain"),
+        React.createElement("button", {
+          onClick: handleCreateOnly,
+          disabled: submitting,
+          style: {
+            padding: "12px 20px",
+            backgroundColor: "transparent",
+            color: "#94a3b8",
+            border: "1px solid #334155",
+            borderRadius: "8px",
+            cursor: submitting ? "not-allowed" : "pointer",
+            fontSize: "14px",
+            opacity: submitting ? 0.7 : 1
+          }
+        }, "Save Only")
+      )
+    )
   );
 }
