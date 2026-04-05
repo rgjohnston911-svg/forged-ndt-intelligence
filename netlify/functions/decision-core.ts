@@ -653,7 +653,7 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
       if (s.cyclic_loading && s.stress_concentration_present) {
         score -= 0.10;
       }
-      if (!obs && !hasWord(lt, "corrosion") && !hasWord(lt, "thinning") && !hasWord(lt, "wall loss")) {
+      if (!obs && !hasWord(lt, "corrosion") && !hasWord(lt, "thinning") && !hasWord(lt, "thinned") && !hasWord(lt, "wall loss") && !hasWord(lt, "metal loss") && !hasWord(lt, "eating") && !hasWord(lt, "washed out") && !hasWord(lt, "scale") && !hasWord(lt, "pitted") && !hasWord(lt, "corroded")) {
         score -= 0.05;
       }
     }
@@ -719,7 +719,7 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
       preconditions_met: md.preLabels, reality_state: state, reality_score: roundN(score, 2),
       evidence_for: evFor, evidence_against: evAg, observation_basis: obs, severity: md.sev });
   }
-  validated.sort(function(a, b) { return b.reality_score - a.reality_score; });
+  validated.sort(function(a, b) { if (b.reality_score !== a.reality_score) return b.reality_score - a.reality_score; if (a.observation_basis !== b.observation_basis) return a.observation_basis ? -1 : 1; return 0; });
 
   // ============================================================================
   // MECHANISM UNCERTAINTY PRESERVATION — DEPLOY106 PATCH 1
@@ -743,7 +743,7 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
           );
         }
       }
-      validated.sort(function(a, b) { return b.reality_score - a.reality_score; });
+      validated.sort(function(a, b) { if (b.reality_score !== a.reality_score) return b.reality_score - a.reality_score; if (a.observation_basis !== b.observation_basis) return a.observation_basis ? -1 : 1; return 0; });
     }
   }
 
@@ -766,7 +766,7 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
         }
       }
     }
-    validated.sort(function(a, b) { return b.reality_score - a.reality_score; });
+    validated.sort(function(a, b) { if (b.reality_score !== a.reality_score) return b.reality_score - a.reality_score; if (a.observation_basis !== b.observation_basis) return a.observation_basis ? -1 : 1; return 0; });
   }
 
   var primary = validated.length > 0 ? validated[0] : null;
