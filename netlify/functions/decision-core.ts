@@ -1,4 +1,8 @@
-// DEPLOY120 — decision-core.ts v2.4
+// DEPLOY121 — decision-core.ts v2.4.1
+// v2.4.1: Implied-only fatigue penalty
+// DEPLOY121 FIX: When fatigue prerequisites are ONLY implied defaults (piping auto-cyclic +
+//   implied welds) and transcript has zero explicit fatigue indicators, reduce fatigue bonus.
+//   Prevents corrosion/erosion transcripts from being classified as fatigue_mechanical.
 // v2.4: Asset Classification Hardening + CUI Wall Loss Detection
 // DEPLOY120 FIX 1: Raw thickness readings detected as wall loss evidence
 //   "0.190 inch versus 0.280 nominal" = measured wall loss, triggers corrosion boost
@@ -706,6 +710,19 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
       if (s.cyclic_loading) score += 0.10;
       if (s.stress_concentration_present) score += 0.08;
       if (s.cyclic_loading && s.stress_concentration_present) score += 0.07;
+      // DEPLOY121: IMPLIED-ONLY FATIGUE PENALTY
+      // When fatigue prerequisites are ONLY from piping defaults (auto-cyclic + implied welds)
+      // and transcript has zero explicit fatigue indicators, the +0.25 bonus is unearned.
+      // Penalize so corrosion/erosion evidence can outrank implied fatigue.
+      var cyclicIsImpliedOnly = s.cyclic_source === "operational_pressure_cycling_implied";
+      var stressConcIsImpliedOnly = true;
+      for (var sci = 0; sci < s.stress_concentration_locations.length; sci++) {
+        if (s.stress_concentration_locations[sci].indexOf("implied") === -1) { stressConcIsImpliedOnly = false; break; }
+      }
+      var hasExplicitFatigueEvidence = hasWord(lt, "fatigue") || hasWord(lt, "cyclic") || hasWord(lt, "vibrat") || hasWord(lt, "startup") || hasWord(lt, "shutdown") || hasWord(lt, "thermal cycl") || (!!fl.crack_confirmed) || hasWord(lt, "crack confirmed") || hasWord(lt, "cracking confirmed");
+      if (cyclicIsImpliedOnly && stressConcIsImpliedOnly && !hasExplicitFatigueEvidence) {
+        score -= 0.20;
+      }
     }
     if (md.id === "general_corrosion" || md.id === "co2_corrosion" || md.id === "cui" || md.id === "erosion") {
       if (s.cyclic_loading && s.stress_concentration_present) {
