@@ -1,677 +1,418 @@
-/**
- * DEPLOY23_CaseDetail.tsx
- * Deploy to: src/pages/CaseDetail.tsx (REPLACEMENT)
- *
- * Complete case detail page with:
- * - Evidence upload + AI analysis
- * - Measurement input (imperial default, metric toggle)
- * - Formatted physics model (no raw JSON)
- * - Conflict resolution display
- * - Authority Lock decision panel
- * - Teaching placeholder
- */
-
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { supabase } from "../lib/supabase";
-import MethodBadge from "../components/MethodBadge";
-import { DISPOSITION_COLORS } from "../lib/constants";
-
-type TabName = "overview" | "evidence" | "physics" | "findings" | "rules" | "decision" | "teaching";
-type UnitSystem = "imperial" | "metric";
-
-// Unit conversion helpers
-function inToMm(v: number) { return Math.round(v * 25.4 * 100) / 100; }
-function mmToIn(v: number) { return Math.round(v / 25.4 * 10000) / 10000; }
-
-// Measurement field definitions per finding type
-var MEAS_FIELDS: Record<string, Array<{ key: string; label: string; stepI: number; stepM: number; maxI: number }>> = {
-  undercut: [{ key: "depth", label: "Undercut Depth", stepI: 0.005, stepM: 0.1, maxI: 0.25 }, { key: "length", label: "Undercut Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
-  porosity: [{ key: "diameter", label: "Max Pore Diameter", stepI: 0.01, stepM: 0.25, maxI: 0.5 }, { key: "spacing", label: "Pore Spacing", stepI: 0.0625, stepM: 1, maxI: 6 }],
-  slag_inclusion: [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
-  incomplete_fusion: [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
-  incomplete_penetration: [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
-  crack: [{ key: "length", label: "Crack Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
-  burn_through: [{ key: "diameter", label: "Burn-Through Diameter", stepI: 0.0625, stepM: 1, maxI: 1 }],
-  reinforcement: [{ key: "height", label: "Reinforcement Height", stepI: 0.01, stepM: 0.25, maxI: 0.5 }],
-  overlap: [{ key: "length", label: "Overlap Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
-  hydrogen_cracking: [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
-};
-
-// Code limits for live comparison (imperial)
-var CODE_LIMITS: Record<string, Array<{ code: string; rule: string; limit: number }>> = {
-  "undercut:depth": [
-    { code: "AWS D1.1", rule: "Static", limit: 0.03125 },
-    { code: "AWS D1.1", rule: "Dynamic/Cyclic", limit: 0.01 },
-  ],
-  "burn_through:diameter": [{ code: "API 1104", rule: "Max", limit: 0.25 }],
-  "reinforcement:height": [{ code: "AWS D1.1", rule: "Butt Joint", limit: 0.125 }],
-  "porosity:diameter": [{ code: "AWS D1.1", rule: "Individual", limit: 0.09375 }],
-};
+import { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { sbSelect, sbUpdate, sbInsert, callDecisionCore, generateId, ASSET_CLASS_MAP } from "../utils/supabase";
 
 export default function CaseDetail() {
-  var { id } = useParams<{ id: string }>();
-  var [caseData, setCaseData] = useState<any | null>(null);
-  var [findings, setFindings] = useState<any[]>([]);
-  var [rules, setRules] = useState<any[]>([]);
-  var [physics, setPhysics] = useState<any | null>(null);
-  var [evidence, setEvidence] = useState<any[]>([]);
-  var [conflicts, setConflicts] = useState<any[]>([]);
-  var [activeTab, setActiveTab] = useState<TabName>("overview");
-  var [loading, setLoading] = useState(true);
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const caseId = id || "";
 
-  // Evidence upload
-  var [uploading, setUploading] = useState(false);
-  var [analyzing, setAnalyzing] = useState(false);
-  var [runningAuthority, setRunningAuthority] = useState(false);
+  const [caseData, setCaseData] = useState<any>(null);
+  const [snapshot, setSnapshot] = useState<any>(null);
+  const [dc, setDc] = useState<any>(null);
+  const [checklist, setChecklist] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+  const [findings, setFindings] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState("workflow");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  // Measurements
-  var [unitSystem, setUnitSystem] = useState<UnitSystem>("imperial");
-  var [measValues, setMeasValues] = useState<Record<string, Record<string, string>>>({});
-  var [measSaved, setMeasSaved] = useState(false);
-  var [savingMeas, setSavingMeas] = useState(false);
+  // Finding modal
+  const [showFindingModal, setShowFindingModal] = useState(false);
+  const [findingLocation, setFindingLocation] = useState("");
+  const [findingMethod, setFindingMethod] = useState("VT");
+  const [findingType, setFindingType] = useState("");
+  const [findingSeverity, setFindingSeverity] = useState("minor");
+  const [findingDimensions, setFindingDimensions] = useState("");
+  const [findingNotes, setFindingNotes] = useState("");
+  const [findingSubmitting, setFindingSubmitting] = useState(false);
 
-  useEffect(function() { if (id) loadCase(); }, [id]);
+  useEffect(() => { loadCase(); }, [caseId]);
+
+  // Read helpers — original columns first, fallback to sb_*
+  function getConsequence(c: any): string { return c?.consequence_tier || c?.sb_consequence || ""; }
+  function getDisposition(c: any): string { return c?.superbrain_disposition || c?.sb_disposition || ""; }
+  function getConfidence(c: any): number {
+    if (c?.confidence_overall != null && c?.confidence_overall > 0) return c.confidence_overall;
+    if (c?.sb_confidence != null && c?.sb_confidence > 0) return c.sb_confidence;
+    return 0;
+  }
+  function getMechanism(c: any): string { return c?.primary_mechanism || c?.sb_mechanism || ""; }
+  function getSufficiency(c: any): string { return c?.sufficiency_verdict || c?.sb_sufficiency || ""; }
+  function getTitle(c: any): string { return c?.title || c?.case_name || "Untitled Case"; }
 
   async function loadCase() {
-    setLoading(true);
-    var cRes = await supabase.from("inspection_cases").select("*").eq("id", id).single();
-    setCaseData(cRes.data);
-    var fRes = await supabase.from("findings").select("*").eq("case_id", id).order("created_at", { ascending: true });
-    setFindings(fRes.data || []);
-    var rRes = await supabase.from("rule_evaluations").select("*").eq("case_id", id).order("created_at", { ascending: true });
-    setRules(rRes.data || []);
-    var pRes = await supabase.from("physics_reality_models").select("*").eq("case_id", id).single();
-    setPhysics(pRes.data);
-    var eRes = await supabase.from("evidence").select("*").eq("case_id", id).order("created_at", { ascending: true });
-    setEvidence(eRes.data || []);
-    // Load conflicts
     try {
-      var crRes = await supabase.from("conflict_resolutions").select("*").eq("case_id", id);
-      setConflicts(crRes.data || []);
-    } catch (e) { setConflicts([]); }
-    // Load existing measurements
+      setLoading(true);
+      setError("");
+
+      const cases = await sbSelect("cases", "id=eq." + caseId);
+      if (!cases || cases.length === 0) { setError("Case not found."); setLoading(false); return; }
+      setCaseData(cases[0]);
+
+      const snaps = await sbSelect("decision_core_snapshots", "case_id=eq." + caseId + "&order=snapshot_number.desc&limit=1");
+      if (snaps && snaps.length > 0) {
+        setSnapshot(snaps[0]);
+        try { setDc(typeof snaps[0].full_output === "string" ? JSON.parse(snaps[0].full_output) : snaps[0].full_output); } catch { setDc(null); }
+      }
+
+      setChecklist((await sbSelect("checklist_items", "case_id=eq." + caseId + "&order=item_order.asc")) || []);
+      setHistory((await sbSelect("case_history", "case_id=eq." + caseId + "&order=created_at.desc&limit=50")) || []);
+      setFindings((await sbSelect("findings", "case_id=eq." + caseId + "&order=created_at.desc")) || []);
+    } catch (err: any) {
+      setError("Failed to load case: " + (err.message || String(err)));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function toggleChecklist(itemId: string, currentChecked: boolean) {
     try {
-      var mRes = await supabase.from("case_measurements").select("*").eq("case_id", id);
-      if (mRes.data && mRes.data.length > 0) {
-        var populated: Record<string, Record<string, string>> = {};
-        for (var i = 0; i < mRes.data.length; i++) {
-          var m = mRes.data[i];
-          if (!populated[m.finding_type]) populated[m.finding_type] = {};
-          populated[m.finding_type][m.measurement_key] = String(m.value_imperial);
+      await sbUpdate("checklist_items", itemId, { is_checked: !currentChecked });
+      setChecklist(prev => prev.map(item => item.id === itemId ? { ...item, is_checked: !currentChecked } : item));
+    } catch (err: any) { console.error("Checklist toggle failed:", err); }
+  }
+
+  async function handleAddFinding() {
+    if (!findingType.trim()) return;
+    setFindingSubmitting(true);
+
+    try {
+      const now = new Date().toISOString();
+
+      await sbInsert("findings", {
+        id: generateId(), case_id: caseId, location: findingLocation.trim(),
+        method: findingMethod, indication_type: findingType.trim(),
+        severity: findingSeverity, dimensions: findingDimensions.trim(),
+        notes: findingNotes.trim(), created_at: now
+      });
+
+      let findingText = "\n\nFINDING [" + findingMethod + "]: " + findingType.trim();
+      if (findingLocation.trim()) findingText += " at " + findingLocation.trim();
+      if (findingSeverity) findingText += " — Severity: " + findingSeverity;
+      if (findingDimensions.trim()) findingText += " — Dimensions: " + findingDimensions.trim();
+      if (findingNotes.trim()) findingText += " — Notes: " + findingNotes.trim();
+
+      const updatedTranscript = (caseData.running_transcript || "") + findingText;
+      await sbUpdate("cases", caseId, { running_transcript: updatedTranscript, updated_at: now });
+
+      const engineAssetClass = ASSET_CLASS_MAP[caseData.asset_type || caseData.asset_class] || "pressure_vessel";
+      const dcResult = await callDecisionCore(updatedTranscript, engineAssetClass);
+      const newDc = dcResult.decision_core || dcResult;
+
+      const consequence = newDc.consequence_reality?.consequence_level || "";
+      const disposition = newDc.decision_reality?.disposition || "";
+      const confidence = newDc.reality_confidence?.overall_confidence || 0;
+      const mechanism = newDc.damage_reality?.primary_damage_mechanism?.mechanism || "";
+      const sufficiency = newDc.decision_reality?.evidence_sufficiency || "";
+      const hardLocks = newDc.decision_reality?.hard_lock_count || newDc.decision_reality?.hard_locks?.length || 0;
+      let nextAction = "";
+      if (newDc.decision_reality?.guided_recovery?.length > 0) {
+        const first = newDc.decision_reality.guided_recovery[0];
+        nextAction = typeof first === "string" ? first : (first.action || first.description || "");
+      }
+      let band = "LOW";
+      if (confidence >= 0.8) band = "HIGH";
+      else if (confidence >= 0.6) band = "GUARDED";
+
+      const prevSnapNum = snapshot ? (snapshot.snapshot_number || 1) : 0;
+      const newSnapshotId = generateId();
+
+      await sbInsert("decision_core_snapshots", {
+        id: newSnapshotId, case_id: caseId, snapshot_number: prevSnapNum + 1,
+        transcript_at_eval: updatedTranscript, full_output: JSON.stringify(newDc),
+        consequence_level: consequence, disposition: disposition, confidence: confidence,
+        primary_mechanism: mechanism, evidence_sufficiency: sufficiency,
+        engine_version: newDc.engine_version || "", created_at: now
+      });
+
+      // Update BOTH column sets
+      await sbUpdate("cases", caseId, {
+        consequence_tier: consequence, superbrain_disposition: disposition,
+        confidence_band: band, confidence_overall: confidence,
+        primary_mechanism: mechanism, sufficiency_verdict: sufficiency,
+        hard_lock_count: hardLocks, next_action: nextAction, highest_severity: consequence,
+        sb_consequence: consequence, sb_disposition: disposition,
+        sb_confidence: confidence, sb_mechanism: mechanism,
+        sb_sufficiency: sufficiency, sb_engine_version: newDc.engine_version || "",
+        sb_last_eval: now, latest_snapshot_id: newSnapshotId,
+        finding_count: (caseData.finding_count || 0) + 1, updated_at: now
+      });
+
+      if (newDc.inspection_reality?.phased_strategy) {
+        const phases = newDc.inspection_reality.phased_strategy;
+        let checkOrder = 0;
+        for (let pi = 0; pi < phases.length; pi++) {
+          const phase = phases[pi];
+          const phaseName = phase.phase || ("Phase " + (pi + 1));
+          const items = phase.actions || phase.steps || [];
+          for (let ai = 0; ai < items.length; ai++) {
+            checkOrder++;
+            const itemText = typeof items[ai] === "string" ? items[ai] : (items[ai].action || items[ai].description || JSON.stringify(items[ai]));
+            await sbInsert("checklist_items", {
+              id: generateId(), case_id: caseId, snapshot_id: newSnapshotId,
+              phase: phaseName, item_text: itemText, item_order: checkOrder,
+              is_checked: false, created_at: now
+            });
+          }
         }
-        setMeasValues(populated);
-        setMeasSaved(true);
       }
-    } catch (e) { /* table may not exist yet */ }
-    setLoading(false);
-  }
 
-  // === EVIDENCE UPLOAD ===
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    var files = e.target.files;
-    if (!files || files.length === 0 || !id || !caseData) return;
-    setUploading(true);
-    for (var i = 0; i < files.length; i++) {
-      var file = files[i];
-      var path = id + "/" + Date.now() + "_" + file.name;
-      var uploadResult = await supabase.storage.from("ndt-evidence").upload(path, file);
-      if (!uploadResult.error) {
-        var pubUrl = supabase.storage.from("ndt-evidence").getPublicUrl(path).data.publicUrl;
-        await supabase.from("evidence").insert({
-          case_id: id, evidence_type: "image", storage_path: path,
-          mime_type: file.type, filename: file.name,
-          uploaded_by: caseData.created_by, capture_source: "web_upload",
-          metadata_json: { public_url: pubUrl }
-        });
-      }
-    }
-    await supabase.from("inspection_cases").update({ status: "evidence_uploaded" }).eq("id", id);
-    setUploading(false);
-    loadCase();
-  }
-
-  // === RUN AI ANALYSIS ===
-  async function runAnalysis() {
-    if (!id) return;
-    setAnalyzing(true);
-    try {
-      var resp = await fetch("/api/run-analysis", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ case_id: id })
+      await sbInsert("case_history", {
+        id: generateId(), case_id: caseId, action: "finding_added",
+        details: "Finding: " + findingType.trim() + " (" + findingMethod + ") — Re-evaluated: " + consequence + " / " + disposition + " / " + Math.round(confidence * 100) + "%",
+        snapshot_id: newSnapshotId, created_at: now
       });
-      await resp.json();
-    } catch (err) { console.error("Analysis error:", err); }
-    setAnalyzing(false);
-    loadCase();
-  }
 
-  // === MEASUREMENT HANDLING ===
-  function handleMeasChange(findingType: string, fieldKey: string, val: string) {
-    var updated = Object.assign({}, measValues);
-    if (!updated[findingType]) updated[findingType] = {};
-    updated[findingType][fieldKey] = val;
-    setMeasValues(updated);
-    setMeasSaved(false);
-  }
-
-  function toggleUnits() {
-    var newSys: UnitSystem = unitSystem === "imperial" ? "metric" : "imperial";
-    var converted: Record<string, Record<string, string>> = {};
-    var types = Object.keys(measValues);
-    for (var t = 0; t < types.length; t++) {
-      converted[types[t]] = {};
-      var keys = Object.keys(measValues[types[t]]);
-      for (var k = 0; k < keys.length; k++) {
-        var v = parseFloat(measValues[types[t]][keys[k]]);
-        if (isNaN(v)) { converted[types[t]][keys[k]] = measValues[types[t]][keys[k]]; }
-        else if (newSys === "metric") { converted[types[t]][keys[k]] = String(inToMm(v)); }
-        else { converted[types[t]][keys[k]] = String(mmToIn(v)); }
-      }
+      setShowFindingModal(false);
+      setFindingLocation(""); setFindingMethod("VT"); setFindingType("");
+      setFindingSeverity("minor"); setFindingDimensions(""); setFindingNotes("");
+      setFindingSubmitting(false);
+      await loadCase();
+    } catch (err: any) {
+      setFindingSubmitting(false);
+      alert("Failed to add finding: " + (err.message || String(err)));
     }
-    setMeasValues(converted);
-    setUnitSystem(newSys);
   }
 
-  async function saveMeasurements() {
-    if (!id) return;
-    setSavingMeas(true);
-    var types = Object.keys(measValues);
-    for (var t = 0; t < types.length; t++) {
-      var keys = Object.keys(measValues[types[t]]);
-      for (var k = 0; k < keys.length; k++) {
-        var raw = parseFloat(measValues[types[t]][keys[k]]);
-        if (isNaN(raw) || raw <= 0) continue;
-        var impVal = unitSystem === "imperial" ? raw : mmToIn(raw);
-        var metVal = unitSystem === "metric" ? raw : inToMm(raw);
-        await supabase.from("case_measurements").upsert({
-          case_id: id, finding_type: types[t], measurement_key: keys[k],
-          value_imperial: impVal, value_metric: metVal,
-          unit_imperial: "in", unit_metric: "mm",
-          measured_at: new Date().toISOString()
-        }, { onConflict: "case_id,finding_type,measurement_key" });
-      }
-    }
-    await supabase.from("inspection_cases").update({ measurement_status: "completed", unit_preference: unitSystem }).eq("id", id);
-    setSavingMeas(false);
-    setMeasSaved(true);
+  function consequenceColor(c: string) { return c === "CRITICAL" ? "#ef4444" : c === "HIGH" ? "#f97316" : (c === "MODERATE" || c === "MEDIUM") ? "#eab308" : "#22c55e"; }
+  function dispositionColor(d: string) { return d === "BLOCKED" ? "#ef4444" : (d === "HOLD" || d === "hold_for_review") ? "#f97316" : d === "CONDITIONAL_GO" ? "#eab308" : d === "GO" ? "#22c55e" : "#6b7280"; }
+  function formatDate(iso: string) { if (!iso) return ""; const d = new Date(iso); return d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+
+  const cardStyle: React.CSSProperties = { backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "12px", padding: "20px", marginBottom: "16px" };
+  const inputStyle: React.CSSProperties = { width: "100%", padding: "8px 12px", backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "6px", color: "#f8fafc", fontSize: "13px", boxSizing: "border-box", outline: "none" };
+
+  if (loading) return <div style={{ padding: "24px", maxWidth: "1100px", margin: "0 auto", color: "#e2e8f0" }}><div style={{ textAlign: "center", padding: "60px", color: "#94a3b8" }}>Loading case...</div></div>;
+  if (error || !caseData) return <div style={{ padding: "24px", maxWidth: "1100px", margin: "0 auto", color: "#e2e8f0" }}><div style={{ textAlign: "center", padding: "40px", color: "#ef4444" }}>{error || "Case not found."}</div><button onClick={() => navigate("/cases")} style={{ padding: "8px 16px", backgroundColor: "#3b82f6", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer" }}>← Dashboard</button></div>;
+
+  const consequence = getConsequence(caseData);
+  const disposition = getDisposition(caseData);
+  const confidence = getConfidence(caseData);
+  const mechanism = getMechanism(caseData);
+  const sufficiency = getSufficiency(caseData);
+  const isBlocked = disposition === "BLOCKED";
+
+  let nextAction = caseData.next_action || "";
+  if (!nextAction && dc?.decision_reality?.guided_recovery?.length > 0) {
+    const first = dc.decision_reality.guided_recovery[0];
+    nextAction = typeof first === "string" ? first : (first.action || first.description || "");
   }
 
-  // === RUN AUTHORITY LOCK ===
-  async function runAuthorityLock() {
-    if (!id) return;
-    setRunningAuthority(true);
-    try {
-      var resp = await fetch("/api/run-authority", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ case_id: id })
-      });
-      await resp.json();
-    } catch (err) { console.error("Authority error:", err); }
-    setRunningAuthority(false);
-    loadCase();
+  const confidenceSections: { label: string; value: number }[] = [];
+  if (dc?.reality_confidence) {
+    const rc = dc.reality_confidence;
+    if (rc.physical_confidence != null) confidenceSections.push({ label: "Physical Reality", value: rc.physical_confidence });
+    if (rc.damage_confidence != null) confidenceSections.push({ label: "Damage Mechanism", value: rc.damage_confidence });
+    if (rc.consequence_confidence != null) confidenceSections.push({ label: "Consequence", value: rc.consequence_confidence });
+    if (rc.inspection_confidence != null) confidenceSections.push({ label: "Inspection Plan", value: rc.inspection_confidence });
+    if (rc.overall_confidence != null) confidenceSections.push({ label: "Overall", value: rc.overall_confidence });
   }
 
-  // === HELPERS ===
-  function getPassFail(findingType: string, fieldKey: string, value: number) {
-    var impVal = unitSystem === "imperial" ? value : mmToIn(value);
-    var limits = CODE_LIMITS[findingType + ":" + fieldKey];
-    if (!limits) return null;
-    for (var i = 0; i < limits.length; i++) {
-      if (impVal > limits[i].limit) {
-        return { status: "FAIL", detail: limits[i].code + " " + limits[i].rule + ": exceeds " + limits[i].limit + " in" };
-      }
-    }
-    return { status: "PASS", detail: "Within code limits" };
-  }
+  const recoveryQueue: any[] = dc?.decision_reality?.guided_recovery || [];
+  let authority = "";
+  if (dc?.authority_reality) authority = (dc.authority_reality.governing_code || "") + (dc.authority_reality.jurisdiction ? " — " + dc.authority_reality.jurisdiction : "");
 
-  if (loading || !caseData) return <div className="page-loading">Loading case...</div>;
+  const phaseGroups: Record<string, any[]> = {};
+  checklist.forEach(item => { const p = item.phase || "General"; if (!phaseGroups[p]) phaseGroups[p] = []; phaseGroups[p].push(item); });
 
-  // Use label (e.g. "undercut", "slag_inclusion") not finding_type (e.g. "Discontinuity")
-  var findingTypes = Array.from(new Set(findings.map(function(f) {
-    return (f.label || f.finding_type || "unknown").toLowerCase().replace(/ /g, "_");
-  })));
+  const methodScores = dc?.inspection_reality?.method_scores || dc?.inspection_reality?.ndt_methods || {};
+  const methodKeys = Object.keys(methodScores);
+  const missingCoverage = dc?.inspection_reality?.missing_coverage || dc?.inspection_reality?.coverage_gaps || [];
 
-  var TABS: Array<{ key: TabName; label: string }> = [
-    { key: "overview", label: "Overview" }, { key: "evidence", label: "Evidence" },
-    { key: "physics", label: "Physics Model" }, { key: "findings", label: "Findings" },
-    { key: "rules", label: "Rules" }, { key: "decision", label: "Decision" },
-    { key: "teaching", label: "Teaching" },
-  ];
+  const tabs = ["workflow", "methods", "findings", "history", "raw"];
 
   return (
-    <div className="page">
-      <div className="case-header">
-        <div className="case-header-top">
-          <span className="case-number">{caseData.case_number}</span>
-          <MethodBadge method={caseData.method} size="md" />
-          <span className="case-status-badge">{caseData.status.replace(/_/g, " ")}</span>
-        </div>
-        <h1>{caseData.title}</h1>
-        {caseData.final_disposition && (
-          <div className="case-disposition-banner" style={{ borderColor: DISPOSITION_COLORS[caseData.final_disposition] || "#333" }}>
-            <span className="disposition-label" style={{ color: DISPOSITION_COLORS[caseData.final_disposition] || "#333" }}>
-              {caseData.final_disposition.replace(/_/g, " ").toUpperCase()}
-            </span>
-            {caseData.final_confidence != null && (
-              <span className="disposition-confidence">{Math.round(caseData.final_confidence * 100)}% confidence</span>
-            )}
-            {caseData.authority_locked && <span className="locked-badge">LOCKED</span>}
-          </div>
-        )}
-      </div>
+    <div style={{ padding: "24px", maxWidth: "1100px", margin: "0 auto", fontFamily: "'Inter', -apple-system, sans-serif", color: "#e2e8f0" }}>
 
-      <div className="tab-bar">
-        {TABS.map(function(tab) {
-          return (
-            <button key={tab.key} className={"tab-btn" + (activeTab === tab.key ? " tab-active" : "")} onClick={function() { setActiveTab(tab.key); }}>
-              {tab.label}
-              {tab.key === "evidence" && evidence.length > 0 && <span className="tab-count">{evidence.length}</span>}
-              {tab.key === "findings" && findings.length > 0 && <span className="tab-count">{findings.length}</span>}
-              {tab.key === "rules" && rules.length > 0 && <span className="tab-count">{rules.length}</span>}
-            </button>
-          );
-        })}
-      </div>
+      {/* FINDING MODAL */}
+      {showFindingModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+          onClick={() => { if (!findingSubmitting) setShowFindingModal(false); }}>
+          <div style={{ backgroundColor: "#0f172a", border: "1px solid #334155", borderRadius: "12px", padding: "28px", width: "480px", maxHeight: "90vh", overflow: "auto" }}
+            onClick={e => e.stopPropagation()}>
+            <h2 style={{ fontSize: "18px", color: "#f8fafc", marginTop: 0, marginBottom: "4px" }}>Add Finding</h2>
+            <div style={{ fontSize: "13px", color: "#64748b", marginBottom: "16px" }}>Finding appends to transcript and triggers re-evaluation.</div>
 
-      <div className="tab-content">
+            <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "#94a3b8", marginBottom: "4px", marginTop: "14px" }}>Indication Type *</label>
+            <input type="text" value={findingType} onChange={e => setFindingType(e.target.value)} placeholder="e.g. Crack, Corrosion, Porosity, Wall Loss" style={inputStyle} />
 
-        {/* ========== OVERVIEW ========== */}
-        {activeTab === "overview" && (
-          <div className="overview-grid">
-            <div className="detail-section">
-              <h3>Component</h3>
-              <p>{caseData.component_name || "Not specified"}</p>
-              {caseData.weld_id && <p>Weld: {caseData.weld_id}</p>}
-              {caseData.joint_type && <p>Joint: {caseData.joint_type}</p>}
-              {caseData.thickness_mm && <p>Thickness: {caseData.thickness_mm} mm</p>}
-            </div>
-            <div className="detail-section">
-              <h3>Material &amp; Loading</h3>
-              <p>{caseData.material_class.replace(/_/g, " ")}</p>
-              <p>Load: {caseData.load_condition.replace(/_/g, " ")}</p>
-            </div>
-            <div className="detail-section">
-              <h3>Code Context</h3>
-              <p>{[caseData.code_family, caseData.code_edition].filter(Boolean).join(" ") || "Not specified"}</p>
-              {caseData.code_section && <p>Section: {caseData.code_section}</p>}
-            </div>
-            <div className="detail-section">
-              <h3>4D Energy Model</h3>
-              <p>Energy: {caseData.energy_type}</p>
-              <p>Interaction: {caseData.interaction_type}</p>
-              <p>Response: {caseData.response_type}</p>
-              <p>Time: {caseData.time_dimension_type}</p>
-            </div>
-          </div>
-        )}
+            <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "#94a3b8", marginBottom: "4px", marginTop: "14px" }}>Method</label>
+            <select value={findingMethod} onChange={e => setFindingMethod(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+              {["VT", "UT", "MT", "PT", "RT", "ET", "AE"].map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
 
-        {/* ========== EVIDENCE + MEASUREMENTS ========== */}
-        {activeTab === "evidence" && (
-          <div>
-            <div className="evidence-actions">
-              <label className="upload-btn">
-                {uploading ? "Uploading..." : "Upload Evidence Photos"}
-                <input type="file" accept="image/*" multiple onChange={handleFileUpload} style={{ display: "none" }} disabled={uploading} />
-              </label>
-              <button className="analyze-btn" onClick={runAnalysis} disabled={analyzing || evidence.length === 0}>
-                {analyzing ? "Analyzing..." : "Run AI Analysis"}
+            <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "#94a3b8", marginBottom: "4px", marginTop: "14px" }}>Location</label>
+            <input type="text" value={findingLocation} onChange={e => setFindingLocation(e.target.value)} placeholder="e.g. Weld joint 3B, nozzle N-2" style={inputStyle} />
+
+            <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "#94a3b8", marginBottom: "4px", marginTop: "14px" }}>Severity</label>
+            <select value={findingSeverity} onChange={e => setFindingSeverity(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+              {["minor", "major", "critical"].map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+
+            <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "#94a3b8", marginBottom: "4px", marginTop: "14px" }}>Dimensions</label>
+            <input type="text" value={findingDimensions} onChange={e => setFindingDimensions(e.target.value)} placeholder="e.g. 3mm deep x 12mm long" style={inputStyle} />
+
+            <label style={{ display: "block", fontSize: "12px", fontWeight: "600", color: "#94a3b8", marginBottom: "4px", marginTop: "14px" }}>Notes</label>
+            <textarea value={findingNotes} onChange={e => setFindingNotes(e.target.value)} placeholder="Additional observations..." style={{ ...inputStyle, minHeight: "60px", resize: "vertical" }} />
+
+            <div style={{ display: "flex", gap: "10px", marginTop: "20px" }}>
+              <button onClick={handleAddFinding} disabled={findingSubmitting || !findingType.trim()}
+                style={{ flex: 1, padding: "10px", backgroundColor: findingSubmitting ? "#1e40af" : "#3b82f6", color: "#fff", border: "none", borderRadius: "6px", cursor: findingSubmitting ? "not-allowed" : "pointer", fontSize: "13px", fontWeight: "600" }}>
+                {findingSubmitting ? "Evaluating..." : "Add Finding + Re-evaluate"}
               </button>
+              <button onClick={() => setShowFindingModal(false)} disabled={findingSubmitting}
+                style={{ padding: "10px 16px", backgroundColor: "transparent", color: "#94a3b8", border: "1px solid #334155", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>Cancel</button>
             </div>
-
-            {evidence.length > 0 && (
-              <div className="evidence-grid">
-                {evidence.map(function(ev) {
-                  var url = ev.metadata_json && ev.metadata_json.public_url ? ev.metadata_json.public_url : "";
-                  return (
-                    <div key={ev.id} className="evidence-card">
-                      {url && <img src={url} alt={ev.filename} className="evidence-img" />}
-                      <div className="evidence-info">
-                        <strong>{ev.filename}</strong>
-                        <span>Type: {ev.evidence_type} | Source: {ev.capture_source}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* MEASUREMENT INPUT SECTION */}
-            {findings.length > 0 && (
-              <div className="measurements-section">
-                <div className="meas-header">
-                  <h3>Inspector Measurements</h3>
-                  <button className={"unit-toggle " + unitSystem} onClick={toggleUnits} type="button">
-                    {unitSystem === "imperial" ? "IN (Imperial)" : "MM (Metric)"}
-                  </button>
-                </div>
-
-                {findingTypes.map(function(ft) {
-                  var fields = MEAS_FIELDS[ft] || [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }];
-                  var maxConf = Math.max.apply(null, findings.filter(function(f) {
-                    return (f.label || f.finding_type || "").toLowerCase().replace(/ /g, "_") === ft;
-                  }).map(function(f) { return f.confidence || 0; }));
-
-                  return (
-                    <div key={ft} className="meas-finding-group">
-                      <div className="meas-group-header">
-                        <span className="meas-type-label">{ft.replace(/_/g, " ").toUpperCase()}</span>
-                        <span className="meas-ai-conf">AI: {Math.round(maxConf * 100)}%</span>
-                      </div>
-                      {fields.map(function(field) {
-                        var val = measValues[ft] ? measValues[ft][field.key] || "" : "";
-                        var numVal = parseFloat(val);
-                        var pf = !isNaN(numVal) && numVal > 0 ? getPassFail(ft, field.key, numVal) : null;
-                        var limits = CODE_LIMITS[ft + ":" + field.key] || [];
-
-                        return (
-                          <div key={field.key} className="meas-field-row">
-                            <label className="meas-label">{field.label}</label>
-                            <div className="meas-input-group">
-                              <input type="number" className="meas-input" value={val}
-                                onChange={function(e) { handleMeasChange(ft, field.key, e.target.value); }}
-                                step={unitSystem === "imperial" ? field.stepI : field.stepM}
-                                min={0} max={unitSystem === "imperial" ? field.maxI : inToMm(field.maxI)}
-                                placeholder={"0.000 " + (unitSystem === "imperial" ? "in" : "mm")} />
-                              <span className="meas-unit">{unitSystem === "imperial" ? "in" : "mm"}</span>
-                            </div>
-                            {pf && (
-                              <div className={"meas-verdict verdict-" + pf.status.toLowerCase()}>
-                                <span className="verdict-icon">{pf.status === "PASS" ? "\u2713" : "\u2717"}</span>
-                                <span>{pf.status} - {pf.detail}</span>
-                              </div>
-                            )}
-                            {limits.length > 0 && (
-                              <div className="code-limits-row">
-                                {limits.map(function(lim, idx) {
-                                  return (
-                                    <span key={idx} className="code-limit-chip">
-                                      {lim.code}: {unitSystem === "imperial" ? lim.limit + " in" : inToMm(lim.limit) + " mm"} ({lim.rule})
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-
-                <div className="meas-actions">
-                  <button className="save-meas-btn" onClick={saveMeasurements} disabled={savingMeas} type="button">
-                    {savingMeas ? "Saving..." : measSaved ? "\u2713 Measurements Saved" : "Save Measurements"}
-                  </button>
-                  {measSaved && (
-                    <button className="authority-btn" onClick={runAuthorityLock} disabled={runningAuthority} type="button">
-                      {runningAuthority ? "Locking Decision..." : "\uD83D\uDD12 Run Authority Lock"}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* ========== PHYSICS MODEL (formatted) ========== */}
-        {activeTab === "physics" && (
-          <div>
-            {physics ? (
-              <div className="physics-model">
-                <div className="detail-section">
-                  <h3>Probable Discontinuities (Predicted Before Inspection)</h3>
-                  {physics.probable_discontinuities_json && physics.probable_discontinuities_json.length > 0 ? (
-                    <div className="predictions-list">
-                      {physics.probable_discontinuities_json.map(function(d: any, i: number) {
-                        return (
-                          <div key={i} className="prediction-card">
-                            <strong>{(d.type || d.label || "Unknown").replace(/_/g, " ")}</strong>
-                            {d.probability && <span className="prediction-prob">{d.probability}</span>}
-                            {d.typical_location && <p>Likely location: {d.typical_location.replace(/_/g, " ")}</p>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : <p>No predictions generated yet.</p>}
-                </div>
-
-                {/* Formatted Method Capability Map */}
-                {physics.method_capability_map_json && (
-                  <div className="detail-section">
-                    <h3>Method Capability Map</h3>
-                    <div className="capability-grid">
-                      {physics.method_capability_map_json.ferromagnetic !== undefined && (
-                        <div className="capability-card">
-                          <span className="cap-label">Ferromagnetic</span>
-                          <span className={"cap-value cap-" + (physics.method_capability_map_json.ferromagnetic ? "yes" : "no")}>
-                            {physics.method_capability_map_json.ferromagnetic ? "Yes" : "No"}
-                          </span>
-                        </div>
-                      )}
-                      {["mt_applicable", "pt_applicable", "et_applicable"].map(function(key) {
-                        if (physics.method_capability_map_json[key] === undefined) return null;
-                        var method = key.split("_")[0].toUpperCase();
-                        return (
-                          <div key={key} className="capability-card">
-                            <span className="cap-label">{method} Applicable</span>
-                            <span className={"cap-value cap-" + (physics.method_capability_map_json[key] ? "yes" : "no")}>
-                              {physics.method_capability_map_json[key] ? "Yes" : "No"}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      {physics.method_capability_map_json.ut_notes && (
-                        <div className="capability-note"><strong>UT:</strong> {physics.method_capability_map_json.ut_notes}</div>
-                      )}
-                      {physics.method_capability_map_json.rt_notes && (
-                        <div className="capability-note"><strong>RT:</strong> {physics.method_capability_map_json.rt_notes}</div>
-                      )}
-                      {physics.method_capability_map_json.et_notes && (
-                        <div className="capability-note"><strong>ET:</strong> {physics.method_capability_map_json.et_notes}</div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Formatted Material Properties */}
-                {physics.material_properties_json && (
-                  <div className="detail-section">
-                    <h3>Material Properties</h3>
-                    <div className="material-grid">
-                      {physics.material_properties_json.material_name && (
-                        <div className="mat-card"><span className="mat-label">Material</span><span className="mat-value">{physics.material_properties_json.material_name}</span></div>
-                      )}
-                      {physics.material_properties_json.density_kg_m3 && (
-                        <div className="mat-card"><span className="mat-label">Density</span><span className="mat-value">{physics.material_properties_json.density_kg_m3} kg/m3</span></div>
-                      )}
-                      {physics.material_properties_json.acoustic_velocity_longitudinal_ms && (
-                        <div className="mat-card"><span className="mat-label">Longitudinal Velocity</span><span className="mat-value">{physics.material_properties_json.acoustic_velocity_longitudinal_ms} m/s</span></div>
-                      )}
-                      {physics.material_properties_json.acoustic_velocity_shear_ms && (
-                        <div className="mat-card"><span className="mat-label">Shear Velocity</span><span className="mat-value">{physics.material_properties_json.acoustic_velocity_shear_ms} m/s</span></div>
-                      )}
-                      {physics.material_properties_json.acoustic_impedance && (
-                        <div className="mat-card"><span className="mat-label">Acoustic Impedance</span><span className="mat-value">{physics.material_properties_json.acoustic_impedance} MRayl</span></div>
-                      )}
-                      {physics.material_properties_json.magnetic_permeability && (
-                        <div className="mat-card"><span className="mat-label">Magnetic Permeability</span><span className="mat-value">{physics.material_properties_json.magnetic_permeability}</span></div>
-                      )}
-                      {physics.material_properties_json.electrical_conductivity_ms_m && (
-                        <div className="mat-card"><span className="mat-label">Electrical Conductivity</span><span className="mat-value">{physics.material_properties_json.electrical_conductivity_ms_m} MS/m</span></div>
-                      )}
-                      {physics.material_properties_json.attenuation_coefficient && (
-                        <div className="mat-card"><span className="mat-label">Attenuation</span><span className="mat-value">{physics.material_properties_json.attenuation_coefficient} dB/mm</span></div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : <div className="empty-state"><p>Physics model not yet generated.</p></div>}
-          </div>
-        )}
-
-        {/* ========== FINDINGS + CONFLICT RESOLUTION ========== */}
-        {activeTab === "findings" && (
-          <div>
-            {conflicts.length > 0 && (
-              <div className="conflict-summary">
-                <h3>Dual AI Conflict Resolution</h3>
-                {conflicts.map(function(c, idx) {
-                  return (
-                    <div key={idx} className={"conflict-card conflict-" + c.resolution_method.toLowerCase()}>
-                      <div className="conflict-header">
-                        <span className="conflict-type">{(c.finding_type || "").replace(/_/g, " ")}</span>
-                        <span className="conflict-method">{(c.resolution_method || "").replace(/_/g, " ")}</span>
-                      </div>
-                      <div className="conflict-scores">
-                        <span>GPT-4o: {c.openai_confidence ? Math.round(c.openai_confidence * 100) + "%" : "N/A"}</span>
-                        <span>Claude: {c.claude_confidence ? Math.round(c.claude_confidence * 100) + "%" : "N/A"}</span>
-                        <span className="conflict-resolved">Resolved: {Math.round((c.resolved_confidence || 0) * 100)}%</span>
-                      </div>
-                      <p className="conflict-reasoning">{c.reasoning}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {findings.length === 0 ? (
-              <div className="empty-state"><p>No findings yet. Upload evidence and run the AI analysis.</p></div>
-            ) : (
-              <div className="findings-list">
-                {findings.map(function(f) {
-                  return (
-                    <div key={f.id} className="finding-card">
-                      <div className="finding-header">
-                        <span className={"finding-source finding-source-" + f.source}>{f.source.toUpperCase()}</span>
-                        <span className="finding-type">{f.finding_type.replace(/_/g, " ")}</span>
-                        {f.severity && <span className={"severity-badge severity-" + f.severity}>{f.severity.toUpperCase()}</span>}
-                      </div>
-                      <div className="finding-label">{f.label}</div>
-                      {f.location_ref && <div className="finding-location">Location: {f.location_ref.replace(/_/g, " ")}</div>}
-                      {f.confidence != null && <div className="finding-confidence">Confidence: {Math.round(f.confidence * 100)}%</div>}
-                      {f.structured_json && f.structured_json.reasoning && (
-                        <div className="finding-reasoning">{f.structured_json.reasoning}</div>
-                      )}
-                      {f.structured_json && f.structured_json.possible_causes && (
-                        <div className="finding-causes">Possible causes: {f.structured_json.possible_causes}</div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ========== RULES ========== */}
-        {activeTab === "rules" && (
-          <div>
-            {rules.length === 0 ? (
-              <div className="empty-state"><p>No rule evaluations yet.</p></div>
-            ) : (
-              <div className="rules-list">
-                {rules.map(function(r) {
-                  return (
-                    <div key={r.id} className={"rule-card rule-" + (r.passed === true ? "pass" : r.passed === false ? "fail" : "na")}>
-                      <div className="rule-header">
-                        <span className="rule-status-icon">{r.passed === true ? "\u2713" : r.passed === false ? "\u2717" : "\u2014"}</span>
-                        <span className="rule-name">{r.rule_name}</span>
-                        <span className="rule-class">{r.rule_class.replace(/_/g, " ")}</span>
-                      </div>
-                      <div className="rule-explanation">{r.explanation}</div>
-                      {r.engineering_basis_cited && <div className="rule-basis"><strong>Engineering basis:</strong> {r.engineering_basis_cited}</div>}
-                      {r.output_snapshot_json && r.output_snapshot_json.evidence_chain && (
-                        <div className="rule-chain"><strong>Evidence chain:</strong> {r.output_snapshot_json.evidence_chain}</div>
-                      )}
-                      {r.input_snapshot_json && r.input_snapshot_json.measured_value_imperial != null && (
-                        <div className="rule-measurement">
-                          <strong>Measured:</strong> {r.input_snapshot_json.measured_value_imperial.toFixed(4)} in
-                          {r.input_snapshot_json.threshold_imperial != null && (
-                            <span> | <strong>Limit:</strong> {r.input_snapshot_json.threshold_imperial.toFixed(4)} in</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ========== DECISION (Authority Lock) ========== */}
-        {activeTab === "decision" && (
-          <div>
-            {caseData.authority_locked && (
-              <div className="authority-locked-banner">
-                <span className="lock-icon">{"\uD83D\uDD12"}</span>
-                <span>DECISION LOCKED by Inspection Authority Engine</span>
-                {caseData.authority_locked_at && (
-                  <span className="lock-time">{new Date(caseData.authority_locked_at).toLocaleString()}</span>
-                )}
-              </div>
-            )}
-            {caseData.truth_engine_summary ? (
-              <div className="decision-panel">
-                <div className="decision-what">
-                  <h3>WHAT</h3>
-                  <p>{caseData.truth_engine_summary}</p>
-                </div>
-                <div className="decision-why">
-                  <h3>WHY</h3>
-                  <p>{caseData.final_decision_reason || "No detailed reason available."}</p>
-                </div>
-                <div className="decision-how">
-                  <h3>HOW</h3>
-                  <p>{caseData.final_disposition === "reject"
-                    ? "Repair per governing procedure and code. Re-inspect after repair using the same method and acceptance criteria. Document defect location and type."
-                    : caseData.final_disposition === "review_required"
-                    ? "Enter measurements in the Evidence tab, then click Run Authority Lock to finalize the disposition."
-                    : "Proceed per governing procedure. Archive inspection record with evidence trail."
-                  }</p>
-                </div>
-                {caseData.authority_evidence && (
-                  <div className="authority-evidence-summary">
-                    <h3>Authority Evidence</h3>
-                    <div className="evidence-stats">
-                      <span className="stat">Rules Evaluated: {caseData.authority_evidence.rules_evaluated}</span>
-                      <span className="stat stat-pass">Passed: {caseData.authority_evidence.rules_passed}</span>
-                      <span className="stat stat-fail">Failed: {caseData.authority_evidence.rules_failed}</span>
-                      <span className="stat">N/A: {caseData.authority_evidence.rules_na}</span>
-                      <span className="stat">Measurements: {caseData.authority_evidence.measurements_provided}</span>
-                    </div>
-                  </div>
-                )}
-                {caseData.ai_openai_summary && (
-                  <div className="detail-section" style={{ marginTop: "16px" }}>
-                    <h3>GPT-4o Observation Summary</h3>
-                    <p>{caseData.ai_openai_summary}</p>
-                  </div>
-                )}
-                {caseData.ai_claude_summary && (
-                  <div className="detail-section" style={{ marginTop: "16px" }}>
-                    <h3>Claude Reasoning Summary</h3>
-                    <p>{caseData.ai_claude_summary}</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="empty-state">
-                <p>Decision not yet generated. Upload evidence and run the AI analysis, then enter measurements and lock the decision.</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ========== TEACHING ========== */}
-        {activeTab === "teaching" && (
-          <div className="empty-state"><p>Teaching intelligence coming in Phase 2.</p></div>
-        )}
-
+      {/* BACK NAV */}
+      <div style={{ marginBottom: "16px" }}>
+        <button onClick={() => navigate("/cases")} style={{ padding: "6px 14px", backgroundColor: "transparent", color: "#94a3b8", border: "1px solid #334155", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>← Dashboard</button>
       </div>
+
+      {/* HARD LOCK BANNER */}
+      {isBlocked && (
+        <div style={{ padding: "14px 20px", borderRadius: "10px", marginBottom: "16px", backgroundColor: "#ef444422", border: "2px solid #ef4444", textAlign: "center", fontSize: "14px", fontWeight: "700", color: "#ef4444", animation: "pulse 2s infinite" }}>
+          ⛔ HARD LOCK — DISPOSITION: BLOCKED — DO NOT PROCEED WITHOUT RESOLUTION
+        </div>
+      )}
+
+      {/* CASE HEADER */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px" }}>
+        <div>
+          <h1 style={{ fontSize: "22px", fontWeight: "700", color: "#f8fafc", margin: 0, marginBottom: "4px" }}>{getTitle(caseData)}</h1>
+          <div style={{ fontSize: "13px", color: "#64748b" }}>{[caseData.asset_name, caseData.asset_type || caseData.asset_class, caseData.location].filter(Boolean).join(" · ")}</div>
+          {caseData.case_id && <div style={{ fontSize: "11px", color: "#475569", marginTop: "2px" }}>{caseData.case_id}</div>}
+        </div>
+        <button onClick={() => setShowFindingModal(true)} style={{ padding: "8px 18px", backgroundColor: "#3b82f6", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: "600" }}>+ Add Finding</button>
+      </div>
+
+      {/* SUPERBRAIN STATUS BAR */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px", marginBottom: "20px" }}>
+        {[
+          { label: "Consequence", value: consequence || "—", color: consequenceColor(consequence) },
+          { label: "Disposition", value: (disposition || "—").replace(/_/g, " "), color: dispositionColor(disposition) },
+          { label: "Confidence", value: confidence > 0 ? Math.round(confidence * 100) + "%" : "—", color: confidence >= 0.8 ? "#22c55e" : confidence >= 0.6 ? "#eab308" : "#ef4444" },
+          { label: "Mechanism", value: (mechanism || "—").replace(/_/g, " "), color: "#f8fafc" },
+          { label: "Sufficiency", value: (sufficiency || "—").replace(/_/g, " "), color: "#f8fafc" },
+        ].map(s => (
+          <div key={s.label} style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "10px", padding: "14px", textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" }}>{s.label}</div>
+            <div style={{ fontSize: s.label === "Mechanism" || s.label === "Sufficiency" ? "14px" : "16px", fontWeight: "600", color: s.color }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* NEXT ACTION */}
+      {nextAction && (
+        <div style={{ ...cardStyle, borderLeft: "4px solid #3b82f6", backgroundColor: "#1e293b" }}>
+          <div style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" }}>NEXT ACTION</div>
+          <div style={{ fontSize: "14px", color: "#f8fafc", fontWeight: "500" }}>{nextAction}</div>
+        </div>
+      )}
+
+      {/* TAB BAR */}
+      <div style={{ display: "flex", gap: "8px", marginBottom: "20px", flexWrap: "wrap" }}>
+        {tabs.map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: "8px 20px", backgroundColor: activeTab === tab ? "#1e293b" : "transparent", color: activeTab === tab ? "#f8fafc" : "#64748b", border: `1px solid ${activeTab === tab ? "#334155" : "transparent"}`, borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: activeTab === tab ? "600" : "400" }}>
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* WORKFLOW TAB */}
+      {activeTab === "workflow" && <>
+        {confidenceSections.length > 0 && <div style={cardStyle}>
+          <h3 style={{ fontSize: "14px", color: "#94a3b8", marginTop: 0, marginBottom: "16px" }}>CONFIDENCE</h3>
+          {confidenceSections.map(s => { const pct = Math.round(s.value * 100); const c = pct >= 80 ? "#22c55e" : pct >= 60 ? "#eab308" : "#ef4444"; return (
+            <div key={s.label} style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+              <div style={{ width: "130px", fontSize: "13px", color: "#cbd5e1" }}>{s.label}</div>
+              <div style={{ flex: 1, height: "10px", backgroundColor: "#1e293b", borderRadius: "5px", overflow: "hidden" }}><div style={{ width: pct + "%", height: "100%", backgroundColor: c, borderRadius: "5px", transition: "width 0.5s" }} /></div>
+              <div style={{ width: "45px", textAlign: "right", fontSize: "13px", fontWeight: "600", color: c }}>{pct}%</div>
+            </div>
+          ); })}
+        </div>}
+        {authority && <div style={cardStyle}><h3 style={{ fontSize: "14px", color: "#94a3b8", marginTop: 0, marginBottom: "8px" }}>AUTHORITY</h3><div style={{ fontSize: "14px", color: "#f8fafc" }}>{authority}</div></div>}
+        {Object.keys(phaseGroups).length > 0 && <div style={cardStyle}>
+          <h3 style={{ fontSize: "14px", color: "#94a3b8", marginTop: 0, marginBottom: "16px" }}>PHASED STRATEGY</h3>
+          {Object.keys(phaseGroups).map(phase => (
+            <div key={phase} style={{ marginBottom: "16px" }}>
+              <div style={{ fontSize: "13px", fontWeight: "600", color: "#f97316", marginBottom: "8px", textTransform: "uppercase" }}>{phase}</div>
+              {phaseGroups[phase].map(item => (
+                <div key={item.id} onClick={() => toggleChecklist(item.id, item.is_checked)} style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "8px 12px", cursor: "pointer", borderRadius: "6px", marginBottom: "4px", backgroundColor: item.is_checked ? "#22c55e11" : "transparent" }}>
+                  <div style={{ width: "18px", height: "18px", borderRadius: "4px", flexShrink: 0, marginTop: "1px", border: item.is_checked ? "2px solid #22c55e" : "2px solid #475569", backgroundColor: item.is_checked ? "#22c55e" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", color: "#fff", fontWeight: "700" }}>{item.is_checked ? "✓" : ""}</div>
+                  <div style={{ fontSize: "13px", color: item.is_checked ? "#64748b" : "#e2e8f0", textDecoration: item.is_checked ? "line-through" : "none" }}>{item.item_text}</div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>}
+        {recoveryQueue.length > 0 && <div style={cardStyle}>
+          <h3 style={{ fontSize: "14px", color: "#94a3b8", marginTop: 0, marginBottom: "12px" }}>RECOVERY QUEUE</h3>
+          {recoveryQueue.map((item: any, idx: number) => { const text = typeof item === "string" ? item : (item.action || item.description || JSON.stringify(item)); return (
+            <div key={idx} style={{ padding: "10px 14px", backgroundColor: "#1e293b", borderRadius: "8px", marginBottom: "8px", fontSize: "13px", color: "#e2e8f0", borderLeft: `3px solid ${idx === 0 ? "#3b82f6" : "#334155"}` }}><span style={{ color: "#64748b", marginRight: "8px" }}>{idx + 1}.</span>{text}</div>
+          ); })}
+        </div>}
+      </>}
+
+      {/* METHODS TAB */}
+      {activeTab === "methods" && <>
+        <div style={cardStyle}>
+          <h3 style={{ fontSize: "14px", color: "#94a3b8", marginTop: 0, marginBottom: "16px" }}>METHOD SCORES</h3>
+          {methodKeys.length > 0 ? methodKeys.map(key => { const val = methodScores[key]; const score = typeof val === "number" ? val : (val.score || val.relevance || 0); const pct = Math.round(score * 100); const c = pct >= 70 ? "#22c55e" : pct >= 40 ? "#eab308" : "#64748b"; return (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+              <div style={{ width: "60px", fontSize: "13px", fontWeight: "600", color: "#f8fafc" }}>{key.toUpperCase()}</div>
+              <div style={{ flex: 1, height: "10px", backgroundColor: "#1e293b", borderRadius: "5px", overflow: "hidden" }}><div style={{ width: pct + "%", height: "100%", backgroundColor: c, borderRadius: "5px" }} /></div>
+              <div style={{ width: "45px", textAlign: "right", fontSize: "13px", color: c }}>{pct}%</div>
+            </div>
+          ); }) : <div style={{ color: "#64748b" }}>No method scores available.</div>}
+        </div>
+        {missingCoverage.length > 0 && <div style={cardStyle}>
+          <h3 style={{ fontSize: "14px", color: "#94a3b8", marginTop: 0, marginBottom: "12px" }}>MISSING COVERAGE</h3>
+          {missingCoverage.map((gap: any, idx: number) => { const text = typeof gap === "string" ? gap : (gap.description || gap.method || JSON.stringify(gap)); return (
+            <div key={idx} style={{ padding: "8px 14px", backgroundColor: "#ef444411", borderRadius: "6px", marginBottom: "6px", fontSize: "13px", color: "#fca5a5", borderLeft: "3px solid #ef4444" }}>{text}</div>
+          ); })}
+        </div>}
+      </>}
+
+      {/* FINDINGS TAB */}
+      {activeTab === "findings" && <>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+          <h3 style={{ fontSize: "14px", color: "#94a3b8", margin: 0 }}>FINDINGS ({findings.length})</h3>
+          <button onClick={() => setShowFindingModal(true)} style={{ padding: "6px 16px", backgroundColor: "#3b82f6", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>+ Add Finding</button>
+        </div>
+        {findings.length === 0 ? <div style={{ ...cardStyle, color: "#64748b", textAlign: "center" }}>No findings recorded yet.</div>
+        : findings.map(f => (
+          <div key={f.id} style={cardStyle}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+              <div style={{ fontWeight: "600", color: "#f8fafc" }}>{f.indication_type}</div>
+              <span style={{ padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "600", backgroundColor: f.severity === "critical" ? "#ef444422" : f.severity === "major" ? "#f9731622" : "#22c55e22", color: f.severity === "critical" ? "#ef4444" : f.severity === "major" ? "#f97316" : "#22c55e" }}>{f.severity}</span>
+            </div>
+            <div style={{ fontSize: "13px", color: "#94a3b8" }}>{[f.method, f.location, f.dimensions].filter(Boolean).join(" · ")}</div>
+            {f.notes && <div style={{ fontSize: "13px", color: "#cbd5e1", marginTop: "6px" }}>{f.notes}</div>}
+            <div style={{ fontSize: "11px", color: "#475569", marginTop: "6px" }}>{formatDate(f.created_at)}</div>
+          </div>
+        ))}
+      </>}
+
+      {/* HISTORY TAB */}
+      {activeTab === "history" && <>
+        {history.length === 0 ? <div style={{ ...cardStyle, color: "#64748b", textAlign: "center" }}>No history entries.</div>
+        : history.map(h => (
+          <div key={h.id} style={{ padding: "12px 16px", borderLeft: "3px solid #334155", marginBottom: "8px", backgroundColor: "#0f172a", borderRadius: "0 8px 8px 0" }}>
+            <div style={{ fontSize: "13px", fontWeight: "600", color: "#f8fafc" }}>{(h.action || "").replace(/_/g, " ").toUpperCase()}</div>
+            <div style={{ fontSize: "13px", color: "#cbd5e1", marginTop: "4px" }}>{h.details || ""}</div>
+            <div style={{ fontSize: "11px", color: "#475569", marginTop: "4px" }}>{formatDate(h.created_at)}</div>
+          </div>
+        ))}
+      </>}
+
+      {/* RAW TAB */}
+      {activeTab === "raw" && <div style={cardStyle}><pre style={{ fontSize: "11px", color: "#94a3b8", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: "600px", overflow: "auto", margin: 0 }}>{dc ? JSON.stringify(dc, null, 2) : "No decision-core output available."}</pre></div>}
+
+      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }`}</style>
     </div>
   );
 }
