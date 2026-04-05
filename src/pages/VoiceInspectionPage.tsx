@@ -594,6 +594,7 @@ export default function VoiceInspectionPage() {
   var [superbrainResult, setSuperbrainResult] = useState<any>(null);
   var [superbrainLoading, setSuperbrainLoading] = useState(false);
   var [superbrainError, setSuperbrainError] = useState<string | null>(null);
+  var [grammarBridgeResult, setGrammarBridgeResult] = useState<any>(null);
 
   var handleSaveToCase = async function() {
     if (!decisionCore) return;
@@ -736,6 +737,7 @@ export default function VoiceInspectionPage() {
     setParsed(null); setAsset(null); setRealityLock(null);
     setDecisionCore(null); setAiNarrative(null);
     setSuperbrainResult(null); setSuperbrainError(null);
+    setGrammarBridgeResult(null);
     setAiQuestions(null); setAiUnderstood(null); setSelectedAnswers({});
     setSaveStatus("idle"); setSavedCaseId(null); setSaveError(null);
     inputTextRef.current = inputText;
@@ -755,10 +757,21 @@ export default function VoiceInspectionPage() {
     try {
       s = updateStep(0, { status: "running" }, s); s = updateStep(1, { status: "running" }, s); setSteps(s.slice());
 
+      // Grammar Bridge runs silently in parallel — results shown in readback panel
+      var gbPromise = callAPI("voice-grammar-bridge", { action: "extract", transcript: inputText }).catch(function() { return null; });
+
       var [parseRes, assetRes] = await Promise.allSettled([
         callAPI("parse-incident", { transcript: inputText }),
         callAPI("resolve-asset", { raw_text: inputText }),
       ]);
+
+      // Grammar Bridge result (non-blocking)
+      try {
+        var gbValue = await gbPromise;
+        if (gbValue && gbValue.ok) {
+          setGrammarBridgeResult(gbValue.result || gbValue);
+        }
+      } catch (gbErr) { /* Grammar bridge failure is non-blocking */ }
 
       if (parseRes.status === "fulfilled") {
         parsedResult = parseRes.value.parsed || parseRes.value;
@@ -973,6 +986,61 @@ export default function VoiceInspectionPage() {
       {errors.length > 0 && (<div style={{ margin: "12px 0", padding: "12px 16px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px" }}>{errors.map(function(e, i) { return <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0" }}>{e}</div>; })}</div>)}
 
       <div ref={resultsRef}>
+
+        {/* GRAMMAR BRIDGE READBACK — shows before evidence confirmation */}
+        {grammarBridgeResult && evidenceConfirmPending && (
+          <div style={{ margin: "0 0 16px 0", padding: "16px", backgroundColor: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: "8px" }}>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: "#0369a1", marginBottom: "8px" }}>Voice Grammar Bridge — Readback</div>
+            <div style={{ fontSize: "14px", color: "#1e3a5f", lineHeight: "1.6", padding: "10px 12px", backgroundColor: "#fff", borderRadius: "6px", border: "1px solid #e0f2fe", marginBottom: "10px" }}>
+              {grammarBridgeResult.readback || "No readback generated"}
+            </div>
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "8px" }}>
+              <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: grammarBridgeResult.completeness === "COMPLETE" ? "#dcfce7" : grammarBridgeResult.completeness === "NEAR_COMPLETE" ? "#fef9c3" : "#fee2e2", color: grammarBridgeResult.completeness === "COMPLETE" ? "#166534" : grammarBridgeResult.completeness === "NEAR_COMPLETE" ? "#854d0e" : "#991b1b", fontWeight: 600 }}>
+                {grammarBridgeResult.completeness} ({grammarBridgeResult.field_count ? grammarBridgeResult.field_count.extracted + "/" + grammarBridgeResult.field_count.total_required + " fields" : ""})
+              </div>
+              {grammarBridgeResult.extracted && grammarBridgeResult.extracted.asset_type && (
+                <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: "#ede9fe", color: "#5b21b6", fontWeight: 500 }}>
+                  Asset: {grammarBridgeResult.extracted.asset_type}
+                </div>
+              )}
+              {grammarBridgeResult.extracted && grammarBridgeResult.extracted.material && (
+                <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: "#f3e8ff", color: "#6b21a8", fontWeight: 500 }}>
+                  Material: {grammarBridgeResult.extracted.material.replace(/_/g, " ")}
+                </div>
+              )}
+              {grammarBridgeResult.extracted && grammarBridgeResult.extracted.primary_finding && (
+                <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: "#fef3c7", color: "#92400e", fontWeight: 500 }}>
+                  Primary: {grammarBridgeResult.extracted.primary_finding.replace(/_/g, " ")}
+                </div>
+              )}
+              {grammarBridgeResult.extracted && grammarBridgeResult.extracted.service_fluid && (
+                <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: "#e0e7ff", color: "#3730a3", fontWeight: 500 }}>
+                  Service: {grammarBridgeResult.extracted.service_fluid.replace(/_/g, " ")}
+                </div>
+              )}
+            </div>
+            {grammarBridgeResult.risk_flags && grammarBridgeResult.risk_flags.length > 0 && (
+              <div style={{ marginTop: "8px" }}>
+                {grammarBridgeResult.risk_flags.map(function(rf: any, ri: number) {
+                  var rfBg = rf.severity === "critical" ? "#fef2f2" : rf.severity === "high" ? "#fffbeb" : "#f0f9ff";
+                  var rfBorder = rf.severity === "critical" ? "#fecaca" : rf.severity === "high" ? "#fde68a" : "#bae6fd";
+                  var rfColor = rf.severity === "critical" ? "#991b1b" : rf.severity === "high" ? "#92400e" : "#0369a1";
+                  var rfIcon = rf.severity === "critical" ? "\uD83D\uDED1" : rf.severity === "high" ? "\u26A0\uFE0F" : "\u2139\uFE0F";
+                  return (
+                    <div key={ri} style={{ fontSize: "12px", padding: "8px 10px", marginBottom: "4px", backgroundColor: rfBg, border: "1px solid " + rfBorder, borderRadius: "4px", color: rfColor }}>
+                      {rfIcon} {rf.message}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {grammarBridgeResult.missing_required && grammarBridgeResult.missing_required.length > 0 && (
+              <div style={{ marginTop: "8px", fontSize: "12px", color: "#92400e", padding: "8px 10px", backgroundColor: "#fffbeb", borderRadius: "4px", border: "1px solid #fde68a" }}>
+                <strong>Missing fields:</strong> {grammarBridgeResult.missing_required.join(", ").replace(/_/g, " ")}
+              </div>
+            )}
+          </div>
+        )}
 
         {evidenceConfirmPending && preliminaryEvidence && (
           <EvidenceConfirmationCard evidence={preliminaryEvidence} onConfirm={handleConfirmEvidence} onSkip={handleSkipEvidence} isGenerating={isGenerating} />
