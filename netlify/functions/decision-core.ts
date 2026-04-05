@@ -58,6 +58,47 @@ interface LeakBurstResult { enabled: boolean; tendency: string; through_wall_ris
 // ============================================================================
 function hasWord(text: string, word: string): boolean { return text.indexOf(word) !== -1; }
 function roundN(n: number, d: number): number { var f = Math.pow(10, d); return Math.round(n * f) / f; }
+
+// ============================================================================
+// DEPLOY117: NEGATION-AWARE EVIDENCE DETECTION
+// "No cracks found" must NOT trigger visible_cracking = true.
+// Checks for negation words within 25 chars before the keyword.
+// Negation patterns: "no ", "not ", "without ", "none ", "negative ",
+//   "ruled out", "no visible", "no evidence", "absent", "did not find",
+//   "didn't find", "no sign", "no indication"
+// ============================================================================
+function hasWordNotNegated(text: string, word: string): boolean {
+  var idx = text.indexOf(word);
+  if (idx === -1) return false;
+
+  // Check ALL occurrences — if ANY is non-negated, return true
+  var searchFrom = 0;
+  while (idx !== -1) {
+    var preStart = Math.max(0, idx - 25);
+    var preBuf = text.substring(preStart, idx);
+
+    var negated = false;
+    if (preBuf.indexOf("no ") !== -1) negated = true;
+    else if (preBuf.indexOf("not ") !== -1) negated = true;
+    else if (preBuf.indexOf("without ") !== -1) negated = true;
+    else if (preBuf.indexOf("none ") !== -1) negated = true;
+    else if (preBuf.indexOf("negative") !== -1) negated = true;
+    else if (preBuf.indexOf("ruled out") !== -1) negated = true;
+    else if (preBuf.indexOf("no visible") !== -1) negated = true;
+    else if (preBuf.indexOf("no evidence") !== -1) negated = true;
+    else if (preBuf.indexOf("absent") !== -1) negated = true;
+    else if (preBuf.indexOf("did not") !== -1) negated = true;
+    else if (preBuf.indexOf("didn") !== -1) negated = true;
+    else if (preBuf.indexOf("no sign") !== -1) negated = true;
+    else if (preBuf.indexOf("no indication") !== -1) negated = true;
+
+    if (!negated) return true; // Found non-negated occurrence
+
+    searchFrom = idx + word.length;
+    idx = text.indexOf(word, searchFrom);
+  }
+  return false; // All occurrences were negated
+}
 function clamp(n: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, n)); }
 
 // ============================================================================
@@ -110,7 +151,7 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if ((assetClass === "pressure_vessel" || assetClass === "piping" || assetClass === "pipeline") && !cyclic) {
     cyclic = true; cyclicSrc = "operational_pressure_cycling_implied";
   }
-  if ((hasWord(lt, "crack") || hasWord(lt, "indication")) && hasWord(lt, "weld") && (assetClass === "pressure_vessel" || assetClass === "piping")) {
+  if ((hasWordNotNegated(lt, "crack") || hasWordNotNegated(lt, "indication")) && hasWord(lt, "weld") && (assetClass === "pressure_vessel" || assetClass === "piping")) {
     if (!cyclic) { cyclic = true; cyclicSrc = "crack_at_weld_implies_cyclic_history"; }
   }
   if (hasWord(lt, "vibrat")) { cyclic = true; cyclicSrc = cyclicSrc ? cyclicSrc + "+vibration" : "vibration"; loads.push("vibration"); }
@@ -589,7 +630,7 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
   var wallLossReported = hasWord(lt, "wall loss") || hasWord(lt, "metal loss") || hasWord(lt, "thinning") || hasWord(lt, "wall thinning") || hasWord(lt, "thickness loss") || hasWord(lt, "thinned") || hasWord(lt, "thinned out") || hasWord(lt, "corroded") || hasWord(lt, "pitted") || hasWord(lt, "washed out") || hasWord(lt, "eating") || hasWord(lt, "reduced thickness") || hasWord(lt, "reduced wall") || /\d+\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript);
   var wallLossQuantified = wallLossReported && (/\d+\s*(?:percent|%)\s*(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss|down|loss|gone|reduced)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss)\s*(?:of\s*)?\d+/i.test(transcript) || /\d+[-\u2013\u2014]?\d*\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript));
   var wallLossMeasuredByNDE = wallLossReported && (hasWord(lt, "ultrasonic") || hasWord(lt, "ut ") || hasWord(lt, "ut grid") || hasWord(lt, "thickness reading") || hasWord(lt, "thickness survey") || hasWord(lt, "paut") || hasWord(lt, "scan") || hasWord(lt, "found") || hasWord(lt, "measured") || hasWord(lt, "inspection found") || hasWord(lt, "shows"));
-  var crackingSuspectedOnly = (hasWord(lt, "crack") || hasWord(lt, "cracking")) && (hasWord(lt, "suspected") || hasWord(lt, "possible") || hasWord(lt, "potential") || hasWord(lt, "concern") || hasWord(lt, "may be") || hasWord(lt, "might be") || hasWord(lt, "or something") || hasWord(lt, "hard to tell") || hasWord(lt, "not sure") || hasWord(lt, "not clean") || hasWord(lt, "junk geometry")) && !hasWord(lt, "crack confirmed") && !hasWord(lt, "cracking confirmed") && !(!!fl.crack_confirmed);
+  var crackingSuspectedOnly = (hasWordNotNegated(lt, "crack") || hasWordNotNegated(lt, "cracking")) && (hasWord(lt, "suspected") || hasWord(lt, "possible") || hasWord(lt, "potential") || hasWord(lt, "concern") || hasWord(lt, "may be") || hasWord(lt, "might be") || hasWord(lt, "or something") || hasWord(lt, "hard to tell") || hasWord(lt, "not sure") || hasWord(lt, "not clean") || hasWord(lt, "junk geometry")) && !hasWord(lt, "crack confirmed") && !hasWord(lt, "cracking confirmed") && !(!!fl.crack_confirmed);
   var s = physics.stress; var t = physics.thermal; var c = physics.chemical; var e = physics.energy;
 
   var preCheckMap: any = {
@@ -642,7 +683,7 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
       if (fl[md.eKeys[ei]]) { evFor.push(md.eKeys[ei].replace(/_/g, " ")); score += 0.2; obs = true; }
     }
     var words = md.name.toLowerCase().split(/[\s\/()]+/);
-    for (var wi = 0; wi < words.length; wi++) { if (words[wi].length > 3 && hasWord(lt, words[wi])) { score += 0.05; break; } }
+    for (var wi = 0; wi < words.length; wi++) { if (words[wi].length > 3 && hasWordNotNegated(lt, words[wi])) { score += 0.05; break; } }
 
     if (md.id === "fatigue_mechanical" || md.id === "fatigue_thermal" || md.id === "fatigue_vibration") {
       if (s.cyclic_loading) score += 0.10;
@@ -1196,7 +1237,7 @@ function resolveAuthorityReality(assetClass: string, transcript: string, consequ
   var gaps: string[] = [];
   var alignment = "CONSISTENT — " + matched.pri + " provides framework for " + assetClass;
 
-  var hasCrackIndication = hasWord(lt, "crack") || hasWord(lt, "indication") || hasWord(lt, "flaw") || hasWord(lt, "linear");
+  var hasCrackIndication = hasWordNotNegated(lt, "crack") || hasWordNotNegated(lt, "indication") || hasWordNotNegated(lt, "flaw") || hasWordNotNegated(lt, "linear");
   if (consequence.consequence_tier === "CRITICAL" && matched.pri.indexOf("PVHO") !== -1) {
     if (hasCrackIndication) {
       alignment = "DUAL AUTHORITY REQUIRED: PVHO-1 governs occupancy/pressure boundary requirements. ASME FFS-1 / API 579 governs crack fitness-for-service evaluation. Both required for in-service crack disposition — PVHO-1 alone does not provide a crack acceptance basis.";
