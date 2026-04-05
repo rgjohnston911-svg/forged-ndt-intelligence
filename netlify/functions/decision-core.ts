@@ -277,6 +277,11 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (caustic) { corrosive = true; agents.push("caustic"); }
   if (hydrogen) agents.push("hydrogen");
   if (!negCorrosion && (hasWord(lt, "corros") || hasWord(lt, "rust") || hasWord(lt, "scale"))) corrosive = true;
+  // DEPLOY117: Wall loss / thinning indicators imply corrosive or erosive environment
+  // If you have confirmed wall loss, the environment caused it — corrosive by definition
+  if (!negCorrosion && (hasWord(lt, "wall loss") || hasWord(lt, "metal loss") || hasWord(lt, "thinning") || hasWord(lt, "thinned") || hasWord(lt, "pitted") || hasWord(lt, "pitting") || hasWord(lt, "eating") || hasWord(lt, "washed out") || hasWord(lt, "corroded") || hasWord(lt, "worn"))) {
+    if (!corrosive) { corrosive = true; if (agents.indexOf("implied_corrosive") === -1) agents.push("implied_corrosive"); }
+  }
   if (hasWord(lt, "soil") || hasWord(lt, "buried")) { corrosive = true; agents.push("soil"); }
   if (hasWord(lt, "river") || hasWord(lt, "flood") || hasWord(lt, "creek") || hasWord(lt, "water") || hasWord(lt, "submerge")) { corrosive = true; agents.push("water_exposure"); }
   if (hasWord(lt, "atmospheric") || hasWord(lt, "outdoor") || hasWord(lt, "exposed") || hasWord(lt, "weather")) { corrosive = true; agents.push("atmospheric"); }
@@ -628,8 +633,8 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
   // Field inspectors use slang: "thinned out", "35% down", "eating itself up"
   // ============================================================================
   var wallLossReported = hasWord(lt, "wall loss") || hasWord(lt, "metal loss") || hasWord(lt, "thinning") || hasWord(lt, "wall thinning") || hasWord(lt, "thickness loss") || hasWord(lt, "thinned") || hasWord(lt, "thinned out") || hasWord(lt, "corroded") || hasWord(lt, "pitted") || hasWord(lt, "washed out") || hasWord(lt, "eating") || hasWord(lt, "reduced thickness") || hasWord(lt, "reduced wall") || /\d+\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript);
-  var wallLossQuantified = wallLossReported && (/\d+\s*(?:percent|%)\s*(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss|down|loss|gone|reduced)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss)\s*(?:of\s*)?\d+/i.test(transcript) || /\d+[-\u2013\u2014]?\d*\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript));
-  var wallLossMeasuredByNDE = wallLossReported && (hasWord(lt, "ultrasonic") || hasWord(lt, "ut ") || hasWord(lt, "ut grid") || hasWord(lt, "thickness reading") || hasWord(lt, "thickness survey") || hasWord(lt, "paut") || hasWord(lt, "scan") || hasWord(lt, "found") || hasWord(lt, "measured") || hasWord(lt, "inspection found") || hasWord(lt, "shows"));
+  var wallLossQuantified = wallLossReported && (/\d+\s*(?:percent|%)\s*(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss|down|loss|gone|reduced)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss)\s*(?:of\s*)?\d+/i.test(transcript) || /\d+[-\u2013\u2014]?\d*\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning)[^.]{0,30}\d+\s*(?:percent|%)/i.test(transcript) || /\d+\s*(?:percent|%)[^.]{0,30}(?:wall\s*loss|metal\s*loss|thinning)/i.test(transcript));
+  var wallLossMeasuredByNDE = wallLossReported && (hasWord(lt, "ultrasonic") || hasWord(lt, "ut ") || hasWord(lt, "ut grid") || hasWord(lt, "thickness reading") || hasWord(lt, "thickness survey") || hasWord(lt, "paut") || hasWord(lt, "scan") || hasWord(lt, "confirmed") || hasWord(lt, "measured") || hasWord(lt, "inspection found") || hasWord(lt, "shows") || (hasWord(lt, "found") && hasWord(lt, "wall loss")));
   var crackingSuspectedOnly = (hasWordNotNegated(lt, "crack") || hasWordNotNegated(lt, "cracking")) && (hasWord(lt, "suspected") || hasWord(lt, "possible") || hasWord(lt, "potential") || hasWord(lt, "concern") || hasWord(lt, "may be") || hasWord(lt, "might be") || hasWord(lt, "or something") || hasWord(lt, "hard to tell") || hasWord(lt, "not sure") || hasWord(lt, "not clean") || hasWord(lt, "junk geometry")) && !hasWord(lt, "crack confirmed") && !hasWord(lt, "cracking confirmed") && !(!!fl.crack_confirmed);
   var s = physics.stress; var t = physics.thermal; var c = physics.chemical; var e = physics.energy;
 
@@ -754,7 +759,31 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
       }
     }
 
+    // ============================================================================
+    // DEPLOY117: ACTIVE NEGATION SUPPRESSION
+    // If the inspector explicitly ruled out a finding type, actively reduce
+    // the corresponding mechanism score. "No crack found" should suppress
+    // cracking mechanisms, not just prevent boosting.
+    // ============================================================================
+    var crackNegated = hasWord(lt, "crack") && !hasWordNotNegated(lt, "crack");
+    var corrosionNegated = (hasWord(lt, "corros") && !hasWordNotNegated(lt, "corros")) || (hasWord(lt, "rust") && !hasWordNotNegated(lt, "rust"));
+    var deformNegated = (hasWord(lt, "deform") && !hasWordNotNegated(lt, "deform")) || (hasWord(lt, "dent") && !hasWordNotNegated(lt, "dent")) || (hasWord(lt, "buckl") && !hasWordNotNegated(lt, "buckl"));
+
+    if (crackNegated && isCrackMech) {
+      score -= 0.20;
+      evAg.push("cracking explicitly ruled out or negated in transcript");
+    }
+    if (corrosionNegated && isCorrosionMech) {
+      score -= 0.20;
+      evAg.push("corrosion explicitly ruled out or negated in transcript");
+    }
+    if (deformNegated && md.id === "overload_buckling") {
+      score -= 0.20;
+      evAg.push("deformation explicitly ruled out or negated in transcript");
+    }
+
     if (score > 1) score = 1;
+    if (score < 0) score = 0;
     var state = score >= 0.75 ? "confirmed" : score >= 0.55 ? "probable" : score >= 0.35 ? "possible" : "unverified";
     validated.push({ id: md.id, name: md.name, physics_basis: md.preLabels.join(" + "),
       preconditions_met: md.preLabels, reality_state: state, reality_score: roundN(score, 2),
@@ -2148,10 +2177,61 @@ var handler: Handler = async function(event: HandlerEvent) {
     var inspection = resolveInspectionReality(damage, consequence, physics, transcript, confirmedFlags);
     var computations = runPhysicsComputations(physics, numVals, assetClass, consequence);
     var contradictions = detectContradictions(physics, damage, consequence, authority, inspection, transcript);
+
+    // ============================================================================
+    // DEPLOY117: CONFIDENCE PENALTY FOR ASSET CORRECTION
+    // If the system had to override GPT's classification, input was ambiguous.
+    // ============================================================================
+    var totalPenalty = contradictions.penalty;
+    if (assetCorrected) {
+      totalPenalty += 0.05;
+      contradictions.flags.push("WARNING: Asset classification corrected from " + (asset.asset_class || "unknown") + " to " + assetClass + ". Input ambiguity detected.");
+    }
+
     var confidence = computeRealityConfidence(
       physics.physics_confidence, damage.damage_confidence, consequence.consequence_confidence,
-      authority.authority_confidence, inspection.inspection_confidence, contradictions.penalty);
+      authority.authority_confidence, inspection.inspection_confidence, totalPenalty);
     var decision = resolveDecisionReality(physics, damage, consequence, authority, inspection, confidence, contradictions, confirmedFlags, computations);
+
+    // ============================================================================
+    // DEPLOY117: COUNTERFACTUAL CHALLENGE
+    // Before final output, ask: what would need to be true for the leading
+    // mechanism to be wrong? What one measurement resolves it fastest?
+    // ============================================================================
+    var counterfactual: any = null;
+    if (damage.primary) {
+      var cfAlt = "";
+      var cfTest = "";
+      var cfWhatIfWrong = "";
+      var pmId = damage.primary.id;
+
+      // Find strongest competing mechanism
+      if (damage.validated.length >= 2) {
+        cfAlt = damage.validated[1].name + " (" + damage.validated[1].reality_state + ", score " + damage.validated[1].reality_score + ")";
+      }
+
+      if (pmId.indexOf("corrosion") !== -1 || pmId.indexOf("pitting") !== -1 || pmId === "erosion" || pmId === "cui") {
+        cfWhatIfWrong = "If the thinning is actually localized crack-like morphology rather than general wall loss, the failure mode changes from plastic collapse to sudden fracture.";
+        cfTest = "Targeted UT/PAUT with crack-detection setup at thinnest area + MT/PT at stress concentrations to confirm or rule out cracking.";
+      } else if (pmId.indexOf("fatigue") !== -1) {
+        cfWhatIfWrong = "If the indication is actually corrosion pitting or geometric artifact rather than fatigue crack, the urgency and failure mode change significantly.";
+        cfTest = "Surface preparation + PT/MT for crack confirmation. UT thickness grid to check for competing wall loss. If crack confirmed, TOFD/PAUT for depth sizing.";
+      } else if (pmId.indexOf("scc") !== -1 || pmId.indexOf("ssc") !== -1 || pmId.indexOf("hic") !== -1) {
+        cfTest = "Crack morphology evaluation (branching pattern = SCC, stepwise = HIC, linear = fatigue). Hardness survey at weld/HAZ. Metallographic replica if accessible.";
+        cfWhatIfWrong = "If the suspected environmental crack is actually mechanical fatigue or fabrication defect, the repair and monitoring strategy differs fundamentally.";
+      } else {
+        cfTest = "Additional characterization with complementary NDE method to confirm or rule out primary mechanism.";
+        cfWhatIfWrong = "If the primary mechanism is incorrect, downstream consequence and inspection recommendations may not address the actual risk.";
+      }
+
+      counterfactual = {
+        primary_mechanism: damage.primary.name,
+        what_if_wrong: cfWhatIfWrong,
+        strongest_alternative: cfAlt,
+        fastest_resolution_test: cfTest,
+        decision_critical_question: "Is the observed damage consistent with " + damage.primary.name + ", or could a competing mechanism (" + (damage.validated.length >= 2 ? damage.validated[1].name : "unknown") + ") better explain the findings?"
+      };
+    }
 
     var elapsedMs = Date.now() - startMs;
 
@@ -2246,6 +2326,7 @@ var handler: Handler = async function(event: HandlerEvent) {
             escalation_required: confidence.escalation_required,
             limiting_factors: confidence.limiting_factors,
             contradiction_flags: contradictions.flags,
+            counterfactual_challenge: counterfactual,
             confidence_narrative: confNarr
           },
           decision_reality: {
