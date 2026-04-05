@@ -1601,20 +1601,124 @@ function computeRealityConfidence(pC: number, dC: number, cC: number, aC: number
 // ============================================================================
 // CONTRADICTION DETECTOR
 // ============================================================================
-function detectContradictions(physics: any, damage: any, consequence: any, authority: any, inspection: any) {
+function detectContradictions(physics: any, damage: any, consequence: any, authority: any, inspection: any, transcript?: string) {
   var flags: string[] = []; var penalty = 0;
+  var lt = (transcript || "").toLowerCase();
+
+  // ============================================================================
+  // DEPLOY115: EXPANDED CONTRADICTION ENGINE
+  // Detects physics/damage/inspection conflicts that demand resolution.
+  // An elite system surfaces uncertainty — it doesn't hide it.
+  // ============================================================================
+
+  // --- PHYSICS-MECHANISM CONTRADICTIONS ---
   for (var vi = 0; vi < damage.validated.length; vi++) {
     var m = damage.validated[vi];
     if (m.id.indexOf("fatigue") !== -1 && !physics.stress.cyclic_loading) { flags.push("CONTRADICTION: Fatigue validated but no cyclic loading"); penalty += 0.15; }
     if (m.id.indexOf("corrosion") !== -1 && !physics.chemical.corrosive_environment) { flags.push("CONTRADICTION: Corrosion validated but no corrosive environment"); penalty += 0.12; }
     if (m.id.indexOf("creep") !== -1 && !physics.thermal.creep_range) { flags.push("CONTRADICTION: Creep validated but not in creep range"); penalty += 0.15; }
   }
+
+  // --- COMPETING MECHANISM CONFLICTS ---
+  var hasThinning = false; var hasCracking = false; var hasSCC = false;
+  var thinningScore = 0; var crackingScore = 0;
+  for (var ci = 0; ci < damage.validated.length; ci++) {
+    var dm = damage.validated[ci];
+    if (dm.id.indexOf("corrosion") !== -1 || dm.id.indexOf("pitting") !== -1 || dm.id === "erosion" || dm.id === "cui" || dm.id === "co2_corrosion") {
+      hasThinning = true; if (dm.reality_score > thinningScore) thinningScore = dm.reality_score;
+    }
+    if (dm.id.indexOf("fatigue") !== -1) {
+      hasCracking = true; if (dm.reality_score > crackingScore) crackingScore = dm.reality_score;
+    }
+    if (dm.id.indexOf("scc") !== -1 || dm.id.indexOf("ssc") !== -1 || dm.id.indexOf("hic") !== -1) {
+      hasSCC = true; hasCracking = true; if (dm.reality_score > crackingScore) crackingScore = dm.reality_score;
+    }
+  }
+  if (hasThinning && hasCracking && thinningScore >= 0.35 && crackingScore >= 0.35) {
+    flags.push("CONFLICT: Both thinning (" + roundN(thinningScore, 2) + ") and cracking (" + roundN(crackingScore, 2) + ") mechanisms are plausible. Different damage modes require different inspection approaches. Resolution needed before single-mechanism disposition.");
+    penalty += 0.08;
+  }
+
+  // --- ENVIRONMENT IMPLIES MECHANISM BUT EVIDENCE DOESN'T CONFIRM ---
+  if (physics.chemical.h2s_present && !hasSCC) {
+    flags.push("CONFLICT: H2S environment detected but no environmental cracking (SSC/HIC/SCC) validated. Absence of evidence is not evidence of absence — crack-specific NDE required to rule out.");
+    penalty += 0.06;
+  }
+  if (physics.chemical.caustic_present && !hasSCC) {
+    var hasCausticSCC = false;
+    for (var csi = 0; csi < damage.validated.length; csi++) { if (damage.validated[csi].id === "scc_caustic") hasCausticSCC = true; }
+    if (!hasCausticSCC) {
+      flags.push("CONFLICT: Caustic/amine environment detected but Caustic SCC not validated. Service conditions support environmental cracking concern.");
+      penalty += 0.05;
+    }
+  }
+
+  // --- METHOD-MECHANISM GAPS ---
+  if (hasCracking || hasSCC) {
+    var hasCrackMethod = false;
+    if (inspection.proposed_methods) {
+      for (var pm = 0; pm < inspection.proposed_methods.length; pm++) {
+        var mName = inspection.proposed_methods[pm].method || inspection.proposed_methods[pm];
+        if (mName === "MT" || mName === "PT" || mName === "PAUT" || mName === "TOFD" || mName === "ACFM" || mName === "ET") hasCrackMethod = true;
+      }
+    }
+    if (!hasCrackMethod) {
+      flags.push("CONFLICT: Cracking mechanism plausible but no crack-specific NDE method (MT/PT/PAUT/TOFD) in inspection plan. Cannot confirm or rule out cracking without appropriate method.");
+      penalty += 0.10;
+    }
+  }
+
+  // --- AMBIGUOUS NDE QUALITY SIGNALS (from transcript) ---
+  var ambiguitySignals: string[] = [];
+  if (lt.indexOf("jumpy") !== -1) ambiguitySignals.push("jumpy UT signal");
+  if (lt.indexOf("messy") !== -1) ambiguitySignals.push("messy coupling/signal");
+  if (lt.indexOf("hard to tell") !== -1) ambiguitySignals.push("indeterminate indication");
+  if (lt.indexOf("not sure") !== -1) ambiguitySignals.push("inspector uncertainty");
+  if (lt.indexOf("not super clean") !== -1 || lt.indexOf("not clean") !== -1) ambiguitySignals.push("unclear NDE result");
+  if (lt.indexOf("faint") !== -1) ambiguitySignals.push("faint/marginal indication");
+  if (lt.indexOf("might be") !== -1 || lt.indexOf("could be") !== -1 || lt.indexOf("or something") !== -1) ambiguitySignals.push("uncertain mechanism identification");
+  if (lt.indexOf("junk geometry") !== -1 || lt.indexOf("geometry artifact") !== -1) ambiguitySignals.push("possible geometry artifact");
+  if (lt.indexOf("doesn't look right") !== -1 || lt.indexOf("doesn't look right") !== -1) ambiguitySignals.push("visual anomaly uncharacterized");
+  if (ambiguitySignals.length >= 2) {
+    flags.push("CONFLICT: Multiple ambiguous NDE signals detected (" + ambiguitySignals.join(", ") + "). Investigation quality may be insufficient for definitive disposition. Targeted re-examination recommended.");
+    penalty += 0.07;
+  } else if (ambiguitySignals.length === 1) {
+    flags.push("WARNING: Ambiguous NDE signal: " + ambiguitySignals[0] + ". Confirmation or supplemental method recommended.");
+    penalty += 0.03;
+  }
+
+  // --- ASSET CLASSIFICATION + CONSEQUENCE CONFLICTS ---
   if (consequence.consequence_tier === "CRITICAL" && inspection.sufficiency_verdict !== "BLOCKED" && inspection.proposed_methods.length < 2) {
     flags.push("WARNING: CRITICAL consequence with <2 methods"); penalty += 0.05;
   }
   if (authority.code_gaps.length > 0 && (consequence.consequence_tier === "CRITICAL" || consequence.consequence_tier === "HIGH")) {
     flags.push("WARNING: Code gaps on " + consequence.consequence_tier + " asset"); penalty += 0.08;
   }
+
+  // --- INSPECTION INTERVAL ADEQUACY ---
+  if (physics.time.time_since_inspection_years && physics.time.time_since_inspection_years >= 5) {
+    if (hasThinning && thinningScore >= 0.5) {
+      flags.push("WARNING: " + physics.time.time_since_inspection_years + " years since last inspection with active thinning mechanism. Growth rate and interval adequacy should be evaluated — damage may have accelerated since prior clean inspection.");
+      penalty += 0.04;
+    }
+  }
+
+  // --- HIGH DAMAGE + LOW METHOD CONFIDENCE ---
+  if (damage.damage_confidence >= 0.6 && inspection.inspection_confidence < 0.6) {
+    flags.push("CONFLICT: Damage confidence (" + roundN(damage.damage_confidence, 2) + ") exceeds inspection confidence (" + roundN(inspection.inspection_confidence, 2) + "). Methods may not be adequate to characterize the identified damage mechanisms.");
+    penalty += 0.06;
+  }
+
+  // --- MULTIPLE UNVERIFIED MECHANISMS ON HIGH CONSEQUENCE ---
+  var unverifiedCount = 0;
+  for (var uvi = 0; uvi < damage.validated.length; uvi++) {
+    if (damage.validated[uvi].reality_state === "unverified" || damage.validated[uvi].reality_state === "possible") unverifiedCount++;
+  }
+  if (unverifiedCount >= 3 && (consequence.consequence_tier === "HIGH" || consequence.consequence_tier === "CRITICAL")) {
+    flags.push("WARNING: " + unverifiedCount + " unverified/possible mechanisms on " + consequence.consequence_tier + " asset. Mechanism set not sufficiently resolved for confident disposition.");
+    penalty += 0.05;
+  }
+
   if (penalty > 0.4) penalty = 0.4;
   return { flags: flags, penalty: roundN(penalty, 2) };
 }
@@ -1974,7 +2078,7 @@ var handler: Handler = async function(event: HandlerEvent) {
     var authority = resolveAuthorityReality(assetClass, transcript, consequence, physics);
     var inspection = resolveInspectionReality(damage, consequence, physics, transcript, confirmedFlags);
     var computations = runPhysicsComputations(physics, numVals, assetClass, consequence);
-    var contradictions = detectContradictions(physics, damage, consequence, authority, inspection);
+    var contradictions = detectContradictions(physics, damage, consequence, authority, inspection, transcript);
     var confidence = computeRealityConfidence(
       physics.physics_confidence, damage.damage_confidence, consequence.consequence_confidence,
       authority.authority_confidence, inspection.inspection_confidence, contradictions.penalty);
