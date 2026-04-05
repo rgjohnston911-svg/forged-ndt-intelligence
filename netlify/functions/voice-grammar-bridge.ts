@@ -36,11 +36,11 @@ var NDE_METHOD_KEYWORDS: any = {
   "UT": ["ultrasonic", "ut ", "ut,", "ut.", "thickness gauge", "thickness reading", "a-scan", "b-scan"],
   "PAUT": ["phased array", "paut", "pa ut"],
   "TOFD": ["time of flight", "tofd"],
-  "MT": ["magnetic particle", "mt ", "mt,", "mag particle", "mag test", "yoke"],
+  "MT": ["magnetic particle", " mt ", " mt,", " mt.", "mag particle", "mag test", "yoke"],
   "PT": ["penetrant", "pt ", "pt,", "dye pen", "liquid penetrant"],
   "RT": ["radiography", "rt ", "rt,", "x-ray", "xray", "gamma"],
   "VT": ["visual", "vt ", "vt,", "visual inspection"],
-  "ET": ["eddy current", "et ", "et,"],
+  "ET": ["eddy current", " et ", " et,"],
   "AE": ["acoustic emission", "ae "],
   "HARDNESS": ["hardness", "brinell", "rockwell", "vickers", "portable hardness"]
 };
@@ -59,7 +59,7 @@ var FINDING_TYPE_KEYWORDS: any = {
 };
 
 var SERVICE_FLUID_KEYWORDS: any = {
-  "amine": ["amine", "mdea", "dea", "mea", "lean amine", "rich amine"],
+  "amine": ["amine", "mdea", " dea ", " mea ", "lean amine", "rich amine"],
   "hydrogen": ["hydrogen", "hydro", "h2"],
   "h2s": ["h2s", "sour", "hydrogen sulfide"],
   "crude": ["crude", "crude oil"],
@@ -81,7 +81,7 @@ var LOCATION_KEYWORDS: any = {
   "intrados": ["intrados", "inside curve", "6 o'clock", "6 oclock"],
   "extrados": ["extrados", "outside curve", "12 o'clock", "12 oclock"],
   "dead_leg": ["dead leg", "dead-leg"],
-  "tee": ["tee", "tee junction"],
+  "tee": [" tee ", " tee,", " tee.", "pipe tee", "tee junction"],
   "reducer": ["reducer", "transition"],
   "bottom": ["bottom", "bottom flange", "floor", "tank bottom"],
   "connection": ["connection", "tie-in", "attachment"]
