@@ -10,6 +10,10 @@
 // DEPLOY115 FIX 4: Piping lock — reactor/exchanger mentions no longer override established piping
 //                   classification. "Hot hydro line coming off the reactor" = piping, not vessel.
 //                   Added process context: hydro, intrados, downstream, upstream
+// DEPLOY115 FIX 5: Structural domain lock — bridges/offshore NEVER reclassified as piping/vessel.
+//                   Prevents "steel" matching "tee", "line at weld toe" matching piping "line".
+//                   Structural signals: girder, bridge, span, train, coal, gusset, brace, web, etc.
+//                   Unknown assets auto-lock to bridge if 2+ bridge signals detected.
 // v2.3: Industrial Context Intelligence Layer + Event-to-Physics Translation
 // Context inference: hydrocracking→H2S+hydrogen, amine→H2S+caustic, etc.
 // Event translation: rapid cooldown→thermal cycling, emergency shutdown, etc.
@@ -1862,21 +1866,56 @@ var handler: Handler = async function(event: HandlerEvent) {
       }
       isHyperbaricLocked = true;
     }
-    if (!isHyperbaricLocked && (hasWord(lt_handler, "hydrocracker") || hasWord(lt_handler, "hydrotreater") || hasWord(lt_handler, "reactor vessel") || hasWord(lt_handler, "delayed coker"))) {
+
+    // ============================================================================
+    // DEPLOY115: STRUCTURAL DOMAIN LOCK
+    // Prevents piping/vessel/tank overrides when the asset is structural.
+    // A bridge is NEVER treated as piping. A structural girder is NEVER a vessel.
+    // Structural lock fires when upstream classification is structural AND
+    // transcript contains structural signals confirming the domain.
+    // ============================================================================
+    var isStructuralLocked = false;
+    var isStructuralAsset = assetClass === "bridge" || assetClass === "rail_bridge" || assetClass === "bridge_steel" || assetClass === "bridge_concrete" || assetClass === "offshore_platform";
+    if (!isHyperbaricLocked && isStructuralAsset) {
+      var structuralSignals = hasWord(lt_handler, "girder") || hasWord(lt_handler, "bridge") || hasWord(lt_handler, "span") || hasWord(lt_handler, "deck") || hasWord(lt_handler, "truss") || hasWord(lt_handler, "abutment") || hasWord(lt_handler, "pier") || hasWord(lt_handler, "train") || hasWord(lt_handler, "coal") || hasWord(lt_handler, "railroad") || hasWord(lt_handler, "railway") || hasWord(lt_handler, "traffic") || hasWord(lt_handler, "gusset") || hasWord(lt_handler, "brace") || hasWord(lt_handler, "stringer") || hasWord(lt_handler, "floor beam") || hasWord(lt_handler, "web") || hasWord(lt_handler, "lower chord") || hasWord(lt_handler, "upper chord") || hasWord(lt_handler, "diaphragm") || hasWord(lt_handler, "bearing pad") || hasWord(lt_handler, "jacket leg") || hasWord(lt_handler, "platform") || hasWord(lt_handler, "riser") || hasWord(lt_handler, "caisson") || hasWord(lt_handler, "boat landing") || hasWord(lt_handler, "splash zone");
+      if (structuralSignals) {
+        isStructuralLocked = true;
+      }
+    }
+    // Also lock structural if transcript has overwhelming structural evidence even if
+    // upstream classification was wrong (e.g. "unknown" but clearly a bridge)
+    if (!isHyperbaricLocked && !isStructuralLocked && assetClass === "unknown") {
+      var bridgeSignalCount = 0;
+      if (hasWord(lt_handler, "girder")) bridgeSignalCount++;
+      if (hasWord(lt_handler, "bridge")) bridgeSignalCount++;
+      if (hasWord(lt_handler, "span")) bridgeSignalCount++;
+      if (hasWord(lt_handler, "train") || hasWord(lt_handler, "railroad") || hasWord(lt_handler, "railway")) bridgeSignalCount++;
+      if (hasWord(lt_handler, "gusset")) bridgeSignalCount++;
+      if (hasWord(lt_handler, "truss")) bridgeSignalCount++;
+      if (hasWord(lt_handler, "abutment")) bridgeSignalCount++;
+      if (bridgeSignalCount >= 2) {
+        assetClass = "bridge";
+        assetCorrected = true;
+        assetCorrectionReason = "Structural domain lock: " + bridgeSignalCount + " bridge signals detected. Overriding to bridge.";
+        isStructuralLocked = true;
+      }
+    }
+
+    if (!isHyperbaricLocked && !isStructuralLocked && (hasWord(lt_handler, "hydrocracker") || hasWord(lt_handler, "hydrotreater") || hasWord(lt_handler, "reactor vessel") || hasWord(lt_handler, "delayed coker"))) {
       if (assetClass !== "pressure_vessel") {
         assetClass = "pressure_vessel";
         assetCorrected = true;
         assetCorrectionReason = "Transcript describes process reactor/hydrocracker. Overriding to pressure_vessel.";
       }
     }
-    if (!isHyperbaricLocked && (hasWord(lt_handler, "boiler") || hasWord(lt_handler, "steam drum") || hasWord(lt_handler, "economizer"))) {
+    if (!isHyperbaricLocked && !isStructuralLocked && (hasWord(lt_handler, "boiler") || hasWord(lt_handler, "steam drum") || hasWord(lt_handler, "economizer"))) {
       if (assetClass !== "pressure_vessel" && assetClass !== "boiler") {
         assetClass = "pressure_vessel";
         assetCorrected = true;
         assetCorrectionReason = "Transcript describes boiler/steam equipment. Overriding to pressure_vessel.";
       }
     }
-    if (!isHyperbaricLocked && (hasWord(lt_handler, "pipe") || hasWord(lt_handler, "piping") || hasWord(lt_handler, "pipeline")) && assetClass !== "piping" && assetClass !== "pipeline") {
+    if (!isHyperbaricLocked && !isStructuralLocked && (hasWord(lt_handler, "pipe") || hasWord(lt_handler, "piping") || hasWord(lt_handler, "pipeline")) && assetClass !== "piping" && assetClass !== "pipeline") {
       if (assetClass === "unknown" || assetClass === "bridge_concrete" || assetClass === "bridge") {
         assetClass = "piping";
         assetCorrected = true;
@@ -1886,9 +1925,11 @@ var handler: Handler = async function(event: HandlerEvent) {
     // FIELD LANGUAGE PIPING OVERRIDE — v2.3
     // Field inspectors say "line" not "piping". "amine line", "steam line", "process line"
     // If transcript says "[process] line" + no vessel/tank/drum keywords → piping
-    if (!isHyperbaricLocked && assetClass !== "piping" && assetClass !== "pipeline") {
+    // DEPLOY115: Structural lock prevents this from firing on bridges/structures
+    // DEPLOY115: "tee" check uses " tee" with leading space to prevent "steel" false positive
+    if (!isHyperbaricLocked && !isStructuralLocked && assetClass !== "piping" && assetClass !== "pipeline") {
       var hasLineWord = hasWord(lt_handler, "line") || hasWord(lt_handler, "pipe");
-      var hasProcessContext = hasWord(lt_handler, "amine") || hasWord(lt_handler, "steam") || hasWord(lt_handler, "process") || hasWord(lt_handler, "sour") || hasWord(lt_handler, "flare") || hasWord(lt_handler, "condensate") || hasWord(lt_handler, "caustic") || hasWord(lt_handler, "hydrogen") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || hasWord(lt_handler, "tee") || hasWord(lt_handler, "reducer") || hasWord(lt_handler, "dead leg") || hasWord(lt_handler, "hydro") || hasWord(lt_handler, "intrados") || hasWord(lt_handler, "downstream") || hasWord(lt_handler, "upstream");
+      var hasProcessContext = hasWord(lt_handler, "amine") || hasWord(lt_handler, "steam") || hasWord(lt_handler, "process") || hasWord(lt_handler, "sour") || hasWord(lt_handler, "flare") || hasWord(lt_handler, "condensate") || hasWord(lt_handler, "caustic") || hasWord(lt_handler, "hydrogen") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || (lt_handler.indexOf(" tee ") !== -1 || lt_handler.indexOf(" tee,") !== -1 || lt_handler.indexOf(" tee.") !== -1 || lt_handler.indexOf("pipe tee") !== -1) || hasWord(lt_handler, "reducer") || hasWord(lt_handler, "dead leg") || hasWord(lt_handler, "hydro") || hasWord(lt_handler, "intrados") || hasWord(lt_handler, "downstream") || hasWord(lt_handler, "upstream");
       var hasVesselEvidence = hasWord(lt_handler, "vessel") || hasWord(lt_handler, "drum") || hasWord(lt_handler, "tank") || hasWord(lt_handler, "shell side") || hasWord(lt_handler, "tube side") || hasWord(lt_handler, "head") && hasWord(lt_handler, "shell") || hasWord(lt_handler, "nozzle") && !hasWord(lt_handler, "pipe nozzle");
       if (hasLineWord && hasProcessContext && !hasVesselEvidence) {
         assetClass = "piping";
@@ -1896,7 +1937,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         assetCorrectionReason = "Field language indicates piping (process line/pipe + no vessel evidence). Overriding upstream classification (" + (asset.asset_class || "unknown") + ") to piping.";
       }
     }
-    if (!isHyperbaricLocked && (hasWord(lt_handler, "storage tank") || hasWord(lt_handler, "aboveground storage") || hasWord(lt_handler, "aboveground tank")) && assetClass !== "tank") {
+    if (!isHyperbaricLocked && !isStructuralLocked && (hasWord(lt_handler, "storage tank") || hasWord(lt_handler, "aboveground storage") || hasWord(lt_handler, "aboveground tank")) && assetClass !== "tank") {
       assetClass = "tank";
       assetCorrected = true;
       assetCorrectionReason = "Transcript describes storage tank.";
@@ -1904,7 +1945,7 @@ var handler: Handler = async function(event: HandlerEvent) {
     // DEPLOY115: Piping lock — if piping was established by field language evidence above,
     // reactor/exchanger mentions (which the piping connects TO) should not override.
     // "Hot hydro line coming off the reactor" = the LINE is the asset, not the reactor.
-    if (!isHyperbaricLocked && assetClass !== "piping" && assetClass !== "pipeline" && (hasWord(lt_handler, "pressure vessel") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "heat exchanger") || hasWord(lt_handler, "autoclave")) && assetClass !== "pressure_vessel") {
+    if (!isHyperbaricLocked && !isStructuralLocked && assetClass !== "piping" && assetClass !== "pipeline" && (hasWord(lt_handler, "pressure vessel") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "heat exchanger") || hasWord(lt_handler, "autoclave")) && assetClass !== "pressure_vessel") {
       assetClass = "pressure_vessel";
       assetCorrected = true;
       assetCorrectionReason = "Transcript describes pressure equipment. Overriding to pressure_vessel.";
