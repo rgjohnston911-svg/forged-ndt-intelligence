@@ -902,12 +902,29 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     opImpact = "Routine inspection — no immediate operational impact established";
   }
 
+  var isStructuralAssetType = assetClass === "bridge" || assetClass === "rail_bridge" || assetClass === "bridge_steel" || assetClass === "bridge_concrete" || assetClass === "offshore_platform";
+
   if (damage.primary) {
     var pm = damage.primary.id;
+    // ============================================================================
+    // DEPLOY115: DOMAIN-AWARE FAILURE PHYSICS NARRATIVES
+    // Structural assets (bridges, offshore) use structural failure language.
+    // Pressure systems (piping, vessels) use pressure failure language.
+    // A bridge does not have hoop stress or pinhole leaks.
+    // ============================================================================
+
     if (pm.indexOf("fatigue") !== -1) {
-      failPhysics = "Fatigue crack propagation per Paris Law. Cyclic stress drives incremental growth at stress concentrations. Critical crack size determined by fracture toughness vs applied stress. Failure mode: leak-before-break (ductile) or catastrophic burst (insufficient toughness).";
+      if (isStructuralAssetType) {
+        failPhysics = "Fatigue crack propagation at stress concentrations under cyclic loading (traffic, wind, operational). Crack grows incrementally per cycle until remaining section cannot sustain applied loads. Failure mode: member fracture, connection failure, or load path disruption.";
+      } else {
+        failPhysics = "Fatigue crack propagation per Paris Law. Cyclic stress drives incremental growth at stress concentrations. Critical crack size determined by fracture toughness vs applied stress. Failure mode: leak-before-break (ductile) or catastrophic burst (insufficient toughness).";
+      }
     } else if (pm.indexOf("corrosion") !== -1 || pm.indexOf("pitting") !== -1 || pm === "co2_corrosion" || pm === "cui" || pm === "erosion") {
-      failPhysics = "Progressive wall thinning reduces load-bearing section. When remaining wall falls below minimum for hoop stress, failure occurs as plastic collapse or pinhole leak.";
+      if (isStructuralAssetType) {
+        failPhysics = "Progressive section loss reduces load-carrying capacity. When remaining section falls below minimum for applied loads, failure occurs as local buckling, member instability, or connection failure. Section loss at critical locations (flange, web, connection) is more consequential than uniform loss.";
+      } else {
+        failPhysics = "Progressive wall thinning reduces load-bearing section. When remaining wall falls below minimum for hoop stress, failure occurs as plastic collapse or pinhole leak.";
+      }
     } else if (pm.indexOf("scc") !== -1 || pm.indexOf("ssc") !== -1) {
       failPhysics = "Environmentally-assisted crack propagation under sustained tensile stress. Growth rate depends on stress intensity, environment, and material susceptibility. Failure can be sudden.";
     } else if (pm === "overload_buckling") {
@@ -918,7 +935,7 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   }
   if (!failPhysics) failPhysics = "Damage progression reduces integrity below safe operating threshold.";
 
-  if (physics.stress.cyclic_loading && physics.stress.stress_concentration_present && physics.energy.stored_energy_significant) {
+  if (physics.stress.cyclic_loading && physics.stress.stress_concentration_present && physics.energy.stored_energy_significant && !isStructuralAssetType) {
     // ============================================================================
     // DEPLOY115: EVIDENCE-ANCHORED PHYSICS OVERRIDE
     // Previously this override replaced ANY wall-thinning narrative with fatigue/Paris Law
