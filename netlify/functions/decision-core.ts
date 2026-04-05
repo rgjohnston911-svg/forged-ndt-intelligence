@@ -1,10 +1,15 @@
 // DEPLOY115 — decision-core.ts v2.3.1
 // v2.3.1: Evidence Hierarchy — OBSERVED vs SUSPECTED scoring fix
 // DEPLOY115 FIX 1: Wall loss evidence detection (wallLossReported, wallLossQuantified, wallLossMeasuredByNDE)
+//   Includes field slang: "thinned out", "% down", "eating", "washed out", "corroded", "pitted"
 // DEPLOY115 FIX 2: Corrosion mechanisms boosted when wall loss is measured by NDE
 //                   Crack/fatigue mechanisms penalized when cracking is only "suspected" not confirmed
+//                   Environmental cracking (SCC/SSC/HIC) gets gentler penalty than fatigue
 // DEPLOY115 FIX 3: Physics narrative override constrained — no longer flips corrosion/thinning
 //                   narrative to fatigue/Paris Law on piping where cyclic+stress_conc are implied defaults
+// DEPLOY115 FIX 4: Piping lock — reactor/exchanger mentions no longer override established piping
+//                   classification. "Hot hydro line coming off the reactor" = piping, not vessel.
+//                   Added process context: hydro, intrados, downstream, upstream
 // v2.3: Industrial Context Intelligence Layer + Event-to-Physics Translation
 // Context inference: hydrocracking→H2S+hydrogen, amine→H2S+caustic, etc.
 // Event translation: rapid cooldown→thermal cycling, emergency shutdown, etc.
@@ -575,11 +580,12 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
   // Distinguishes OBSERVED (measured by NDE) from SUSPECTED (reported concern).
   // Measured wall loss from UT/thickness gauging is the strongest thinning evidence.
   // "Cracking suspected" is NOT the same as "crack confirmed by NDE".
+  // Field inspectors use slang: "thinned out", "35% down", "eating itself up"
   // ============================================================================
-  var wallLossReported = hasWord(lt, "wall loss") || hasWord(lt, "metal loss") || hasWord(lt, "thinning") || hasWord(lt, "wall thinning") || hasWord(lt, "thickness loss");
-  var wallLossQuantified = wallLossReported && (/\d+\s*(?:percent|%)\s*(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss)\s*(?:of\s*)?\d+/i.test(transcript));
-  var wallLossMeasuredByNDE = wallLossReported && (hasWord(lt, "ultrasonic") || hasWord(lt, "ut ") || hasWord(lt, "thickness reading") || hasWord(lt, "thickness survey") || hasWord(lt, "paut") || hasWord(lt, "scan") || hasWord(lt, "found") || hasWord(lt, "measured") || hasWord(lt, "inspection found"));
-  var crackingSuspectedOnly = (hasWord(lt, "crack") || hasWord(lt, "cracking")) && (hasWord(lt, "suspected") || hasWord(lt, "possible") || hasWord(lt, "potential") || hasWord(lt, "concern") || hasWord(lt, "may be")) && !hasWord(lt, "crack confirmed") && !hasWord(lt, "cracking confirmed") && !(!!fl.crack_confirmed);
+  var wallLossReported = hasWord(lt, "wall loss") || hasWord(lt, "metal loss") || hasWord(lt, "thinning") || hasWord(lt, "wall thinning") || hasWord(lt, "thickness loss") || hasWord(lt, "thinned") || hasWord(lt, "thinned out") || hasWord(lt, "corroded") || hasWord(lt, "pitted") || hasWord(lt, "washed out") || hasWord(lt, "eating") || hasWord(lt, "reduced thickness") || hasWord(lt, "reduced wall") || /\d+\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript);
+  var wallLossQuantified = wallLossReported && (/\d+\s*(?:percent|%)\s*(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss|down|loss|gone|reduced)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss)\s*(?:of\s*)?\d+/i.test(transcript) || /\d+[-\u2013\u2014]?\d*\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript));
+  var wallLossMeasuredByNDE = wallLossReported && (hasWord(lt, "ultrasonic") || hasWord(lt, "ut ") || hasWord(lt, "ut grid") || hasWord(lt, "thickness reading") || hasWord(lt, "thickness survey") || hasWord(lt, "paut") || hasWord(lt, "scan") || hasWord(lt, "found") || hasWord(lt, "measured") || hasWord(lt, "inspection found") || hasWord(lt, "shows"));
+  var crackingSuspectedOnly = (hasWord(lt, "crack") || hasWord(lt, "cracking")) && (hasWord(lt, "suspected") || hasWord(lt, "possible") || hasWord(lt, "potential") || hasWord(lt, "concern") || hasWord(lt, "may be") || hasWord(lt, "might be") || hasWord(lt, "or something") || hasWord(lt, "hard to tell") || hasWord(lt, "not sure") || hasWord(lt, "not clean") || hasWord(lt, "junk geometry")) && !hasWord(lt, "crack confirmed") && !hasWord(lt, "cracking confirmed") && !(!!fl.crack_confirmed);
   var s = physics.stress; var t = physics.thermal; var c = physics.chemical; var e = physics.energy;
 
   var preCheckMap: any = {
@@ -1882,7 +1888,7 @@ var handler: Handler = async function(event: HandlerEvent) {
     // If transcript says "[process] line" + no vessel/tank/drum keywords → piping
     if (!isHyperbaricLocked && assetClass !== "piping" && assetClass !== "pipeline") {
       var hasLineWord = hasWord(lt_handler, "line") || hasWord(lt_handler, "pipe");
-      var hasProcessContext = hasWord(lt_handler, "amine") || hasWord(lt_handler, "steam") || hasWord(lt_handler, "process") || hasWord(lt_handler, "sour") || hasWord(lt_handler, "flare") || hasWord(lt_handler, "condensate") || hasWord(lt_handler, "caustic") || hasWord(lt_handler, "hydrogen") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || hasWord(lt_handler, "tee") || hasWord(lt_handler, "reducer") || hasWord(lt_handler, "dead leg");
+      var hasProcessContext = hasWord(lt_handler, "amine") || hasWord(lt_handler, "steam") || hasWord(lt_handler, "process") || hasWord(lt_handler, "sour") || hasWord(lt_handler, "flare") || hasWord(lt_handler, "condensate") || hasWord(lt_handler, "caustic") || hasWord(lt_handler, "hydrogen") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || hasWord(lt_handler, "tee") || hasWord(lt_handler, "reducer") || hasWord(lt_handler, "dead leg") || hasWord(lt_handler, "hydro") || hasWord(lt_handler, "intrados") || hasWord(lt_handler, "downstream") || hasWord(lt_handler, "upstream");
       var hasVesselEvidence = hasWord(lt_handler, "vessel") || hasWord(lt_handler, "drum") || hasWord(lt_handler, "tank") || hasWord(lt_handler, "shell side") || hasWord(lt_handler, "tube side") || hasWord(lt_handler, "head") && hasWord(lt_handler, "shell") || hasWord(lt_handler, "nozzle") && !hasWord(lt_handler, "pipe nozzle");
       if (hasLineWord && hasProcessContext && !hasVesselEvidence) {
         assetClass = "piping";
@@ -1895,7 +1901,10 @@ var handler: Handler = async function(event: HandlerEvent) {
       assetCorrected = true;
       assetCorrectionReason = "Transcript describes storage tank.";
     }
-    if (!isHyperbaricLocked && (hasWord(lt_handler, "pressure vessel") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "heat exchanger") || hasWord(lt_handler, "autoclave")) && assetClass !== "pressure_vessel") {
+    // DEPLOY115: Piping lock — if piping was established by field language evidence above,
+    // reactor/exchanger mentions (which the piping connects TO) should not override.
+    // "Hot hydro line coming off the reactor" = the LINE is the asset, not the reactor.
+    if (!isHyperbaricLocked && assetClass !== "piping" && assetClass !== "pipeline" && (hasWord(lt_handler, "pressure vessel") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "heat exchanger") || hasWord(lt_handler, "autoclave")) && assetClass !== "pressure_vessel") {
       assetClass = "pressure_vessel";
       assetCorrected = true;
       assetCorrectionReason = "Transcript describes pressure equipment. Overriding to pressure_vessel.";
