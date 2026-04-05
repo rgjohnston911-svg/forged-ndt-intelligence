@@ -1,16 +1,9 @@
-﻿// DEPLOY100 — VoiceInspectionPage.tsx v12.0
-// PHYSICS-FIRST DECISION CORE — Frontend Integration
-// 4 API calls (parse, asset+reality-lock, decision-core, narrative)
-// 9 physics-grounded cards replacing 14+ scattered engine cards
-// Evidence Confirmation retained between asset resolution and decision-core
+// DEPLOY108 — VoiceInspectionPage.tsx v13.1
+// FIX: voice-incident-plan call now passes decisionResult directly (DEPLOY107 path 1)
+// FIX: engine version string updated to v2.1 in report generator
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
-
-// DEPLOY100b — generateReport.ts
-// Generates a print-ready HTML inspection report from Decision Core output
-// Opens in new browser window for Save as PDF / Print
-// NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 function generateInspectionReport(data: {
   transcript: string;
@@ -78,18 +71,15 @@ function generateInspectionReport(data: {
   html += ".print-btn:hover { background: #1d4ed8; }";
   html += "</style></head><body>";
 
-  // Print button
   html += "<button class='print-btn no-print' onclick='window.print()'>Save as PDF / Print</button>";
 
-  // HEADER
   html += "<div class='header'>";
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Plan Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>Engine: physics-first-decision-core v2.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>Engine: physics-first-decision-core v2.1 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
-  // META GRID
   html += "<div class='meta-grid'>";
   var displayAssetClass = data.asset?.asset_class || "unknown";
   var assetNote = "";
@@ -103,7 +93,6 @@ function generateInspectionReport(data: {
   html += "<div class='meta-box'><div class='meta-label'>Primary Authority</div><div class='meta-value'>" + esc(auth.primary_authority) + "</div></div>";
   html += "</div>";
 
-  // REALITY CONFIDENCE
   html += "<div class='section'>";
   html += "<div class='section-title'>Reality Confidence</div>";
   html += "<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>";
@@ -128,7 +117,6 @@ function generateInspectionReport(data: {
   }
   html += "</div>";
 
-  // CONSEQUENCE REALITY
   html += "<div class='section'>";
   html += "<div class='section-title'>Consequence Reality</div>";
   html += "<div class='banner' style='background:" + tierColor + "'>" + esc(con.consequence_tier) + " CONSEQUENCE</div>";
@@ -140,7 +128,6 @@ function generateInspectionReport(data: {
   if (con.damage_trajectory) html += "<div style='margin-top:6px;font-size:11px;'><strong>Trajectory:</strong> " + esc(con.damage_trajectory) + "</div>";
   html += "</div>";
 
-  // PHYSICAL REALITY
   html += "<div class='section'>";
   html += "<div class='section-title'>Physical Reality (confidence: " + Math.round(phy.physics_confidence * 100) + "%)</div>";
   html += "<div style='padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;margin-bottom:8px;font-size:11px;'>" + esc(phy.physics_summary) + "</div>";
@@ -157,7 +144,6 @@ function generateInspectionReport(data: {
   }
   html += "</div>";
 
-  // DAMAGE REALITY
   html += "<div class='section'>";
   html += "<div class='section-title'>Damage Reality (" + (dmg.validated_mechanisms?.length || 0) + " validated, " + (dmg.rejected_mechanisms?.length || 0) + " impossible)</div>";
   if (dmg.primary_mechanism) {
@@ -179,7 +165,6 @@ function generateInspectionReport(data: {
   }
   html += "</div>";
 
-  // INSPECTION REALITY
   html += "<div class='section'>";
   html += "<div class='section-title'>Inspection Reality</div>";
   var inspColor = insp.sufficiency_verdict === "BLOCKED" ? "#dc2626" : insp.sufficiency_verdict === "INSUFFICIENT" ? "#ea580c" : "#16a34a";
@@ -196,7 +181,6 @@ function generateInspectionReport(data: {
   }
   html += "</div>";
 
-  // DECISION REALITY + GATES
   html += "<div class='section'>";
   html += "<div class='section-title'>Decision</div>";
   var decColor = dec.disposition === "no_go" ? "#dc2626" : dec.disposition === "hold_for_review" || dec.disposition === "engineering_review_required" ? "#ca8a04" : "#16a34a";
@@ -213,7 +197,6 @@ function generateInspectionReport(data: {
   }
   html += "</div>";
 
-  // GUIDED RECOVERY
   if (dec.guided_recovery && dec.guided_recovery.length > 0) {
     html += "<div class='section'>";
     html += "<div class='section-title'>Guided Recovery (" + dec.guided_recovery.length + " actions)</div>";
@@ -224,7 +207,6 @@ function generateInspectionReport(data: {
     html += "</div>";
   }
 
-  // AI NARRATIVE
   if (data.aiNarrative) {
     html += "<div class='section'>";
     html += "<div class='section-title'>AI Narrative Summary (GPT-4o constrained by physics core)</div>";
@@ -232,27 +214,23 @@ function generateInspectionReport(data: {
     html += "</div>";
   }
 
-  // ORIGINAL TRANSCRIPT
   html += "<div class='section'>";
   html += "<div class='section-title'>Original Input Transcript</div>";
   html += "<div style='padding:10px;background:#f9fafb;border-radius:6px;font-size:11px;white-space:pre-wrap;border:1px solid #e5e7eb;'>" + esc(data.transcript) + "</div>";
   html += "</div>";
 
-  // SIGNATURES
   html += "<div class='sig-line'>";
   html += "<div class='sig-box'><div class='sig-label'>Inspector</div><div style='height:24px;'></div><div class='sig-label'>Date</div></div>";
   html += "<div class='sig-box'><div class='sig-label'>Reviewed By</div><div style='height:24px;'></div><div class='sig-label'>Date</div></div>";
   html += "</div>";
 
-  // FOOTER
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
   html += "Generated by FORGED NDT Intelligence OS - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
-  html += "<br/>Engine: physics-first-decision-core v2.0 | Klein Bottle Architecture | " + (dc.klein_bottle_states || 6) + " states";
+  html += "<br/>Engine: physics-first-decision-core v2.1 | Klein Bottle Architecture | " + (dc.klein_bottle_states || 6) + " states";
   html += "</div>";
 
   html += "</body></html>";
 
-  // Open in new window
   var reportWindow = window.open("", "_blank");
   if (reportWindow) {
     reportWindow.document.write(html);
@@ -276,7 +254,7 @@ async function callAPI(endpoint: string, body: any): Promise<any> {
 }
 
 // ============================================================================
-// EVIDENCE FLAG DEFINITIONS (same as before — for confirmation card)
+// EVIDENCE FLAG DEFINITIONS
 // ============================================================================
 interface EvidenceFlagDef { key: string; label: string; group: string; type: "boolean" | "number"; hardLockCritical: boolean; description: string; }
 var CONFIRMABLE_FLAGS: EvidenceFlagDef[] = [
@@ -401,7 +379,7 @@ function StepTracker({ steps }: { steps: StepState[] }) {
 }
 
 // ============================================================================
-// EVIDENCE CONFIRMATION CARD (simplified from original)
+// EVIDENCE CONFIRMATION CARD
 // ============================================================================
 function EvidenceConfirmationCard({ evidence, onConfirm, onSkip, isGenerating }: { evidence: any; onConfirm: (confirmed: any) => void; onSkip: () => void; isGenerating: boolean }) {
   var [edited, setEdited] = useState<any>({ ...evidence });
@@ -481,7 +459,6 @@ export default function VoiceInspectionPage() {
   var [evidenceConfirmPending, setEvidenceConfirmPending] = useState(false);
   var [preliminaryEvidence, setPreliminaryEvidence] = useState<any>(null);
 
-  // API results
   var [parsed, setParsed] = useState<any>(null);
   var [asset, setAsset] = useState<any>(null);
   var [realityLock, setRealityLock] = useState<any>(null);
@@ -571,7 +548,6 @@ export default function VoiceInspectionPage() {
     } catch(ex) {} finally { setMaterialsLoading(false); }
   };
 
-  // Refs for continuation
   var parsedRef = useRef<any>(null);
   var assetRef = useRef<any>(null);
   var stepsRef = useRef<StepState[]>([]);
@@ -600,7 +576,7 @@ export default function VoiceInspectionPage() {
   }
 
   // ============================================================================
-  // PHASE 1: Parse + Asset + Reality Lock → Evidence Confirmation
+  // PHASE 1: Parse + Asset + Reality Lock
   // ============================================================================
   async function handleGenerate(transcriptOverride?: string) {
     var inputText = transcriptOverride || transcript;
@@ -626,7 +602,6 @@ export default function VoiceInspectionPage() {
     var assetResult: any = null;
 
     try {
-      // ====== PARALLEL: parse + asset ======
       s = updateStep(0, { status: "running" }, s); s = updateStep(1, { status: "running" }, s); setSteps(s.slice());
 
       var [parseRes, assetRes] = await Promise.allSettled([
@@ -640,7 +615,6 @@ export default function VoiceInspectionPage() {
         if (parseRes.value.needs_input && parseRes.value.questions) {
           setAiQuestions(parseRes.value.questions);
           setAiUnderstood(parseRes.value.understood || "");
-          // Pause pipeline for questions
           for (var wi = 2; wi < s.length; wi++) s = updateStep(wi, { status: "waiting", detail: "waiting for answers" }, s);
           s = updateStep(0, { status: "done", detail: (parsedResult?.events?.length || 0) + " events" }, s);
           if (assetRes.status === "fulfilled") {
@@ -663,7 +637,6 @@ export default function VoiceInspectionPage() {
       if (assetRes.status === "fulfilled") {
         assetResult = assetRes.value.resolved || assetRes.value;
         setAsset(assetResult);
-        // Reality lock (inline — uses same call or separate)
         try {
           var rlRes = await callAPI("reality-lock", {
             transcript: inputText,
@@ -688,7 +661,6 @@ export default function VoiceInspectionPage() {
       }
       setSteps(s.slice());
 
-      // ====== EVIDENCE CONFIRMATION PAUSE ======
       parsedRef.current = parsedResult;
       assetRef.current = assetResult;
       stepsRef.current = s;
@@ -711,7 +683,8 @@ export default function VoiceInspectionPage() {
   }
 
   // ============================================================================
-  // PHASE 2: Decision Core + AI Narrative (after evidence confirmation)
+  // PHASE 2: Decision Core + AI Narrative
+  // DEPLOY108: voice-incident-plan now receives decisionResult directly
   // ============================================================================
   async function continuePipeline(confirmedFlags: any) {
     setIsGenerating(true); setEvidenceConfirmPending(false);
@@ -722,7 +695,6 @@ export default function VoiceInspectionPage() {
     var errs = errorsRef.current.slice();
 
     try {
-      // ====== DECISION CORE (1 call replaces 9) ======
       s = updateStep(2, { status: "running", detail: "6 Klein bottle states..." }, s); setSteps(s.slice());
       var coreResult: any = null;
       try {
@@ -735,17 +707,16 @@ export default function VoiceInspectionPage() {
         });
         coreResult = coreRes.decision_core || coreRes;
         setDecisionCore(coreResult);
-          if (coreResult) {
-            var txVal = '';
-            try { if (transcript) { txVal = String(transcript); } } catch(ex) {}
-            callEngineeringCore(coreResult, txVal);
-            callArchitectureCore(coreResult, txVal);
-            callMaterialsCore(coreResult, txVal);
-          }
+        if (coreResult) {
+          var txVal = '';
+          try { if (transcript) { txVal = String(transcript); } } catch(ex) {}
+          callEngineeringCore(coreResult, txVal);
+          callArchitectureCore(coreResult, txVal);
+          callMaterialsCore(coreResult, txVal);
+        }
         var tier = coreResult?.consequence_reality?.consequence_tier || "?";
         var disp = coreResult?.decision_reality?.disposition || "?";
         var elapsed = coreResult?.elapsed_ms || "?";
-        // Update asset display if Decision Core corrected the classification
         if (coreResult?.asset_correction?.corrected) {
           s = updateStep(1, { status: "done", detail: coreResult.asset_correction.corrected_to + " (corrected from " + coreResult.asset_correction.original + ")" }, s);
         }
@@ -756,25 +727,12 @@ export default function VoiceInspectionPage() {
       }
       setSteps(s.slice());
 
-      // ====== AI NARRATIVE (constrained by Decision Core) ======
+      // ====== AI NARRATIVE — DEPLOY108 FIX ======
+      // Pass decisionResult directly. voice-incident-plan v5 (DEPLOY107)
+      // builds locked context from full JSON in buildLockedContext().
       s = updateStep(3, { status: "running" }, s); setSteps(s.slice());
       try {
-        var lockedContext = "PHYSICS-FIRST DECISION CORE RESULTS (DO NOT OVERRIDE):\n";
-        if (coreResult) {
-          lockedContext += "Consequence Tier: " + (coreResult.consequence_reality?.consequence_tier || "unknown") + "\n";
-          lockedContext += "Failure Physics: " + (coreResult.consequence_reality?.failure_physics || "") + "\n";
-          lockedContext += "Damage State: " + (coreResult.consequence_reality?.damage_state || "") + "\n";
-          lockedContext += "Primary Mechanism: " + (coreResult.damage_reality?.primary_mechanism?.name || "none") + "\n";
-          lockedContext += "Authority: " + (coreResult.authority_reality?.primary_authority || "unknown") + "\n";
-          lockedContext += "Inspection Verdict: " + (coreResult.inspection_reality?.sufficiency_verdict || "") + "\n";
-          lockedContext += "Disposition: " + (coreResult.decision_reality?.disposition || "") + "\n";
-          lockedContext += "Reality Confidence: " + (coreResult.reality_confidence?.overall || "") + " (" + (coreResult.reality_confidence?.band || "") + ")\n";
-          if (coreResult.decision_reality?.guided_recovery && coreResult.decision_reality.guided_recovery.length > 0) {
-            lockedContext += "Recovery Actions: " + coreResult.decision_reality.guided_recovery.map(function(r: any) { return r.action; }).join("; ") + "\n";
-          }
-        }
-        var constrainedTranscript = "=== LOCKED PHYSICS CONTEXT ===\n" + lockedContext + "\n=== ORIGINAL TRANSCRIPT ===\n" + inputText;
-        var planRes = await callAPI("voice-incident-plan", { transcript: constrainedTranscript });
+        var planRes = await callAPI("voice-incident-plan", { transcript: inputText, decisionResult: coreResult });
         var narrative = planRes?.plan || planRes?.text || planRes?.result || JSON.stringify(planRes);
         setAiNarrative(typeof narrative === "string" ? narrative : JSON.stringify(narrative));
         s = updateStep(3, { status: "done", detail: "narrative generated" }, s);
@@ -799,7 +757,6 @@ export default function VoiceInspectionPage() {
     handleGenerate(enriched);
   }
 
-  // Shorthand
   var dc = decisionCore;
   var phy = dc?.physical_reality;
   var dmg = dc?.damage_reality;
@@ -820,7 +777,6 @@ export default function VoiceInspectionPage() {
         <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Describe the inspection scenario. The system starts with physics, not codes. Every answer is inarguable.</p>
       </div>
 
-      {/* INPUT AREA */}
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
         <textarea value={transcript} onChange={function(e) { setTranscript(e.target.value); }} placeholder="Describe the scenario \u2014 asset, damage, method, conditions..." style={{ width: "100%", minHeight: "120px", padding: "14px 16px", fontSize: "14px", lineHeight: "1.6", border: "none", outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", backgroundColor: "#f9fafb", borderTop: "1px solid #e5e7eb" }}>
@@ -838,12 +794,10 @@ export default function VoiceInspectionPage() {
 
       <div ref={resultsRef}>
 
-        {/* EVIDENCE CONFIRMATION */}
         {evidenceConfirmPending && preliminaryEvidence && (
           <EvidenceConfirmationCard evidence={preliminaryEvidence} onConfirm={handleConfirmEvidence} onSkip={handleSkipEvidence} isGenerating={isGenerating} />
         )}
 
-        {/* AI QUESTIONS (if parser needs more info) */}
         {pipelinePaused && aiQuestions && aiQuestions.length > 0 && (
           <Card title="AI Needs More Information" icon={"\uD83E\uDD14"} collapsible={false}>
             {aiUnderstood && <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px", padding: "8px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", borderLeft: "3px solid #16a34a" }}><strong>Understood:</strong> {aiUnderstood}</div>}
@@ -869,12 +823,6 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* ================================================================
-            PHYSICS-FIRST DECISION CORE CARDS
-            Only render when decisionCore has data
-            ================================================================ */}
-
-        {/* SAVE REPORT BUTTON */}
         {dc && (
           <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
             <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative }); }} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: "#1e40af", border: "none", borderRadius: "6px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
@@ -883,7 +831,6 @@ export default function VoiceInspectionPage() {
           </div>
         )}
 
-        {/* 1. REALITY CONFIDENCE BANNER */}
         {conf && (
           <div style={{ marginBottom: "16px", padding: "14px 18px", backgroundColor: conf.band === "TRUSTED" || conf.band === "HIGH" ? "#f0fdf4" : conf.band === "GUARDED" ? "#fffbeb" : "#fef2f2", border: "2px solid " + bandColor(conf.band), borderRadius: "8px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
@@ -922,7 +869,6 @@ export default function VoiceInspectionPage() {
           </div>
         )}
 
-        {/* 2. CONSEQUENCE REALITY — the big banner */}
         {con && (
           <Card title={"Consequence: " + con.consequence_tier} icon={con.consequence_tier === "CRITICAL" ? "\uD83D\uDED1" : con.consequence_tier === "HIGH" ? "\u26A0\uFE0F" : "\u2139\uFE0F"} collapsible={false}>
             <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "18px", color: "#fff", backgroundColor: tierColor(con.consequence_tier), textAlign: "center" }}>
@@ -952,7 +898,6 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* 3. PHYSICS REALITY */}
         {phy && (
           <Card title="Physical Reality" icon={"\u269B\uFE0F"} status={"confidence: " + Math.round(phy.physics_confidence * 100) + "%"}>
             <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "12px", padding: "10px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}>{phy.physics_summary}</div>
@@ -981,7 +926,6 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* 4. DAMAGE REALITY */}
         {dmg && (
           <Card title="Damage Reality" icon={"\uD83E\uDDEA"} status={(dmg.validated_mechanisms?.length || 0) + " validated, " + (dmg.rejected_mechanisms?.length || 0) + " impossible"}>
             {dmg.primary_mechanism && (
@@ -990,6 +934,7 @@ export default function VoiceInspectionPage() {
                 <div style={{ fontSize: "12px", color: "#374151" }}>Physics basis: {dmg.primary_mechanism.physics_basis}</div>
                 <div style={{ fontSize: "12px", color: "#374151" }}>Reality: {dmg.primary_mechanism.reality_state} (score: {dmg.primary_mechanism.reality_score}) | Severity: {dmg.primary_mechanism.severity}</div>
                 {dmg.primary_mechanism.evidence_for.length > 0 && <div style={{ fontSize: "11px", color: "#16a34a", marginTop: "4px" }}>Evidence: {dmg.primary_mechanism.evidence_for.join(", ")}</div>}
+                {dmg.primary_mechanism.evidence_against && dmg.primary_mechanism.evidence_against.length > 0 && <div style={{ fontSize: "11px", color: "#ea580c", marginTop: "4px" }}>Uncertainty: {dmg.primary_mechanism.evidence_against.join("; ")}</div>}
               </div>
             )}
             {dmg.validated_mechanisms && dmg.validated_mechanisms.length > 1 && (
@@ -1012,7 +957,6 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* 5. AUTHORITY REALITY */}
         {auth && (
           <Card title="Authority Reality" icon={"\uD83D\uDCDC"} status={auth.primary_authority} defaultCollapsed={true}>
             <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>Primary: {auth.primary_authority}</div>
@@ -1027,7 +971,6 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* 6. INSPECTION REALITY */}
         {insp && (
           <Card title="Inspection Reality" icon={"\uD83D\uDD2C"} status={insp.sufficiency_verdict + " | " + (insp.proposed_methods.length > 0 ? insp.proposed_methods.join(", ") : insp.recommended_package && insp.recommended_package.length > 0 ? "Recommended: " + insp.recommended_package.join(", ") : "None")}>
             <div style={{ padding: "10px 14px", borderRadius: "6px", marginBottom: "12px", fontWeight: 700, fontSize: "14px", color: "#fff", backgroundColor: insp.sufficiency_verdict === "BLOCKED" ? "#dc2626" : insp.sufficiency_verdict === "INSUFFICIENT" ? "#ea580c" : "#16a34a", textAlign: "center" }}>
@@ -1062,14 +1005,12 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* 7. DECISION REALITY */}
         {dec && (
           <Card title={"Decision: " + (dec.disposition || "").replace(/_/g, " ").toUpperCase()} icon={dec.disposition === "no_go" ? "\uD83D\uDED1" : dec.disposition === "hold_for_review" ? "\u23F8\uFE0F" : dec.disposition === "engineering_review_required" ? "\u26A0\uFE0F" : "\u2705"} collapsible={false}>
             <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "16px", color: "#fff", backgroundColor: dec.disposition === "no_go" ? "#dc2626" : dec.disposition === "repair_before_restart" ? "#ea580c" : dec.disposition === "hold_for_review" || dec.disposition === "engineering_review_required" ? "#ca8a04" : "#16a34a", textAlign: "center" }}>
               {(dec.disposition || "").replace(/_/g, " ").toUpperCase()}
             </div>
             <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px" }}>{dec.disposition_basis}</div>
-            {/* Precedence Gates */}
             <div style={{ marginBottom: "12px" }}>
               <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Precedence Gates</div>
               {dec.gates && dec.gates.map(function(g: any, i: number) {
@@ -1084,7 +1025,6 @@ export default function VoiceInspectionPage() {
                 );
               })}
             </div>
-            {/* Hard Locks */}
             {dec.hard_locks && dec.hard_locks.length > 0 && (
               <div style={{ marginBottom: "12px" }}>
                 <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "6px" }}>Hard Locks ({dec.hard_locks.length})</div>
@@ -1096,7 +1036,6 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* 8. GUIDED RECOVERY */}
         {dec && dec.guided_recovery && dec.guided_recovery.length > 0 && (
           <Card title="Guided Recovery" icon={"\uD83D\uDEE0\uFE0F"} status={dec.guided_recovery.length + " actions to resolve"}>
             <div style={{ fontSize: "12px", color: "#374151", marginBottom: "10px" }}>These are the specific actions needed to resolve blocked gates and move toward disposition.</div>
@@ -1115,7 +1054,6 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* 9. PHASED STRATEGY */}
         {dec && dec.phased_strategy && dec.phased_strategy.length > 0 && (
           <Card title="Phased Inspection Strategy" icon={"\uD83D\uDCCB"} status="4-phase plan" defaultCollapsed={true}>
             {dec.phased_strategy.map(function(phase: any, i: number) {
@@ -1131,7 +1069,6 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* 10. PHYSICS COMPUTATIONS (if available) */}
         {comp && (comp.fatigue.enabled || comp.critical_flaw.enabled || comp.wall_loss.enabled || comp.leak_vs_burst.enabled) && (
           <Card title="Physics Computations" icon={"\uD83D\uDCCA"} status="Paris Law, Critical Flaw, Wall Loss" defaultCollapsed={true}>
             {comp.fatigue.enabled && (
@@ -1163,7 +1100,6 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* AI NARRATIVE */}
         {aiNarrative && (
           <Card title="AI Narrative Summary" icon={"\uD83E\uDD16"} status="GPT-4o constrained by physics core" defaultCollapsed={true}>
             <div style={{ fontSize: "13px", lineHeight: "1.7", color: "#374151", whiteSpace: "pre-wrap" }}>{aiNarrative}</div>
@@ -1359,7 +1295,6 @@ export default function VoiceInspectionPage() {
           </div>
         )}
 
-        {/* DECISION TRACE (audit) */}
         {dec && dec.decision_trace && dec.decision_trace.length > 0 && (
           <Card title="Decision Trace (Audit)" icon={"\uD83D\uDCCB"} defaultCollapsed={true}>
             {dec.decision_trace.map(function(t: string, i: number) {
