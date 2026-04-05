@@ -60,7 +60,7 @@ var FINDING_TYPE_KEYWORDS: any = {
 
 var SERVICE_FLUID_KEYWORDS: any = {
   "amine": ["amine", "mdea", " dea ", " mea ", "lean amine", "rich amine"],
-  "hydrogen": ["hydrogen", "hydro", "h2"],
+  "hydrogen": ["hydrogen", " hydro ", " hydro,", " hydro.", "h2 "],
   "h2s": ["h2s", "sour", "hydrogen sulfide"],
   "crude": ["crude", "crude oil"],
   "steam": ["steam"],
