@@ -164,7 +164,22 @@ function extractNumericValues(transcript: string): any {
 // KEYWORD FIELD EXTRACTOR — deterministic field extraction from transcript
 // ============================================================================
 
-function extractField(lt: string, keywordMap: any): any {
+function hasWordNotNegatedGB(text: string, word: string): boolean {
+  var idx = text.indexOf(word);
+  if (idx === -1) return false;
+  var searchFrom = 0;
+  while (idx !== -1) {
+    var preStart = Math.max(0, idx - 25);
+    var preBuf = text.substring(preStart, idx);
+    var negated = preBuf.indexOf("no ") !== -1 || preBuf.indexOf("not ") !== -1 || preBuf.indexOf("without ") !== -1 || preBuf.indexOf("negative") !== -1 || preBuf.indexOf("ruled out") !== -1 || preBuf.indexOf("no visible") !== -1 || preBuf.indexOf("absent") !== -1 || preBuf.indexOf("didn") !== -1;
+    if (!negated) return true;
+    searchFrom = idx + word.length;
+    idx = text.indexOf(word, searchFrom);
+  }
+  return false;
+}
+
+function extractField(lt: string, keywordMap: any, useNegation?: boolean): any {
   var bestMatch: string | null = null;
   var bestLength = 0;
   var allMatches: string[] = [];
@@ -173,7 +188,8 @@ function extractField(lt: string, keywordMap: any): any {
     if (!keywordMap.hasOwnProperty(category)) continue;
     var keywords = keywordMap[category];
     for (var ki = 0; ki < keywords.length; ki++) {
-      if (lt.indexOf(keywords[ki]) !== -1) {
+      var matched = useNegation ? hasWordNotNegatedGB(lt, keywords[ki]) : (lt.indexOf(keywords[ki]) !== -1);
+      if (matched) {
         allMatches.push(category);
         if (keywords[ki].length > bestLength) {
           bestLength = keywords[ki].length;
@@ -362,7 +378,7 @@ function extractFromTranscript(transcript: string): any {
   var assetResult = extractField(lt, ASSET_KEYWORDS);
   var materialResult = extractField(lt, MATERIAL_KEYWORDS);
   var methodResult = extractField(lt, NDE_METHOD_KEYWORDS);
-  var findingResult = extractField(lt, FINDING_TYPE_KEYWORDS);
+  var findingResult = extractField(lt, FINDING_TYPE_KEYWORDS, true);
   var serviceResult = extractField(lt, SERVICE_FLUID_KEYWORDS);
   var locationResult = extractField(lt, LOCATION_KEYWORDS);
   var numeric = extractNumericValues(transcript);
