@@ -1,4 +1,12 @@
-// DEPLOY115 — decision-core.ts v2.3.1
+// DEPLOY120 — decision-core.ts v2.4
+// v2.4: Asset Classification Hardening + CUI Wall Loss Detection
+// DEPLOY120 FIX 1: Raw thickness readings detected as wall loss evidence
+//   "0.190 inch versus 0.280 nominal" = measured wall loss, triggers corrosion boost
+// DEPLOY120 FIX 2: CUI evidence keywords — sweating, wet insulation, wet lagging → corrosive
+// DEPLOY120 FIX 3: Separator/drum → pressure_vessel classification
+// DEPLOY120 FIX 4: Offshore platform detection from "unknown" (signal counting like bridge)
+// DEPLOY120 FIX 5: Expanded piping detection — "header", "elbow" as standalone line words
+// DEPLOY120 FIX 6: Expanded process context — propane, lpg, carbon steel, etc.
 // v2.3.1: Evidence Hierarchy — OBSERVED vs SUSPECTED scoring fix
 // DEPLOY115 FIX 1: Wall loss evidence detection (wallLossReported, wallLossQuantified, wallLossMeasuredByNDE)
 //   Includes field slang: "thinned out", "% down", "eating", "washed out", "corroded", "pitted"
@@ -281,6 +289,10 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   // If you have confirmed wall loss, the environment caused it — corrosive by definition
   if (!negCorrosion && (hasWord(lt, "wall loss") || hasWord(lt, "metal loss") || hasWord(lt, "thinning") || hasWord(lt, "thinned") || hasWord(lt, "pitted") || hasWord(lt, "pitting") || hasWord(lt, "eating") || hasWord(lt, "washed out") || hasWord(lt, "corroded") || hasWord(lt, "worn"))) {
     if (!corrosive) { corrosive = true; if (agents.indexOf("implied_corrosive") === -1) agents.push("implied_corrosive"); }
+  }
+  // DEPLOY120: CUI evidence — wet insulation + external rust = corrosive environment
+  if (!negCorrosion && (hasWord(lt, "sweating") || hasWord(lt, "wet insulation") || hasWord(lt, "wet lagging") || hasWord(lt, "damaged insulation") || hasWord(lt, "rusty") || hasWord(lt, "rust spot") || hasWord(lt, "under the insulation") || hasWord(lt, "under insulation") || hasWord(lt, "paper thin"))) {
+    if (!corrosive) { corrosive = true; if (agents.indexOf("cui_indicators") === -1) agents.push("cui_indicators"); }
   }
   if (hasWord(lt, "soil") || hasWord(lt, "buried")) { corrosive = true; agents.push("soil"); }
   if (hasWord(lt, "river") || hasWord(lt, "flood") || hasWord(lt, "creek") || hasWord(lt, "water") || hasWord(lt, "submerge")) { corrosive = true; agents.push("water_exposure"); }
@@ -632,9 +644,9 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
   // "Cracking suspected" is NOT the same as "crack confirmed by NDE".
   // Field inspectors use slang: "thinned out", "35% down", "eating itself up"
   // ============================================================================
-  var wallLossReported = hasWord(lt, "wall loss") || hasWord(lt, "metal loss") || hasWord(lt, "thinning") || hasWord(lt, "wall thinning") || hasWord(lt, "thickness loss") || hasWord(lt, "thinned") || hasWord(lt, "thinned out") || hasWord(lt, "corroded") || hasWord(lt, "pitted") || hasWord(lt, "washed out") || hasWord(lt, "eating") || hasWord(lt, "reduced thickness") || hasWord(lt, "reduced wall") || /\d+\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript);
-  var wallLossQuantified = wallLossReported && (/\d+\s*(?:percent|%)\s*(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss|down|loss|gone|reduced)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss)\s*(?:of\s*)?\d+/i.test(transcript) || /\d+[-\u2013\u2014]?\d*\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning)[^.]{0,30}\d+\s*(?:percent|%)/i.test(transcript) || /\d+\s*(?:percent|%)[^.]{0,30}(?:wall\s*loss|metal\s*loss|thinning)/i.test(transcript));
-  var wallLossMeasuredByNDE = wallLossReported && (hasWord(lt, "ultrasonic") || hasWord(lt, "ut ") || hasWord(lt, "ut grid") || hasWord(lt, "thickness reading") || hasWord(lt, "thickness survey") || hasWord(lt, "paut") || hasWord(lt, "scan") || hasWord(lt, "confirmed") || hasWord(lt, "measured") || hasWord(lt, "inspection found") || hasWord(lt, "shows") || (hasWord(lt, "found") && hasWord(lt, "wall loss")));
+  var wallLossReported = hasWord(lt, "wall loss") || hasWord(lt, "metal loss") || hasWord(lt, "thinning") || hasWord(lt, "wall thinning") || hasWord(lt, "thickness loss") || hasWord(lt, "thinned") || hasWord(lt, "thinned out") || hasWord(lt, "corroded") || hasWord(lt, "pitted") || hasWord(lt, "washed out") || hasWord(lt, "eating") || hasWord(lt, "reduced thickness") || hasWord(lt, "reduced wall") || hasWord(lt, "paper thin") || /\d+\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript) || /\d+\.?\d*\s*(?:inch|in\.?|mm)\s*(?:versus|vs\.?|compared\s*to|from|against)\s*\d+\.?\d*/i.test(transcript) || (/(?:nominal|original|design|minimum)\s*(?:of\s*)?\d+\.?\d*/i.test(transcript) && /(?:shows|reads?|measured|found|actual)\s*\d+\.?\d*/i.test(transcript)) || (/\d+\.?\d*\s*(?:inch|in\.?|mm)/.test(transcript) && hasWord(lt, "nominal") && hasWord(lt, "versus"));
+  var wallLossQuantified = wallLossReported && (/\d+\s*(?:percent|%)\s*(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss|down|loss|gone|reduced)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss)\s*(?:of\s*)?\d+/i.test(transcript) || /\d+[-\u2013\u2014]?\d*\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning)[^.]{0,30}\d+\s*(?:percent|%)/i.test(transcript) || /\d+\s*(?:percent|%)[^.]{0,30}(?:wall\s*loss|metal\s*loss|thinning)/i.test(transcript) || /\d+\.?\d*\s*(?:inch|in\.?|mm)\s*(?:versus|vs\.?|compared\s*to|from|against)\s*\d+\.?\d*/i.test(transcript));
+  var wallLossMeasuredByNDE = wallLossReported && (hasWord(lt, "ultrasonic") || hasWord(lt, "ut ") || hasWord(lt, "ut grid") || hasWord(lt, "thickness reading") || hasWord(lt, "thickness survey") || hasWord(lt, "paut") || hasWord(lt, "scan") || hasWord(lt, "confirmed") || hasWord(lt, "measured") || hasWord(lt, "inspection found") || hasWord(lt, "shows") || (hasWord(lt, "found") && hasWord(lt, "wall loss")) || (hasWord(lt, "ut") && /\d+\.?\d*/.test(transcript)));
   var crackingSuspectedOnly = (hasWordNotNegated(lt, "crack") || hasWordNotNegated(lt, "cracking")) && (hasWord(lt, "suspected") || hasWord(lt, "possible") || hasWord(lt, "potential") || hasWord(lt, "concern") || hasWord(lt, "may be") || hasWord(lt, "might be") || hasWord(lt, "or something") || hasWord(lt, "hard to tell") || hasWord(lt, "not sure") || hasWord(lt, "not clean") || hasWord(lt, "junk geometry")) && !hasWord(lt, "crack confirmed") && !hasWord(lt, "cracking confirmed") && !(!!fl.crack_confirmed);
   var s = physics.stress; var t = physics.thermal; var c = physics.chemical; var e = physics.energy;
 
@@ -2119,6 +2131,29 @@ var handler: Handler = async function(event: HandlerEvent) {
         isStructuralLocked = true;
       }
     }
+    // DEPLOY120: OFFSHORE PLATFORM DETECTION FROM UNKNOWN
+    // Similar to bridge detection — count offshore signals and lock if >= 2
+    if (!isHyperbaricLocked && !isStructuralLocked && assetClass === "unknown") {
+      var offshoreSignalCount = 0;
+      if (hasWord(lt_handler, "offshore")) offshoreSignalCount++;
+      if (hasWord(lt_handler, "platform")) offshoreSignalCount++;
+      if (hasWord(lt_handler, "deepwater")) offshoreSignalCount++;
+      if (hasWord(lt_handler, "subsea")) offshoreSignalCount++;
+      if (hasWord(lt_handler, "riser")) offshoreSignalCount++;
+      if (hasWord(lt_handler, "caisson")) offshoreSignalCount++;
+      if (hasWord(lt_handler, "jacket")) offshoreSignalCount++;
+      if (hasWord(lt_handler, "splash zone")) offshoreSignalCount++;
+      if (hasWord(lt_handler, "rov")) offshoreSignalCount++;
+      if (hasWord(lt_handler, "boat landing")) offshoreSignalCount++;
+      if (hasWord(lt_handler, "water depth")) offshoreSignalCount++;
+      if (hasWord(lt_handler, "production platform")) offshoreSignalCount++;
+      if (offshoreSignalCount >= 2) {
+        assetClass = "offshore_platform";
+        assetCorrected = true;
+        assetCorrectionReason = "Offshore domain lock: " + offshoreSignalCount + " offshore signals detected. Overriding to offshore_platform.";
+        isStructuralLocked = true;
+      }
+    }
 
     if (!isHyperbaricLocked && !isStructuralLocked && (hasWord(lt_handler, "hydrocracker") || hasWord(lt_handler, "hydrotreater") || hasWord(lt_handler, "reactor vessel") || hasWord(lt_handler, "delayed coker"))) {
       if (assetClass !== "pressure_vessel") {
@@ -2134,6 +2169,14 @@ var handler: Handler = async function(event: HandlerEvent) {
         assetCorrectionReason = "Transcript describes boiler/steam equipment. Overriding to pressure_vessel.";
       }
     }
+    // DEPLOY120: SEPARATOR/DRUM → PRESSURE VESSEL
+    if (!isHyperbaricLocked && !isStructuralLocked && (hasWord(lt_handler, "separator") || hasWord(lt_handler, "knockout drum") || hasWord(lt_handler, "flash drum") || hasWord(lt_handler, "surge drum") || hasWord(lt_handler, "accumulator") || (hasWord(lt_handler, "vessel") && !hasWord(lt_handler, "pipe") && !hasWord(lt_handler, "piping") && !hasWord(lt_handler, "line")))) {
+      if (assetClass !== "pressure_vessel") {
+        assetClass = "pressure_vessel";
+        assetCorrected = true;
+        assetCorrectionReason = "Transcript describes separator/drum/vessel equipment. Overriding to pressure_vessel.";
+      }
+    }
     if (!isHyperbaricLocked && !isStructuralLocked && (hasWord(lt_handler, "pipe") || hasWord(lt_handler, "piping") || hasWord(lt_handler, "pipeline")) && assetClass !== "piping" && assetClass !== "pipeline") {
       if (assetClass === "unknown" || assetClass === "bridge_concrete" || assetClass === "bridge") {
         assetClass = "piping";
@@ -2147,8 +2190,8 @@ var handler: Handler = async function(event: HandlerEvent) {
     // DEPLOY115: Structural lock prevents this from firing on bridges/structures
     // DEPLOY115: "tee" check uses " tee" with leading space to prevent "steel" false positive
     if (!isHyperbaricLocked && !isStructuralLocked && assetClass !== "piping" && assetClass !== "pipeline") {
-      var hasLineWord = hasWord(lt_handler, "line") || hasWord(lt_handler, "pipe");
-      var hasProcessContext = hasWord(lt_handler, "amine") || hasWord(lt_handler, "steam") || hasWord(lt_handler, "process") || hasWord(lt_handler, "sour") || hasWord(lt_handler, "flare") || hasWord(lt_handler, "condensate") || hasWord(lt_handler, "caustic") || hasWord(lt_handler, "hydrogen") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || (lt_handler.indexOf(" tee ") !== -1 || lt_handler.indexOf(" tee,") !== -1 || lt_handler.indexOf(" tee.") !== -1 || lt_handler.indexOf("pipe tee") !== -1) || hasWord(lt_handler, "reducer") || hasWord(lt_handler, "dead leg") || hasWord(lt_handler, "hydro") || hasWord(lt_handler, "intrados") || hasWord(lt_handler, "downstream") || hasWord(lt_handler, "upstream");
+      var hasLineWord = hasWord(lt_handler, "line") || hasWord(lt_handler, "pipe") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || hasWord(lt_handler, "tubing");
+      var hasProcessContext = hasWord(lt_handler, "amine") || hasWord(lt_handler, "steam") || hasWord(lt_handler, "process") || hasWord(lt_handler, "sour") || hasWord(lt_handler, "flare") || hasWord(lt_handler, "condensate") || hasWord(lt_handler, "caustic") || hasWord(lt_handler, "hydrogen") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || (lt_handler.indexOf(" tee ") !== -1 || lt_handler.indexOf(" tee,") !== -1 || lt_handler.indexOf(" tee.") !== -1 || lt_handler.indexOf("pipe tee") !== -1) || hasWord(lt_handler, "reducer") || hasWord(lt_handler, "dead leg") || hasWord(lt_handler, "hydro") || hasWord(lt_handler, "intrados") || hasWord(lt_handler, "downstream") || hasWord(lt_handler, "upstream") || hasWord(lt_handler, "propane") || hasWord(lt_handler, "lpg") || hasWord(lt_handler, "ngl") || hasWord(lt_handler, "butane") || hasWord(lt_handler, "ethylene") || hasWord(lt_handler, "carbon steel") || hasWord(lt_handler, "psi") || hasWord(lt_handler, "inch") || hasWord(lt_handler, "weld") || hasWord(lt_handler, "insulation") || hasWord(lt_handler, "support") || hasWord(lt_handler, "flow");
       var hasVesselEvidence = hasWord(lt_handler, "vessel") || hasWord(lt_handler, "drum") || hasWord(lt_handler, "tank") || hasWord(lt_handler, "shell side") || hasWord(lt_handler, "tube side") || hasWord(lt_handler, "head") && hasWord(lt_handler, "shell") || hasWord(lt_handler, "nozzle") && !hasWord(lt_handler, "pipe nozzle");
       if (hasLineWord && hasProcessContext && !hasVesselEvidence) {
         assetClass = "piping";
