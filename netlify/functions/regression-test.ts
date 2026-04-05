@@ -1,9 +1,10 @@
-// DEPLOY118 — regression-test.ts v2.0
+// DEPLOY119 — regression-test.ts v2.1
 // Golden Case Regression Suite — 20 cases
 // Validates decision-core outputs against locked expected results
 // POST: Accepts decision_core output + case_id, returns pass/fail
 // GET: Returns all golden case definitions
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
+// v2.1 FIX: Disposition format normalization (snake_case → DISPLAY FORMAT)
 
 var GOLDEN_CASES: any = {
 
@@ -354,7 +355,35 @@ var GOLDEN_CASES: any = {
 };
 
 // ============================================================================
-// VALIDATION ENGINE (same as v1.0)
+// DISPOSITION FORMAT NORMALIZATION
+// ============================================================================
+// Decision-core returns snake_case (e.g. "hold_for_review")
+// Golden cases use DISPLAY FORMAT (e.g. "HOLD FOR REVIEW")
+// This normalizer maps both directions so comparison works regardless of format
+
+var DISPOSITION_MAP: any = {
+  "hold_for_review": "HOLD FOR REVIEW",
+  "engineering_review_required": "ENGINEERING REVIEW REQUIRED",
+  "repair_before_restart": "REPAIR BEFORE RESTART",
+  "conditional_accept": "CONDITIONAL ACCEPT",
+  "accept": "ACCEPT",
+  "reject": "REJECT",
+  "go": "GO",
+  "no_go": "NO GO",
+  "indeterminate": "INDETERMINATE"
+};
+
+function normalizeDisposition(raw: string): string {
+  if (!raw) return "";
+  var lower = String(raw).toLowerCase().replace(/\s+/g, "_");
+  if (DISPOSITION_MAP[lower]) return DISPOSITION_MAP[lower];
+  // If already in DISPLAY FORMAT, return as-is
+  var upper = String(raw).toUpperCase().replace(/_/g, " ");
+  return upper;
+}
+
+// ============================================================================
+// VALIDATION ENGINE (v2.1 — disposition normalization added)
 // ============================================================================
 
 function validateCase(caseId: string, dcOutput: any): any {
@@ -401,6 +430,8 @@ function validateCase(caseId: string, dcOutput: any): any {
   } else if (dc.decision_reality && dc.decision_reality.disposition) {
     disposition = String(dc.decision_reality.disposition);
   }
+  // DEPLOY119: Normalize disposition format before comparison
+  disposition = normalizeDisposition(disposition);
   var primaryMechId = "";
   if (dc.damage_reality && dc.damage_reality.primary_mechanism && dc.damage_reality.primary_mechanism.id) {
     primaryMechId = dc.damage_reality.primary_mechanism.id;
