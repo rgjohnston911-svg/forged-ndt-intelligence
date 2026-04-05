@@ -1,4 +1,10 @@
-// DEPLOY110 — decision-core.ts v2.3
+// DEPLOY115 — decision-core.ts v2.3.1
+// v2.3.1: Evidence Hierarchy — OBSERVED vs SUSPECTED scoring fix
+// DEPLOY115 FIX 1: Wall loss evidence detection (wallLossReported, wallLossQuantified, wallLossMeasuredByNDE)
+// DEPLOY115 FIX 2: Corrosion mechanisms boosted when wall loss is measured by NDE
+//                   Crack/fatigue mechanisms penalized when cracking is only "suspected" not confirmed
+// DEPLOY115 FIX 3: Physics narrative override constrained — no longer flips corrosion/thinning
+//                   narrative to fatigue/Paris Law on piping where cyclic+stress_conc are implied defaults
 // v2.3: Industrial Context Intelligence Layer + Event-to-Physics Translation
 // Context inference: hydrocracking→H2S+hydrogen, amine→H2S+caustic, etc.
 // Event translation: rapid cooldown→thermal cycling, emergency shutdown, etc.
@@ -563,6 +569,17 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
   var lt = transcript.toLowerCase();
   var validated: ValidatedMechanism[] = [];
   var rejected: RejectedMechanism[] = [];
+
+  // ============================================================================
+  // EVIDENCE HIERARCHY — DEPLOY115
+  // Distinguishes OBSERVED (measured by NDE) from SUSPECTED (reported concern).
+  // Measured wall loss from UT/thickness gauging is the strongest thinning evidence.
+  // "Cracking suspected" is NOT the same as "crack confirmed by NDE".
+  // ============================================================================
+  var wallLossReported = hasWord(lt, "wall loss") || hasWord(lt, "metal loss") || hasWord(lt, "thinning") || hasWord(lt, "wall thinning") || hasWord(lt, "thickness loss");
+  var wallLossQuantified = wallLossReported && (/\d+\s*(?:percent|%)\s*(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss)\s*(?:of\s*)?\d+/i.test(transcript));
+  var wallLossMeasuredByNDE = wallLossReported && (hasWord(lt, "ultrasonic") || hasWord(lt, "ut ") || hasWord(lt, "thickness reading") || hasWord(lt, "thickness survey") || hasWord(lt, "paut") || hasWord(lt, "scan") || hasWord(lt, "found") || hasWord(lt, "measured") || hasWord(lt, "inspection found"));
+  var crackingSuspectedOnly = (hasWord(lt, "crack") || hasWord(lt, "cracking")) && (hasWord(lt, "suspected") || hasWord(lt, "possible") || hasWord(lt, "potential") || hasWord(lt, "concern") || hasWord(lt, "may be")) && !hasWord(lt, "crack confirmed") && !hasWord(lt, "cracking confirmed") && !(!!fl.crack_confirmed);
   var s = physics.stress; var t = physics.thermal; var c = physics.chemical; var e = physics.energy;
 
   var preCheckMap: any = {
@@ -634,6 +651,58 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
       if (hasWord(lt, "coating breakdown") || hasWord(lt, "coating damage") || hasWord(lt, "paint breakdown")) score += 0.05;
       if (hasWord(lt, "rust") || hasWord(lt, "stain")) score += 0.05;
     }
+
+    // ============================================================================
+    // DEPLOY115: EVIDENCE HIERARCHY — OBSERVED vs SUSPECTED
+    // Measured NDE findings outrank reported suspicions.
+    // Wall loss found by UT = OBSERVED. "Cracking suspected" = UNCONFIRMED CONCERN.
+    // ============================================================================
+
+    // BOOST: Corrosion/thinning mechanisms when wall loss is MEASURED
+    var isCorrosionMech = md.id === "general_corrosion" || md.id === "pitting" || md.id === "co2_corrosion" || md.id === "cui" || md.id === "erosion";
+    if (isCorrosionMech && wallLossReported) {
+      score += 0.15;
+      obs = true;
+      evFor.push("wall loss reported in transcript");
+      if (wallLossQuantified) {
+        score += 0.10;
+        evFor.push("wall loss quantified with percentage");
+      }
+      if (wallLossMeasuredByNDE) {
+        score += 0.05;
+        evFor.push("wall loss measured by NDE method");
+      }
+      // REMOVE the cyclic penalty when wall loss is the observed reality —
+      // implied cyclic loading on piping should not suppress the observed finding
+      if (s.cyclic_loading && s.stress_concentration_present) {
+        score += 0.10; // restore the -0.10 penalty applied above
+      }
+    }
+
+    // REDUCE: Crack/fatigue mechanisms when cracking is only SUSPECTED, not confirmed
+    var isCrackMech = md.id.indexOf("fatigue") !== -1 || md.id.indexOf("scc") !== -1 || md.id.indexOf("ssc") !== -1 || md.id.indexOf("hic") !== -1;
+    if (isCrackMech && crackingSuspectedOnly) {
+      // "Cracking suspected" is weaker than "crack confirmed by NDE".
+      // But how much to penalize depends on the mechanism type:
+      //   - Fatigue: "suspected cracking" is weak evidence — fatigue needs crack morphology confirmation
+      //   - Environmental cracking (SCC/SSC/HIC): "suspected" in a matching environment is meaningful
+      var isEnvCracking = md.id.indexOf("scc") !== -1 || md.id.indexOf("ssc") !== -1 || md.id.indexOf("hic") !== -1;
+      if (isEnvCracking) {
+        // Gentler penalty — suspected cracking in the right environment is valid concern
+        score -= 0.05;
+        evAg.push("cracking suspected but not confirmed by crack-specific NDE method");
+      } else {
+        // Full penalty for fatigue — "suspected cracking" is very weak fatigue evidence
+        score -= 0.15;
+        evAg.push("cracking suspected but not confirmed by crack-specific NDE method — weak fatigue evidence");
+      }
+      // If wall loss IS measured, crack mechanism should not outrank the observed finding
+      if (wallLossMeasuredByNDE || wallLossQuantified) {
+        score -= 0.05;
+        evAg.push("measured wall loss is stronger observed evidence than suspected cracking");
+      }
+    }
+
     if (score > 1) score = 1;
     var state = score >= 0.75 ? "confirmed" : score >= 0.55 ? "probable" : score >= 0.35 ? "possible" : "unverified";
     validated.push({ id: md.id, name: md.name, physics_basis: md.preLabels.join(" + "),
@@ -840,7 +909,15 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   if (!failPhysics) failPhysics = "Damage progression reduces integrity below safe operating threshold.";
 
   if (physics.stress.cyclic_loading && physics.stress.stress_concentration_present && physics.energy.stored_energy_significant) {
-    if (failPhysics.indexOf("wall thinning") !== -1 || failPhysics.indexOf("Damage progression") !== -1) {
+    // ============================================================================
+    // DEPLOY115: EVIDENCE-ANCHORED PHYSICS OVERRIDE
+    // Previously this override replaced ANY wall-thinning narrative with fatigue/Paris Law
+    // whenever piping had implied cyclic+stress_conc+stored_energy (which is ALL piping).
+    // Now: only override when primary mechanism is NOT a corrosion/thinning type.
+    // If the primary observed evidence is wall loss, the narrative stays wall-loss-first.
+    // ============================================================================
+    var pmIsCorrosionType = damage.primary && (damage.primary.id.indexOf("corrosion") !== -1 || damage.primary.id.indexOf("pitting") !== -1 || damage.primary.id === "co2_corrosion" || damage.primary.id === "cui" || damage.primary.id === "erosion");
+    if (!pmIsCorrosionType && (failPhysics.indexOf("wall thinning") !== -1 || failPhysics.indexOf("Damage progression") !== -1)) {
       failPhysics = "Cyclic pressure loading drives fatigue crack initiation at stress concentrations (weld toes, nozzles, geometric transitions). Crack propagates per Paris Law until critical size is reached. Failure mode: pressure boundary breach via crack-through (leak-before-break if ductile, catastrophic burst if insufficient toughness). Corrosion may accelerate initiation but crack propagation is the dominant failure path.";
       failMode = "crack_propagation_pressure_breach";
     }
@@ -1848,7 +1925,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.3",
+          engine_version: "physics-first-decision-core-v2.3.1",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason } : { corrected: false },
