@@ -1773,7 +1773,35 @@ function resolveDecisionReality(physics: any, damage: any, consequence: any, aut
       required_action: "Collect evidence for " + consequence.consequence_tier + " tier" });
     if (!blocked) { blocked = true; blockGate = "evidence_sufficiency"; }
   } else {
-    gates.push({ gate: "evidence_sufficiency", result: "PASS", reason: "Evidence sufficient", required_action: null });
+    // ============================================================================
+    // DEPLOY117: MECHANISM-AWARE EVIDENCE SUFFICIENCY
+    // Evidence may be sufficient for the primary mechanism but insufficient
+    // for competing mechanisms. "Evidence sufficient" only applies to what
+    // has been confirmed — suspected mechanisms need their own assessment.
+    // ============================================================================
+    var evidenceNotes: string[] = [];
+    var evidenceResult = "PASS";
+    if (damage.primary && damage.primary.observation_basis) {
+      evidenceNotes.push("Evidence sufficient for " + damage.primary.name + " (observed)");
+    } else if (damage.primary) {
+      evidenceNotes.push("Evidence limited for " + damage.primary.name + " (inferred, not directly observed)");
+      evidenceResult = "WARNING";
+    }
+    // Check for competing mechanisms without observation basis
+    var unobservedCompetitors: string[] = [];
+    for (var esi = 0; esi < damage.validated.length; esi++) {
+      var esm = damage.validated[esi];
+      if (esm !== damage.primary && esm.reality_score >= 0.35 && !esm.observation_basis) {
+        unobservedCompetitors.push(esm.name);
+      }
+    }
+    if (unobservedCompetitors.length > 0) {
+      evidenceNotes.push("Insufficient evidence for: " + unobservedCompetitors.join(", ") + " — supplemental examination needed");
+      if (evidenceResult === "PASS") evidenceResult = "WARNING";
+    }
+    var evidenceReason = evidenceNotes.length > 0 ? evidenceNotes.join(". ") : "Evidence sufficient";
+    var evidenceAction = evidenceResult === "WARNING" ? "Confirm or rule out unobserved competing mechanisms" : null;
+    gates.push({ gate: "evidence_sufficiency", result: evidenceResult, reason: evidenceReason, required_action: evidenceAction });
   }
 
   if (inspection.sufficiency_verdict === "BLOCKED") {
