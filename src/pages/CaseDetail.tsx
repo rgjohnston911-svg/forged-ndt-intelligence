@@ -1,832 +1,677 @@
-import React, { useState, useEffect } from "react";
-import { sbSelect, sbUpdate, sbInsert, callDecisionCore, generateId, ASSET_CLASS_MAP } from "../utils/supabase";
+/**
+ * DEPLOY23_CaseDetail.tsx
+ * Deploy to: src/pages/CaseDetail.tsx (REPLACEMENT)
+ *
+ * Complete case detail page with:
+ * - Evidence upload + AI analysis
+ * - Measurement input (imperial default, metric toggle)
+ * - Formatted physics model (no raw JSON)
+ * - Conflict resolution display
+ * - Authority Lock decision panel
+ * - Teaching placeholder
+ */
 
-// ============================================================================
-// CASE DETAIL PAGE — Full Superbrain view with tabs
-// ============================================================================
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { supabase } from "../lib/supabase";
+import MethodBadge from "../components/MethodBadge";
+import { DISPOSITION_COLORS } from "../lib/constants";
 
-interface CaseDetailPageProps {
-  caseId: string;
-  onNavigate: (page: string, params?: any) => void;
-}
+type TabName = "overview" | "evidence" | "physics" | "findings" | "rules" | "decision" | "teaching";
+type UnitSystem = "imperial" | "metric";
 
-export default function CaseDetailPage({ caseId, onNavigate }: CaseDetailPageProps) {
-  var [caseData, setCaseData] = useState<any>(null);
-  var [snapshot, setSnapshot] = useState<any>(null);
-  var [dc, setDc] = useState<any>(null);
-  var [checklist, setChecklist] = useState<any[]>([]);
-  var [history, setHistory] = useState<any[]>([]);
+// Unit conversion helpers
+function inToMm(v: number) { return Math.round(v * 25.4 * 100) / 100; }
+function mmToIn(v: number) { return Math.round(v / 25.4 * 10000) / 10000; }
+
+// Measurement field definitions per finding type
+var MEAS_FIELDS: Record<string, Array<{ key: string; label: string; stepI: number; stepM: number; maxI: number }>> = {
+  undercut: [{ key: "depth", label: "Undercut Depth", stepI: 0.005, stepM: 0.1, maxI: 0.25 }, { key: "length", label: "Undercut Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
+  porosity: [{ key: "diameter", label: "Max Pore Diameter", stepI: 0.01, stepM: 0.25, maxI: 0.5 }, { key: "spacing", label: "Pore Spacing", stepI: 0.0625, stepM: 1, maxI: 6 }],
+  slag_inclusion: [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
+  incomplete_fusion: [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
+  incomplete_penetration: [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
+  crack: [{ key: "length", label: "Crack Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
+  burn_through: [{ key: "diameter", label: "Burn-Through Diameter", stepI: 0.0625, stepM: 1, maxI: 1 }],
+  reinforcement: [{ key: "height", label: "Reinforcement Height", stepI: 0.01, stepM: 0.25, maxI: 0.5 }],
+  overlap: [{ key: "length", label: "Overlap Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
+  hydrogen_cracking: [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }],
+};
+
+// Code limits for live comparison (imperial)
+var CODE_LIMITS: Record<string, Array<{ code: string; rule: string; limit: number }>> = {
+  "undercut:depth": [
+    { code: "AWS D1.1", rule: "Static", limit: 0.03125 },
+    { code: "AWS D1.1", rule: "Dynamic/Cyclic", limit: 0.01 },
+  ],
+  "burn_through:diameter": [{ code: "API 1104", rule: "Max", limit: 0.25 }],
+  "reinforcement:height": [{ code: "AWS D1.1", rule: "Butt Joint", limit: 0.125 }],
+  "porosity:diameter": [{ code: "AWS D1.1", rule: "Individual", limit: 0.09375 }],
+};
+
+export default function CaseDetail() {
+  var { id } = useParams<{ id: string }>();
+  var [caseData, setCaseData] = useState<any | null>(null);
   var [findings, setFindings] = useState<any[]>([]);
-  var [activeTab, setActiveTab] = useState("workflow");
+  var [rules, setRules] = useState<any[]>([]);
+  var [physics, setPhysics] = useState<any | null>(null);
+  var [evidence, setEvidence] = useState<any[]>([]);
+  var [conflicts, setConflicts] = useState<any[]>([]);
+  var [activeTab, setActiveTab] = useState<TabName>("overview");
   var [loading, setLoading] = useState(true);
-  var [error, setError] = useState("");
 
-  // Add Finding modal state
-  var [showFindingModal, setShowFindingModal] = useState(false);
-  var [findingLocation, setFindingLocation] = useState("");
-  var [findingMethod, setFindingMethod] = useState("VT");
-  var [findingType, setFindingType] = useState("");
-  var [findingSeverity, setFindingSeverity] = useState("minor");
-  var [findingDimensions, setFindingDimensions] = useState("");
-  var [findingNotes, setFindingNotes] = useState("");
-  var [findingSubmitting, setFindingSubmitting] = useState(false);
+  // Evidence upload
+  var [uploading, setUploading] = useState(false);
+  var [analyzing, setAnalyzing] = useState(false);
+  var [runningAuthority, setRunningAuthority] = useState(false);
 
-  useEffect(function () {
-    loadCase();
-  }, [caseId]);
+  // Measurements
+  var [unitSystem, setUnitSystem] = useState<UnitSystem>("imperial");
+  var [measValues, setMeasValues] = useState<Record<string, Record<string, string>>>({});
+  var [measSaved, setMeasSaved] = useState(false);
+  var [savingMeas, setSavingMeas] = useState(false);
+
+  useEffect(function() { if (id) loadCase(); }, [id]);
 
   async function loadCase() {
+    setLoading(true);
+    var cRes = await supabase.from("inspection_cases").select("*").eq("id", id).single();
+    setCaseData(cRes.data);
+    var fRes = await supabase.from("findings").select("*").eq("case_id", id).order("created_at", { ascending: true });
+    setFindings(fRes.data || []);
+    var rRes = await supabase.from("rule_evaluations").select("*").eq("case_id", id).order("created_at", { ascending: true });
+    setRules(rRes.data || []);
+    var pRes = await supabase.from("physics_reality_models").select("*").eq("case_id", id).single();
+    setPhysics(pRes.data);
+    var eRes = await supabase.from("evidence").select("*").eq("case_id", id).order("created_at", { ascending: true });
+    setEvidence(eRes.data || []);
+    // Load conflicts
     try {
-      setLoading(true);
-      setError("");
-
-      // Load case
-      var cases = await sbSelect("cases", "id=eq." + caseId);
-      if (!cases || cases.length === 0) {
-        setError("Case not found.");
-        setLoading(false);
-        return;
-      }
-      setCaseData(cases[0]);
-
-      // Load latest snapshot
-      var snaps = await sbSelect(
-        "decision_core_snapshots",
-        "case_id=eq." + caseId + "&order=snapshot_number.desc&limit=1"
-      );
-      if (snaps && snaps.length > 0) {
-        setSnapshot(snaps[0]);
-        try {
-          var parsed = typeof snaps[0].full_output === "string"
-            ? JSON.parse(snaps[0].full_output)
-            : snaps[0].full_output;
-          setDc(parsed);
-        } catch (e) {
-          setDc(null);
+      var crRes = await supabase.from("conflict_resolutions").select("*").eq("case_id", id);
+      setConflicts(crRes.data || []);
+    } catch (e) { setConflicts([]); }
+    // Load existing measurements
+    try {
+      var mRes = await supabase.from("case_measurements").select("*").eq("case_id", id);
+      if (mRes.data && mRes.data.length > 0) {
+        var populated: Record<string, Record<string, string>> = {};
+        for (var i = 0; i < mRes.data.length; i++) {
+          var m = mRes.data[i];
+          if (!populated[m.finding_type]) populated[m.finding_type] = {};
+          populated[m.finding_type][m.measurement_key] = String(m.value_imperial);
         }
+        setMeasValues(populated);
+        setMeasSaved(true);
       }
-
-      // Load checklist
-      var checks = await sbSelect(
-        "checklist_items",
-        "case_id=eq." + caseId + "&order=item_order.asc"
-      );
-      setChecklist(checks || []);
-
-      // Load history
-      var hist = await sbSelect(
-        "case_history",
-        "case_id=eq." + caseId + "&order=created_at.desc&limit=50"
-      );
-      setHistory(hist || []);
-
-      // Load findings
-      var finds = await sbSelect(
-        "findings",
-        "case_id=eq." + caseId + "&order=created_at.desc"
-      );
-      setFindings(finds || []);
-
-    } catch (err: any) {
-      setError("Failed to load case: " + (err.message || String(err)));
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { /* table may not exist yet */ }
+    setLoading(false);
   }
 
-  // ── CHECKLIST TOGGLE ──
-  async function toggleChecklist(itemId: string, currentChecked: boolean) {
-    try {
-      await sbUpdate("checklist_items", itemId, { is_checked: !currentChecked });
-      setChecklist(function (prev) {
-        return prev.map(function (item) {
-          if (item.id === itemId) {
-            return { ...item, is_checked: !currentChecked };
-          }
-          return item;
+  // === EVIDENCE UPLOAD ===
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    var files = e.target.files;
+    if (!files || files.length === 0 || !id || !caseData) return;
+    setUploading(true);
+    for (var i = 0; i < files.length; i++) {
+      var file = files[i];
+      var path = id + "/" + Date.now() + "_" + file.name;
+      var uploadResult = await supabase.storage.from("ndt-evidence").upload(path, file);
+      if (!uploadResult.error) {
+        var pubUrl = supabase.storage.from("ndt-evidence").getPublicUrl(path).data.publicUrl;
+        await supabase.from("evidence").insert({
+          case_id: id, evidence_type: "image", storage_path: path,
+          mime_type: file.type, filename: file.name,
+          uploaded_by: caseData.created_by, capture_source: "web_upload",
+          metadata_json: { public_url: pubUrl }
         });
-      });
-    } catch (err: any) {
-      console.error("Checklist toggle failed:", err);
+      }
     }
+    await supabase.from("inspection_cases").update({ status: "evidence_uploaded" }).eq("id", id);
+    setUploading(false);
+    loadCase();
   }
 
-  // ── ADD FINDING ──
-  async function handleAddFinding() {
-    if (!findingType.trim()) return;
-    setFindingSubmitting(true);
-
+  // === RUN AI ANALYSIS ===
+  async function runAnalysis() {
+    if (!id) return;
+    setAnalyzing(true);
     try {
-      var now = new Date().toISOString();
-      var findingId = generateId();
-
-      // Insert finding
-      await sbInsert("findings", {
-        id: findingId,
-        case_id: caseId,
-        location: findingLocation.trim(),
-        method: findingMethod,
-        indication_type: findingType.trim(),
-        severity: findingSeverity,
-        dimensions: findingDimensions.trim(),
-        notes: findingNotes.trim(),
-        created_at: now
+      var resp = await fetch("/api/run-analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ case_id: id })
       });
+      await resp.json();
+    } catch (err) { console.error("Analysis error:", err); }
+    setAnalyzing(false);
+    loadCase();
+  }
 
-      // Build finding text for transcript append
-      var findingText = "\n\nFINDING [" + findingMethod + "]: " + findingType.trim();
-      if (findingLocation.trim()) findingText = findingText + " at " + findingLocation.trim();
-      if (findingSeverity) findingText = findingText + " — Severity: " + findingSeverity;
-      if (findingDimensions.trim()) findingText = findingText + " — Dimensions: " + findingDimensions.trim();
-      if (findingNotes.trim()) findingText = findingText + " — Notes: " + findingNotes.trim();
+  // === MEASUREMENT HANDLING ===
+  function handleMeasChange(findingType: string, fieldKey: string, val: string) {
+    var updated = Object.assign({}, measValues);
+    if (!updated[findingType]) updated[findingType] = {};
+    updated[findingType][fieldKey] = val;
+    setMeasValues(updated);
+    setMeasSaved(false);
+  }
 
-      // Append to running transcript
-      var updatedTranscript = (caseData.running_transcript || "") + findingText;
-      await sbUpdate("cases", caseId, {
-        running_transcript: updatedTranscript,
-        updated_at: now
+  function toggleUnits() {
+    var newSys: UnitSystem = unitSystem === "imperial" ? "metric" : "imperial";
+    var converted: Record<string, Record<string, string>> = {};
+    var types = Object.keys(measValues);
+    for (var t = 0; t < types.length; t++) {
+      converted[types[t]] = {};
+      var keys = Object.keys(measValues[types[t]]);
+      for (var k = 0; k < keys.length; k++) {
+        var v = parseFloat(measValues[types[t]][keys[k]]);
+        if (isNaN(v)) { converted[types[t]][keys[k]] = measValues[types[t]][keys[k]]; }
+        else if (newSys === "metric") { converted[types[t]][keys[k]] = String(inToMm(v)); }
+        else { converted[types[t]][keys[k]] = String(mmToIn(v)); }
+      }
+    }
+    setMeasValues(converted);
+    setUnitSystem(newSys);
+  }
+
+  async function saveMeasurements() {
+    if (!id) return;
+    setSavingMeas(true);
+    var types = Object.keys(measValues);
+    for (var t = 0; t < types.length; t++) {
+      var keys = Object.keys(measValues[types[t]]);
+      for (var k = 0; k < keys.length; k++) {
+        var raw = parseFloat(measValues[types[t]][keys[k]]);
+        if (isNaN(raw) || raw <= 0) continue;
+        var impVal = unitSystem === "imperial" ? raw : mmToIn(raw);
+        var metVal = unitSystem === "metric" ? raw : inToMm(raw);
+        await supabase.from("case_measurements").upsert({
+          case_id: id, finding_type: types[t], measurement_key: keys[k],
+          value_imperial: impVal, value_metric: metVal,
+          unit_imperial: "in", unit_metric: "mm",
+          measured_at: new Date().toISOString()
+        }, { onConflict: "case_id,finding_type,measurement_key" });
+      }
+    }
+    await supabase.from("inspection_cases").update({ measurement_status: "completed", unit_preference: unitSystem }).eq("id", id);
+    setSavingMeas(false);
+    setMeasSaved(true);
+  }
+
+  // === RUN AUTHORITY LOCK ===
+  async function runAuthorityLock() {
+    if (!id) return;
+    setRunningAuthority(true);
+    try {
+      var resp = await fetch("/api/run-authority", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ case_id: id })
       });
+      await resp.json();
+    } catch (err) { console.error("Authority error:", err); }
+    setRunningAuthority(false);
+    loadCase();
+  }
 
-      // Re-evaluate with decision-core
-      var engineAssetClass = ASSET_CLASS_MAP[caseData.asset_class] || "pressure_vessel";
-      var dcResult = await callDecisionCore(updatedTranscript, engineAssetClass);
-      var newDc = dcResult.decision_core || dcResult;
-
-      // Extract new superbrain state
-      var consequence = "";
-      var disposition = "";
-      var confidence = 0;
-      var mechanism = "";
-      var sufficiency = "";
-
-      if (newDc.consequence_reality) consequence = newDc.consequence_reality.consequence_level || "";
-      if (newDc.decision_reality) {
-        disposition = newDc.decision_reality.disposition || "";
-        sufficiency = newDc.decision_reality.evidence_sufficiency || "";
+  // === HELPERS ===
+  function getPassFail(findingType: string, fieldKey: string, value: number) {
+    var impVal = unitSystem === "imperial" ? value : mmToIn(value);
+    var limits = CODE_LIMITS[findingType + ":" + fieldKey];
+    if (!limits) return null;
+    for (var i = 0; i < limits.length; i++) {
+      if (impVal > limits[i].limit) {
+        return { status: "FAIL", detail: limits[i].code + " " + limits[i].rule + ": exceeds " + limits[i].limit + " in" };
       }
-      if (newDc.reality_confidence) confidence = newDc.reality_confidence.overall_confidence || 0;
-      if (newDc.damage_reality && newDc.damage_reality.primary_damage_mechanism) {
-        mechanism = newDc.damage_reality.primary_damage_mechanism.mechanism || "";
-      }
-
-      // Determine new snapshot number
-      var prevSnapNum = snapshot ? (snapshot.snapshot_number || 1) : 0;
-      var newSnapNum = prevSnapNum + 1;
-
-      // Store new snapshot
-      var newSnapshotId = generateId();
-      await sbInsert("decision_core_snapshots", {
-        id: newSnapshotId,
-        case_id: caseId,
-        snapshot_number: newSnapNum,
-        transcript_at_eval: updatedTranscript,
-        full_output: JSON.stringify(newDc),
-        consequence_level: consequence,
-        disposition: disposition,
-        confidence: confidence,
-        primary_mechanism: mechanism,
-        evidence_sufficiency: sufficiency,
-        engine_version: newDc.engine_version || "",
-        created_at: now
-      });
-
-      // Update case superbrain state
-      await sbUpdate("cases", caseId, {
-        sb_consequence: consequence,
-        sb_disposition: disposition,
-        sb_confidence: confidence,
-        sb_mechanism: mechanism,
-        sb_sufficiency: sufficiency,
-        sb_last_eval: now,
-        updated_at: now
-      });
-
-      // Generate new checklist from phased_strategy
-      if (newDc.inspection_reality && newDc.inspection_reality.phased_strategy) {
-        var phases = newDc.inspection_reality.phased_strategy;
-        var checkOrder = 0;
-        for (var pi = 0; pi < phases.length; pi++) {
-          var phase = phases[pi];
-          var phaseName = phase.phase || ("Phase " + (pi + 1));
-          var items = phase.actions || phase.steps || [];
-          for (var ai = 0; ai < items.length; ai++) {
-            checkOrder++;
-            var itemText = typeof items[ai] === "string" ? items[ai] : (items[ai].action || items[ai].description || JSON.stringify(items[ai]));
-            await sbInsert("checklist_items", {
-              id: generateId(),
-              case_id: caseId,
-              snapshot_id: newSnapshotId,
-              phase: phaseName,
-              item_text: itemText,
-              item_order: checkOrder,
-              is_checked: false,
-              created_at: now
-            });
-          }
-        }
-      }
-
-      // History entry
-      await sbInsert("case_history", {
-        id: generateId(),
-        case_id: caseId,
-        action: "finding_added",
-        details: "Finding: " + findingType.trim() + " (" + findingMethod + ") — Re-evaluated: " + consequence + " / " + disposition + " / " + Math.round(confidence * 100) + "%",
-        snapshot_id: newSnapshotId,
-        created_at: now
-      });
-
-      // Reset modal and reload
-      setShowFindingModal(false);
-      setFindingLocation("");
-      setFindingMethod("VT");
-      setFindingType("");
-      setFindingSeverity("minor");
-      setFindingDimensions("");
-      setFindingNotes("");
-      setFindingSubmitting(false);
-      await loadCase();
-
-    } catch (err: any) {
-      setFindingSubmitting(false);
-      alert("Failed to add finding: " + (err.message || String(err)));
     }
+    return { status: "PASS", detail: "Within code limits" };
   }
 
-  // ── HELPER FUNCTIONS ──
+  if (loading || !caseData) return <div className="page-loading">Loading case...</div>;
 
-  function consequenceColor(c: string): string {
-    if (c === "CRITICAL") return "#ef4444";
-    if (c === "HIGH") return "#f97316";
-    if (c === "MODERATE") return "#eab308";
-    return "#22c55e";
-  }
+  // Use label (e.g. "undercut", "slag_inclusion") not finding_type (e.g. "Discontinuity")
+  var findingTypes = Array.from(new Set(findings.map(function(f) {
+    return (f.label || f.finding_type || "unknown").toLowerCase().replace(/ /g, "_");
+  })));
 
-  function dispositionColor(d: string): string {
-    if (d === "BLOCKED") return "#ef4444";
-    if (d === "HOLD") return "#f97316";
-    if (d === "CONDITIONAL_GO") return "#eab308";
-    if (d === "GO") return "#22c55e";
-    return "#6b7280";
-  }
+  var TABS: Array<{ key: TabName; label: string }> = [
+    { key: "overview", label: "Overview" }, { key: "evidence", label: "Evidence" },
+    { key: "physics", label: "Physics Model" }, { key: "findings", label: "Findings" },
+    { key: "rules", label: "Rules" }, { key: "decision", label: "Decision" },
+    { key: "teaching", label: "Teaching" },
+  ];
 
-  function formatDate(iso: string): string {
-    if (!iso) return "";
-    var d = new Date(iso);
-    return d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  }
+  return (
+    <div className="page">
+      <div className="case-header">
+        <div className="case-header-top">
+          <span className="case-number">{caseData.case_number}</span>
+          <MethodBadge method={caseData.method} size="md" />
+          <span className="case-status-badge">{caseData.status.replace(/_/g, " ")}</span>
+        </div>
+        <h1>{caseData.title}</h1>
+        {caseData.final_disposition && (
+          <div className="case-disposition-banner" style={{ borderColor: DISPOSITION_COLORS[caseData.final_disposition] || "#333" }}>
+            <span className="disposition-label" style={{ color: DISPOSITION_COLORS[caseData.final_disposition] || "#333" }}>
+              {caseData.final_disposition.replace(/_/g, " ").toUpperCase()}
+            </span>
+            {caseData.final_confidence != null && (
+              <span className="disposition-confidence">{Math.round(caseData.final_confidence * 100)}% confidence</span>
+            )}
+            {caseData.authority_locked && <span className="locked-badge">LOCKED</span>}
+          </div>
+        )}
+      </div>
 
-  // ── STYLES ──
-
-  var containerStyle: React.CSSProperties = {
-    padding: "24px",
-    maxWidth: "1100px",
-    margin: "0 auto",
-    fontFamily: "'Inter', -apple-system, sans-serif",
-    color: "#e2e8f0"
-  };
-
-  var cardStyle: React.CSSProperties = {
-    backgroundColor: "#0f172a",
-    border: "1px solid #1e293b",
-    borderRadius: "12px",
-    padding: "20px",
-    marginBottom: "16px"
-  };
-
-  var tabBtnStyle = function (isActive: boolean): React.CSSProperties {
-    return {
-      padding: "8px 20px",
-      backgroundColor: isActive ? "#1e293b" : "transparent",
-      color: isActive ? "#f8fafc" : "#64748b",
-      border: "1px solid " + (isActive ? "#334155" : "transparent"),
-      borderRadius: "6px",
-      cursor: "pointer",
-      fontSize: "13px",
-      fontWeight: isActive ? "600" : "400"
-    };
-  };
-
-  // ── LOADING / ERROR ──
-
-  if (loading) {
-    return React.createElement("div", { style: containerStyle },
-      React.createElement("div", { style: { textAlign: "center", padding: "60px", color: "#94a3b8" } }, "Loading case...")
-    );
-  }
-
-  if (error || !caseData) {
-    return React.createElement("div", { style: containerStyle },
-      React.createElement("div", { style: { textAlign: "center", padding: "40px", color: "#ef4444" } }, error || "Case not found."),
-      React.createElement("button", {
-        onClick: function () { onNavigate("cases-dashboard"); },
-        style: { padding: "8px 16px", backgroundColor: "#3b82f6", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer" }
-      }, "← Dashboard")
-    );
-  }
-
-  var isBlocked = caseData.sb_disposition === "BLOCKED";
-  var isCritical = caseData.sb_consequence === "CRITICAL";
-
-  // ── BUILD TABS ──
-
-  function renderWorkflowTab() {
-    // Confidence bars
-    var confidenceSections: { label: string; value: number }[] = [];
-    if (dc && dc.reality_confidence) {
-      var rc = dc.reality_confidence;
-      if (rc.physical_confidence != null) confidenceSections.push({ label: "Physical Reality", value: rc.physical_confidence });
-      if (rc.damage_confidence != null) confidenceSections.push({ label: "Damage Mechanism", value: rc.damage_confidence });
-      if (rc.consequence_confidence != null) confidenceSections.push({ label: "Consequence", value: rc.consequence_confidence });
-      if (rc.inspection_confidence != null) confidenceSections.push({ label: "Inspection Plan", value: rc.inspection_confidence });
-      if (rc.overall_confidence != null) confidenceSections.push({ label: "Overall", value: rc.overall_confidence });
-    }
-
-    // Recovery queue
-    var recoveryQueue: any[] = [];
-    if (dc && dc.decision_reality && dc.decision_reality.guided_recovery) {
-      recoveryQueue = dc.decision_reality.guided_recovery;
-    }
-
-    // Authority
-    var authority = "";
-    if (dc && dc.authority_reality) {
-      var ar = dc.authority_reality;
-      authority = (ar.governing_code || "") + (ar.jurisdiction ? " — " + ar.jurisdiction : "");
-    }
-
-    // Group checklist by phase
-    var phaseGroups: Record<string, any[]> = {};
-    checklist.forEach(function (item) {
-      var phase = item.phase || "General";
-      if (!phaseGroups[phase]) phaseGroups[phase] = [];
-      phaseGroups[phase].push(item);
-    });
-
-    return React.createElement("div", null,
-
-      // Confidence bars
-      confidenceSections.length > 0 ? React.createElement("div", { style: cardStyle },
-        React.createElement("h3", { style: { fontSize: "14px", color: "#94a3b8", marginTop: 0, marginBottom: "16px" } }, "CONFIDENCE"),
-        confidenceSections.map(function (s) {
-          var pct = Math.round(s.value * 100);
-          var color = pct >= 80 ? "#22c55e" : pct >= 60 ? "#eab308" : "#ef4444";
-          return React.createElement("div", {
-            key: s.label,
-            style: { display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }
-          },
-            React.createElement("div", { style: { width: "130px", fontSize: "13px", color: "#cbd5e1" } }, s.label),
-            React.createElement("div", {
-              style: { flex: 1, height: "10px", backgroundColor: "#1e293b", borderRadius: "5px", overflow: "hidden" }
-            },
-              React.createElement("div", {
-                style: { width: pct + "%", height: "100%", backgroundColor: color, borderRadius: "5px", transition: "width 0.5s" }
-              })
-            ),
-            React.createElement("div", { style: { width: "45px", textAlign: "right", fontSize: "13px", fontWeight: "600", color: color } }, pct + "%")
+      <div className="tab-bar">
+        {TABS.map(function(tab) {
+          return (
+            <button key={tab.key} className={"tab-btn" + (activeTab === tab.key ? " tab-active" : "")} onClick={function() { setActiveTab(tab.key); }}>
+              {tab.label}
+              {tab.key === "evidence" && evidence.length > 0 && <span className="tab-count">{evidence.length}</span>}
+              {tab.key === "findings" && findings.length > 0 && <span className="tab-count">{findings.length}</span>}
+              {tab.key === "rules" && rules.length > 0 && <span className="tab-count">{rules.length}</span>}
+            </button>
           );
-        })
-      ) : null,
+        })}
+      </div>
 
-      // Authority
-      authority ? React.createElement("div", { style: cardStyle },
-        React.createElement("h3", { style: { fontSize: "14px", color: "#94a3b8", marginTop: 0, marginBottom: "8px" } }, "AUTHORITY"),
-        React.createElement("div", { style: { fontSize: "14px", color: "#f8fafc" } }, authority)
-      ) : null,
+      <div className="tab-content">
 
-      // Phased Strategy Checklist
-      Object.keys(phaseGroups).length > 0 ? React.createElement("div", { style: cardStyle },
-        React.createElement("h3", { style: { fontSize: "14px", color: "#94a3b8", marginTop: 0, marginBottom: "16px" } }, "PHASED STRATEGY"),
-        Object.keys(phaseGroups).map(function (phase) {
-          return React.createElement("div", { key: phase, style: { marginBottom: "16px" } },
-            React.createElement("div", { style: { fontSize: "13px", fontWeight: "600", color: "#f97316", marginBottom: "8px", textTransform: "uppercase" } }, phase),
-            phaseGroups[phase].map(function (item) {
-              return React.createElement("div", {
-                key: item.id,
-                onClick: function () { toggleChecklist(item.id, item.is_checked); },
-                style: {
-                  display: "flex", alignItems: "flex-start", gap: "10px", padding: "8px 12px",
-                  cursor: "pointer", borderRadius: "6px", marginBottom: "4px",
-                  backgroundColor: item.is_checked ? "#22c55e11" : "transparent"
-                }
-              },
-                React.createElement("div", {
-                  style: {
-                    width: "18px", height: "18px", borderRadius: "4px", flexShrink: 0, marginTop: "1px",
-                    border: item.is_checked ? "2px solid #22c55e" : "2px solid #475569",
-                    backgroundColor: item.is_checked ? "#22c55e" : "transparent",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: "11px", color: "#fff", fontWeight: "700"
-                  }
-                }, item.is_checked ? "✓" : ""),
-                React.createElement("div", {
-                  style: {
-                    fontSize: "13px", color: item.is_checked ? "#64748b" : "#e2e8f0",
-                    textDecoration: item.is_checked ? "line-through" : "none"
-                  }
-                }, item.item_text)
-              );
-            })
-          );
-        })
-      ) : null,
+        {/* ========== OVERVIEW ========== */}
+        {activeTab === "overview" && (
+          <div className="overview-grid">
+            <div className="detail-section">
+              <h3>Component</h3>
+              <p>{caseData.component_name || "Not specified"}</p>
+              {caseData.weld_id && <p>Weld: {caseData.weld_id}</p>}
+              {caseData.joint_type && <p>Joint: {caseData.joint_type}</p>}
+              {caseData.thickness_mm && <p>Thickness: {caseData.thickness_mm} mm</p>}
+            </div>
+            <div className="detail-section">
+              <h3>Material &amp; Loading</h3>
+              <p>{caseData.material_class.replace(/_/g, " ")}</p>
+              <p>Load: {caseData.load_condition.replace(/_/g, " ")}</p>
+            </div>
+            <div className="detail-section">
+              <h3>Code Context</h3>
+              <p>{[caseData.code_family, caseData.code_edition].filter(Boolean).join(" ") || "Not specified"}</p>
+              {caseData.code_section && <p>Section: {caseData.code_section}</p>}
+            </div>
+            <div className="detail-section">
+              <h3>4D Energy Model</h3>
+              <p>Energy: {caseData.energy_type}</p>
+              <p>Interaction: {caseData.interaction_type}</p>
+              <p>Response: {caseData.response_type}</p>
+              <p>Time: {caseData.time_dimension_type}</p>
+            </div>
+          </div>
+        )}
 
-      // Recovery Queue
-      recoveryQueue.length > 0 ? React.createElement("div", { style: cardStyle },
-        React.createElement("h3", { style: { fontSize: "14px", color: "#94a3b8", marginTop: 0, marginBottom: "12px" } }, "RECOVERY QUEUE"),
-        recoveryQueue.map(function (item: any, idx: number) {
-          var text = typeof item === "string" ? item : (item.action || item.description || JSON.stringify(item));
-          return React.createElement("div", {
-            key: idx,
-            style: {
-              padding: "10px 14px", backgroundColor: "#1e293b", borderRadius: "8px",
-              marginBottom: "8px", fontSize: "13px", color: "#e2e8f0",
-              borderLeft: "3px solid " + (idx === 0 ? "#3b82f6" : "#334155")
-            }
-          },
-            React.createElement("span", { style: { color: "#64748b", marginRight: "8px" } }, (idx + 1) + "."),
-            text
-          );
-        })
-      ) : null
-    );
-  }
+        {/* ========== EVIDENCE + MEASUREMENTS ========== */}
+        {activeTab === "evidence" && (
+          <div>
+            <div className="evidence-actions">
+              <label className="upload-btn">
+                {uploading ? "Uploading..." : "Upload Evidence Photos"}
+                <input type="file" accept="image/*" multiple onChange={handleFileUpload} style={{ display: "none" }} disabled={uploading} />
+              </label>
+              <button className="analyze-btn" onClick={runAnalysis} disabled={analyzing || evidence.length === 0}>
+                {analyzing ? "Analyzing..." : "Run AI Analysis"}
+              </button>
+            </div>
 
-  function renderMethodsTab() {
-    if (!dc || !dc.inspection_reality) {
-      return React.createElement("div", { style: cardStyle },
-        React.createElement("div", { style: { color: "#64748b" } }, "No inspection data available.")
-      );
-    }
+            {evidence.length > 0 && (
+              <div className="evidence-grid">
+                {evidence.map(function(ev) {
+                  var url = ev.metadata_json && ev.metadata_json.public_url ? ev.metadata_json.public_url : "";
+                  return (
+                    <div key={ev.id} className="evidence-card">
+                      {url && <img src={url} alt={ev.filename} className="evidence-img" />}
+                      <div className="evidence-info">
+                        <strong>{ev.filename}</strong>
+                        <span>Type: {ev.evidence_type} | Source: {ev.capture_source}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
-    var ir = dc.inspection_reality;
-    var methods = ir.method_scores || ir.ndt_methods || {};
-    var methodKeys = Object.keys(methods);
-    var missing = ir.missing_coverage || ir.coverage_gaps || [];
+            {/* MEASUREMENT INPUT SECTION */}
+            {findings.length > 0 && (
+              <div className="measurements-section">
+                <div className="meas-header">
+                  <h3>Inspector Measurements</h3>
+                  <button className={"unit-toggle " + unitSystem} onClick={toggleUnits} type="button">
+                    {unitSystem === "imperial" ? "IN (Imperial)" : "MM (Metric)"}
+                  </button>
+                </div>
 
-    return React.createElement("div", null,
-      // Method scoring grid
-      React.createElement("div", { style: cardStyle },
-        React.createElement("h3", { style: { fontSize: "14px", color: "#94a3b8", marginTop: 0, marginBottom: "16px" } }, "METHOD SCORES"),
-        methodKeys.length > 0
-          ? methodKeys.map(function (key) {
-            var val = methods[key];
-            var score = typeof val === "number" ? val : (val.score || val.relevance || 0);
-            var pct = Math.round(score * 100);
-            var color = pct >= 70 ? "#22c55e" : pct >= 40 ? "#eab308" : "#64748b";
-            return React.createElement("div", {
-              key: key,
-              style: { display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }
-            },
-              React.createElement("div", { style: { width: "60px", fontSize: "13px", fontWeight: "600", color: "#f8fafc" } }, key.toUpperCase()),
-              React.createElement("div", {
-                style: { flex: 1, height: "10px", backgroundColor: "#1e293b", borderRadius: "5px", overflow: "hidden" }
-              },
-                React.createElement("div", {
-                  style: { width: pct + "%", height: "100%", backgroundColor: color, borderRadius: "5px" }
-                })
-              ),
-              React.createElement("div", { style: { width: "45px", textAlign: "right", fontSize: "13px", color: color } }, pct + "%")
-            );
-          })
-          : React.createElement("div", { style: { color: "#64748b" } }, "No method scores available.")
-      ),
+                {findingTypes.map(function(ft) {
+                  var fields = MEAS_FIELDS[ft] || [{ key: "length", label: "Indication Length", stepI: 0.0625, stepM: 1, maxI: 12 }];
+                  var maxConf = Math.max.apply(null, findings.filter(function(f) {
+                    return (f.label || f.finding_type || "").toLowerCase().replace(/ /g, "_") === ft;
+                  }).map(function(f) { return f.confidence || 0; }));
 
-      // Missing coverage
-      missing.length > 0 ? React.createElement("div", { style: cardStyle },
-        React.createElement("h3", { style: { fontSize: "14px", color: "#94a3b8", marginTop: 0, marginBottom: "12px" } }, "MISSING COVERAGE"),
-        missing.map(function (gap: any, idx: number) {
-          var text = typeof gap === "string" ? gap : (gap.description || gap.method || JSON.stringify(gap));
-          return React.createElement("div", {
-            key: idx,
-            style: {
-              padding: "8px 14px", backgroundColor: "#ef444411", borderRadius: "6px",
-              marginBottom: "6px", fontSize: "13px", color: "#fca5a5",
-              borderLeft: "3px solid #ef4444"
-            }
-          }, text);
-        })
-      ) : null
-    );
-  }
+                  return (
+                    <div key={ft} className="meas-finding-group">
+                      <div className="meas-group-header">
+                        <span className="meas-type-label">{ft.replace(/_/g, " ").toUpperCase()}</span>
+                        <span className="meas-ai-conf">AI: {Math.round(maxConf * 100)}%</span>
+                      </div>
+                      {fields.map(function(field) {
+                        var val = measValues[ft] ? measValues[ft][field.key] || "" : "";
+                        var numVal = parseFloat(val);
+                        var pf = !isNaN(numVal) && numVal > 0 ? getPassFail(ft, field.key, numVal) : null;
+                        var limits = CODE_LIMITS[ft + ":" + field.key] || [];
 
-  function renderFindingsTab() {
-    return React.createElement("div", null,
-      React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" } },
-        React.createElement("h3", { style: { fontSize: "14px", color: "#94a3b8", margin: 0 } }, "FINDINGS (" + findings.length + ")"),
-        React.createElement("button", {
-          onClick: function () { setShowFindingModal(true); },
-          style: {
-            padding: "6px 16px", backgroundColor: "#3b82f6", color: "#fff",
-            border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px"
-          }
-        }, "+ Add Finding")
-      ),
-      findings.length === 0
-        ? React.createElement("div", { style: { ...cardStyle, color: "#64748b", textAlign: "center" } }, "No findings recorded yet.")
-        : findings.map(function (f) {
-          return React.createElement("div", { key: f.id, style: cardStyle },
-            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginBottom: "8px" } },
-              React.createElement("div", { style: { fontWeight: "600", color: "#f8fafc" } }, f.indication_type),
-              React.createElement("span", {
-                style: {
-                  padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "600",
-                  backgroundColor: f.severity === "critical" ? "#ef444422" : f.severity === "major" ? "#f9731622" : "#22c55e22",
-                  color: f.severity === "critical" ? "#ef4444" : f.severity === "major" ? "#f97316" : "#22c55e"
-                }
-              }, f.severity)
-            ),
-            React.createElement("div", { style: { fontSize: "13px", color: "#94a3b8" } },
-              [f.method, f.location, f.dimensions].filter(Boolean).join(" · ")
-            ),
-            f.notes ? React.createElement("div", { style: { fontSize: "13px", color: "#cbd5e1", marginTop: "6px" } }, f.notes) : null,
-            React.createElement("div", { style: { fontSize: "11px", color: "#475569", marginTop: "6px" } }, formatDate(f.created_at))
-          );
-        })
-    );
-  }
+                        return (
+                          <div key={field.key} className="meas-field-row">
+                            <label className="meas-label">{field.label}</label>
+                            <div className="meas-input-group">
+                              <input type="number" className="meas-input" value={val}
+                                onChange={function(e) { handleMeasChange(ft, field.key, e.target.value); }}
+                                step={unitSystem === "imperial" ? field.stepI : field.stepM}
+                                min={0} max={unitSystem === "imperial" ? field.maxI : inToMm(field.maxI)}
+                                placeholder={"0.000 " + (unitSystem === "imperial" ? "in" : "mm")} />
+                              <span className="meas-unit">{unitSystem === "imperial" ? "in" : "mm"}</span>
+                            </div>
+                            {pf && (
+                              <div className={"meas-verdict verdict-" + pf.status.toLowerCase()}>
+                                <span className="verdict-icon">{pf.status === "PASS" ? "\u2713" : "\u2717"}</span>
+                                <span>{pf.status} - {pf.detail}</span>
+                              </div>
+                            )}
+                            {limits.length > 0 && (
+                              <div className="code-limits-row">
+                                {limits.map(function(lim, idx) {
+                                  return (
+                                    <span key={idx} className="code-limit-chip">
+                                      {lim.code}: {unitSystem === "imperial" ? lim.limit + " in" : inToMm(lim.limit) + " mm"} ({lim.rule})
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
 
-  function renderHistoryTab() {
-    return React.createElement("div", null,
-      history.length === 0
-        ? React.createElement("div", { style: { ...cardStyle, color: "#64748b", textAlign: "center" } }, "No history entries.")
-        : history.map(function (h) {
-          return React.createElement("div", {
-            key: h.id,
-            style: {
-              padding: "12px 16px", borderLeft: "3px solid #334155",
-              marginBottom: "8px", backgroundColor: "#0f172a",
-              borderRadius: "0 8px 8px 0"
-            }
-          },
-            React.createElement("div", { style: { fontSize: "13px", fontWeight: "600", color: "#f8fafc" } },
-              (h.action || "").replace(/_/g, " ").toUpperCase()
-            ),
-            React.createElement("div", { style: { fontSize: "13px", color: "#cbd5e1", marginTop: "4px" } }, h.details || ""),
-            React.createElement("div", { style: { fontSize: "11px", color: "#475569", marginTop: "4px" } }, formatDate(h.created_at))
-          );
-        })
-    );
-  }
+                <div className="meas-actions">
+                  <button className="save-meas-btn" onClick={saveMeasurements} disabled={savingMeas} type="button">
+                    {savingMeas ? "Saving..." : measSaved ? "\u2713 Measurements Saved" : "Save Measurements"}
+                  </button>
+                  {measSaved && (
+                    <button className="authority-btn" onClick={runAuthorityLock} disabled={runningAuthority} type="button">
+                      {runningAuthority ? "Locking Decision..." : "\uD83D\uDD12 Run Authority Lock"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
-  function renderRawTab() {
-    return React.createElement("div", { style: cardStyle },
-      React.createElement("pre", {
-        style: {
-          fontSize: "11px", color: "#94a3b8", whiteSpace: "pre-wrap",
-          wordBreak: "break-all", maxHeight: "600px", overflow: "auto",
-          margin: 0
-        }
-      }, dc ? JSON.stringify(dc, null, 2) : "No decision-core output available.")
-    );
-  }
+        {/* ========== PHYSICS MODEL (formatted) ========== */}
+        {activeTab === "physics" && (
+          <div>
+            {physics ? (
+              <div className="physics-model">
+                <div className="detail-section">
+                  <h3>Probable Discontinuities (Predicted Before Inspection)</h3>
+                  {physics.probable_discontinuities_json && physics.probable_discontinuities_json.length > 0 ? (
+                    <div className="predictions-list">
+                      {physics.probable_discontinuities_json.map(function(d: any, i: number) {
+                        return (
+                          <div key={i} className="prediction-card">
+                            <strong>{(d.type || d.label || "Unknown").replace(/_/g, " ")}</strong>
+                            {d.probability && <span className="prediction-prob">{d.probability}</span>}
+                            {d.typical_location && <p>Likely location: {d.typical_location.replace(/_/g, " ")}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : <p>No predictions generated yet.</p>}
+                </div>
 
-  // ── FINDING MODAL ──
+                {/* Formatted Method Capability Map */}
+                {physics.method_capability_map_json && (
+                  <div className="detail-section">
+                    <h3>Method Capability Map</h3>
+                    <div className="capability-grid">
+                      {physics.method_capability_map_json.ferromagnetic !== undefined && (
+                        <div className="capability-card">
+                          <span className="cap-label">Ferromagnetic</span>
+                          <span className={"cap-value cap-" + (physics.method_capability_map_json.ferromagnetic ? "yes" : "no")}>
+                            {physics.method_capability_map_json.ferromagnetic ? "Yes" : "No"}
+                          </span>
+                        </div>
+                      )}
+                      {["mt_applicable", "pt_applicable", "et_applicable"].map(function(key) {
+                        if (physics.method_capability_map_json[key] === undefined) return null;
+                        var method = key.split("_")[0].toUpperCase();
+                        return (
+                          <div key={key} className="capability-card">
+                            <span className="cap-label">{method} Applicable</span>
+                            <span className={"cap-value cap-" + (physics.method_capability_map_json[key] ? "yes" : "no")}>
+                              {physics.method_capability_map_json[key] ? "Yes" : "No"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {physics.method_capability_map_json.ut_notes && (
+                        <div className="capability-note"><strong>UT:</strong> {physics.method_capability_map_json.ut_notes}</div>
+                      )}
+                      {physics.method_capability_map_json.rt_notes && (
+                        <div className="capability-note"><strong>RT:</strong> {physics.method_capability_map_json.rt_notes}</div>
+                      )}
+                      {physics.method_capability_map_json.et_notes && (
+                        <div className="capability-note"><strong>ET:</strong> {physics.method_capability_map_json.et_notes}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
-  function renderFindingModal() {
-    if (!showFindingModal) return null;
+                {/* Formatted Material Properties */}
+                {physics.material_properties_json && (
+                  <div className="detail-section">
+                    <h3>Material Properties</h3>
+                    <div className="material-grid">
+                      {physics.material_properties_json.material_name && (
+                        <div className="mat-card"><span className="mat-label">Material</span><span className="mat-value">{physics.material_properties_json.material_name}</span></div>
+                      )}
+                      {physics.material_properties_json.density_kg_m3 && (
+                        <div className="mat-card"><span className="mat-label">Density</span><span className="mat-value">{physics.material_properties_json.density_kg_m3} kg/m3</span></div>
+                      )}
+                      {physics.material_properties_json.acoustic_velocity_longitudinal_ms && (
+                        <div className="mat-card"><span className="mat-label">Longitudinal Velocity</span><span className="mat-value">{physics.material_properties_json.acoustic_velocity_longitudinal_ms} m/s</span></div>
+                      )}
+                      {physics.material_properties_json.acoustic_velocity_shear_ms && (
+                        <div className="mat-card"><span className="mat-label">Shear Velocity</span><span className="mat-value">{physics.material_properties_json.acoustic_velocity_shear_ms} m/s</span></div>
+                      )}
+                      {physics.material_properties_json.acoustic_impedance && (
+                        <div className="mat-card"><span className="mat-label">Acoustic Impedance</span><span className="mat-value">{physics.material_properties_json.acoustic_impedance} MRayl</span></div>
+                      )}
+                      {physics.material_properties_json.magnetic_permeability && (
+                        <div className="mat-card"><span className="mat-label">Magnetic Permeability</span><span className="mat-value">{physics.material_properties_json.magnetic_permeability}</span></div>
+                      )}
+                      {physics.material_properties_json.electrical_conductivity_ms_m && (
+                        <div className="mat-card"><span className="mat-label">Electrical Conductivity</span><span className="mat-value">{physics.material_properties_json.electrical_conductivity_ms_m} MS/m</span></div>
+                      )}
+                      {physics.material_properties_json.attenuation_coefficient && (
+                        <div className="mat-card"><span className="mat-label">Attenuation</span><span className="mat-value">{physics.material_properties_json.attenuation_coefficient} dB/mm</span></div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : <div className="empty-state"><p>Physics model not yet generated.</p></div>}
+          </div>
+        )}
 
-    var overlayStyle: React.CSSProperties = {
-      position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-      backgroundColor: "rgba(0,0,0,0.7)", display: "flex",
-      alignItems: "center", justifyContent: "center", zIndex: 1000
-    };
+        {/* ========== FINDINGS + CONFLICT RESOLUTION ========== */}
+        {activeTab === "findings" && (
+          <div>
+            {conflicts.length > 0 && (
+              <div className="conflict-summary">
+                <h3>Dual AI Conflict Resolution</h3>
+                {conflicts.map(function(c, idx) {
+                  return (
+                    <div key={idx} className={"conflict-card conflict-" + c.resolution_method.toLowerCase()}>
+                      <div className="conflict-header">
+                        <span className="conflict-type">{(c.finding_type || "").replace(/_/g, " ")}</span>
+                        <span className="conflict-method">{(c.resolution_method || "").replace(/_/g, " ")}</span>
+                      </div>
+                      <div className="conflict-scores">
+                        <span>GPT-4o: {c.openai_confidence ? Math.round(c.openai_confidence * 100) + "%" : "N/A"}</span>
+                        <span>Claude: {c.claude_confidence ? Math.round(c.claude_confidence * 100) + "%" : "N/A"}</span>
+                        <span className="conflict-resolved">Resolved: {Math.round((c.resolved_confidence || 0) * 100)}%</span>
+                      </div>
+                      <p className="conflict-reasoning">{c.reasoning}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {findings.length === 0 ? (
+              <div className="empty-state"><p>No findings yet. Upload evidence and run the AI analysis.</p></div>
+            ) : (
+              <div className="findings-list">
+                {findings.map(function(f) {
+                  return (
+                    <div key={f.id} className="finding-card">
+                      <div className="finding-header">
+                        <span className={"finding-source finding-source-" + f.source}>{f.source.toUpperCase()}</span>
+                        <span className="finding-type">{f.finding_type.replace(/_/g, " ")}</span>
+                        {f.severity && <span className={"severity-badge severity-" + f.severity}>{f.severity.toUpperCase()}</span>}
+                      </div>
+                      <div className="finding-label">{f.label}</div>
+                      {f.location_ref && <div className="finding-location">Location: {f.location_ref.replace(/_/g, " ")}</div>}
+                      {f.confidence != null && <div className="finding-confidence">Confidence: {Math.round(f.confidence * 100)}%</div>}
+                      {f.structured_json && f.structured_json.reasoning && (
+                        <div className="finding-reasoning">{f.structured_json.reasoning}</div>
+                      )}
+                      {f.structured_json && f.structured_json.possible_causes && (
+                        <div className="finding-causes">Possible causes: {f.structured_json.possible_causes}</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
-    var modalStyle: React.CSSProperties = {
-      backgroundColor: "#0f172a", border: "1px solid #334155",
-      borderRadius: "12px", padding: "28px", width: "480px",
-      maxHeight: "90vh", overflow: "auto"
-    };
+        {/* ========== RULES ========== */}
+        {activeTab === "rules" && (
+          <div>
+            {rules.length === 0 ? (
+              <div className="empty-state"><p>No rule evaluations yet.</p></div>
+            ) : (
+              <div className="rules-list">
+                {rules.map(function(r) {
+                  return (
+                    <div key={r.id} className={"rule-card rule-" + (r.passed === true ? "pass" : r.passed === false ? "fail" : "na")}>
+                      <div className="rule-header">
+                        <span className="rule-status-icon">{r.passed === true ? "\u2713" : r.passed === false ? "\u2717" : "\u2014"}</span>
+                        <span className="rule-name">{r.rule_name}</span>
+                        <span className="rule-class">{r.rule_class.replace(/_/g, " ")}</span>
+                      </div>
+                      <div className="rule-explanation">{r.explanation}</div>
+                      {r.engineering_basis_cited && <div className="rule-basis"><strong>Engineering basis:</strong> {r.engineering_basis_cited}</div>}
+                      {r.output_snapshot_json && r.output_snapshot_json.evidence_chain && (
+                        <div className="rule-chain"><strong>Evidence chain:</strong> {r.output_snapshot_json.evidence_chain}</div>
+                      )}
+                      {r.input_snapshot_json && r.input_snapshot_json.measured_value_imperial != null && (
+                        <div className="rule-measurement">
+                          <strong>Measured:</strong> {r.input_snapshot_json.measured_value_imperial.toFixed(4)} in
+                          {r.input_snapshot_json.threshold_imperial != null && (
+                            <span> | <strong>Limit:</strong> {r.input_snapshot_json.threshold_imperial.toFixed(4)} in</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
-    var inputStyle: React.CSSProperties = {
-      width: "100%", padding: "8px 12px", backgroundColor: "#1e293b",
-      border: "1px solid #334155", borderRadius: "6px", color: "#f8fafc",
-      fontSize: "13px", boxSizing: "border-box" as const, outline: "none"
-    };
+        {/* ========== DECISION (Authority Lock) ========== */}
+        {activeTab === "decision" && (
+          <div>
+            {caseData.authority_locked && (
+              <div className="authority-locked-banner">
+                <span className="lock-icon">{"\uD83D\uDD12"}</span>
+                <span>DECISION LOCKED by Inspection Authority Engine</span>
+                {caseData.authority_locked_at && (
+                  <span className="lock-time">{new Date(caseData.authority_locked_at).toLocaleString()}</span>
+                )}
+              </div>
+            )}
+            {caseData.truth_engine_summary ? (
+              <div className="decision-panel">
+                <div className="decision-what">
+                  <h3>WHAT</h3>
+                  <p>{caseData.truth_engine_summary}</p>
+                </div>
+                <div className="decision-why">
+                  <h3>WHY</h3>
+                  <p>{caseData.final_decision_reason || "No detailed reason available."}</p>
+                </div>
+                <div className="decision-how">
+                  <h3>HOW</h3>
+                  <p>{caseData.final_disposition === "reject"
+                    ? "Repair per governing procedure and code. Re-inspect after repair using the same method and acceptance criteria. Document defect location and type."
+                    : caseData.final_disposition === "review_required"
+                    ? "Enter measurements in the Evidence tab, then click Run Authority Lock to finalize the disposition."
+                    : "Proceed per governing procedure. Archive inspection record with evidence trail."
+                  }</p>
+                </div>
+                {caseData.authority_evidence && (
+                  <div className="authority-evidence-summary">
+                    <h3>Authority Evidence</h3>
+                    <div className="evidence-stats">
+                      <span className="stat">Rules Evaluated: {caseData.authority_evidence.rules_evaluated}</span>
+                      <span className="stat stat-pass">Passed: {caseData.authority_evidence.rules_passed}</span>
+                      <span className="stat stat-fail">Failed: {caseData.authority_evidence.rules_failed}</span>
+                      <span className="stat">N/A: {caseData.authority_evidence.rules_na}</span>
+                      <span className="stat">Measurements: {caseData.authority_evidence.measurements_provided}</span>
+                    </div>
+                  </div>
+                )}
+                {caseData.ai_openai_summary && (
+                  <div className="detail-section" style={{ marginTop: "16px" }}>
+                    <h3>GPT-4o Observation Summary</h3>
+                    <p>{caseData.ai_openai_summary}</p>
+                  </div>
+                )}
+                {caseData.ai_claude_summary && (
+                  <div className="detail-section" style={{ marginTop: "16px" }}>
+                    <h3>Claude Reasoning Summary</h3>
+                    <p>{caseData.ai_claude_summary}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <p>Decision not yet generated. Upload evidence and run the AI analysis, then enter measurements and lock the decision.</p>
+              </div>
+            )}
+          </div>
+        )}
 
-    var labelStyle: React.CSSProperties = {
-      display: "block", fontSize: "12px", fontWeight: "600",
-      color: "#94a3b8", marginBottom: "4px", marginTop: "14px"
-    };
+        {/* ========== TEACHING ========== */}
+        {activeTab === "teaching" && (
+          <div className="empty-state"><p>Teaching intelligence coming in Phase 2.</p></div>
+        )}
 
-    return React.createElement("div", { style: overlayStyle, onClick: function () { if (!findingSubmitting) setShowFindingModal(false); } },
-      React.createElement("div", { style: modalStyle, onClick: function (e: any) { e.stopPropagation(); } },
-        React.createElement("h2", { style: { fontSize: "18px", color: "#f8fafc", marginTop: 0, marginBottom: "4px" } }, "Add Finding"),
-        React.createElement("div", { style: { fontSize: "13px", color: "#64748b", marginBottom: "16px" } },
-          "Finding will be appended to transcript and trigger re-evaluation."
-        ),
-
-        React.createElement("label", { style: labelStyle }, "Indication Type *"),
-        React.createElement("input", { type: "text", value: findingType, onChange: function (e: any) { setFindingType(e.target.value); }, placeholder: "e.g. Crack, Corrosion, Porosity, Wall Loss", style: inputStyle }),
-
-        React.createElement("label", { style: labelStyle }, "Method"),
-        React.createElement("select", { value: findingMethod, onChange: function (e: any) { setFindingMethod(e.target.value); }, style: { ...inputStyle, cursor: "pointer" } },
-          ["VT", "UT", "MT", "PT", "RT", "ET", "AE"].map(function (m) { return React.createElement("option", { key: m, value: m }, m); })
-        ),
-
-        React.createElement("label", { style: labelStyle }, "Location"),
-        React.createElement("input", { type: "text", value: findingLocation, onChange: function (e: any) { setFindingLocation(e.target.value); }, placeholder: "e.g. Weld joint 3B, nozzle N-2", style: inputStyle }),
-
-        React.createElement("label", { style: labelStyle }, "Severity"),
-        React.createElement("select", { value: findingSeverity, onChange: function (e: any) { setFindingSeverity(e.target.value); }, style: { ...inputStyle, cursor: "pointer" } },
-          ["minor", "major", "critical"].map(function (s) { return React.createElement("option", { key: s, value: s }, s); })
-        ),
-
-        React.createElement("label", { style: labelStyle }, "Dimensions"),
-        React.createElement("input", { type: "text", value: findingDimensions, onChange: function (e: any) { setFindingDimensions(e.target.value); }, placeholder: "e.g. 3mm deep x 12mm long", style: inputStyle }),
-
-        React.createElement("label", { style: labelStyle }, "Notes"),
-        React.createElement("textarea", {
-          value: findingNotes, onChange: function (e: any) { setFindingNotes(e.target.value); },
-          placeholder: "Additional observations...",
-          style: { ...inputStyle, minHeight: "60px", resize: "vertical" as const }
-        }),
-
-        React.createElement("div", { style: { display: "flex", gap: "10px", marginTop: "20px" } },
-          React.createElement("button", {
-            onClick: handleAddFinding, disabled: findingSubmitting || !findingType.trim(),
-            style: {
-              flex: 1, padding: "10px", backgroundColor: findingSubmitting ? "#1e40af" : "#3b82f6",
-              color: "#fff", border: "none", borderRadius: "6px", cursor: findingSubmitting ? "not-allowed" : "pointer",
-              fontSize: "13px", fontWeight: "600"
-            }
-          }, findingSubmitting ? "Evaluating..." : "Add Finding + Re-evaluate"),
-          React.createElement("button", {
-            onClick: function () { setShowFindingModal(false); }, disabled: findingSubmitting,
-            style: {
-              padding: "10px 16px", backgroundColor: "transparent", color: "#94a3b8",
-              border: "1px solid #334155", borderRadius: "6px", cursor: "pointer", fontSize: "13px"
-            }
-          }, "Cancel")
-        )
-      )
-    );
-  }
-
-  // ── MAIN RENDER ──
-
-  // Next action from guided_recovery
-  var nextAction = "";
-  if (dc && dc.decision_reality && dc.decision_reality.guided_recovery && dc.decision_reality.guided_recovery.length > 0) {
-    var first = dc.decision_reality.guided_recovery[0];
-    nextAction = typeof first === "string" ? first : (first.action || first.description || "");
-  }
-
-  var tabs = ["workflow", "methods", "findings", "history", "raw"];
-
-  return React.createElement("div", { style: containerStyle },
-
-    // Finding modal
-    renderFindingModal(),
-
-    // Back nav
-    React.createElement("div", { style: { marginBottom: "16px" } },
-      React.createElement("button", {
-        onClick: function () { onNavigate("cases-dashboard"); },
-        style: {
-          padding: "6px 14px", backgroundColor: "transparent", color: "#94a3b8",
-          border: "1px solid #334155", borderRadius: "6px", cursor: "pointer", fontSize: "13px"
-        }
-      }, "← Dashboard")
-    ),
-
-    // Hard Lock Banner
-    isBlocked ? React.createElement("div", {
-      style: {
-        padding: "14px 20px", borderRadius: "10px", marginBottom: "16px",
-        backgroundColor: "#ef444422", border: "2px solid #ef4444",
-        textAlign: "center", fontSize: "14px", fontWeight: "700", color: "#ef4444",
-        animation: "pulse 2s infinite"
-      }
-    },
-      "⛔ HARD LOCK — DISPOSITION: BLOCKED — DO NOT PROCEED WITHOUT RESOLUTION"
-    ) : null,
-
-    // Case header
-    React.createElement("div", {
-      style: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px" }
-    },
-      React.createElement("div", null,
-        React.createElement("h1", { style: { fontSize: "22px", fontWeight: "700", color: "#f8fafc", margin: 0, marginBottom: "4px" } },
-          caseData.title || "Untitled Case"
-        ),
-        React.createElement("div", { style: { fontSize: "13px", color: "#64748b" } },
-          [caseData.asset_name, caseData.asset_class, caseData.location].filter(Boolean).join(" · ")
-        )
-      ),
-      React.createElement("button", {
-        onClick: function () { setShowFindingModal(true); },
-        style: {
-          padding: "8px 18px", backgroundColor: "#3b82f6", color: "#fff",
-          border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: "600"
-        }
-      }, "+ Add Finding")
-    ),
-
-    // Superbrain Status Bar
-    React.createElement("div", {
-      style: {
-        display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px",
-        marginBottom: "20px"
-      }
-    },
-      // Consequence
-      React.createElement("div", {
-        style: {
-          backgroundColor: "#0f172a", border: "1px solid #1e293b",
-          borderRadius: "10px", padding: "14px", textAlign: "center"
-        }
-      },
-        React.createElement("div", { style: { fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" } }, "Consequence"),
-        React.createElement("div", {
-          style: { fontSize: "16px", fontWeight: "700", color: consequenceColor(caseData.sb_consequence || "") }
-        }, caseData.sb_consequence || "—")
-      ),
-      // Disposition
-      React.createElement("div", {
-        style: {
-          backgroundColor: "#0f172a", border: "1px solid #1e293b",
-          borderRadius: "10px", padding: "14px", textAlign: "center"
-        }
-      },
-        React.createElement("div", { style: { fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" } }, "Disposition"),
-        React.createElement("div", {
-          style: { fontSize: "16px", fontWeight: "700", color: dispositionColor(caseData.sb_disposition || "") }
-        }, (caseData.sb_disposition || "—").replace(/_/g, " "))
-      ),
-      // Confidence
-      React.createElement("div", {
-        style: {
-          backgroundColor: "#0f172a", border: "1px solid #1e293b",
-          borderRadius: "10px", padding: "14px", textAlign: "center"
-        }
-      },
-        React.createElement("div", { style: { fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" } }, "Confidence"),
-        React.createElement("div", {
-          style: { fontSize: "16px", fontWeight: "700", color: caseData.sb_confidence >= 0.8 ? "#22c55e" : caseData.sb_confidence >= 0.6 ? "#eab308" : "#ef4444" }
-        }, caseData.sb_confidence != null ? Math.round(caseData.sb_confidence * 100) + "%" : "—")
-      ),
-      // Mechanism
-      React.createElement("div", {
-        style: {
-          backgroundColor: "#0f172a", border: "1px solid #1e293b",
-          borderRadius: "10px", padding: "14px", textAlign: "center"
-        }
-      },
-        React.createElement("div", { style: { fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" } }, "Mechanism"),
-        React.createElement("div", {
-          style: { fontSize: "14px", fontWeight: "600", color: "#f8fafc" }
-        }, (caseData.sb_mechanism || "—").replace(/_/g, " "))
-      ),
-      // Sufficiency
-      React.createElement("div", {
-        style: {
-          backgroundColor: "#0f172a", border: "1px solid #1e293b",
-          borderRadius: "10px", padding: "14px", textAlign: "center"
-        }
-      },
-        React.createElement("div", { style: { fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" } }, "Sufficiency"),
-        React.createElement("div", {
-          style: { fontSize: "14px", fontWeight: "600", color: "#f8fafc" }
-        }, (caseData.sb_sufficiency || "—").replace(/_/g, " "))
-      )
-    ),
-
-    // Next Action card
-    nextAction ? React.createElement("div", {
-      style: {
-        ...cardStyle,
-        borderLeft: "4px solid #3b82f6",
-        backgroundColor: "#1e293b"
-      }
-    },
-      React.createElement("div", { style: { fontSize: "11px", color: "#64748b", textTransform: "uppercase", letterSpacing: "1px", marginBottom: "6px" } }, "NEXT ACTION"),
-      React.createElement("div", { style: { fontSize: "14px", color: "#f8fafc", fontWeight: "500" } }, nextAction)
-    ) : null,
-
-    // Tab bar
-    React.createElement("div", {
-      style: { display: "flex", gap: "8px", marginBottom: "20px", flexWrap: "wrap" }
-    },
-      tabs.map(function (tab) {
-        return React.createElement("button", {
-          key: tab,
-          onClick: function () { setActiveTab(tab); },
-          style: tabBtnStyle(activeTab === tab)
-        }, tab.charAt(0).toUpperCase() + tab.slice(1));
-      })
-    ),
-
-    // Tab content
-    activeTab === "workflow" ? renderWorkflowTab() : null,
-    activeTab === "methods" ? renderMethodsTab() : null,
-    activeTab === "findings" ? renderFindingsTab() : null,
-    activeTab === "history" ? renderHistoryTab() : null,
-    activeTab === "raw" ? renderRawTab() : null,
-
-    // Pulse animation (for hard lock banner)
-    React.createElement("style", null,
-      "@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }"
-    )
+      </div>
+    </div>
   );
 }
