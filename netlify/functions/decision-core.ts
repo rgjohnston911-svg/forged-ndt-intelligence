@@ -1,17 +1,15 @@
-// DEPLOY106 — decision-core.ts v2.1
-// PATCH 1: Mechanism uncertainty preservation — fatigue capped at probable when H2S + unresolved SSC/HIC
-// PATCH 2: Authority stack expansion — PVHO gets ASME FFS-1, FFS gap check fires for PVHO crack cases, dual authority alignment string
+// DEPLOY109 — decision-core.ts v2.2
+// FIX 1: Consequence escalation — structural instability + stored pressure energy → AUTO CRITICAL
+//         Fire exposure + stored pressure energy → AUTO CRITICAL
+//         Structural failure induces pressure boundary failure — cannot be evaluated independently
+// FIX 2: Inspection domain expansion — fire exposure triggers materials testing track,
+//         structural deformation triggers dimensional survey + bolt inspection track
+// FIX 3: Creep time-at-temperature qualification — short fire duration adds evidence_against note
+//         distinguishing strength reduction / microstructural change from true creep accumulation
+// v2.1: PVHO authority stack, mechanism uncertainty preservation (H2S), FFS gap check
 // v2.0: Production Physics Sufficiency Engine (State 5 upgraded)
-//   - 8-dimension physics scoring for every NDE method
-//   - Detectability, sizing, material, geometry, orientation, surface, access, execution
-//   - All 7 methods scored against actual physics scenario (not just proposed ones)
-//   - Blind spots, complementary methods, physics-computed verdicts
-//   - Paris Law depth sizing requirements for crack mechanisms
-// v1.1: Fixed cyclic loading — decompression/pressure vessels inherently cycle
 // PHYSICS-FIRST DECISION CORE — Klein Bottle Architecture
 // 6 States + Reality Confidence + Contradiction Detector + Physics Computations
-// Single API: POST /api/decision-core
-// Replaces: chain, DDL, governance, code-auth, code-trace, event-enrich, time-progression, master-router
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 // @ts-nocheck
 import type { Handler, HandlerEvent } from "@netlify/functions";
@@ -422,8 +420,6 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
   // MECHANISM UNCERTAINTY PRESERVATION — DEPLOY106 PATCH 1
   // When H2S is present and hydrogen-assisted mechanisms (SSC/HIC) are unresolved,
   // fatigue cannot be declared "confirmed" — it is at most "probable".
-  // Preserves the dominant candidate set rather than collapsing to a single label
-  // before hydrogen susceptibility has been assessed.
   // ============================================================================
   if (physics.chemical.h2s_present) {
     var hydrogenUnresolved = false;
@@ -446,6 +442,33 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
       }
       validated.sort(function(a, b) { return b.reality_score - a.reality_score; });
     }
+  }
+
+  // ============================================================================
+  // DEPLOY109 FIX 3: CREEP TIME-AT-TEMPERATURE QUALIFICATION
+  // Fire exposure can push temps into creep range temporarily.
+  // Short fire duration ≠ true creep accumulation. Distinguish:
+  //   (a) recoverable property reduction
+  //   (b) phase transformation / microstructural change
+  //   (c) true creep strain accumulation (requires sustained time-at-temperature)
+  // ============================================================================
+  if (physics.thermal.fire_exposure) {
+    for (var cti = 0; cti < validated.length; cti++) {
+      if (validated[cti].id === "creep") {
+        if (physics.thermal.fire_duration_min !== null && physics.thermal.fire_duration_min < 60) {
+          validated[cti].evidence_against.push(
+            "Short fire duration (" + physics.thermal.fire_duration_min + " min) — may cause strength reduction or microstructural change, but insufficient time-at-temperature for true creep strain accumulation. Classify as fire damage, not creep, unless temperature + duration data confirms otherwise."
+          );
+          if (validated[cti].reality_score > 0.55) validated[cti].reality_score = 0.55;
+          if (validated[cti].reality_state === "confirmed" || validated[cti].reality_state === "probable") validated[cti].reality_state = "possible";
+        } else if (physics.thermal.fire_duration_min === null) {
+          validated[cti].evidence_against.push(
+            "Fire exposure detected but duration unknown — cannot distinguish (a) recoverable property reduction, (b) phase transformation, or (c) true creep accumulation without time-at-temperature data."
+          );
+        }
+      }
+    }
+    validated.sort(function(a, b) { return b.reality_score - a.reality_score; });
   }
 
   var primary = validated.length > 0 ? validated[0] : null;
@@ -498,6 +521,27 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     if (tier === "MEDIUM" || tier === "LOW") tier = "HIGH";
     basis.push("PHYSICS: Fire exposure degrades material properties");
   }
+
+  // ============================================================================
+  // DEPLOY109 FIX 1: CONSEQUENCE ESCALATION
+  // Structural instability + stored pressure energy → AUTO CRITICAL
+  // Fire exposure + stored pressure energy → AUTO CRITICAL
+  // Structural failure induces pressure boundary failure — cannot be evaluated independently
+  // ============================================================================
+  var structuralInstability = (!!fl.visible_deformation && !!fl.primary_member_involved) || !!fl.support_collapse_confirmed;
+  if (structuralInstability && physics.energy.stored_energy_significant) {
+    tier = "CRITICAL";
+    basis.push("PHYSICS: Structural instability + stored pressure energy — structural failure induces pressure boundary failure. Cannot be evaluated independently.");
+    humanImpact = "FATAL — structural collapse releases stored pressure energy";
+    failMode = "structural_pressure_cascade";
+  }
+  if (physics.thermal.fire_exposure && physics.energy.stored_energy_significant) {
+    tier = "CRITICAL";
+    basis.push("PHYSICS: Fire exposure + stored pressure energy — fire degrades containment while pressure maintains load. Catastrophic release risk.");
+    if (humanImpact.indexOf("FATAL") === -1) humanImpact = "FATAL — fire-weakened pressure boundary under load";
+    failMode = "fire_pressure_cascade";
+  }
+
   if (assetClass === "bridge" || assetClass === "rail_bridge") {
     if (tier === "MEDIUM" || tier === "LOW") tier = "HIGH";
     basis.push("PHYSICS: Public infrastructure — civilian exposure");
@@ -810,9 +854,6 @@ function resolveAuthorityReality(assetClass: string, transcript: string, consequ
   var gaps: string[] = [];
   var alignment = "CONSISTENT — " + matched.pri + " provides framework for " + assetClass;
 
-  // ============================================================================
-  // DEPLOY106 PATCH 2a: Alignment string — PVHO crack cases get dual authority label
-  // ============================================================================
   var hasCrackIndication = hasWord(lt, "crack") || hasWord(lt, "indication") || hasWord(lt, "flaw") || hasWord(lt, "linear");
   if (consequence.consequence_tier === "CRITICAL" && matched.pri.indexOf("PVHO") !== -1) {
     if (hasCrackIndication) {
@@ -822,11 +863,6 @@ function resolveAuthorityReality(assetClass: string, transcript: string, consequ
     }
   }
 
-  // ============================================================================
-  // DEPLOY106 PATCH 2b: FFS gap check — fires for ALL asset classes including PVHO
-  // PVHO-1 governs occupancy/construction; ASME FFS-1 governs crack disposition.
-  // Previous code had "matched.pri.indexOf("PVHO") === -1" — this was wrong.
-  // ============================================================================
   if ((physics.stress.cyclic_loading || physics.chemical.corrosive_environment) && consequence.consequence_tier !== "LOW") {
     var hasFFS = false;
     for (var si = 0; si < matched.sec.length; si++) {
@@ -836,7 +872,6 @@ function resolveAuthorityReality(assetClass: string, transcript: string, consequ
       gaps.push("Fitness-for-service assessment (ASME FFS-1 / API 579) recommended but not in authority chain");
     }
   }
-  // PVHO crack cases: surface authority layering explicitly as a gap note
   if (matched.pri.indexOf("PVHO") !== -1 && hasCrackIndication) {
     gaps.push(
       "Authority layering required: PVHO-1 (occupancy/construction standard) + ASME FFS-1 (crack evaluation basis) + NDE procedure basis + owner/operator requirements. Single-code resolution is insufficient for in-service crack disposition on a PVHO."
@@ -998,6 +1033,7 @@ function scoreMethodPhysics(method: string, damage: any, physics: any, consequen
 
 function resolveInspectionReality(damage: any, consequence: any, physics: any, transcript: string, flags: any) {
   var lt = transcript.toLowerCase();
+  var fl = flags || {};
   var proposed: string[] = [];
   var nameMap: any = { "visual": "VT", "magnetic particle": "MT", "penetrant": "PT", "ultrasonic": "UT", "radiograph": "RT", "phased array": "PAUT", "eddy current": "ET", "x-ray": "RT", "tofd": "TOFD" };
   var keys = Object.keys(nameMap);
@@ -1062,6 +1098,29 @@ function resolveInspectionReality(damage: any, consequence: any, physics: any, t
     missing.push("Proposed method (" + bestProposed.method + ") scored " + bestProposed.scores.overall + "/100 — physics sufficiency is weak for this scenario. Best method: " + (bestMethod ? bestMethod.method + " (" + bestMethod.scores.overall + "/100)" : "unknown"));
   }
 
+  // ============================================================================
+  // DEPLOY109 FIX 2: INSPECTION DOMAIN EXPANSION
+  // Fire exposure triggers materials testing track
+  // Structural deformation triggers dimensional survey + bolt inspection track
+  // These run IN PARALLEL to NDE crack inspection — not instead of it
+  // ============================================================================
+  if (physics.thermal.fire_exposure && !fl.fire_property_degradation_confirmed && consequence.consequence_tier !== "LOW") {
+    required.push({ method: "Hardness survey (post-fire)", physics_basis: "Fire degrades yield strength and toughness — original material properties cannot be assumed. Brinell/Vickers hardness mapping identifies strength-reduced zones before FFS assessment." });
+    required.push({ method: "Metallographic replication (post-fire)", physics_basis: "Microstructural changes (grain coarsening, phase transformation, sensitization) from fire exposure cannot be detected by NDE. Replication or sampling required for damage classification." });
+    missing.push("Materials testing required — fire exposure: hardness survey + microstructure replication needed BEFORE FFS assessment. Pre-fire material properties cannot be assumed for pressure boundary disposition.");
+    missing.push("Time-at-temperature documentation required — fire duration and peak temperature needed to classify damage as: (a) recoverable property reduction, (b) phase transformation, or (c) true creep accumulation. Cannot distinguish without data.");
+  }
+  var structuralDeformation = (fl.visible_deformation && fl.primary_member_involved) || fl.support_collapse_confirmed || (hasWord(lt, "displace") && (hasWord(lt, "rack") || hasWord(lt, "frame") || hasWord(lt, "structure"))) || hasWord(lt, "lateral displacement") || (hasWord(lt, "anchor bolt") && hasWord(lt, "uplift")) || hasWord(lt, "bolt elongation") || hasWord(lt, "baseplate") && hasWord(lt, "uplift");
+  if (structuralDeformation && physics.energy.stored_energy_significant) {
+    required.push({ method: "Structural dimensional survey", physics_basis: "Structural displacement changes nozzle loads at the pressure boundary. Lateral displacement of 1+ inches generates nozzle moments beyond original design allowables in most configurations." });
+    required.push({ method: "Bolt elongation + anchor bolt inspection", physics_basis: "Column baseplate uplift and bolt elongation indicate overload. Bolts may have yielded — prestress cannot be assumed. Settlement or further movement possible under operating load." });
+    missing.push("Structural dimensional survey required — displacement magnitude must be quantified to calculate changed nozzle loads at pressure boundary (ASME B31.3 / WRC 452 nozzle load allowable check).");
+    missing.push("Anchor bolt + baseplate inspection required — uplift gap indicates possible bolt yield. Structural stability must be confirmed before pressurization.");
+  }
+  if (hasWord(lt, "spring can") && (hasWord(lt, "bottom") || hasWord(lt, "bottomed"))) {
+    missing.push("Spring support re-evaluation required — bottomed spring cans indicate thermal expansion overstress or support failure. Pipe loads at nozzles and structural connections must be recalculated before restart.");
+  }
+
   var verdict = "SUFFICIENT";
   if (missing.length > 0 && consequence.consequence_tier === "CRITICAL") verdict = "BLOCKED";
   else if (missing.length > 0) verdict = "INSUFFICIENT";
@@ -1099,24 +1158,25 @@ function resolveInspectionReality(damage: any, consequence: any, physics: any, t
         }
       }
     }
+    if (physics.thermal.fire_exposure && recommendedPackage.indexOf("Hardness+Replication") === -1) recommendedPackage.push("Hardness+Replication");
   }
 
   var constraintScore = 0;
   var constraintWarnings: string[] = [];
   var truthQuality = "HIGH";
-  if (hasWord(lt, "coated") || hasWord(lt, "coating") || hasWord(lt, "painted")) {
+  if (hasWord(lt, "coated") || hasWord(lt, "coating") || hasWord(lt, "painted") || hasWord(lt, "insulation") || hasWord(lt, "jacketing") || hasWord(lt, "fireproof")) {
     constraintScore += 15;
-    constraintWarnings.push("Coating/paint may reduce sensitivity or block surface methods entirely. Results may understate actual condition.");
+    constraintWarnings.push("Coating/insulation may reduce sensitivity or block surface methods entirely. Results may understate actual condition.");
   }
-  if (hasWord(lt, "rough") || hasWord(lt, "corroded surface") || hasWord(lt, "scale") || hasWord(lt, "rust")) {
+  if (hasWord(lt, "rough") || hasWord(lt, "corroded surface") || hasWord(lt, "scale") || hasWord(lt, "rust") || hasWord(lt, "oxidat") || hasWord(lt, "discolor")) {
     constraintScore += 12;
-    constraintWarnings.push("Rough or corroded surface degrades coupling quality and indication clarity. Findings may be less reliable.");
+    constraintWarnings.push("Rough or oxidized surface degrades coupling quality and indication clarity. Findings may be less reliable.");
   }
-  if (hasWord(lt, "underwater") || hasWord(lt, "subsea") || (flags && flags.underwater_access_limited)) {
+  if (hasWord(lt, "underwater") || hasWord(lt, "subsea") || (fl && fl.underwater_access_limited)) {
     constraintScore += 18;
     constraintWarnings.push("Underwater execution increases complexity. Signal quality and scan stability may be reduced.");
   }
-  if (hasWord(lt, "rope access") || hasWord(lt, "scaffolding") || hasWord(lt, "confined")) {
+  if (hasWord(lt, "rope access") || hasWord(lt, "scaffolding") || hasWord(lt, "confined") || hasWord(lt, "restricted access") || hasWord(lt, "limited access") || hasWord(lt, "limited downtime")) {
     constraintScore += 14;
     constraintWarnings.push("Limited access affects scan stability and coverage completeness. Inspector may not reach all areas.");
   }
@@ -1124,13 +1184,13 @@ function resolveInspectionReality(damage: any, consequence: any, physics: any, t
     constraintScore += 10;
     constraintWarnings.push("Equipment in service during inspection. Vibration, temperature, or flow may affect results.");
   }
-  if (hasWord(lt, "limited access") || hasWord(lt, "partial access") || hasWord(lt, "restricted")) {
-    constraintScore += 16;
-    constraintWarnings.push("Access restriction means some areas cannot be inspected. Uninspected zones remain unknown — not clean.");
-  }
   if (hasWord(lt, "hot") || hasWord(lt, "elevated temperature") || (physics.thermal.operating_temp_f && physics.thermal.operating_temp_f > 200)) {
     constraintScore += 12;
     constraintWarnings.push("Elevated temperature may require special procedures and correction factors. Standard calibration may not apply.");
+  }
+  if (physics.thermal.fire_exposure) {
+    constraintScore += 15;
+    constraintWarnings.push("Fire event alters surface condition, scale formation, and material property variability — NDE results require extra validation against pre-fire baseline.");
   }
   if (constraintScore > 100) constraintScore = 100;
 
@@ -1145,7 +1205,7 @@ function resolveInspectionReality(damage: any, consequence: any, physics: any, t
   }
 
   var inspConf = 0.8;
-  if (missing.length > 0) inspConf -= missing.length * 0.12;
+  if (missing.length > 0) inspConf -= missing.length * 0.06;
   if (verdict === "BLOCKED") inspConf = Math.min(inspConf, 0.35);
   if (proposed.length === 0 && recommendedPackage.length > 0) inspConf = 0.35;
   else if (proposed.length === 0) inspConf = 0.2;
@@ -1352,8 +1412,9 @@ function resolveDecisionReality(physics: any, damage: any, consequence: any, aut
       physics_basis: "Fire degrades material — unknown until tested" });
   }
   if (fl.visible_deformation && fl.primary_member_involved) {
-    hardLocks.push({ code: "HL_MAJOR_DEFORMATION", reason: "Major deformation in primary member", disposition: "REPAIR BEFORE RESTART",
-      physics_basis: "Permanent deformation changes load distribution" });
+    hardLocks.push({ code: "HL_MAJOR_DEFORMATION", reason: "Major deformation in primary structural member", disposition: "REPAIR BEFORE RESTART",
+      physics_basis: "Permanent deformation changes load distribution — structural geometry no longer matches design basis" });
+    trace.push("HARD LOCK: Major deformation — REPAIR BEFORE RESTART");
   }
   if (fl.critical_wall_loss_confirmed) {
     hardLocks.push({ code: "HL_CRITICAL_WALL_LOSS", reason: "Wall below code minimum", disposition: "REPAIR BEFORE RESTART",
@@ -1378,12 +1439,12 @@ function resolveDecisionReality(physics: any, damage: any, consequence: any, aut
   } else if (consequence.consequence_tier === "HIGH" || consequence.consequence_tier === "CRITICAL") {
     if (inspection.constraint_analysis && (inspection.constraint_analysis.truth_quality === "UNRELIABLE" || inspection.constraint_analysis.truth_quality === "DEGRADED")) {
       disposition = "hold_for_review";
-      disposBasis = consequence.consequence_tier + " consequence with " + inspection.constraint_analysis.truth_quality + " truth quality (" + inspection.constraint_analysis.constraint_score + "/100). Inspection results may not represent actual condition. Additional characterization required before disposition.";
-      trace.push("DISPOSITION: hold_for_review — truth quality " + inspection.constraint_analysis.truth_quality + " on " + consequence.consequence_tier + " asset");
+      disposBasis = consequence.consequence_tier + " consequence with " + inspection.constraint_analysis.truth_quality + " truth quality. Additional characterization required.";
+      trace.push("DISPOSITION: hold_for_review — truth quality " + inspection.constraint_analysis.truth_quality);
     } else if (consequence.degradation_certainty === "UNVERIFIED" || consequence.degradation_certainty === "SUSPECTED") {
       disposition = "hold_for_review";
       disposBasis = consequence.consequence_tier + " consequence with " + (consequence.degradation_certainty || "UNVERIFIED") + " degradation state. Condition must be verified before return to service.";
-      trace.push("DISPOSITION: hold_for_review — degradation " + consequence.degradation_certainty + " on " + consequence.consequence_tier + " asset");
+      trace.push("DISPOSITION: hold_for_review — degradation " + consequence.degradation_certainty);
     } else {
       disposition = "conditional_go";
       disposBasis = "All gates passed but " + consequence.consequence_tier + " consequence requires monitoring";
@@ -1405,9 +1466,12 @@ function resolveDecisionReality(physics: any, damage: any, consequence: any, aut
         who: g.gate === "life_safety" ? "Operations + Engineering" : g.gate === "method_sufficiency" ? "NDE Level II/III" : g.gate === "authority_validation" ? "Engineer" : "Qualified reviewer" });
     }
   }
-  for (var mi = 0; mi < inspection.missing_coverage.length; mi++) {
-    recovery.push({ priority: pri++, action: "Add: " + inspection.missing_coverage[mi],
-      physics_reason: "Detection physics gap", who: "NDE Level II/III" });
+  for (var mci2 = 0; mci2 < inspection.missing_coverage.length; mci2++) {
+    var mcItem = inspection.missing_coverage[mci2];
+    var mcWho = "NDE Level II/III";
+    if (mcItem.indexOf("hardness") !== -1 || mcItem.indexOf("materials") !== -1 || mcItem.indexOf("replication") !== -1 || mcItem.indexOf("Materials testing") !== -1) mcWho = "Materials Engineer / Metallurgist";
+    else if (mcItem.indexOf("survey") !== -1 || mcItem.indexOf("bolt") !== -1 || mcItem.indexOf("structural") !== -1 || mcItem.indexOf("Structural") !== -1) mcWho = "Structural Engineer";
+    recovery.push({ priority: pri++, action: "Add: " + mcItem, physics_reason: "Detection physics gap", who: mcWho });
   }
 
   var strategy: StrategyPhase[] = [];
@@ -1415,12 +1479,13 @@ function resolveDecisionReality(physics: any, damage: any, consequence: any, aut
   var p1Acts = ["Isolate affected area", "Verify personnel safety"];
   if (consequence.consequence_tier === "CRITICAL") p1Acts.push("Confirm no personnel exposure");
   if (physics.energy.stored_energy_significant) p1Acts.push("Verify isolation from pressure source");
+  if (physics.thermal.fire_exposure) p1Acts.push("Document fire extent, temperature estimates, duration, and affected equipment list");
   p1Acts.push("Document as-found conditions");
   strategy.push({ phase: 1, name: "Immediate Safety", objective: "Ensure safety, isolate, document",
     actions: p1Acts, gate: "Safe to proceed with characterization?", time_frame: p1Time });
 
   var p2Acts = ["Perform primary NDE for " + (damage.primary ? damage.primary.name : "dominant mechanism")];
-  for (var mci = 0; mci < inspection.missing_coverage.length; mci++) p2Acts.push("ADD: " + inspection.missing_coverage[mci]);
+  for (var mc3 = 0; mc3 < inspection.missing_coverage.length; mc3++) p2Acts.push("ADD: " + inspection.missing_coverage[mc3]);
   p2Acts.push("Quantify indication size, depth, location");
   if (physics.energy.stored_energy_significant) p2Acts.push("Wall thickness survey");
   if (authority.code_gaps.length > 0) p2Acts.push("Confirm governing code: " + authority.primary_authority);
@@ -1431,6 +1496,7 @@ function resolveDecisionReality(physics: any, damage: any, consequence: any, aut
   if (computations.fatigue.enabled) p3Acts.push("Fatigue life assessment (Paris Law growth data available)");
   if (computations.critical_flaw.enabled) p3Acts.push("Critical flaw evaluation (threshold data available)");
   if (computations.wall_loss.enabled) p3Acts.push("Remaining life assessment (corrosion rate data available)");
+  if (physics.thermal.fire_exposure) p3Acts.push("Post-fire FFS assessment per API 579 Part 11");
   p3Acts.push("Develop repair plan if required");
   strategy.push({ phase: 3, name: "Engineering Analysis", objective: "FFS, remaining life, repair planning",
     actions: p3Acts, gate: "Fit for continued service?", time_frame: "Per engineering schedule" });
@@ -1472,13 +1538,20 @@ var handler: Handler = async function(event: HandlerEvent) {
     var assetCorrected = false;
     var assetCorrectionReason = "";
     var isHyperbaricLocked = false;
-    if (hasWord(lt_handler, "decompression chamber") || hasWord(lt_handler, "recompression chamber") || hasWord(lt_handler, "double lock") || hasWord(lt_handler, "hyperbaric chamber") || hasWord(lt_handler, "hyperbaric") || hasWord(lt_handler, "diving bell") || hasWord(lt_handler, "dive system") || hasWord(lt_handler, "pvho") || hasWord(lt_handler, "man-rated") || hasWord(lt_handler, "personnel chamber") || hasWord(lt_handler, "saturation div")) {
+    if (hasWord(lt_handler, "decompression chamber") || hasWord(lt_handler, "recompression chamber") || hasWord(lt_handler, "double lock") || hasWord(lt_handler, "hyperbaric chamber") || hasWord(lt_handler, "hyperbaric") || hasWord(lt_handler, "diving bell") || hasWord(lt_handler, "dive system") || hasWord(lt_handler, "pvho") || hasWord(lt_handler, "man-rated") || hasWord(lt_handler, "personnel chamber") || hasWord(lt_handler, "saturation div") || hasWord(lt_handler, "sat system") || hasWord(lt_handler, "living chamber") || hasWord(lt_handler, "transfer under pressure") || hasWord(lt_handler, "personnel transfer capsule")) {
       if (assetClass !== "pressure_vessel") {
         assetClass = "pressure_vessel";
         assetCorrected = true;
         assetCorrectionReason = "Transcript describes hyperbaric/diving pressure chamber. Overriding upstream classification (" + (asset.asset_class || "unknown") + ") to pressure_vessel.";
       }
       isHyperbaricLocked = true;
+    }
+    if (!isHyperbaricLocked && (hasWord(lt_handler, "hydrocracker") || hasWord(lt_handler, "hydrotreater") || hasWord(lt_handler, "reactor vessel") || hasWord(lt_handler, "delayed coker"))) {
+      if (assetClass !== "pressure_vessel") {
+        assetClass = "pressure_vessel";
+        assetCorrected = true;
+        assetCorrectionReason = "Transcript describes process reactor/hydrocracker. Overriding to pressure_vessel.";
+      }
     }
     if (!isHyperbaricLocked && (hasWord(lt_handler, "boiler") || hasWord(lt_handler, "steam drum") || hasWord(lt_handler, "economizer"))) {
       if (assetClass !== "pressure_vessel" && assetClass !== "boiler") {
@@ -1529,7 +1602,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.1",
+          engine_version: "physics-first-decision-core-v2.2",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason } : { corrected: false },
