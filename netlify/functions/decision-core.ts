@@ -1,4 +1,8 @@
-// DEPLOY109 — decision-core.ts v2.2
+// DEPLOY110 — decision-core.ts v2.3
+// v2.3: Industrial Context Intelligence Layer + Event-to-Physics Translation
+// Context inference: hydrocracking→H2S+hydrogen, amine→H2S+caustic, etc.
+// Event translation: rapid cooldown→thermal cycling, emergency shutdown, etc.
+// System-wide: all fixes apply via State 1 physics → all downstream engines benefit
 // FIX 1: Consequence escalation — structural instability + stored pressure energy → AUTO CRITICAL
 //         Fire exposure + stored pressure energy → AUTO CRITICAL
 //         Structural failure induces pressure boundary failure — cannot be evaluated independently
@@ -151,6 +155,36 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (!tempC && tempF) tempC = Math.round((tempF - 32) * 5 / 9);
   if (!tempF && tempC) tempF = Math.round(tempC * 9 / 5 + 32);
   var thermalCyc = hasWord(lt, "thermal cycl") || (hasWord(lt, "startup") && hasWord(lt, "shutdown"));
+
+  // ==========================================================================
+  // EVENT-TO-PHYSICS TRANSLATION — v2.3
+  // Maps field language to physics preconditions.
+  // Inspectors describe EVENTS, not physics.
+  // Engine translates events → physical state changes.
+  // ==========================================================================
+  if (!thermalCyc) {
+    var thermalEventInferred = false;
+    // Rapid temperature change → thermal gradient → differential contraction
+    if (hasWord(lt, "rapid cool") || hasWord(lt, "rapid cooldown") || hasWord(lt, "cool-down rate") || hasWord(lt, "fast cooldown")) thermalEventInferred = true;
+    // Thermal shock / transient → sudden thermal stress
+    if (hasWord(lt, "thermal shock") || hasWord(lt, "thermal transient") || hasWord(lt, "thermal excursion") || hasWord(lt, "thermal upset")) thermalEventInferred = true;
+    // Quench (not heat treatment quench-and-temper)
+    if (hasWord(lt, "quench") && !hasWord(lt, "quench and temper") && !hasWord(lt, "quenched and tempered")) thermalEventInferred = true;
+    // Temperature swing / spike
+    if (hasWord(lt, "temperature swing") || hasWord(lt, "temperature excursion") || hasWord(lt, "temperature spike") || hasWord(lt, "temp swing") || hasWord(lt, "temp excursion")) thermalEventInferred = true;
+    // Emergency / unplanned shutdown → rapid cooldown from operating temp
+    if (hasWord(lt, "emergency shutdown") || hasWord(lt, "emergency depressur") || hasWord(lt, "unplanned shutdown") || hasWord(lt, "forced shutdown") || hasWord(lt, "unit trip")) thermalEventInferred = true;
+    // Steam-out events → rapid heating/cooling of cold equipment
+    if (hasWord(lt, "steam-out") || hasWord(lt, "steamout") || hasWord(lt, "steam out")) thermalEventInferred = true;
+    // Intermittent / batch operation → inherent thermal cycling
+    if (hasWord(lt, "batch operation") || hasWord(lt, "intermittent") || hasWord(lt, "batch process")) thermalEventInferred = true;
+    // Large temperature differential stated explicitly
+    if ((hasWord(lt, "cooldown") || hasWord(lt, "cool down")) && (hasWord(lt, "200") || hasWord(lt, "300") || hasWord(lt, "400") || hasWord(lt, "500"))) thermalEventInferred = true;
+    if (thermalEventInferred) {
+      thermalCyc = true;
+    }
+  }
+
   var fireExp = !!fl.fire_exposure || hasWord(lt, "fire");
   var fireDur = fl.fire_duration_minutes || nv.fire_duration_minutes || null;
   var creep = (tempF !== null && tempF > 700) || (tempC !== null && tempC > 370);
@@ -190,6 +224,108 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (hasEvent("corros") || hasEvent("rust") || hasEvent("oxide") || hasEvent("scale")) { corrosive = true; if (agents.indexOf("parsed_corrosion") === -1) agents.push("parsed_corrosion"); }
   if (hasEvent("flood") || hasEvent("water") || hasEvent("river") || hasEvent("rain") || hasEvent("weather") || hasEvent("atmospheric")) { corrosive = true; if (agents.indexOf("environmental_exposure") === -1) agents.push("environmental_exposure"); }
   if (hasEvent("marine") || hasEvent("salt") || hasEvent("seawater") || hasEvent("offshore")) { if (!negMarine) { chlorides = true; corrosive = true; if (agents.indexOf("chlorides") === -1) agents.push("chlorides"); } }
+
+  // ==========================================================================
+  // INDUSTRIAL CONTEXT INTELLIGENCE LAYER — v2.3
+  // Infers chemical environment from industrial unit/process context.
+  // Field inspectors describe EQUIPMENT, not chemistry.
+  // Engine must translate equipment context → chemical environment.
+  // This runs AFTER explicit keyword detection so it only ADDS flags —
+  // it never overrides explicit negation (negH2s, negCorrosion, etc.)
+  // ==========================================================================
+  var contextInferred: string[] = [];
+
+  // HYDROCRACKING / HYDROTREATING → H2S + hydrogen service
+  if (hasWord(lt, "hydrocrack") || hasWord(lt, "hydrotreater") || hasWord(lt, "hydrotreating") || hasWord(lt, "hydroprocessing") || hasWord(lt, "hydrodesulfur")) {
+    if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("hydrocracking/hydrotreating → H2S inferred"); }
+    if (!hydrogen) { hydrogen = true; if (agents.indexOf("hydrogen") === -1) agents.push("hydrogen"); contextInferred.push("hydrocracking/hydrotreating → hydrogen inferred"); }
+  }
+
+  // CATALYTIC REFORMING → hydrogen service
+  if (hasWord(lt, "catalytic reform") || hasWord(lt, "platformer") || hasWord(lt, "reformer unit") || hasWord(lt, "naphtha reform")) {
+    if (!hydrogen) { hydrogen = true; if (agents.indexOf("hydrogen") === -1) agents.push("hydrogen"); contextInferred.push("catalytic reformer → hydrogen inferred"); }
+  }
+
+  // AMINE UNIT → H2S + amine (caustic-like) environment
+  if (hasWord(lt, "amine unit") || hasWord(lt, "amine service") || hasWord(lt, "amine system") || hasWord(lt, "amine contactor") || hasWord(lt, "amine regenerat") || hasWord(lt, "amine absorber") || hasWord(lt, "amine stripper") || hasWord(lt, "mdea") || hasWord(lt, "dea unit") || hasWord(lt, "mea unit")) {
+    if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("amine unit → H2S inferred (acid gas service)"); }
+    if (!caustic) { caustic = true; corrosive = true; if (agents.indexOf("caustic") === -1) agents.push("caustic"); contextInferred.push("amine unit → amine/caustic environment inferred"); }
+  }
+
+  // CRUDE UNIT / DISTILLATION → H2S + naphthenic acid potential
+  if (hasWord(lt, "crude unit") || hasWord(lt, "crude distill") || hasWord(lt, "atmospheric distill") || hasWord(lt, "vacuum distill") || hasWord(lt, "crude tower") || hasWord(lt, "atmospheric tower") || hasWord(lt, "vacuum tower")) {
+    if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("crude unit → H2S inferred"); }
+    corrosive = true;
+    if (agents.indexOf("naphthenic_acid") === -1) { agents.push("naphthenic_acid"); contextInferred.push("crude unit → naphthenic acid potential inferred"); }
+  }
+
+  // FCC / FLUID CATALYTIC CRACKING → H2S
+  if (hasWord(lt, "fluid catalytic") || hasWord(lt, "cat cracker") || hasWord(lt, "fccu")) {
+    if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("FCC unit → H2S inferred"); }
+  }
+
+  // SULFUR RECOVERY / CLAUS → concentrated H2S
+  if (hasWord(lt, "sulfur recovery") || hasWord(lt, "claus unit") || hasWord(lt, "claus reactor") || hasWord(lt, "tail gas") || hasWord(lt, "sulfur plant")) {
+    if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("sulfur recovery → concentrated H2S inferred"); }
+  }
+
+  // DELAYED COKER → H2S + hydrogen + thermal cycling
+  if (hasWord(lt, "delayed coker") || hasWord(lt, "coker drum") || hasWord(lt, "coke drum")) {
+    if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("coker → H2S inferred"); }
+    if (!hydrogen) { hydrogen = true; if (agents.indexOf("hydrogen") === -1) agents.push("hydrogen"); contextInferred.push("coker → hydrogen inferred"); }
+    if (!thermalCyc) { thermalCyc = true; contextInferred.push("coker drum → thermal cycling inferred (heat/quench cycles)"); }
+  }
+
+  // SOUR WATER / SOUR GAS / ACID GAS → H2S
+  if (hasWord(lt, "sour water") || hasWord(lt, "sour gas") || hasWord(lt, "acid gas") || hasWord(lt, "sour service")) {
+    if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("sour/acid gas service → H2S inferred"); }
+  }
+
+  // HYDROGEN UNIT / HYDROGEN PLANT → hydrogen environment
+  if (hasWord(lt, "hydrogen plant") || hasWord(lt, "hydrogen unit") || hasWord(lt, "hydrogen makeup") || hasWord(lt, "h2 makeup") || hasWord(lt, "hydrogen compressor") || hasWord(lt, "hydrogen header")) {
+    if (!hydrogen) { hydrogen = true; if (agents.indexOf("hydrogen") === -1) agents.push("hydrogen"); contextInferred.push("hydrogen unit → hydrogen environment inferred"); }
+  }
+
+  // HIGH-TEMP HYDROGEN SERVICE MATERIAL → HTHA susceptibility
+  if (hydrogen && (hasWord(lt, "2.25cr") || hasWord(lt, "2-1/4cr") || hasWord(lt, "2 1/4 cr") || hasWord(lt, "1cr-1/2mo") || hasWord(lt, "c-1/2mo") || hasWord(lt, "carbon steel") || hasWord(lt, "c-mn") || hasWord(lt, "carbon-manganese"))) {
+    if (agents.indexOf("HTHA_susceptible_material") === -1) { agents.push("HTHA_susceptible_material"); contextInferred.push("material + hydrogen → HTHA susceptibility per Nelson curve"); }
+  }
+
+  // CAUSTIC SERVICE (explicit process)
+  if (hasWord(lt, "caustic wash") || hasWord(lt, "caustic injection") || hasWord(lt, "naoh injection") || hasWord(lt, "caustic tower") || hasWord(lt, "caustic scrubber") || hasWord(lt, "spent caustic")) {
+    if (!caustic) { caustic = true; corrosive = true; if (agents.indexOf("caustic") === -1) agents.push("caustic"); contextInferred.push("caustic service → caustic environment inferred"); }
+  }
+
+  // BOILER FEEDWATER / DEAERATOR → oxygen corrosion
+  if (hasWord(lt, "boiler feedwater") || hasWord(lt, "deaerator") || hasWord(lt, "bfw system")) {
+    corrosive = true;
+    if (agents.indexOf("dissolved_oxygen") === -1) { agents.push("dissolved_oxygen"); contextInferred.push("boiler feedwater → dissolved oxygen corrosion potential"); }
+  }
+
+  // COOLING WATER → chlorides + microbiological
+  if (hasWord(lt, "cooling water") || hasWord(lt, "cooling tower") || hasWord(lt, "cw system") || hasWord(lt, "condenser water")) {
+    corrosive = true;
+    if (!chlorides && !negChloride) { chlorides = true; if (agents.indexOf("chlorides") === -1) agents.push("chlorides"); contextInferred.push("cooling water → chloride potential inferred"); }
+  }
+
+  // FLARE SYSTEM → H2S + thermal cycling
+  if (hasWord(lt, "flare header") || hasWord(lt, "flare stack") || hasWord(lt, "flare system") || hasWord(lt, "flare line") || hasWord(lt, "flare tip")) {
+    if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("flare system → H2S potential inferred"); }
+    if (!thermalCyc) { thermalCyc = true; contextInferred.push("flare system → thermal cycling inferred (intermittent flaring)"); }
+  }
+
+  // WET GAS / WET H2S → aqueous H2S (most aggressive for HIC)
+  if (hasWord(lt, "wet gas") || hasWord(lt, "wet h2s") || hasWord(lt, "wet sour")) {
+    if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("wet gas/wet H2S → aqueous H2S (aggressive HIC risk)"); }
+  }
+
+  // STEAM SYSTEM → thermal cycling + dissolved oxygen
+  if (hasWord(lt, "steam header") || hasWord(lt, "steam line") || hasWord(lt, "steam trap") || hasWord(lt, "condensate return") || hasWord(lt, "condensate system")) {
+    if (!thermalCyc) { thermalCyc = true; contextInferred.push("steam system → thermal cycling inferred"); }
+    corrosive = true;
+    if (agents.indexOf("dissolved_oxygen") === -1) { agents.push("dissolved_oxygen"); contextInferred.push("steam/condensate → dissolved oxygen + CO2 corrosion potential"); }
+  }
+
   var suscept: string[] = [];
   if (h2s && tensile) suscept.push("SSC");
   if (h2s) suscept.push("HIC");
@@ -221,6 +357,7 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (corrosive) parts.push("Corrosive (" + agents.join(", ") + ")");
   if (suscept.length) parts.push("Susceptible: " + suscept.join(", "));
   if (storedE) parts.push("Stored pressure energy");
+  if (contextInferred.length > 0) parts.push("Context inferred: " + contextInferred.join("; "));
   var summary = parts.length ? parts.join(". ") + "." : "Limited physical context from transcript.";
 
   var hotspots: string[] = [];
@@ -271,7 +408,8 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     time: { service_years: svcYears, cycles_estimated: cyclesEst, time_since_inspection_years: timeSinceInsp } as TimeState,
     field_interaction: { hotspots: hotspots, interaction_score: interactionScore, interaction_level: interactionLevel, warnings: interactionWarnings },
     physics_summary: summary,
-    physics_confidence: roundN(conf, 2)
+    physics_confidence: roundN(conf, 2),
+    context_inferred: contextInferred
   };
 }
 
@@ -418,8 +556,6 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
 
   // ============================================================================
   // MECHANISM UNCERTAINTY PRESERVATION — DEPLOY106 PATCH 1
-  // When H2S is present and hydrogen-assisted mechanisms (SSC/HIC) are unresolved,
-  // fatigue cannot be declared "confirmed" — it is at most "probable".
   // ============================================================================
   if (physics.chemical.h2s_present) {
     var hydrogenUnresolved = false;
@@ -446,11 +582,6 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
 
   // ============================================================================
   // DEPLOY109 FIX 3: CREEP TIME-AT-TEMPERATURE QUALIFICATION
-  // Fire exposure can push temps into creep range temporarily.
-  // Short fire duration ≠ true creep accumulation. Distinguish:
-  //   (a) recoverable property reduction
-  //   (b) phase transformation / microstructural change
-  //   (c) true creep strain accumulation (requires sustained time-at-temperature)
   // ============================================================================
   if (physics.thermal.fire_exposure) {
     for (var cti = 0; cti < validated.length; cti++) {
@@ -522,12 +653,7 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     basis.push("PHYSICS: Fire exposure degrades material properties");
   }
 
-  // ============================================================================
   // DEPLOY109 FIX 1: CONSEQUENCE ESCALATION
-  // Structural instability + stored pressure energy → AUTO CRITICAL
-  // Fire exposure + stored pressure energy → AUTO CRITICAL
-  // Structural failure induces pressure boundary failure — cannot be evaluated independently
-  // ============================================================================
   var structuralInstability = (!!fl.visible_deformation && !!fl.primary_member_involved) || !!fl.support_collapse_confirmed;
   if (structuralInstability && physics.energy.stored_energy_significant) {
     tier = "CRITICAL";
@@ -799,8 +925,6 @@ function runPhysicsComputations(physics: any, numVals: any, assetClass: string, 
 
 // ============================================================================
 // STATE 4: AUTHORITY REALITY ENGINE
-// DEPLOY106 PATCH 2: PVHO entry updated — ASME FFS-1 added to secondaries,
-// FFS gap check fires for PVHO crack cases, dual authority alignment string.
 // ============================================================================
 var AUTHORITY_MAP = [
   { kw: ["decompression chamber", "hyperbaric", "dive system", "diving bell", "human occupancy", "pvho", "double lock", "saturation div", "recompression", "treatment chamber", "man-rated"],
@@ -1098,12 +1222,7 @@ function resolveInspectionReality(damage: any, consequence: any, physics: any, t
     missing.push("Proposed method (" + bestProposed.method + ") scored " + bestProposed.scores.overall + "/100 — physics sufficiency is weak for this scenario. Best method: " + (bestMethod ? bestMethod.method + " (" + bestMethod.scores.overall + "/100)" : "unknown"));
   }
 
-  // ============================================================================
   // DEPLOY109 FIX 2: INSPECTION DOMAIN EXPANSION
-  // Fire exposure triggers materials testing track
-  // Structural deformation triggers dimensional survey + bolt inspection track
-  // These run IN PARALLEL to NDE crack inspection — not instead of it
-  // ============================================================================
   if (physics.thermal.fire_exposure && !fl.fire_property_degradation_confirmed && consequence.consequence_tier !== "LOW") {
     required.push({ method: "Hardness survey (post-fire)", physics_basis: "Fire degrades yield strength and toughness — original material properties cannot be assumed. Brinell/Vickers hardness mapping identifies strength-reduced zones before FFS assessment." });
     required.push({ method: "Metallographic replication (post-fire)", physics_basis: "Microstructural changes (grain coarsening, phase transformation, sensitization) from fire exposure cannot be detected by NDE. Replication or sampling required for damage classification." });
@@ -1602,7 +1721,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.2",
+          engine_version: "physics-first-decision-core-v2.3",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason } : { corrected: false },
@@ -1611,7 +1730,8 @@ var handler: Handler = async function(event: HandlerEvent) {
             energy: physics.energy, time: physics.time,
             field_interaction: physics.field_interaction,
             physics_summary: physics.physics_summary,
-            physics_confidence: physics.physics_confidence
+            physics_confidence: physics.physics_confidence,
+            context_inferred: physics.context_inferred || []
           },
           damage_reality: {
             validated_mechanisms: damage.validated,
