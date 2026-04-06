@@ -1,3 +1,9 @@
+// DEPLOY122 — decision-core.ts v2.5
+// v2.5: Evidence Provenance Integration
+// DEPLOY122: Accepts evidence_provenance from pipeline. Uses provenance trust weights
+//   in damage mechanism scoring (State 2). Provenance trust band feeds into
+//   contradiction detector as confidence penalty when evidence base is weak.
+//   Provenance data included in output JSON for UI rendering.
 // DEPLOY121 — decision-core.ts v2.4.1
 // v2.4.1: Implied-only fatigue penalty
 // DEPLOY121 FIX: When fatigue prerequisites are ONLY implied defaults (piping auto-cyclic +
@@ -635,7 +641,7 @@ var MECH_DEFS = [
     preLabels: ["Hydrogen environment", "Elevated temperature (>400F)"] }
 ];
 
-function resolveDamageReality(physics: any, flags: any, transcript: string) {
+function resolveDamageReality(physics: any, flags: any, transcript: string, provenance?: any) {
   var fl = flags || {};
   var lt = transcript.toLowerCase();
   var validated: ValidatedMechanism[] = [];
@@ -809,6 +815,43 @@ function resolveDamageReality(physics: any, flags: any, transcript: string) {
     if (deformNegated && md.id === "overload_buckling") {
       score -= 0.20;
       evAg.push("deformation explicitly ruled out or negated in transcript");
+    }
+
+
+    // ============================================================================
+    // DEPLOY122: EVIDENCE PROVENANCE TRUST WEIGHTING
+    // When provenance data is available, adjust mechanism score based on whether
+    // the supporting evidence is MEASURED (high trust) vs INFERRED (low trust).
+    // This is additive to existing evidence hierarchy — provenance provides
+    // systematic trust grading across ALL evidence, not just wall-loss vs crack.
+    // ============================================================================
+    if (provenance && provenance.evidence && provenance.evidence.length > 0) {
+      var mechKeywords = md.name.toLowerCase().split(/[\s\/()]+/);
+      var relevantProvenance: any[] = [];
+      for (var pei = 0; pei < provenance.evidence.length; pei++) {
+        var pe = provenance.evidence[pei];
+        var peClaimLower = (pe.claim || "").toLowerCase();
+        for (var mki = 0; mki < mechKeywords.length; mki++) {
+          if (mechKeywords[mki].length > 3 && peClaimLower.indexOf(mechKeywords[mki]) !== -1) {
+            relevantProvenance.push(pe);
+            break;
+          }
+        }
+      }
+      if (relevantProvenance.length > 0) {
+        var avgProvenanceWeight = 0;
+        for (var rpi = 0; rpi < relevantProvenance.length; rpi++) {
+          avgProvenanceWeight += relevantProvenance[rpi].provenance_weight || 0.25;
+        }
+        avgProvenanceWeight = avgProvenanceWeight / relevantProvenance.length;
+        var provenanceAdjust = (avgProvenanceWeight - 0.6) * 0.25;
+        score += provenanceAdjust;
+        if (provenanceAdjust > 0.01) {
+          evFor.push("provenance: supporting evidence is " + relevantProvenance[0].provenance + " (trust weight " + roundN(avgProvenanceWeight, 2) + ")");
+        } else if (provenanceAdjust < -0.01) {
+          evAg.push("provenance: supporting evidence is " + relevantProvenance[0].provenance + " (trust weight " + roundN(avgProvenanceWeight, 2) + ") — lower confidence");
+        }
+      }
     }
 
     if (score > 1) score = 1;
@@ -1700,7 +1743,7 @@ function computeRealityConfidence(pC: number, dC: number, cC: number, aC: number
 // ============================================================================
 // CONTRADICTION DETECTOR
 // ============================================================================
-function detectContradictions(physics: any, damage: any, consequence: any, authority: any, inspection: any, transcript?: string) {
+function detectContradictions(physics: any, damage: any, consequence: any, authority: any, inspection: any, transcript?: string, provenance?: any) {
   var flags: string[] = []; var penalty = 0;
   var lt = (transcript || "").toLowerCase();
 
@@ -1816,6 +1859,21 @@ function detectContradictions(physics: any, damage: any, consequence: any, autho
   if (unverifiedCount >= 3 && (consequence.consequence_tier === "HIGH" || consequence.consequence_tier === "CRITICAL")) {
     flags.push("WARNING: " + unverifiedCount + " unverified/possible mechanisms on " + consequence.consequence_tier + " asset. Mechanism set not sufficiently resolved for confident disposition.");
     penalty += 0.05;
+  }
+
+
+  // DEPLOY122: PROVENANCE TRUST PENALTY
+  // If the overall evidence base is weak (mostly inferred/unverified),
+  // add a confidence penalty.
+  if (provenance && provenance.provenance_summary) {
+    var trustBand = provenance.provenance_summary.trust_band;
+    if (trustBand === "VERY_LOW") {
+      flags.push("WARNING: Evidence base is primarily unverified/inferred (trust band: VERY_LOW). Disposition should not rely on current evidence quality.");
+      penalty += 0.10;
+    } else if (trustBand === "LOW") {
+      flags.push("WARNING: Evidence trust band is LOW — most claims are reported or inferred, not measured. Additional measured data recommended.");
+      penalty += 0.05;
+    }
   }
 
   if (penalty > 0.4) penalty = 0.4;
@@ -2096,6 +2154,7 @@ var handler: Handler = async function(event: HandlerEvent) {
     var parsed = body.parsed || {};
     var asset = body.asset || {};
     var confirmedFlags = body.confirmed_flags || null;
+    var evidenceProvenance = body.evidence_provenance || null;
     var transcript = body.transcript || parsed.raw_text || "";
     var assetClass = asset.asset_class || "unknown";
     var events = parsed.events || [];
@@ -2231,12 +2290,12 @@ var handler: Handler = async function(event: HandlerEvent) {
     }
 
     var physics = resolvePhysicalReality(transcript, events, numVals, confirmedFlags, assetClass);
-    var damage = resolveDamageReality(physics, confirmedFlags, transcript);
+    var damage = resolveDamageReality(physics, confirmedFlags, transcript, evidenceProvenance);
     var consequence = resolveConsequenceReality(physics, damage, assetClass, transcript, confirmedFlags);
     var authority = resolveAuthorityReality(assetClass, transcript, consequence, physics);
     var inspection = resolveInspectionReality(damage, consequence, physics, transcript, confirmedFlags);
     var computations = runPhysicsComputations(physics, numVals, assetClass, consequence);
-    var contradictions = detectContradictions(physics, damage, consequence, authority, inspection, transcript);
+    var contradictions = detectContradictions(physics, damage, consequence, authority, inspection, transcript, evidenceProvenance);
 
     // ============================================================================
     // DEPLOY117: CONFIDENCE PENALTY FOR ASSET CORRECTION
@@ -2305,7 +2364,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.3.1",
+          engine_version: "physics-first-decision-core-v2.5",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason } : { corrected: false },
@@ -2372,6 +2431,11 @@ var handler: Handler = async function(event: HandlerEvent) {
             constraint_analysis: inspection.constraint_analysis,
             inspection_confidence: inspection.inspection_confidence
           },
+          evidence_provenance: evidenceProvenance ? {
+            evidence: evidenceProvenance.evidence || [],
+            provenance_summary: evidenceProvenance.provenance_summary || null,
+            measurement_reality: evidenceProvenance.measurement_reality || null
+          } : null,
           physics_computations: computations,
           reality_confidence: {
             physics_confidence: confidence.physics_confidence,
