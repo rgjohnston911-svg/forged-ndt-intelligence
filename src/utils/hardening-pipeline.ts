@@ -6,11 +6,10 @@
 import type {
   RealityChallengeResult,
   UnknownStateResult,
-  HardeningSnapshot,
   TrustedFact
 } from '../hardening-types';
 
-import { supabase } from './supabase';
+import { sbInsert, sbUpdate, generateId } from './supabase';
 
 // ============================================================================
 // FUNCTION CALLERS
@@ -24,7 +23,7 @@ export async function callRealityChallenge(
   evidenceProvenanceResult: any
 ): Promise<RealityChallengeResult> {
   try {
-    const response = await fetch('/.netlify/functions/reality-challenge', {
+    var response = await fetch('/.netlify/functions/reality-challenge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -73,7 +72,7 @@ export async function callUnknownState(
   consequenceResult: any
 ): Promise<UnknownStateResult> {
   try {
-    const response = await fetch('/.netlify/functions/unknown-state', {
+    var response = await fetch('/.netlify/functions/unknown-state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -117,7 +116,7 @@ export async function callCaseAuditReport(
   runId: string
 ): Promise<any> {
   try {
-    const response = await fetch('/.netlify/functions/case-audit-report', {
+    var response = await fetch('/.netlify/functions/case-audit-report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -151,7 +150,7 @@ export function extractTrustedFacts(
   grammarBridgeResult: any,
   evidenceProvenanceResult: any
 ): TrustedFact[] {
-  const facts: TrustedFact[] = [];
+  var facts: TrustedFact[] = [];
 
   if (parsedIncident) {
     if (parsedIncident.asset_type) {
@@ -181,7 +180,7 @@ export function extractTrustedFacts(
   }
 
   if (grammarBridgeResult && grammarBridgeResult.extracted_fields) {
-    const fields = grammarBridgeResult.extracted_fields;
+    var fields = grammarBridgeResult.extracted_fields;
     if (fields.thickness_reading !== undefined) {
       facts.push({
         field: 'thickness_reading',
@@ -241,9 +240,9 @@ export function extractTrustedFacts(
   }
 
   if (evidenceProvenanceResult && evidenceProvenanceResult.overall_trust_score !== undefined) {
-    const trustMultiplier = evidenceProvenanceResult.overall_trust_score;
+    var trustMultiplier = evidenceProvenanceResult.overall_trust_score;
     if (trustMultiplier < 0.7) {
-      for (let i = 0; i < facts.length; i++) {
+      for (var i = 0; i < facts.length; i++) {
         if (facts[i].provenance === 'reported' || facts[i].provenance === 'inferred') {
           facts[i].trust_weight = facts[i].trust_weight * trustMultiplier;
         }
@@ -255,7 +254,7 @@ export function extractTrustedFacts(
 }
 
 // ============================================================================
-// SUPABASE PERSISTENCE
+// SUPABASE PERSISTENCE (using sbInsert / sbUpdate from supabase.ts)
 // ============================================================================
 
 export async function persistHardeningSnapshot(
@@ -265,22 +264,16 @@ export async function persistHardeningSnapshot(
   unknownStateResult: UnknownStateResult
 ): Promise<boolean> {
   try {
-    const { error } = await supabase
-      .from('case_hardening_snapshots')
-      .insert({
-        case_id: caseId,
-        run_id: runId,
-        challenge_result: challengeResult,
-        unknown_state_result: unknownStateResult
-      });
-
-    if (error) {
-      console.error('[HardeningPipeline] Snapshot persist error:', error);
-      return false;
-    }
+    await sbInsert('case_hardening_snapshots', {
+      id: generateId(),
+      case_id: caseId,
+      run_id: runId,
+      challenge_result: challengeResult,
+      unknown_state_result: unknownStateResult
+    });
     return true;
   } catch (err) {
-    console.error('[HardeningPipeline] Snapshot persist exception:', err);
+    console.error('[HardeningPipeline] Snapshot persist error:', err);
     return false;
   }
 }
@@ -293,30 +286,29 @@ export async function persistTrustedFacts(
   if (!facts || facts.length === 0) return true;
 
   try {
-    const rows = facts.map(function(fact) {
-      return {
+    for (var i = 0; i < facts.length; i++) {
+      var fact = facts[i];
+      var status = 'trusted';
+      if (fact.trust_weight < 0.3) {
+        status = 'discarded';
+      } else if (fact.trust_weight < 0.7) {
+        status = 'deweighted';
+      }
+
+      await sbInsert('case_trusted_facts', {
+        id: generateId(),
         case_id: caseId,
         run_id: runId,
         field_name: fact.field,
         field_value: fact.value,
         provenance_class: fact.provenance,
         trust_weight: fact.trust_weight,
-        status: fact.trust_weight >= 0.7 ? 'trusted' :
-                fact.trust_weight >= 0.3 ? 'deweighted' : 'discarded'
-      };
-    });
-
-    const { error } = await supabase
-      .from('case_trusted_facts')
-      .insert(rows);
-
-    if (error) {
-      console.error('[HardeningPipeline] Trusted facts persist error:', error);
-      return false;
+        status: status
+      });
     }
     return true;
   } catch (err) {
-    console.error('[HardeningPipeline] Trusted facts persist exception:', err);
+    console.error('[HardeningPipeline] Trusted facts persist error:', err);
     return false;
   }
 }
@@ -328,30 +320,25 @@ export async function updateCaseHardeningState(
   challengeResult: RealityChallengeResult
 ): Promise<boolean> {
   try {
-    const confidence = challengeResult.primary_reality_hypothesis?.confidence || 0;
-    let confidenceBand = 'unknown';
-    if (confidence >= 0.85) confidenceBand = 'high';
-    else if (confidence >= 0.6) confidenceBand = 'moderate';
-    else if (confidence >= 0.35) confidenceBand = 'low';
-    else confidenceBand = 'very_low';
-
-    const { error } = await supabase
-      .from('cases')
-      .update({
-        latest_reality_state: unknownStateResult.reality_state,
-        unknown_triggered: unknownStateResult.unknown_triggered,
-        latest_confidence_band: confidenceBand,
-        latest_run_id: runId
-      })
-      .eq('id', caseId);
-
-    if (error) {
-      console.error('[HardeningPipeline] Case update error:', error);
-      return false;
+    var confidence = 0;
+    if (challengeResult.primary_reality_hypothesis && challengeResult.primary_reality_hypothesis.confidence !== undefined) {
+      confidence = challengeResult.primary_reality_hypothesis.confidence;
     }
+    var confidenceBand = 'unknown';
+    if (confidence >= 0.85) { confidenceBand = 'high'; }
+    else if (confidence >= 0.6) { confidenceBand = 'moderate'; }
+    else if (confidence >= 0.35) { confidenceBand = 'low'; }
+    else { confidenceBand = 'very_low'; }
+
+    await sbUpdate('cases', caseId, {
+      latest_reality_state: unknownStateResult.reality_state,
+      unknown_triggered: unknownStateResult.unknown_triggered,
+      latest_confidence_band: confidenceBand,
+      latest_run_id: runId
+    });
     return true;
   } catch (err) {
-    console.error('[HardeningPipeline] Case update exception:', err);
+    console.error('[HardeningPipeline] Case update error:', err);
     return false;
   }
 }
@@ -382,24 +369,24 @@ export async function runHardeningPipeline(
   decisionCoreResult: any,
   caseId?: string
 ): Promise<HardeningPipelineResult> {
-  const runId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
+  var runId = generateId();
 
-  const trustedFacts = extractTrustedFacts(
+  var trustedFacts = extractTrustedFacts(
     parsedIncident, grammarBridgeResult, evidenceProvenanceResult
   );
 
-  const challengeResult = await callRealityChallenge(
+  var challengeResult = await callRealityChallenge(
     transcript, parsedIncident, resolvedAsset,
     grammarBridgeResult, evidenceProvenanceResult
   );
 
-  const unknownStateResult = await callUnknownState(
+  var unknownStateResult = await callUnknownState(
     challengeResult, evidenceProvenanceResult, damageResult,
     methodSufficiencyResult, authorityResult,
     contradictionResult, consequenceResult
   );
 
-  const auditReport = await callCaseAuditReport(
+  var auditReport = await callCaseAuditReport(
     challengeResult, unknownStateResult, decisionCoreResult,
     evidenceProvenanceResult, contradictionResult,
     trustedFacts, runId
