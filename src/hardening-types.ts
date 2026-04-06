@@ -1,6 +1,7 @@
 // ============================================================================
-// FORGED NDT INTELLIGENCE OS — HARDENING TYPES v1.0
+// FORGED NDT INTELLIGENCE OS — HARDENING TYPES v1.1
 // Sprint 1: Reality Challenge Engine + Unknown State Engine
+// Build 1: Authority Lock Engine + Remaining Strength Calculator
 // ============================================================================
 
 // ============================================================================
@@ -89,6 +90,86 @@ export interface UnknownStateResult {
 }
 
 // ============================================================================
+// MODULE 3 — AUTHORITY LOCK ENGINE (Build 1)
+// ============================================================================
+
+export interface AuthorityCode {
+  code: string;
+  title: string;
+  role: string;
+  locked: boolean;
+}
+
+export interface AuthorityLockResult {
+  status: string;
+  confidence: string;
+  authority_chain: AuthorityCode[];
+  supplemental_codes: AuthorityCode[];
+  all_codes: string[];
+  lock_reasons: string[];
+  trigger_b31g: boolean;
+  trigger_crack_assessment: boolean;
+  trigger_sour_service: boolean;
+  metadata: {
+    engine: string;
+    version: string;
+    asset_type: string;
+    service_environment: string;
+    damage_mechanisms: string[];
+    jurisdiction: string;
+    wall_loss_percent: number;
+    is_pressure_boundary: boolean;
+    timestamp: string;
+  };
+}
+
+// ============================================================================
+// MODULE 4 — REMAINING STRENGTH CALCULATOR (Build 1)
+// ============================================================================
+
+export interface RemainingStrengthResult {
+  maop_b31g: number;
+  maop_modified_b31g: number;
+  governing_maop: number;
+  governing_method: string;
+  barlow_design_pressure: number;
+  operating_pressure: number;
+  operating_ratio: number;
+  safe_envelope: string;
+  recommendation: string;
+  pressure_reduction_required: number;
+  calculations: {
+    wall_loss_inches: number;
+    wall_loss_percent: number;
+    depth_ratio: number;
+    d_over_t: number;
+    folias_z: number;
+    b31g_folias_factor: number;
+    b31g_rsf: number;
+    modified_folias_factor: number;
+    modified_rsf: number;
+  };
+  inputs: {
+    nominal_wall: number;
+    measured_minimum_wall: number;
+    flaw_length: number;
+    pipe_od: number;
+    smys: number;
+    material_grade: string;
+    design_factor: number;
+    operating_pressure: number;
+  };
+  notes: string[];
+  metadata: {
+    engine: string;
+    version: string;
+    method: string;
+    level: string;
+    timestamp: string;
+  };
+}
+
+// ============================================================================
 // TRUSTED FACT (used by Adversarial Validation and persisted)
 // ============================================================================
 
@@ -111,6 +192,8 @@ export interface HardeningSnapshot {
   unknown_state_result: UnknownStateResult;
   interaction_result?: any;
   authority_conflict_result?: any;
+  authority_lock_result?: AuthorityLockResult;
+  remaining_strength_result?: RemainingStrengthResult;
   decision_gradient_result?: any;
   mesh_result?: any;
   evolution_result?: any;
