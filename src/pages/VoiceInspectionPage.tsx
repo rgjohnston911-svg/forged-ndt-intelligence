@@ -1254,6 +1254,7 @@ export default function VoiceInspectionPage() {
     var inputText = inputTextRef.current;
     var s = stepsRef.current.slice();
     var errs = errorsRef.current.slice();
+    var hardenRes: any = null;
 
     try {
       // STEP 2: EVIDENCE PROVENANCE — v16.0
@@ -1405,7 +1406,7 @@ export default function VoiceInspectionPage() {
       if (coreResult) {
         try {
           setHardeningLoading(true);
-          var hardenRes = await runHardeningPipeline(
+          hardenRes = await runHardeningPipeline(
             inputText,
             parsedResult,
             assetResult,
