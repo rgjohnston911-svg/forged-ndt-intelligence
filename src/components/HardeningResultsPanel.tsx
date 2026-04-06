@@ -1,6 +1,7 @@
 // ============================================================================
-// FORGED NDT INTELLIGENCE OS — HardeningResultsPanel v1.0
+// FORGED NDT INTELLIGENCE OS — HardeningResultsPanel v1.1
 // src/components/HardeningResultsPanel.tsx
+// Build 1: Authority Lock + Remaining Strength cards added
 // ============================================================================
 
 import React from 'react';
@@ -10,6 +11,8 @@ import TrustedFactsCard from '../TrustedFactsCard';
 import RealityChallengeCard from '../RealityChallengeCard';
 import UnknownStateCard from '../UnknownStateCard';
 import MinimumDataRequiredCard from '../hardening/MinimumDataRequiredCard';
+import AuthorityLockCard from '../AuthorityLockCard';
+import RemainingStrengthCard from '../RemainingStrengthCard';
 
 import type {
   RealityChallengeResult,
@@ -22,13 +25,17 @@ interface HardeningResultsPanelProps {
   unknownStateResult: UnknownStateResult | null;
   trustedFacts: TrustedFact[];
   visible: boolean;
+  authorityLockResult?: any;
+  remainingStrengthResult?: any;
 }
 
 export default function HardeningResultsPanel({
   challengeResult,
   unknownStateResult,
   trustedFacts,
-  visible
+  visible,
+  authorityLockResult,
+  remainingStrengthResult
 }: HardeningResultsPanelProps) {
   if (!visible) return null;
 
@@ -38,8 +45,10 @@ export default function HardeningResultsPanel({
   var hasMinData = unknownStateResult &&
     unknownStateResult.minimum_data_required &&
     unknownStateResult.minimum_data_required.length > 0;
+  var hasAuthority = authorityLockResult !== null && authorityLockResult !== undefined;
+  var hasStrength = remainingStrengthResult !== null && remainingStrengthResult !== undefined;
 
-  if (!hasChallenge && !hasUnknown && !hasFacts) return null;
+  if (!hasChallenge && !hasUnknown && !hasFacts && !hasAuthority && !hasStrength) return null;
 
   var isWarningState = (unknownStateResult && unknownStateResult.unknown_triggered) ||
     (challengeResult && challengeResult.challenge_triggered);
@@ -73,9 +82,19 @@ export default function HardeningResultsPanel({
           fontWeight: 400,
           letterSpacing: '0.5px'
         }}>
-          v1.0
+          v1.1
         </span>
       </div>
+
+      {/* BUILD 1: Authority Lock Card — renders FIRST (governing authority) */}
+      {hasAuthority && (
+        <AuthorityLockCard result={authorityLockResult} />
+      )}
+
+      {/* BUILD 1: Remaining Strength Card — renders after authority */}
+      {hasStrength && (
+        <RemainingStrengthCard result={remainingStrengthResult} />
+      )}
 
       {hasUnknown && unknownStateResult!.unknown_triggered && (
         <UnknownStateCard
