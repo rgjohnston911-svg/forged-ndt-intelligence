@@ -1,6 +1,9 @@
+// DEPLOY138 — VoiceInspectionPage.tsx v16.5
+// v16.5: Build 3 — Failure Timeline + GPT-4o Photo Analysis
+// Adds Step 8 (failure timeline) after step 7
+// Adds PhotoAnalysisCard to input area for photo upload + GPT-4o vision
 // DEPLOY135 — VoiceInspectionPage.tsx v16.4
 // v16.4: Build 2 — Failure Mode Dominance Engine + Disposition Pathway Engine
-// Adds Step 7 (failure mode dominance + disposition pathway) after hardening
 // DEPLOY134 — VoiceInspectionPage.tsx v16.3
 // v16.3: Build 1 — Authority Lock Engine + B31G Remaining Strength Calculator
 // DEPLOY129 — VoiceInspectionPage.tsx v16.2
@@ -19,6 +22,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { runHardeningPipeline } from "../utils/hardening-pipeline";
 import HardeningResultsPanel from "../components/HardeningResultsPanel";
+import PhotoAnalysisCard from "../PhotoAnalysisCard";
 
 function generateInspectionReport(data: {
   transcript: string;
@@ -654,6 +658,9 @@ export default function VoiceInspectionPage() {
   var [failureModeDominanceResult, setFailureModeDominanceResult] = useState<any>(null);
   var [dispositionPathwayResult, setDispositionPathwayResult] = useState<any>(null);
 
+  // BUILD 3: FAILURE TIMELINE STATE — v16.5
+  var [failureTimelineResult, setFailureTimelineResult] = useState<any>(null);
+
   var handleSaveToCase = async function() {
     if (!decisionCore) return;
     setSaveStatus("saving"); setSaveError(null);
@@ -1091,6 +1098,118 @@ export default function VoiceInspectionPage() {
     }
   };
 
+  // ========================================================================
+  // BUILD 3: FAILURE TIMELINE CALL — v16.5
+  // ========================================================================
+
+  var callFailureTimeline = async function(parsedData: any, gbData: any, confirmedFlags: any, remStrengthRes: any, fmdResult: any) {
+    try {
+      var nominalWall = 0;
+      var currentWall = 0;
+      var retirementWall = 0;
+      var corrosionRateMpy = 0;
+      var crackLength = 0;
+      var crackDepth = 0;
+      var criticalCrackSize = 0;
+      var stressRange = 0;
+      var cyclesPerDay = 0;
+      var hasCorrosion = false;
+      var hasCracking = false;
+      var serviceEnv = "";
+      var materialClass = "";
+
+      // Extract from grammar bridge
+      if (gbData && gbData.extracted) {
+        serviceEnv = gbData.extracted.service_fluid || "";
+        materialClass = gbData.extracted.material || "";
+        if (gbData.extracted.numeric) {
+          nominalWall = gbData.extracted.numeric.nominal_wall || 0;
+          currentWall = gbData.extracted.numeric.measured_wall || gbData.extracted.numeric.minimum_wall || 0;
+          if (gbData.extracted.numeric.wall_loss_percent && nominalWall && !currentWall) {
+            currentWall = nominalWall * (1 - gbData.extracted.numeric.wall_loss_percent / 100);
+          }
+          corrosionRateMpy = gbData.extracted.numeric.corrosion_rate_mpy || 0;
+          crackLength = gbData.extracted.numeric.crack_length || 0;
+          crackDepth = gbData.extracted.numeric.crack_depth || 0;
+        }
+      }
+
+      // Use remaining strength data if available
+      if (remStrengthRes && remStrengthRes.inputs) {
+        nominalWall = nominalWall || remStrengthRes.inputs.nominal_wall || 0;
+        currentWall = currentWall || remStrengthRes.inputs.measured_minimum_wall || 0;
+      }
+
+      // Determine has_corrosion and has_cracking from FMD if available
+      if (fmdResult) {
+        hasCorrosion = (fmdResult.corrosion_path && fmdResult.corrosion_path.active) || false;
+        hasCracking = (fmdResult.cracking_path && fmdResult.cracking_path.active) || false;
+      }
+
+      // Check transcript for additional info
+      var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
+      if (lt.indexOf("crack") >= 0) hasCracking = true;
+      if (lt.indexOf("corrosion") >= 0 || lt.indexOf("wall loss") >= 0 || lt.indexOf("pitting") >= 0) hasCorrosion = true;
+
+      // Try to extract corrosion rate from transcript
+      var rateMatch = lt.match(/(\d+(?:\.\d+)?)\s*mpy/);
+      if (rateMatch && !corrosionRateMpy) {
+        corrosionRateMpy = parseFloat(rateMatch[1]);
+      }
+      var rateMatch2 = lt.match(/(\d+(?:\.\d+)?)\s*mils?\s*\/?\s*y(ea)?r/);
+      if (rateMatch2 && !corrosionRateMpy) {
+        corrosionRateMpy = parseFloat(rateMatch2[1]);
+      }
+
+      // Try to extract cycles per day
+      var cyclesMatch = lt.match(/(\d+(?:\.\d+)?)\s*cycles?\s*\/?\s*day/);
+      if (cyclesMatch) cyclesPerDay = parseFloat(cyclesMatch[1]);
+
+      // Try to extract stress range
+      var stressMatch = lt.match(/(\d+(?:\.\d+)?)\s*ksi/);
+      if (stressMatch) stressRange = parseFloat(stressMatch[1]);
+
+      // If neither corrosion nor cracking detected, skip
+      if (!hasCorrosion && !hasCracking) {
+        console.log("Failure timeline: no corrosion or cracking detected, skipping");
+        return null;
+      }
+
+      var requestBody = {
+        nominal_wall: nominalWall,
+        current_wall: currentWall,
+        retirement_wall: retirementWall,
+        corrosion_rate_mpy: corrosionRateMpy,
+        thickness_history: [],
+        crack_length: crackLength,
+        crack_depth: crackDepth,
+        critical_crack_size: criticalCrackSize,
+        stress_range_ksi: stressRange,
+        cycles_per_day: cyclesPerDay,
+        has_corrosion: hasCorrosion,
+        has_cracking: hasCracking,
+        service_environment: serviceEnv,
+        material_class: materialClass
+      };
+
+      var response = await fetch("/.netlify/functions/failure-timeline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (response.ok) {
+        var result = await response.json();
+        setFailureTimelineResult(result);
+        return result;
+      }
+      return null;
+    } catch (err) {
+      console.error("Failure timeline error:", err);
+      return null;
+    }
+  };
+
   var parsedRef = useRef<any>(null);
   var assetRef = useRef<any>(null);
   var stepsRef = useRef<StepState[]>([]);
@@ -1137,6 +1256,8 @@ export default function VoiceInspectionPage() {
     setAuthorityLockResult(null); setRemainingStrengthResult(null);
     // BUILD 2: Reset failure mode + disposition
     setFailureModeDominanceResult(null); setDispositionPathwayResult(null);
+    // BUILD 3: Reset failure timeline
+    setFailureTimelineResult(null);
     inputTextRef.current = inputText;
 
     var initialSteps: StepState[] = [
@@ -1148,6 +1269,7 @@ export default function VoiceInspectionPage() {
       { label: "Superbrain Synthesis (Five Magic Features)", status: "pending" },
       { label: "Reality Hardening (challenge + unknown state)", status: "pending" },
       { label: "Failure Mode Dominance + Disposition Pathway", status: "pending" },
+      { label: "Failure Timeline (corrosion + crack growth)", status: "pending" },
     ];
     var s = initialSteps.slice();
     setSteps(s); stepsRef.current = s;
@@ -1255,6 +1377,7 @@ export default function VoiceInspectionPage() {
     var s = stepsRef.current.slice();
     var errs = errorsRef.current.slice();
     var hardenRes: any = null;
+    var fmdResult: any = null;
 
     try {
       // STEP 2: EVIDENCE PROVENANCE — v16.0
@@ -1438,7 +1561,7 @@ export default function VoiceInspectionPage() {
       // STEP 7: FAILURE MODE DOMINANCE + DISPOSITION PATHWAY — Build 2
       s = updateStep(7, { status: "running", detail: "evaluating failure modes + disposition..." }, s); setSteps(s.slice());
       try {
-        var fmdResult = await callFailureModeDominance(parsedResult, grammarBridgeResult, confirmedFlags, authorityLockResult, remainingStrengthResult);
+        fmdResult = await callFailureModeDominance(parsedResult, grammarBridgeResult, confirmedFlags, authorityLockResult, remainingStrengthResult);
         if (fmdResult) {
           var govMode = fmdResult.governing_failure_mode || "?";
           var govSev = fmdResult.governing_severity || "?";
@@ -1458,6 +1581,28 @@ export default function VoiceInspectionPage() {
       } catch (fmdErr: any) {
         s = updateStep(7, { status: "error", detail: fmdErr.message }, s);
         errs.push("failure-mode-dominance: " + fmdErr.message);
+      }
+      setSteps(s.slice());
+
+      // STEP 8: FAILURE TIMELINE — Build 3
+      s = updateStep(8, { status: "running", detail: "projecting remaining life..." }, s); setSteps(s.slice());
+      try {
+        var ftResult = await callFailureTimeline(parsedResult, grammarBridgeResult, confirmedFlags, remainingStrengthResult, fmdResult);
+        if (ftResult) {
+          var govTime = ftResult.governing_time_years;
+          var govModeFt = ftResult.governing_failure_mode || "?";
+          var ftDetail = govModeFt;
+          if (govTime !== null) {
+            ftDetail = ftDetail + " | " + (govTime < 1 ? (govTime * 12).toFixed(1) + " mo" : govTime.toFixed(1) + " yr");
+          }
+          if (ftResult.urgency) ftDetail = ftDetail + " | " + ftResult.urgency;
+          s = updateStep(8, { status: "done", detail: ftDetail }, s);
+        } else {
+          s = updateStep(8, { status: "done", detail: "no timeline data" }, s);
+        }
+      } catch (ftErr: any) {
+        s = updateStep(8, { status: "error", detail: ftErr.message }, s);
+        errs.push("failure-timeline: " + ftErr.message);
       }
       setSteps(s.slice());
 
@@ -1504,6 +1649,19 @@ export default function VoiceInspectionPage() {
           </div>
         </div>
       </div>
+
+      {/* BUILD 3: Photo Analysis (GPT-4o Vision) */}
+      <PhotoAnalysisCard
+        contextTranscript={transcript}
+        assetType={asset?.asset_class || ""}
+        serviceEnvironment=""
+        onAddendumReady={function(addendum: string) {
+          setTranscript(function(prev: string) {
+            var sep = prev.trim().length > 0 ? " " : "";
+            return prev + sep + addendum;
+          });
+        }}
+      />
 
       {steps.length > 0 && <StepTracker steps={steps} />}
 
@@ -2282,11 +2440,12 @@ export default function VoiceInspectionPage() {
           challengeResult={hardeningResult?.challengeResult || null}
           unknownStateResult={hardeningResult?.unknownStateResult || null}
           trustedFacts={hardeningResult?.trustedFacts || []}
-          visible={hardeningResult !== null || authorityLockResult !== null || remainingStrengthResult !== null || failureModeDominanceResult !== null || dispositionPathwayResult !== null}
+          visible={hardeningResult !== null || authorityLockResult !== null || remainingStrengthResult !== null || failureModeDominanceResult !== null || dispositionPathwayResult !== null || failureTimelineResult !== null}
           authorityLockResult={authorityLockResult}
           remainingStrengthResult={remainingStrengthResult}
           failureModeDominanceResult={failureModeDominanceResult}
           dispositionPathwayResult={dispositionPathwayResult}
+          failureTimelineResult={failureTimelineResult}
         />
 
       </div>
