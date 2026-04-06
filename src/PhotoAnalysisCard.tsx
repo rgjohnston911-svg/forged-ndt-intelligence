@@ -29,12 +29,15 @@ function PhotoAnalysisCard(props: PhotoAnalysisCardProps) {
       return;
     }
 
+    // Capture mime type before closure (TS loses null narrowing inside callbacks)
+    var capturedMimeType = file.type || "image/jpeg";
+
     var reader = new FileReader();
     reader.onload = function(loadEvent) {
       var dataUrl = loadEvent.target && loadEvent.target.result as string;
       if (dataUrl) {
         setImageData(dataUrl);
-        setImageMimeType(file.type || "image/jpeg");
+        setImageMimeType(capturedMimeType);
         setAnalysis(null);
         setError(null);
         setAppended(false);
