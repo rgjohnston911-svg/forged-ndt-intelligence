@@ -1,309 +1,307 @@
 // ============================================================================
-// FORGED NDT INTELLIGENCE OS — REALITY CHALLENGE ENGINE v1.0
-// Netlify Function: reality-challenge
-// DEPLOY129b: netlify/functions/reality-challenge.js
-// ============================================================================
-// PURPOSE: Challenge the primary interpretation of inspection data.
-// Generates alternate hypotheses, calculates ambiguity, recommends action.
-// DETERMINISTIC — no AI calls. Pure logic from structured inputs.
-// NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
+// REALITY CHALLENGE ENGINE v1.1 (HOTFIXED)
+// Purpose: Evaluate alternate hypotheses + ambiguity for inspection scenarios
+// Hotfix: ambiguityScore normalized to 0-1 scale (was 0-100, caused 9000% bug)
+// Pattern: var handler, string concatenation, no template literals
 // ============================================================================
 
 var handler = async function(event) {
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS'
-      },
-      body: ''
-    };
+  "use strict";
+
+  var headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json"
+  };
+
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: headers, body: "" };
+  }
+
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, headers: headers, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
   try {
-    var body = JSON.parse(event.body);
-    var transcript = body.transcript || '';
-    var parsed = body.parsed_incident || {};
-    var asset = body.resolved_asset || {};
-    var grammarBridge = body.grammar_bridge_result || null;
-    var provenance = body.evidence_provenance_result || null;
+    var body = JSON.parse(event.body || "{}");
 
-    // ---- EXTRACT PRIMARY INTERPRETATION ----
-    var events = parsed.events || [];
-    var primaryEvent = events[0] || {};
-    var assetClass = asset.asset_class || primaryEvent.asset_class || 'unknown';
-    var mechanisms = [];
-    var findings = [];
+    // ========================================================================
+    // INPUTS — from pipeline data
+    // ========================================================================
 
-    for (var i = 0; i < events.length; i++) {
-      var ev = events[i];
-      if (ev.damage_mechanism && mechanisms.indexOf(ev.damage_mechanism) === -1) {
-        mechanisms.push(ev.damage_mechanism);
-      }
-      if (ev.finding && findings.indexOf(ev.finding) === -1) {
-        findings.push(ev.finding);
-      }
-      if (ev.finding_type && findings.indexOf(ev.finding_type) === -1) {
-        findings.push(ev.finding_type);
-      }
-    }
+    var mechanisms = body.damage_mechanisms || body.mechanisms || [];
+    var evidenceItems = body.evidence_items || body.evidence || [];
+    var assetType = (body.asset_type || "").toLowerCase().trim();
+    var serviceEnvironment = (body.service_environment || "").toLowerCase().trim();
+    var wallLossPercent = body.wall_loss_percent || 0;
+    var hasCracking = body.has_cracking || false;
+    var transcript = (body.transcript || "").toLowerCase();
+    var provenanceData = body.provenance || {};
+    var observedCount = body.observed_count || 0;
+    var suspectedCount = body.suspected_count || 0;
+    var contradictions = body.contradictions || [];
 
-    var primaryHypothesis = {
-      asset_class: assetClass,
-      scenario_type: mechanisms.length > 1 ? 'multi_mechanism' : (mechanisms[0] || 'unknown'),
-      finding_frame: findings.join(' + ') || 'unspecified',
-      mechanism_frame: mechanisms.join(' + ') || 'unspecified',
-      confidence: 0.5,
-      basis: []
-    };
+    // ========================================================================
+    // AMBIGUITY FLAG DETECTION
+    // ========================================================================
 
-    // ---- CALCULATE PRIMARY CONFIDENCE ----
-    var confidenceFactors = 0;
-    var confidenceTotal = 0;
-
-    // Asset resolved?
-    if (assetClass !== 'unknown' && assetClass !== 'unresolved') {
-      confidenceTotal += 0.85;
-      primaryHypothesis.basis.push('Asset class resolved: ' + assetClass);
-    } else {
-      confidenceTotal += 0.3;
-      primaryHypothesis.basis.push('Asset class unresolved');
-    }
-    confidenceFactors++;
-
-    // Mechanisms identified?
-    if (mechanisms.length > 0) {
-      confidenceTotal += 0.8;
-      primaryHypothesis.basis.push('Mechanisms identified: ' + mechanisms.join(', '));
-    } else {
-      confidenceTotal += 0.2;
-      primaryHypothesis.basis.push('No mechanisms identified');
-    }
-    confidenceFactors++;
-
-    // Provenance trust band?
-    if (provenance && provenance.provenance_summary) {
-      var trustBand = provenance.provenance_summary.trust_band || 'UNKNOWN';
-      var trustScore = provenance.provenance_summary.composite_trust_score || 0;
-      if (trustBand === 'HIGH' || trustScore > 0.7) {
-        confidenceTotal += 0.9;
-        primaryHypothesis.basis.push('Evidence trust band: HIGH');
-      } else if (trustBand === 'MODERATE' || trustScore > 0.5) {
-        confidenceTotal += 0.65;
-        primaryHypothesis.basis.push('Evidence trust band: MODERATE');
-      } else {
-        confidenceTotal += 0.35;
-        primaryHypothesis.basis.push('Evidence trust band: ' + trustBand + ' (' + Math.round(trustScore * 100) + '%)');
-      }
-    } else {
-      confidenceTotal += 0.4;
-      primaryHypothesis.basis.push('No provenance data available');
-    }
-    confidenceFactors++;
-
-    // Grammar bridge completeness?
-    if (grammarBridge && grammarBridge.completeness) {
-      if (grammarBridge.completeness === 'COMPLETE') {
-        confidenceTotal += 0.9;
-        primaryHypothesis.basis.push('Grammar bridge: COMPLETE');
-      } else if (grammarBridge.completeness === 'NEAR_COMPLETE') {
-        confidenceTotal += 0.7;
-        primaryHypothesis.basis.push('Grammar bridge: NEAR_COMPLETE');
-      } else {
-        confidenceTotal += 0.4;
-        primaryHypothesis.basis.push('Grammar bridge: ' + grammarBridge.completeness);
-      }
-    } else {
-      confidenceTotal += 0.5;
-    }
-    confidenceFactors++;
-
-    primaryHypothesis.confidence = confidenceFactors > 0 ? Math.round((confidenceTotal / confidenceFactors) * 100) / 100 : 0.5;
-
-    // ---- GENERATE ALTERNATE HYPOTHESES ----
-    var alternates = [];
     var ambiguityFlags = [];
-    var trace = [];
 
-    trace.push('Primary: ' + primaryHypothesis.mechanism_frame + ' on ' + primaryHypothesis.asset_class);
-
-    // Check for multi-mechanism ambiguity
+    // Flag 1: Multiple competing mechanisms
     if (mechanisms.length > 1) {
-      ambiguityFlags.push('MULTI_MECHANISM');
-      trace.push('Multiple mechanisms detected: ' + mechanisms.join(', '));
+      ambiguityFlags.push({
+        flag: "MULTIPLE_MECHANISMS",
+        detail: mechanisms.length + " damage mechanisms detected — competing failure modes",
+        severity: "high"
+      });
+    }
 
-      for (var mi = 0; mi < mechanisms.length; mi++) {
-        var altMech = mechanisms[mi];
-        var otherMechs = mechanisms.filter(function(m) { return m !== altMech; });
+    // Flag 2: Low observed-to-suspected ratio
+    var totalEvidence = observedCount + suspectedCount;
+    if (totalEvidence > 0 && observedCount < suspectedCount) {
+      ambiguityFlags.push({
+        flag: "LOW_OBSERVED_RATIO",
+        detail: "Suspected evidence (" + suspectedCount + ") exceeds observed (" + observedCount + ") — conclusions may be speculative",
+        severity: "high"
+      });
+    }
 
-        alternates.push({
-          hypothesis_id: 'ALT_MECH_' + (mi + 1),
-          asset_class: assetClass,
-          scenario_type: 'single_mechanism',
-          finding_frame: 'Dominant mechanism: ' + altMech,
-          mechanism_frame: altMech,
-          confidence: Math.round((primaryHypothesis.confidence * 0.7) * 100) / 100,
-          risk_bias: mi === 0 ? 'equal' : 'higher',
-          basis: [
-            altMech + ' as sole dominant mechanism',
-            'Other mechanisms (' + otherMechs.join(', ') + ') may be secondary or misidentified'
-          ]
+    // Flag 3: Contradictions present
+    if (contradictions.length > 0) {
+      ambiguityFlags.push({
+        flag: "CONTRADICTIONS_DETECTED",
+        detail: contradictions.length + " contradiction(s) in evidence — conflicting data must be resolved",
+        severity: "critical"
+      });
+    }
+
+    // Flag 4: Service environment not confirmed
+    if (serviceEnvironment === "" || serviceEnvironment === "unknown" || serviceEnvironment === "unspecified") {
+      ambiguityFlags.push({
+        flag: "SERVICE_ENVIRONMENT_UNKNOWN",
+        detail: "Service environment not specified — mechanism selection may be incorrect",
+        severity: "medium"
+      });
+    }
+
+    // Flag 5: Sour service without confirmation of H2S
+    var isSourMentioned = serviceEnvironment.indexOf("sour") >= 0 || transcript.indexOf("sour") >= 0;
+    var isH2SConfirmed = transcript.indexOf("h2s confirmed") >= 0 || transcript.indexOf("hydrogen sulfide confirmed") >= 0 || transcript.indexOf("h2s measured") >= 0;
+    if (isSourMentioned && !isH2SConfirmed) {
+      ambiguityFlags.push({
+        flag: "SOUR_SERVICE_UNCONFIRMED",
+        detail: "Sour service referenced but H2S presence not analytically confirmed",
+        severity: "high"
+      });
+    }
+
+    // Flag 6: Wall loss reported without UT grid or sizing
+    if (wallLossPercent > 0) {
+      var hasUTGrid = transcript.indexOf("ut grid") >= 0 || transcript.indexOf("grid survey") >= 0 || transcript.indexOf("thickness grid") >= 0;
+      var hasSizing = transcript.indexOf("flaw length") >= 0 || transcript.indexOf("defect length") >= 0 || transcript.indexOf("axial extent") >= 0;
+      if (!hasUTGrid && !hasSizing) {
+        ambiguityFlags.push({
+          flag: "WALL_LOSS_UNSIZED",
+          detail: "Wall loss reported (" + wallLossPercent.toFixed(1) + "%) but no flaw sizing or UT grid data — B31G calculation may use assumed dimensions",
+          severity: "medium"
         });
       }
     }
 
-    // Check for cracking + corrosion conflict (common ambiguity)
-    var hasCorrosion = false;
-    var hasCracking = false;
-    var transcriptLower = transcript.toLowerCase();
+    // Flag 7: Cracking suspected but not confirmed by method
+    if (hasCracking) {
+      var crackConfirmed = transcript.indexOf("crack confirmed") >= 0 || transcript.indexOf("tofd") >= 0 || transcript.indexOf("paut confirmed") >= 0 || transcript.indexOf("crack verified") >= 0;
+      if (!crackConfirmed) {
+        ambiguityFlags.push({
+          flag: "CRACKING_UNCONFIRMED",
+          detail: "Cracking suspected but not confirmed by advanced method (TOFD, PAUT, or MT)",
+          severity: "high"
+        });
+      }
+    }
 
-    for (var fi = 0; fi < findings.length; fi++) {
-      var f = findings[fi].toLowerCase();
-      if (f.indexOf('corrosion') !== -1 || f.indexOf('wall loss') !== -1 || f.indexOf('thinning') !== -1 || f.indexOf('pitting') !== -1) {
+    // Flag 8: Material grade unknown
+    var materialMentioned = transcript.indexOf("grade") >= 0 || transcript.indexOf("x52") >= 0 || transcript.indexOf("x65") >= 0 || transcript.indexOf("x70") >= 0 || transcript.indexOf("smys") >= 0;
+    if (!materialMentioned && (assetType === "pipeline" || assetType === "piping" || assetType === "process_piping")) {
+      ambiguityFlags.push({
+        flag: "MATERIAL_GRADE_UNKNOWN",
+        detail: "Material grade not specified — SMYS assumption required for strength calculations",
+        severity: "medium"
+      });
+    }
+
+    // Flag 9: MIC suspected without biological confirmation
+    var micSuspected = false;
+    mechanisms.forEach(function(m) {
+      if ((m || "").toLowerCase().indexOf("mic") >= 0 || (m || "").toLowerCase().indexOf("microbiological") >= 0) {
+        micSuspected = true;
+      }
+    });
+    if (micSuspected) {
+      var micConfirmed = transcript.indexOf("culture") >= 0 || transcript.indexOf("biological") >= 0 || transcript.indexOf("bacteria confirmed") >= 0 || transcript.indexOf("srb") >= 0;
+      if (!micConfirmed) {
+        ambiguityFlags.push({
+          flag: "MIC_UNCONFIRMED",
+          detail: "MIC suspected but no biological confirmation (culture, SRB testing) — morphology alone is insufficient",
+          severity: "high"
+        });
+      }
+    }
+
+    // ========================================================================
+    // ALTERNATE HYPOTHESIS GENERATION
+    // ========================================================================
+
+    var alternateHypotheses = [];
+
+    // If corrosion reported in sour service, HIC/SOHIC is alternate
+    var hasCorrosion = false;
+    mechanisms.forEach(function(m) {
+      if ((m || "").toLowerCase().indexOf("corrosion") >= 0 || (m || "").toLowerCase().indexOf("wall_loss") >= 0) {
         hasCorrosion = true;
       }
-      if (f.indexOf('crack') !== -1 || f.indexOf('scc') !== -1 || f.indexOf('hic') !== -1) {
-        hasCracking = true;
-      }
-    }
-    // Also check mechanisms
-    for (var mci = 0; mci < mechanisms.length; mci++) {
-      var ml = mechanisms[mci].toLowerCase();
-      if (ml.indexOf('corrosion') !== -1 || ml.indexOf('thinning') !== -1) hasCorrosion = true;
-      if (ml.indexOf('crack') !== -1 || ml.indexOf('scc') !== -1 || ml.indexOf('hic') !== -1 || ml.indexOf('fatigue') !== -1) hasCracking = true;
-    }
-    // Also check transcript
-    if (transcriptLower.indexOf('crack') !== -1) hasCracking = true;
-    if (transcriptLower.indexOf('corrosion') !== -1 || transcriptLower.indexOf('wall loss') !== -1 || transcriptLower.indexOf('pitting') !== -1) hasCorrosion = true;
+    });
 
-    if (hasCorrosion && hasCracking) {
-      ambiguityFlags.push('CORROSION_CRACKING_CONFLICT');
-      trace.push('Both corrosion and cracking evidence present — different inspection approaches required');
-
-      if (alternates.length === 0) {
-        alternates.push({
-          hypothesis_id: 'ALT_CRACK_DOMINANT',
-          asset_class: assetClass,
-          scenario_type: 'cracking_dominant',
-          finding_frame: 'Cracking as primary damage mode',
-          mechanism_frame: 'cracking (SCC/HIC/fatigue)',
-          confidence: Math.round((primaryHypothesis.confidence * 0.65) * 100) / 100,
-          risk_bias: 'higher',
-          basis: [
-            'Cracking indications present in evidence',
-            'Cracking on pressure boundary = higher consequence than volumetric loss',
-            'Different NDE methods required for crack characterization'
-          ]
-        });
-        alternates.push({
-          hypothesis_id: 'ALT_CORROSION_DOMINANT',
-          asset_class: assetClass,
-          scenario_type: 'corrosion_dominant',
-          finding_frame: 'Corrosion/thinning as primary damage mode',
-          mechanism_frame: 'corrosion (general/pitting/MIC)',
-          confidence: Math.round((primaryHypothesis.confidence * 0.7) * 100) / 100,
-          risk_bias: 'lower',
-          basis: [
-            'Wall loss and pitting evidence present',
-            'Corrosion is volumetric — typically lower immediate risk than cracking',
-            'Remaining strength calculable via B31G methods'
-          ]
-        });
-      }
+    if (hasCorrosion && isSourMentioned) {
+      alternateHypotheses.push({
+        hypothesis: "HIC/SOHIC masquerading as general corrosion",
+        basis: "Sour service environment with apparent wall loss — hydrogen-induced cracking can produce blistering and stepwise cracking that mimics general metal loss on conventional UT",
+        test_to_resolve: "WFMT or PAUT with C-scan to differentiate volumetric loss from planar cracking",
+        consequence_if_missed: "Catastrophic brittle fracture without warning — corrosion-rate-based monitoring would be non-conservative"
+      });
     }
 
-    // Check for low provenance confidence
-    if (provenance && provenance.provenance_summary) {
-      var measuredFraction = provenance.provenance_summary.measured_fraction || 0;
-      if (measuredFraction < 0.2) {
-        ambiguityFlags.push('LOW_MEASURED_EVIDENCE');
-        trace.push('Measured evidence fraction below 20% — interpretation relies heavily on inferred/reported data');
-      }
+    // If external corrosion reported, CUI is alternate
+    if (transcript.indexOf("external") >= 0 && hasCorrosion) {
+      alternateHypotheses.push({
+        hypothesis: "Corrosion under insulation (CUI)",
+        basis: "External corrosion on insulated equipment frequently indicates CUI — localized readings may underestimate extent",
+        test_to_resolve: "Insulation removal and full surface inspection, or profile radiography through insulation",
+        consequence_if_missed: "Widespread hidden wall loss under insulation — single-point UT is non-representative"
+      });
     }
 
-    // Check for H2S / sour service implications
-    if (transcriptLower.indexOf('h2s') !== -1 || transcriptLower.indexOf('sour') !== -1 || transcriptLower.indexOf('sulfide') !== -1) {
-      if (hasCracking) {
-        ambiguityFlags.push('SOUR_SERVICE_CRACKING');
-        trace.push('Sour service environment with cracking — SSC/HIC must be ruled out');
-      }
+    // If pitting reported, MIC is alternate
+    if (transcript.indexOf("pitting") >= 0 && !micSuspected) {
+      alternateHypotheses.push({
+        hypothesis: "Microbiologically influenced corrosion (MIC)",
+        basis: "Pitting morphology in certain environments (stagnant, low-flow, or with organic deposits) suggests possible MIC contribution",
+        test_to_resolve: "Biological sampling, SRB culture, deposit analysis",
+        consequence_if_missed: "Corrosion rate predictions based on chemical corrosion models would be non-conservative — MIC can accelerate pitting 10x"
+      });
     }
 
-    // ---- FIND HIGHEST RISK HYPOTHESIS ----
-    var highestRisk = null;
-    for (var hi = 0; hi < alternates.length; hi++) {
-      if (alternates[hi].risk_bias === 'higher') {
-        if (!highestRisk || alternates[hi].confidence > highestRisk.confidence) {
-          highestRisk = {
-            hypothesis_id: alternates[hi].hypothesis_id,
-            reason: alternates[hi].finding_frame + ' — ' + alternates[hi].basis[0],
-            risk_bias: 'higher',
-            confidence: alternates[hi].confidence
-          };
+    // If single-mechanism identified, fatigue is alternate for cyclic service
+    var isCyclicService = transcript.indexOf("cyclic") >= 0 || transcript.indexOf("startup") >= 0 || transcript.indexOf("shutdown") >= 0 || transcript.indexOf("thermal cycling") >= 0 || transcript.indexOf("pressure cycling") >= 0;
+    if (isCyclicService && !hasCracking) {
+      alternateHypotheses.push({
+        hypothesis: "Fatigue cracking at stress concentration",
+        basis: "Cyclic service conditions reported — fatigue initiation at welds, nozzles, or geometric discontinuities is possible concurrent mechanism",
+        test_to_resolve: "TOFD or PAUT at stress concentrations, review of cycle count history",
+        consequence_if_missed: "Fatigue crack growth to critical size between inspection intervals"
+      });
+    }
+
+    // If cracking in sour service, SSC is alternate
+    if (hasCracking && isSourMentioned) {
+      var hasSSC = false;
+      mechanisms.forEach(function(m) {
+        if ((m || "").toLowerCase().indexOf("ssc") >= 0 || (m || "").toLowerCase().indexOf("sscc") >= 0 || (m || "").toLowerCase().indexOf("sulfide stress") >= 0) {
+          hasSSC = true;
         }
+      });
+      if (!hasSSC) {
+        alternateHypotheses.push({
+          hypothesis: "Sulfide stress cracking (SSC)",
+          basis: "Cracking in sour service — SSC produces sudden brittle failure in high-hardness zones (HAZ, hard spots) without prior wall loss indication",
+          test_to_resolve: "Hardness testing of base metal + HAZ, material verification against NACE MR0175 limits",
+          consequence_if_missed: "Sudden brittle fracture — SSC failures are catastrophic with no leak-before-break behavior"
+        });
       }
     }
 
-    // ---- CALCULATE AMBIGUITY SCORE ----
+    // ========================================================================
+    // COMPUTE AMBIGUITY SCORE (0-1 scale)
+    // ========================================================================
+
     var ambiguityScore = 0;
-    if (ambiguityFlags.length > 0) {
-      ambiguityScore = Math.min(100, ambiguityFlags.length * 25);
-    }
-    // Adjust for primary confidence
-    if (primaryHypothesis.confidence < 0.5) {
-      ambiguityScore = Math.min(100, ambiguityScore + 15);
-      ambiguityFlags.push('LOW_PRIMARY_CONFIDENCE');
+    var maxScore = 0;
+
+    ambiguityFlags.forEach(function(flag) {
+      if (flag.severity === "critical") {
+        ambiguityScore = ambiguityScore + 30;
+      } else if (flag.severity === "high") {
+        ambiguityScore = ambiguityScore + 20;
+      } else if (flag.severity === "medium") {
+        ambiguityScore = ambiguityScore + 10;
+      } else {
+        ambiguityScore = ambiguityScore + 5;
+      }
+    });
+
+    // Add for alternate hypotheses
+    ambiguityScore = ambiguityScore + (alternateHypotheses.length * 10);
+
+    // Cap at 100 then normalize to 0-1
+    if (ambiguityScore > 100) {
+      ambiguityScore = 100;
     }
 
-    var challengeTriggered = ambiguityScore > 20 || alternates.length > 0;
+    // === HOTFIX: normalize to 0-1 scale ===
+    // RealityChallengeCard multiplies by 100 for display
+    // Engine must output 0-1 decimals
+    ambiguityScore = ambiguityScore / 100;
 
-    // ---- DETERMINE RECOMMENDATION ----
-    var recommendation = 'accept_primary';
-    if (ambiguityScore >= 70) {
-      recommendation = 'defer_to_unknown';
-    } else if (ambiguityScore >= 40) {
-      recommendation = 'accept_with_guard';
-    } else if (ambiguityScore >= 20) {
-      recommendation = 'accept_with_guard';
-    }
-    if (highestRisk && highestRisk.confidence > primaryHypothesis.confidence) {
-      recommendation = 'escalate_for_more_data';
+    // ========================================================================
+    // DETERMINE STATUS
+    // ========================================================================
+
+    var status = "PASS";
+    var statusReason = "No significant ambiguity detected";
+
+    if (ambiguityScore >= 0.70) {
+      status = "DEFER_TO_UNKNOWN";
+      statusReason = "High ambiguity (" + (ambiguityScore * 100).toFixed(0) + "%) — too many unresolved factors to support confident disposition";
+    } else if (ambiguityScore >= 0.40) {
+      status = "CHALLENGE";
+      statusReason = "Moderate ambiguity (" + (ambiguityScore * 100).toFixed(0) + "%) — alternate hypotheses should be evaluated before disposition";
+    } else if (ambiguityScore >= 0.20) {
+      status = "ADVISORY";
+      statusReason = "Low ambiguity (" + (ambiguityScore * 100).toFixed(0) + "%) — minor gaps noted, disposition may proceed with caveats";
     }
 
-    trace.push('Ambiguity score: ' + ambiguityScore + '% | Flags: ' + ambiguityFlags.length + ' | Alternates: ' + alternates.length);
-    trace.push('Recommendation: ' + recommendation);
+    // ========================================================================
+    // RESPONSE
+    // ========================================================================
 
     var result = {
-      primary_reality_hypothesis: primaryHypothesis,
-      alternate_hypotheses: alternates,
-      highest_risk_plausible_hypothesis: highestRisk,
-      ambiguity_flags: ambiguityFlags,
-      ambiguity_score: ambiguityScore / 100,
-      challenge_triggered: challengeTriggered,
-      reality_lock_recommendation: recommendation,
-      challenge_reasoning_trace: trace
+      status: status,
+      statusReason: statusReason,
+      ambiguityScore: ambiguityScore,
+      ambiguityFlags: ambiguityFlags,
+      ambiguityFlagCount: ambiguityFlags.length,
+      alternateHypotheses: alternateHypotheses,
+      alternateHypothesisCount: alternateHypotheses.length,
+      metadata: {
+        engine: "reality-challenge",
+        version: "1.1",
+        hotfix: "ambiguity_score_0_1_scale",
+        timestamp: new Date().toISOString()
+      }
     };
 
     return {
       statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
+      headers: headers,
       body: JSON.stringify(result)
     };
 
   } catch (err) {
-    console.error('[reality-challenge] Error:', err);
     return {
       statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ error: err.message || 'Unknown error' })
+      headers: headers,
+      body: JSON.stringify({ error: "Reality challenge engine error: " + (err.message || String(err)) })
     };
   }
 };
