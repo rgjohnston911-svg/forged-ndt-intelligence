@@ -1,21 +1,21 @@
 // ============================================================================
 // FORGED NDT INTELLIGENCE OS — HardeningResultsPanel v1.0
-// src/components/hardening/HardeningResultsPanel.tsx
+// src/components/HardeningResultsPanel.tsx
 // ============================================================================
 
 import React from 'react';
 
-// Import paths match actual repo layout
-import TrustedFactsCard from '../../TrustedFactsCard';
-import RealityChallengeCard from '../../RealityChallengeCard';
-import UnknownStateCard from '../../UnknownStateCard';
-import MinimumDataRequiredCard from '../../hardening/MinimumDataRequiredCard';
+// Paths relative to src/components/
+import TrustedFactsCard from '../TrustedFactsCard';
+import RealityChallengeCard from '../RealityChallengeCard';
+import UnknownStateCard from '../UnknownStateCard';
+import MinimumDataRequiredCard from '../hardening/MinimumDataRequiredCard';
 
 import type {
   RealityChallengeResult,
   UnknownStateResult,
   TrustedFact
-} from '../../hardening-types';
+} from '../hardening-types';
 
 interface HardeningResultsPanelProps {
   challengeResult: RealityChallengeResult | null;
@@ -32,16 +32,16 @@ export default function HardeningResultsPanel({
 }: HardeningResultsPanelProps) {
   if (!visible) return null;
 
-  const hasChallenge = challengeResult !== null;
-  const hasUnknown = unknownStateResult !== null;
-  const hasFacts = trustedFacts && trustedFacts.length > 0;
-  const hasMinData = unknownStateResult &&
+  var hasChallenge = challengeResult !== null;
+  var hasUnknown = unknownStateResult !== null;
+  var hasFacts = trustedFacts && trustedFacts.length > 0;
+  var hasMinData = unknownStateResult &&
     unknownStateResult.minimum_data_required &&
     unknownStateResult.minimum_data_required.length > 0;
 
   if (!hasChallenge && !hasUnknown && !hasFacts) return null;
 
-  const isWarningState = (unknownStateResult && unknownStateResult.unknown_triggered) ||
+  var isWarningState = (unknownStateResult && unknownStateResult.unknown_triggered) ||
     (challengeResult && challengeResult.challenge_triggered);
 
   return (
@@ -51,7 +51,6 @@ export default function HardeningResultsPanel({
       borderTop: '2px solid ' + (isWarningState ? '#f59e0b' : '#e5e7eb'),
       paddingTop: '16px'
     }}>
-      {/* Section Header */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
