@@ -1,128 +1,336 @@
-// FAILURE MODE DOMINANCE CARD v1.0
-// File: src/FailureModeDominanceCard.tsx
+// FAILURE MODE DOMINANCE ENGINE v1.0
+// File: netlify/functions/failure-mode-dominance.js
+// NO TYPESCRIPT — PURE JAVASCRIPT
 
-import React from "react";
+var handler = async function(event) {
+  "use strict";
 
-interface FailureModeDominanceCardProps {
-  result: any | null;
-}
+  var headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json"
+  };
 
-function FailureModeDominanceCard(props: FailureModeDominanceCardProps) {
-  if (!props.result) return null;
-  var r = props.result;
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: headers, body: "" };
+  }
 
-  var modeColor = r.governing_failure_mode === "CRACKING" ? "#a855f7"
-    : r.governing_failure_mode === "CORROSION" ? "#f59e0b"
-    : r.governing_failure_mode === "COMPOUND" ? "#ef4444"
-    : "#64748b";
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, headers: headers, body: JSON.stringify({ error: "Method not allowed" }) };
+  }
 
-  var modeIcon = r.governing_failure_mode === "CRACKING" ? "\u26A1"
-    : r.governing_failure_mode === "CORROSION" ? "\u{1F4A7}"
-    : r.governing_failure_mode === "COMPOUND" ? "\u{1F6A8}"
-    : "\u2754";
+  try {
+    var body = JSON.parse(event.body || "{}");
 
-  var sevColor = r.governing_severity === "CRITICAL" ? "#ef4444"
-    : r.governing_severity === "SEVERE" ? "#ef4444"
-    : r.governing_severity === "HIGH" ? "#f59e0b"
-    : r.governing_severity === "MODERATE" ? "#3b82f6"
-    : "#10b981";
+    var mechanisms = (body.damage_mechanisms || []).map(function(m) { return (m || "").toLowerCase().trim(); });
+    var remainingStrength = body.remaining_strength || null;
+    var authorityLock = body.authority_lock || null;
+    var wallLossPercent = body.wall_loss_percent || 0;
+    var hasCracking = body.has_cracking || false;
+    var serviceEnvironment = (body.service_environment || "").toLowerCase().trim();
+    var transcript = (body.transcript || "").toLowerCase();
+    var operatingPressure = body.operating_pressure || 0;
+    var nominalWall = body.nominal_wall || 0;
+    var measuredMinWall = body.measured_minimum_wall || 0;
+    var pipeOD = body.pipe_od || 0;
+    var smys = body.smys || 0;
 
-  var cp = r.corrosion_path || {};
-  var ck = r.cracking_path || {};
+    // ====================================================================
+    // CLASSIFY EACH MECHANISM INTO FAILURE MODE CATEGORY
+    // ====================================================================
 
-  return React.createElement("div", {
-    style: { background: "#1a1a2e", border: "1px solid " + modeColor, borderRadius: "12px", padding: "20px", marginBottom: "16px", fontFamily: "'Inter', sans-serif" }
-  },
-    // Header
-    React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" } },
-      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px" } },
-        React.createElement("span", { style: { fontSize: "20px" } }, modeIcon),
-        React.createElement("span", { style: { color: modeColor, fontSize: "14px", fontWeight: "700", letterSpacing: "0.05em", textTransform: "uppercase" as const } }, "GOVERNING: " + r.governing_failure_mode)
-      ),
-      React.createElement("span", { style: { color: "#64748b", fontSize: "11px", fontFamily: "monospace" } }, "ENGINE: failure-mode-dominance v1.0")
-    ),
+    var corrosionMechanisms = [];
+    var crackingMechanisms = [];
+    var otherMechanisms = [];
 
-    // Severity + Governing Pressure
-    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px", marginBottom: "16px" } },
-      React.createElement("div", { style: { background: "rgba(30, 41, 59, 0.5)", borderRadius: "8px", padding: "12px", textAlign: "center" as const } },
-        React.createElement("div", { style: { color: "#64748b", fontSize: "10px", fontWeight: "600", textTransform: "uppercase" as const, marginBottom: "4px" } }, "SEVERITY"),
-        React.createElement("div", { style: { color: sevColor, fontSize: "18px", fontWeight: "700" } }, r.governing_severity || "UNDETERMINED")
-      ),
-      React.createElement("div", { style: { background: "rgba(30, 41, 59, 0.5)", borderRadius: "8px", padding: "12px", textAlign: "center" as const } },
-        React.createElement("div", { style: { color: "#64748b", fontSize: "10px", fontWeight: "600", textTransform: "uppercase" as const, marginBottom: "4px" } }, "FAILURE PRESSURE"),
-        React.createElement("div", { style: { color: "#e2e8f0", fontSize: "18px", fontWeight: "700", fontFamily: "monospace" } }, r.governing_failure_pressure ? (r.governing_failure_pressure + " psi") : "N/A")
-      ),
-      React.createElement("div", { style: { background: "rgba(30, 41, 59, 0.5)", borderRadius: "8px", padding: "12px", textAlign: "center" as const } },
-        React.createElement("div", { style: { color: "#64748b", fontSize: "10px", fontWeight: "600", textTransform: "uppercase" as const, marginBottom: "4px" } }, "ASSESSMENT"),
-        React.createElement("div", { style: { color: "#94a3b8", fontSize: "12px", fontWeight: "600" } }, r.governing_code_reference || "API 579-1")
-      )
-    ),
+    mechanisms.forEach(function(mech) {
+      // Cracking family
+      if (mech.indexOf("crack") >= 0 || mech.indexOf("scc") >= 0 || mech.indexOf("ssc") >= 0 ||
+          mech.indexOf("sscc") >= 0 || mech.indexOf("hic") >= 0 || mech.indexOf("sohic") >= 0 ||
+          mech.indexOf("fatigue") >= 0 || mech === "hydrogen_induced_cracking" ||
+          mech === "sulfide_stress_cracking" || mech === "stress_corrosion_cracking" ||
+          mech.indexOf("cwb") >= 0 || mech.indexOf("hydrogen_embrittlement") >= 0) {
+        crackingMechanisms.push(mech);
+      }
+      // Corrosion family
+      else if (mech.indexOf("corrosion") >= 0 || mech.indexOf("wall_loss") >= 0 ||
+               mech.indexOf("pitting") >= 0 || mech.indexOf("erosion") >= 0 ||
+               mech.indexOf("mic") >= 0 || mech.indexOf("co2") >= 0 ||
+               mech.indexOf("thinning") >= 0 || mech.indexOf("galvanic") >= 0 ||
+               mech.indexOf("cui") >= 0 || mech.indexOf("metal_loss") >= 0) {
+        corrosionMechanisms.push(mech);
+      }
+      // Other
+      else {
+        otherMechanisms.push(mech);
+      }
+    });
 
-    // Governing basis
-    React.createElement("div", { style: { padding: "10px 14px", background: "rgba(30, 41, 59, 0.5)", borderRadius: "8px", marginBottom: "16px", borderLeft: "3px solid " + modeColor } },
-      React.createElement("div", { style: { color: "#94a3b8", fontSize: "12px", lineHeight: "1.5" } }, r.governing_basis)
-    ),
+    // Also check transcript for cracking keywords
+    if (transcript.indexOf("crack") >= 0 || transcript.indexOf("scc") >= 0 ||
+        transcript.indexOf("hic") >= 0 || transcript.indexOf("sohic") >= 0) {
+      hasCracking = true;
+    }
 
-    // Parallel Paths
-    React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" } },
-      // Corrosion path
-      React.createElement("div", { style: { padding: "12px", borderRadius: "8px", border: "1px solid " + (cp.active ? "rgba(245, 158, 11, 0.3)" : "rgba(100, 116, 139, 0.2)"), background: cp.active ? "rgba(245, 158, 11, 0.05)" : "rgba(30, 41, 59, 0.3)" } },
-        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px" } },
-          React.createElement("span", { style: { fontSize: "14px" } }, "\u{1F4A7}"),
-          React.createElement("span", { style: { color: cp.active ? "#f59e0b" : "#475569", fontSize: "12px", fontWeight: "700", textTransform: "uppercase" as const } }, "CORROSION PATH"),
-          React.createElement("span", { style: { color: cp.active ? "#f59e0b" : "#475569", fontSize: "10px", padding: "2px 6px", borderRadius: "3px", background: cp.active ? "rgba(245, 158, 11, 0.15)" : "rgba(100, 116, 139, 0.1)" } }, cp.active ? "ACTIVE" : "INACTIVE")
-        ),
-        cp.active && React.createElement("div", null,
-          cp.severity && cp.severity !== "none" && React.createElement("div", { style: { color: "#94a3b8", fontSize: "11px", marginBottom: "4px" } }, "Severity: " + cp.severity),
-          cp.failure_pressure && React.createElement("div", { style: { color: "#e2e8f0", fontSize: "13px", fontWeight: "600", fontFamily: "monospace", marginBottom: "4px" } }, "Failure P: " + cp.failure_pressure + " psi"),
-          cp.wall_loss_percent > 0 && React.createElement("div", { style: { color: "#94a3b8", fontSize: "11px", marginBottom: "4px" } }, "Wall loss: " + cp.wall_loss_percent.toFixed(1) + "%"),
-          cp.mechanisms && cp.mechanisms.length > 0 && React.createElement("div", { style: { display: "flex", gap: "4px", flexWrap: "wrap" as const, marginTop: "6px" } },
-            cp.mechanisms.map(function(m: string, i: number) {
-              return React.createElement("span", { key: "cm-" + i, style: { fontSize: "10px", padding: "2px 6px", borderRadius: "3px", background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b" } }, m.replace(/_/g, " "));
-            })
-          )
-        )
-      ),
+    if (hasCracking && crackingMechanisms.length === 0) {
+      crackingMechanisms.push("cracking_unspecified");
+    }
 
-      // Cracking path
-      React.createElement("div", { style: { padding: "12px", borderRadius: "8px", border: "1px solid " + (ck.active ? "rgba(168, 85, 247, 0.3)" : "rgba(100, 116, 139, 0.2)"), background: ck.active ? "rgba(168, 85, 247, 0.05)" : "rgba(30, 41, 59, 0.3)" } },
-        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px" } },
-          React.createElement("span", { style: { fontSize: "14px" } }, "\u26A1"),
-          React.createElement("span", { style: { color: ck.active ? "#a855f7" : "#475569", fontSize: "12px", fontWeight: "700", textTransform: "uppercase" as const } }, "CRACKING PATH"),
-          React.createElement("span", { style: { color: ck.active ? "#a855f7" : "#475569", fontSize: "10px", padding: "2px 6px", borderRadius: "3px", background: ck.active ? "rgba(168, 85, 247, 0.15)" : "rgba(100, 116, 139, 0.1)" } }, ck.active ? "ACTIVE" : "INACTIVE")
-        ),
-        ck.active && React.createElement("div", null,
-          ck.severity && ck.severity !== "none" && React.createElement("div", { style: { color: "#94a3b8", fontSize: "11px", marginBottom: "4px" } }, "Severity: " + ck.severity),
-          ck.failure_pressure && React.createElement("div", { style: { color: "#e2e8f0", fontSize: "13px", fontWeight: "600", fontFamily: "monospace", marginBottom: "4px" } }, "Failure P: " + ck.failure_pressure + " psi"),
-          ck.brittle_fracture_risk && React.createElement("span", { style: { fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "3px", background: "rgba(239, 68, 68, 0.2)", color: "#ef4444", border: "1px solid rgba(239, 68, 68, 0.3)" } }, "\u{1F6A8} BRITTLE FRACTURE RISK"),
-          ck.mechanisms && ck.mechanisms.length > 0 && React.createElement("div", { style: { display: "flex", gap: "4px", flexWrap: "wrap" as const, marginTop: "6px" } },
-            ck.mechanisms.map(function(m: string, i: number) {
-              return React.createElement("span", { key: "ckm-" + i, style: { fontSize: "10px", padding: "2px 6px", borderRadius: "3px", background: "rgba(168, 85, 247, 0.15)", color: "#a855f7" } }, m.replace(/_/g, " "));
-            })
-          )
-        )
-      )
-    ),
+    var hasCorrosionMode = corrosionMechanisms.length > 0 || wallLossPercent > 0;
+    var hasCrackingMode = crackingMechanisms.length > 0 || hasCracking;
 
-    // Interaction flag
-    r.interaction_flag && React.createElement("div", { style: { padding: "10px 14px", background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: "8px", marginBottom: "16px" } },
-      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" } },
-        React.createElement("span", { style: { fontSize: "14px" } }, "\u26A0\uFE0F"),
-        React.createElement("span", { style: { color: "#ef4444", fontSize: "12px", fontWeight: "700", textTransform: "uppercase" as const } }, "MECHANISM INTERACTION: " + r.interaction_type)
-      ),
-      React.createElement("div", { style: { color: "#fca5a5", fontSize: "12px", lineHeight: "1.5" } }, r.interaction_detail)
-    ),
+    // ====================================================================
+    // EVALUATE CORROSION FAILURE PATH
+    // ====================================================================
 
-    // Notes (collapsible)
-    React.createElement("details", { style: { marginTop: "8px" } },
-      React.createElement("summary", { style: { color: "#64748b", fontSize: "12px", cursor: "pointer", userSelect: "none" as const } }, "Path Details"),
-      React.createElement("div", { style: { marginTop: "8px", padding: "10px", background: "rgba(30, 41, 59, 0.5)", borderRadius: "6px" } },
-        (cp.notes || []).concat(ck.notes || []).map(function(note: string, i: number) {
-          return React.createElement("div", { key: "n-" + i, style: { color: "#94a3b8", fontSize: "11px", padding: "3px 0", borderBottom: "1px solid rgba(51, 65, 85, 0.3)" } }, "\u2022 " + note);
-        })
-      )
-    )
-  );
-}
+    var corrosionPath = {
+      active: hasCorrosionMode,
+      mechanisms: corrosionMechanisms,
+      failure_pressure: null,
+      failure_pressure_source: "none",
+      wall_loss_percent: wallLossPercent,
+      severity: "none",
+      assessment_method: "none",
+      notes: []
+    };
 
-export default FailureModeDominanceCard;
+    if (hasCorrosionMode) {
+      // Use B31G MAOP if available from remaining-strength engine
+      if (remainingStrength && remainingStrength.governing_maop) {
+        corrosionPath.failure_pressure = remainingStrength.governing_maop;
+        corrosionPath.failure_pressure_source = "B31G_CALCULATED";
+        corrosionPath.assessment_method = remainingStrength.governing_method || "B31G";
+      }
+      // Estimate from wall loss if no B31G data
+      else if (wallLossPercent > 0 && nominalWall > 0 && pipeOD > 0 && smys > 0) {
+        var remainingWall = nominalWall * (1 - wallLossPercent / 100);
+        var estimatedMAOP = (2 * smys * remainingWall * 0.72) / pipeOD;
+        corrosionPath.failure_pressure = Math.round(estimatedMAOP);
+        corrosionPath.failure_pressure_source = "BARLOW_ESTIMATED";
+        corrosionPath.assessment_method = "Barlow_simplified";
+        corrosionPath.notes.push("No B31G data available - using simplified Barlow estimate");
+      }
+
+      // Severity classification
+      if (wallLossPercent > 80) {
+        corrosionPath.severity = "CRITICAL";
+        corrosionPath.notes.push("Wall loss > 80% - imminent failure risk");
+      } else if (wallLossPercent > 60) {
+        corrosionPath.severity = "SEVERE";
+        corrosionPath.notes.push("Wall loss > 60% - significant structural compromise");
+      } else if (wallLossPercent > 40) {
+        corrosionPath.severity = "HIGH";
+        corrosionPath.notes.push("Wall loss > 40% - engineering assessment required");
+      } else if (wallLossPercent > 20) {
+        corrosionPath.severity = "MODERATE";
+        corrosionPath.notes.push("Wall loss > 20% - monitoring and trending required");
+      } else if (wallLossPercent > 0) {
+        corrosionPath.severity = "LOW";
+      }
+
+      // MIC flag
+      var hasMIC = corrosionMechanisms.some(function(m) { return m.indexOf("mic") >= 0; });
+      if (hasMIC) {
+        corrosionPath.notes.push("MIC detected - corrosion rate predictions from chemical models may be non-conservative (MIC can accelerate 10x)");
+      }
+    }
+
+    // ====================================================================
+    // EVALUATE CRACKING FAILURE PATH
+    // ====================================================================
+
+    var crackingPath = {
+      active: hasCrackingMode,
+      mechanisms: crackingMechanisms,
+      failure_pressure: null,
+      failure_pressure_source: "none",
+      severity: "none",
+      assessment_method: "none",
+      brittle_fracture_risk: false,
+      notes: []
+    };
+
+    if (hasCrackingMode) {
+      crackingPath.assessment_method = "API_579_Part_9";
+
+      // Sour service cracking = elevated severity always
+      var isSour = serviceEnvironment.indexOf("sour") >= 0 || serviceEnvironment.indexOf("h2s") >= 0 ||
+                   transcript.indexOf("sour") >= 0 || transcript.indexOf("h2s") >= 0;
+
+      var hasSSC = crackingMechanisms.some(function(m) { return m.indexOf("ssc") >= 0 || m.indexOf("sscc") >= 0 || m.indexOf("sulfide") >= 0; });
+      var hasHIC = crackingMechanisms.some(function(m) { return m.indexOf("hic") >= 0 || m.indexOf("sohic") >= 0; });
+      var hasFatigue = crackingMechanisms.some(function(m) { return m.indexOf("fatigue") >= 0; });
+      var hasSCC = crackingMechanisms.some(function(m) { return m.indexOf("scc") >= 0 || m.indexOf("stress_corrosion") >= 0; });
+
+      // SSC = always critical (sudden brittle fracture)
+      if (hasSSC) {
+        crackingPath.severity = "CRITICAL";
+        crackingPath.brittle_fracture_risk = true;
+        crackingPath.notes.push("SSC produces sudden brittle fracture with NO leak-before-break behavior");
+        crackingPath.notes.push("Material hardness verification against NACE MR0175 limits is mandatory");
+      }
+      // HIC/SOHIC in sour = high to critical
+      else if (hasHIC && isSour) {
+        crackingPath.severity = "HIGH";
+        crackingPath.brittle_fracture_risk = true;
+        crackingPath.notes.push("HIC/SOHIC in sour service - stepwise cracking can produce sudden failure");
+        crackingPath.notes.push("WFMT or PAUT with C-scan required to characterize crack morphology");
+      }
+      // SCC = high
+      else if (hasSCC) {
+        crackingPath.severity = "HIGH";
+        crackingPath.notes.push("SCC requires identification of driving environment + stress + material susceptibility triad");
+      }
+      // Fatigue = depends on cycle count
+      else if (hasFatigue) {
+        crackingPath.severity = "MODERATE";
+        crackingPath.notes.push("Fatigue crack growth governed by Paris Law - requires cycle count and stress range data");
+        crackingPath.notes.push("TOFD or PAUT required for crack sizing at stress concentrations");
+      }
+      // Generic cracking
+      else {
+        crackingPath.severity = "HIGH";
+        crackingPath.notes.push("Cracking mechanism not fully characterized - assume high severity until confirmed");
+      }
+
+      // Estimate cracking failure pressure (simplified FAD approach)
+      // Without actual crack dimensions, we can only flag that corrosion MAOP is non-applicable
+      if (corrosionPath.failure_pressure) {
+        // Cracking failure pressure is typically LOWER than corrosion failure pressure
+        // because cracks concentrate stress and can cause brittle fracture below yield
+        var crackReductionFactor = 0.60; // Conservative: cracks typically reduce capacity 40-60%
+        if (crackingPath.brittle_fracture_risk) {
+          crackReductionFactor = 0.40; // Brittle fracture = even lower
+        }
+        crackingPath.failure_pressure = Math.round(corrosionPath.failure_pressure * crackReductionFactor);
+        crackingPath.failure_pressure_source = "ESTIMATED_FROM_CORROSION_MAOP";
+        crackingPath.notes.push("Crack failure pressure estimated (no crack dimensions provided). Actual API 579-1 Part 9 assessment required.");
+      } else {
+        crackingPath.failure_pressure_source = "NOT_CALCULABLE";
+        crackingPath.notes.push("Cannot calculate cracking failure pressure without crack dimensions and material toughness data");
+      }
+    }
+
+    // ====================================================================
+    // DETERMINE GOVERNING FAILURE MODE
+    // ====================================================================
+
+    var governingMode = "NONE";
+    var governingPressure = null;
+    var governingBasis = "";
+    var interactionFlag = false;
+    var interactionType = "none";
+    var interactionDetail = "";
+
+    if (hasCorrosionMode && hasCrackingMode) {
+      // COMPOUND — both active
+      interactionFlag = true;
+
+      // Check for specific dangerous interactions
+      var hasMICAndHIC = corrosionMechanisms.some(function(m) { return m.indexOf("mic") >= 0; }) &&
+                         crackingMechanisms.some(function(m) { return m.indexOf("hic") >= 0; });
+      var hasCUIAndFatigue = corrosionMechanisms.some(function(m) { return m.indexOf("cui") >= 0; }) &&
+                             crackingMechanisms.some(function(m) { return m.indexOf("fatigue") >= 0; });
+      var hasErosionAndSCC = corrosionMechanisms.some(function(m) { return m.indexOf("erosion") >= 0; }) &&
+                             crackingMechanisms.some(function(m) { return m.indexOf("scc") >= 0; });
+
+      if (hasMICAndHIC) {
+        interactionType = "SYNERGY";
+        interactionDetail = "MIC + HIC: microbiological activity generates hydrogen that feeds HIC. Corrosion rate models are non-conservative.";
+      } else if (hasCUIAndFatigue) {
+        interactionType = "CASCADE";
+        interactionDetail = "CUI + Fatigue: hidden wall loss under insulation reduces section, accelerating fatigue crack initiation.";
+      } else if (hasErosionAndSCC) {
+        interactionType = "SYNERGY";
+        interactionDetail = "Erosion + SCC: erosion removes protective films, exposing fresh metal to corrosive environment.";
+      } else {
+        interactionType = "PARALLEL";
+        interactionDetail = "Multiple failure modes active simultaneously. Each must be assessed independently.";
+      }
+
+      // Compare failure pressures
+      if (crackingPath.failure_pressure && corrosionPath.failure_pressure) {
+        if (crackingPath.failure_pressure < corrosionPath.failure_pressure) {
+          governingMode = "CRACKING";
+          governingPressure = crackingPath.failure_pressure;
+          governingBasis = "Cracking failure pressure (" + crackingPath.failure_pressure + " psi) < corrosion failure pressure (" + corrosionPath.failure_pressure + " psi)";
+        } else {
+          governingMode = "CORROSION";
+          governingPressure = corrosionPath.failure_pressure;
+          governingBasis = "Corrosion failure pressure (" + corrosionPath.failure_pressure + " psi) <= cracking failure pressure (" + crackingPath.failure_pressure + " psi)";
+        }
+      } else if (crackingPath.brittle_fracture_risk) {
+        governingMode = "CRACKING";
+        governingPressure = crackingPath.failure_pressure;
+        governingBasis = "Brittle fracture risk from cracking overrides corrosion assessment - crack failure is sudden and catastrophic";
+      } else {
+        governingMode = "COMPOUND";
+        governingBasis = "Both failure modes active but insufficient data to determine governing mode. Both must be assessed.";
+      }
+    } else if (hasCrackingMode) {
+      governingMode = "CRACKING";
+      governingPressure = crackingPath.failure_pressure;
+      governingBasis = "Cracking is the sole active failure mode";
+    } else if (hasCorrosionMode) {
+      governingMode = "CORROSION";
+      governingPressure = corrosionPath.failure_pressure;
+      governingBasis = "Corrosion/metal loss is the sole active failure mode";
+    } else {
+      governingMode = "NONE";
+      governingBasis = "No active failure modes identified from available data";
+    }
+
+    // Severity = max of both paths
+    var severityRank = { "CRITICAL": 5, "SEVERE": 4, "HIGH": 3, "MODERATE": 2, "LOW": 1, "none": 0 };
+    var corSev = severityRank[corrosionPath.severity] || 0;
+    var craSev = severityRank[crackingPath.severity] || 0;
+    var governingSeverity = corSev >= craSev ? corrosionPath.severity : crackingPath.severity;
+    if (governingSeverity === "none") governingSeverity = "UNDETERMINED";
+
+    // Governing code reference
+    var governingCode = "API 579-1/ASME FFS-1";
+    if (governingMode === "CORROSION") {
+      governingCode = "API 579-1 Part 4/5 (Metal Loss)";
+    } else if (governingMode === "CRACKING") {
+      governingCode = "API 579-1 Part 9 (Crack-Like Flaws)";
+    } else if (governingMode === "COMPOUND") {
+      governingCode = "API 579-1 Part 4/5 + Part 9 (Both Required)";
+    }
+
+    // ====================================================================
+    // RESPONSE
+    // ====================================================================
+
+    var result = {
+      governing_failure_mode: governingMode,
+      governing_failure_pressure: governingPressure,
+      governing_severity: governingSeverity,
+      governing_basis: governingBasis,
+      governing_code_reference: governingCode,
+      interaction_flag: interactionFlag,
+      interaction_type: interactionType,
+      interaction_detail: interactionDetail,
+      corrosion_path: corrosionPath,
+      cracking_path: crackingPath,
+      mechanism_count: {
+        total: mechanisms.length,
+        corrosion: corrosionMechanisms.length,
+        cracking: crackingMechanisms.length,
+        other: otherMechanisms.length
+      },
+      metadata: {
+        engine: "failure-mode-dominance",
+        version: "1.0",
+        timestamp: new Date().toISOString()
+      }
+    };
+
+    return { statusCode: 200, headers: headers, body: JSON.stringify(result) };
+
+  } catch (err) {
+    return { statusCode: 500, headers: headers, body: JSON.stringify({ error: "Failure mode dominance error: " + (err.message || String(err)) }) };
+  }
+};
+
+module.exports = { handler: handler };
