@@ -1,111 +1,423 @@
-// DISPOSITION PATHWAY CARD v1.0
-// File: src/DispositionPathwayCard.tsx
+// DISPOSITION PATHWAY ENGINE v1.0
+// File: netlify/functions/disposition-pathway.js
+// NO TYPESCRIPT — PURE JAVASCRIPT
 
-import React from "react";
+var handler = async function(event) {
+  "use strict";
 
-interface DispositionPathwayCardProps {
-  result: any | null;
-}
+  var headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json"
+  };
 
-function DispositionPathwayCard(props: DispositionPathwayCardProps) {
-  if (!props.result) return null;
-  var r = props.result;
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: headers, body: "" };
+  }
 
-  var dispColor = r.disposition === "IMMEDIATE_ACTION" ? "#ef4444"
-    : r.disposition === "HOLD_FOR_DATA" ? "#f59e0b"
-    : r.disposition === "ENGINEERING_ASSESSMENT" ? "#a855f7"
-    : r.disposition === "MONITOR" ? "#3b82f6"
-    : r.disposition === "CONTINUE_SERVICE" ? "#10b981"
-    : "#64748b";
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, headers: headers, body: JSON.stringify({ error: "Method not allowed" }) };
+  }
 
-  var dispIcon = r.disposition === "IMMEDIATE_ACTION" ? "\u{1F6A8}"
-    : r.disposition === "HOLD_FOR_DATA" ? "\u23F8\uFE0F"
-    : r.disposition === "ENGINEERING_ASSESSMENT" ? "\u{1F52C}"
-    : r.disposition === "MONITOR" ? "\u{1F4CA}"
-    : r.disposition === "CONTINUE_SERVICE" ? "\u2705"
-    : "\u2754";
+  try {
+    var body = JSON.parse(event.body || "{}");
 
-  var urgColor = r.urgency === "EMERGENCY" ? "#ef4444"
-    : r.urgency === "PRIORITY" ? "#f59e0b"
-    : r.urgency === "EXPEDITED" ? "#f59e0b"
-    : r.urgency === "ELEVATED" ? "#3b82f6"
-    : r.urgency === "STANDARD" ? "#94a3b8"
-    : "#10b981";
+    var safeEnvelope = (body.safe_envelope || "").toUpperCase().trim();
+    var governingMode = (body.governing_failure_mode || "").toUpperCase().trim();
+    var governingSeverity = (body.governing_severity || "").toUpperCase().trim();
+    var realityState = (body.reality_state || "").toUpperCase().trim();
+    var dispositionBlocked = body.disposition_blocked || false;
+    var interactionFlag = body.interaction_flag || false;
+    var interactionType = (body.interaction_type || "").toUpperCase().trim();
+    var brittleFractureRisk = body.brittle_fracture_risk || false;
+    var wallLossPercent = body.wall_loss_percent || 0;
+    var operatingRatio = body.operating_ratio || 0;
+    var pressureReductionRequired = body.pressure_reduction_required || 0;
+    var hasCracking = body.has_cracking || false;
+    var confidenceBand = (body.confidence_band || "").toUpperCase().trim();
+    var consequenceTier = (body.consequence_tier || "").toUpperCase().trim();
 
-  var actions = r.actions || [];
-  var controls = r.temporary_controls || [];
-  var triggers = r.escalation_triggers || [];
-  var conditions = r.conditions || [];
+    // ====================================================================
+    // DISPOSITION DECISION TREE
+    // ====================================================================
 
-  return React.createElement("div", {
-    style: { background: "#1a1a2e", border: "1px solid " + dispColor, borderRadius: "12px", padding: "20px", marginBottom: "16px", fontFamily: "'Inter', sans-serif" }
-  },
-    // Header
-    React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" } },
-      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px" } },
-        React.createElement("span", { style: { fontSize: "22px" } }, dispIcon),
-        React.createElement("span", { style: { color: dispColor, fontSize: "14px", fontWeight: "700", letterSpacing: "0.05em", textTransform: "uppercase" as const } }, r.disposition.replace(/_/g, " "))
-      ),
-      React.createElement("span", { style: { color: "#64748b", fontSize: "11px", fontFamily: "monospace" } }, "ENGINE: disposition-pathway v1.0")
-    ),
+    var disposition = "ENGINEERING_ASSESSMENT";
+    var actions = [];
+    var interval = "";
+    var conditions = [];
+    var escalationTriggers = [];
+    var dispositionBasis = "";
+    var urgency = "STANDARD";
+    var temporaryControls = [];
 
-    // Urgency badge + interval
-    React.createElement("div", { style: { display: "flex", gap: "10px", marginBottom: "16px", flexWrap: "wrap" as const } },
-      React.createElement("span", { style: { fontSize: "11px", fontWeight: "700", padding: "4px 12px", borderRadius: "4px", background: urgColor + "20", color: urgColor, border: "1px solid " + urgColor + "40" } }, "URGENCY: " + r.urgency),
-      r.interval && React.createElement("span", { style: { fontSize: "11px", fontWeight: "600", padding: "4px 12px", borderRadius: "4px", background: "rgba(59, 130, 246, 0.1)", color: "#3b82f6", border: "1px solid rgba(59, 130, 246, 0.2)" } }, "\u{1F4C5} " + r.interval)
-    ),
+    // ----------------------------------------------------------------
+    // TIER 1: IMMEDIATE ACTION (highest priority checks)
+    // ----------------------------------------------------------------
 
-    // Disposition basis
-    React.createElement("div", { style: { padding: "12px 14px", background: "rgba(30, 41, 59, 0.5)", borderRadius: "8px", marginBottom: "16px", borderLeft: "3px solid " + dispColor } },
-      React.createElement("div", { style: { color: "#64748b", fontSize: "10px", fontWeight: "600", textTransform: "uppercase" as const, marginBottom: "4px" } }, "DISPOSITION BASIS"),
-      React.createElement("div", { style: { color: "#cbd5e1", fontSize: "13px", lineHeight: "1.5" } }, r.disposition_basis)
-    ),
+    if (safeEnvelope === "EXCEEDS") {
+      disposition = "IMMEDIATE_ACTION";
+      urgency = "EMERGENCY";
+      dispositionBasis = "Operating pressure EXCEEDS calculated MAOP - immediate intervention required";
+      actions.push({
+        priority: 1,
+        action: "REDUCE OPERATING PRESSURE",
+        detail: "Immediate pressure reduction of " + pressureReductionRequired + " psi to achieve 80% of governing MAOP",
+        who: "Operations / Control Room",
+        timeframe: "IMMEDIATE"
+      });
+      actions.push({
+        priority: 2,
+        action: "ENGINEERING ASSESSMENT",
+        detail: "Mandatory FFS assessment per API 579-1 before resuming normal operations",
+        who: "Level III Inspector / Integrity Engineer",
+        timeframe: "Within 24 hours"
+      });
+      actions.push({
+        priority: 3,
+        action: "ESTABLISH SAFE ZONE",
+        detail: "Implement exclusion zone and leak monitoring around affected area",
+        who: "HSE / Operations",
+        timeframe: "IMMEDIATE"
+      });
+      temporaryControls.push("Pressure cap at 80% of calculated MAOP until engineering assessment complete");
+      temporaryControls.push("Continuous leak monitoring");
+      temporaryControls.push("Exclusion zone around affected area");
+      escalationTriggers.push("Any pressure exceedance above reduced limit");
+      escalationTriggers.push("Any indication of leak or weep");
+      escalationTriggers.push("Discovery of additional damage during assessment");
+    }
 
-    // Required Actions
-    actions.length > 0 && React.createElement("div", { style: { marginBottom: "16px" } },
-      React.createElement("div", { style: { color: "#94a3b8", fontSize: "11px", fontWeight: "600", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: "8px" } }, "REQUIRED ACTIONS (" + actions.length + ")"),
-      actions.map(function(act: any, i: number) {
-        var actUrgColor = act.timeframe === "IMMEDIATE" ? "#ef4444" : act.timeframe && act.timeframe.indexOf("24") >= 0 ? "#f59e0b" : "#3b82f6";
-        return React.createElement("div", { key: "act-" + i, style: { display: "flex", gap: "12px", padding: "12px 14px", background: "rgba(30, 41, 59, 0.4)", borderRadius: "8px", marginBottom: "6px", borderLeft: "3px solid " + actUrgColor } },
-          React.createElement("div", { style: { minWidth: "28px", height: "28px", borderRadius: "14px", background: actUrgColor + "20", color: actUrgColor, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "800", fontSize: "14px" } }, String(act.priority)),
-          React.createElement("div", { style: { flex: 1 } },
-            React.createElement("div", { style: { color: "#e2e8f0", fontSize: "13px", fontWeight: "700", marginBottom: "2px" } }, act.action),
-            React.createElement("div", { style: { color: "#94a3b8", fontSize: "12px", lineHeight: "1.4", marginBottom: "4px" } }, act.detail),
-            React.createElement("div", { style: { display: "flex", gap: "12px" } },
-              React.createElement("span", { style: { color: "#64748b", fontSize: "10px" } }, "\u{1F464} " + act.who),
-              React.createElement("span", { style: { color: actUrgColor, fontSize: "10px", fontWeight: "600" } }, "\u23F0 " + act.timeframe)
-            )
-          )
-        );
-      })
-    ),
+    // Brittle fracture risk = always immediate
+    else if (brittleFractureRisk) {
+      disposition = "IMMEDIATE_ACTION";
+      urgency = "EMERGENCY";
+      dispositionBasis = "Brittle fracture risk identified - failure mode produces sudden catastrophic failure with no leak-before-break warning";
+      actions.push({
+        priority: 1,
+        action: "PRESSURE REDUCTION OR SHUTDOWN",
+        detail: "Reduce operating pressure to minimum safe level or shut down if hardness/material verification cannot be completed",
+        who: "Operations / Engineering",
+        timeframe: "IMMEDIATE"
+      });
+      actions.push({
+        priority: 2,
+        action: "MATERIAL VERIFICATION",
+        detail: "Hardness testing of base metal + HAZ per NACE MR0175. PMI of material grade.",
+        who: "Level II/III Inspector",
+        timeframe: "Within 24 hours"
+      });
+      actions.push({
+        priority: 3,
+        action: "CRACK CHARACTERIZATION",
+        detail: "TOFD or PAUT to determine crack dimensions for API 579-1 Part 9 assessment",
+        who: "Level II UT/PAUT Technician",
+        timeframe: "Within 48 hours"
+      });
+      temporaryControls.push("Operating pressure reduced to minimum");
+      temporaryControls.push("No thermal or pressure cycling permitted");
+      temporaryControls.push("Continuous monitoring for propagation");
+      escalationTriggers.push("Hardness exceeds NACE MR0175 limits");
+      escalationTriggers.push("Crack growth detected on follow-up");
+      escalationTriggers.push("Material does not meet sour service requirements");
+    }
 
-    // Temporary Controls
-    controls.length > 0 && React.createElement("div", { style: { marginBottom: "16px" } },
-      React.createElement("div", { style: { color: "#94a3b8", fontSize: "11px", fontWeight: "600", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: "8px" } }, "TEMPORARY CONTROLS"),
-      controls.map(function(ctrl: string, i: number) {
-        return React.createElement("div", { key: "ctrl-" + i, style: { padding: "8px 12px", background: "rgba(245, 158, 11, 0.06)", border: "1px solid rgba(245, 158, 11, 0.15)", borderRadius: "6px", marginBottom: "4px", fontSize: "12px", color: "#fbbf24" } }, "\u{1F6E1}\uFE0F " + ctrl);
-      })
-    ),
+    // ----------------------------------------------------------------
+    // TIER 2: HOLD FOR DATA (unknown state blocks disposition)
+    // ----------------------------------------------------------------
 
-    // Escalation Triggers
-    triggers.length > 0 && React.createElement("div", { style: { marginBottom: "16px" } },
-      React.createElement("div", { style: { color: "#94a3b8", fontSize: "11px", fontWeight: "600", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: "8px" } }, "ESCALATION TRIGGERS"),
-      triggers.map(function(trig: string, i: number) {
-        return React.createElement("div", { key: "trig-" + i, style: { padding: "8px 12px", background: "rgba(239, 68, 68, 0.06)", border: "1px solid rgba(239, 68, 68, 0.15)", borderRadius: "6px", marginBottom: "4px", fontSize: "12px", color: "#fca5a5" } }, "\u26A0\uFE0F " + trig);
-      })
-    ),
+    else if (dispositionBlocked || realityState === "UNKNOWN") {
+      disposition = "HOLD_FOR_DATA";
+      urgency = "EXPEDITED";
+      dispositionBasis = "Reality state is UNKNOWN - insufficient data to support confident disposition. Additional inspection required before any decision.";
 
-    // Conditions
-    conditions.length > 0 && React.createElement("details", { style: { marginTop: "8px" } },
-      React.createElement("summary", { style: { color: "#64748b", fontSize: "12px", cursor: "pointer", userSelect: "none" as const } }, "Conditions & Caveats (" + conditions.length + ")"),
-      React.createElement("div", { style: { marginTop: "8px", padding: "10px", background: "rgba(30, 41, 59, 0.5)", borderRadius: "6px" } },
-        conditions.map(function(cond: string, i: number) {
-          return React.createElement("div", { key: "cond-" + i, style: { color: "#94a3b8", fontSize: "11px", padding: "3px 0" } }, "\u2022 " + cond);
-        })
-      )
-    )
-  );
-}
+      if (safeEnvelope === "MARGINAL") {
+        actions.push({
+          priority: 1,
+          action: "PRECAUTIONARY PRESSURE REDUCTION",
+          detail: "Reduce operating pressure by " + (pressureReductionRequired > 0 ? pressureReductionRequired + " psi" : "10-15%") + " as precautionary measure while data is gathered",
+          who: "Operations",
+          timeframe: "Within 4 hours"
+        });
+        temporaryControls.push("Precautionary pressure reduction in effect");
+      }
 
-export default DispositionPathwayCard;
+      actions.push({
+        priority: safeEnvelope === "MARGINAL" ? 2 : 1,
+        action: "GATHER MISSING DATA",
+        detail: "Complete all minimum data requirements identified by Unknown State Engine before re-evaluation",
+        who: "Inspection Team",
+        timeframe: safeEnvelope === "MARGINAL" ? "Within 48 hours" : "Within 7 days"
+      });
+      actions.push({
+        priority: safeEnvelope === "MARGINAL" ? 3 : 2,
+        action: "RE-EVALUATE WITH COMPLETE DATA",
+        detail: "Re-run full pipeline assessment once minimum data requirements are satisfied",
+        who: "Level III Inspector / Integrity Engineer",
+        timeframe: "After data collection complete"
+      });
+
+      temporaryControls.push("Current operating conditions maintained with enhanced monitoring");
+      escalationTriggers.push("Any change in observed condition (new leaks, growth, etc.)");
+      escalationTriggers.push("Operating conditions change (pressure excursion, temperature change)");
+      conditions.push("Disposition cannot be finalized until reality state advances to KNOWN or PARTIALLY_KNOWN");
+    }
+
+    // ----------------------------------------------------------------
+    // TIER 3: SAFE ENVELOPE MARGINAL + KNOWN STATE
+    // ----------------------------------------------------------------
+
+    else if (safeEnvelope === "MARGINAL" && (realityState === "KNOWN" || realityState === "CONFIRMED" || realityState === "PROBABLE" || realityState === "PARTIALLY_KNOWN")) {
+
+      if (hasCracking || governingMode === "CRACKING" || governingMode === "COMPOUND") {
+        disposition = "ENGINEERING_ASSESSMENT";
+        urgency = "PRIORITY";
+        dispositionBasis = "Marginal safe envelope with cracking present - engineering assessment required to determine if continued operation is acceptable";
+
+        actions.push({
+          priority: 1,
+          action: "CRACK SIZING AND CHARACTERIZATION",
+          detail: "TOFD or PAUT to determine crack length, depth, and orientation for API 579-1 Part 9",
+          who: "Level II UT/PAUT Technician",
+          timeframe: "Within 7 days"
+        });
+        actions.push({
+          priority: 2,
+          action: "FFS ASSESSMENT",
+          detail: "API 579-1 Level 2 or Level 3 assessment to determine acceptability for continued service",
+          who: "Integrity Engineer",
+          timeframe: "Within 14 days"
+        });
+        actions.push({
+          priority: 3,
+          action: "DEFINE MONITORING PLAN",
+          detail: "Establish crack monitoring intervals based on FFS results and crack growth projections",
+          who: "Integrity Engineer",
+          timeframe: "After FFS assessment"
+        });
+
+        temporaryControls.push("Pressure cap at current operating level - no increases permitted");
+        temporaryControls.push("No thermal cycling or startup/shutdown without engineering approval");
+        escalationTriggers.push("Any crack growth detected");
+        escalationTriggers.push("Operating pressure must increase");
+        escalationTriggers.push("New mechanisms discovered");
+      } else {
+        disposition = "MONITOR";
+        urgency = "ELEVATED";
+        dispositionBasis = "Marginal safe envelope with corrosion-only damage and known reality state. Monitoring with defined interval and conditions.";
+
+        actions.push({
+          priority: 1,
+          action: "ESTABLISH MONITORING BASELINE",
+          detail: "Grid UT survey to establish thickness baseline at critical measurement locations (CMLs)",
+          who: "Level II UT Technician",
+          timeframe: "Within 30 days"
+        });
+        actions.push({
+          priority: 2,
+          action: "CALCULATE CORROSION RATE",
+          detail: "Determine short-term and long-term corrosion rates from historical thickness data",
+          who: "Integrity Engineer",
+          timeframe: "After baseline established"
+        });
+        actions.push({
+          priority: 3,
+          action: "SET RE-INSPECTION INTERVAL",
+          detail: "Define interval per API 510/570/653 based on corrosion rate and remaining life calculation",
+          who: "Level III Inspector",
+          timeframe: "After corrosion rate determined"
+        });
+
+        interval = "6 months (initial monitoring interval - adjust based on corrosion rate)";
+        temporaryControls.push("Pressure cap at current operating level");
+        escalationTriggers.push("Corrosion rate exceeds predicted value");
+        escalationTriggers.push("Wall loss reaches code minimum retirement thickness");
+        escalationTriggers.push("New damage mechanisms appear");
+        conditions.push("Continued operation acceptable only if monitoring confirms stable or declining corrosion rate");
+      }
+    }
+
+    // ----------------------------------------------------------------
+    // TIER 4: WITHIN SAFE ENVELOPE
+    // ----------------------------------------------------------------
+
+    else if (safeEnvelope === "WITHIN") {
+
+      if (hasCracking || governingMode === "CRACKING") {
+        // Cracking always requires engineering assessment regardless of envelope
+        disposition = "ENGINEERING_ASSESSMENT";
+        urgency = "STANDARD";
+        dispositionBasis = "Within safe envelope but cracking detected - engineering assessment required per API 579-1 Part 9. Cracking failure modes cannot be dispositioned by pressure envelope alone.";
+
+        actions.push({
+          priority: 1,
+          action: "CRACK CHARACTERIZATION",
+          detail: "Size all detected cracks using TOFD or PAUT. Determine orientation, length, and through-wall depth.",
+          who: "Level II UT/PAUT Technician",
+          timeframe: "Within 30 days"
+        });
+        actions.push({
+          priority: 2,
+          action: "ROOT CAUSE DETERMINATION",
+          detail: "Identify cracking mechanism (fatigue, SCC, HIC, etc.) and driving environment/stress conditions",
+          who: "Integrity Engineer / Metallurgist",
+          timeframe: "Within 30 days"
+        });
+        actions.push({
+          priority: 3,
+          action: "FFS ASSESSMENT",
+          detail: "API 579-1 Part 9 assessment based on crack dimensions, material toughness, and loading",
+          who: "Integrity Engineer",
+          timeframe: "Within 60 days"
+        });
+
+        interval = "Per FFS assessment results";
+        escalationTriggers.push("Crack growth on follow-up inspection");
+        escalationTriggers.push("Root cause indicates active/ongoing mechanism");
+        conditions.push("Continued operation pending FFS results showing crack is subcritical with adequate remaining life");
+      }
+      else if (interactionFlag && interactionType === "SYNERGY") {
+        // Compound mechanisms with synergy = monitor closely
+        disposition = "MONITOR";
+        urgency = "ELEVATED";
+        dispositionBasis = "Within safe envelope but synergistic mechanism interaction detected. Close monitoring required to detect acceleration.";
+
+        actions.push({
+          priority: 1,
+          action: "ENHANCED MONITORING",
+          detail: "Increase inspection frequency to detect any acceleration from mechanism interaction",
+          who: "Level II Inspector",
+          timeframe: "Establish within 30 days"
+        });
+        actions.push({
+          priority: 2,
+          action: "ROOT CAUSE INVESTIGATION",
+          detail: "Investigate and confirm mechanism interaction. Consider laboratory analysis.",
+          who: "Integrity Engineer / Metallurgist",
+          timeframe: "Within 60 days"
+        });
+
+        interval = "3-6 months (elevated due to mechanism interaction)";
+        escalationTriggers.push("Corrosion rate acceleration detected");
+        escalationTriggers.push("New damage indications appear between intervals");
+        conditions.push("Continue service with enhanced monitoring. Escalate if synergistic acceleration confirmed.");
+      }
+      else {
+        // Standard corrosion within envelope, no cracking, no interaction
+        disposition = "CONTINUE_SERVICE";
+        urgency = "ROUTINE";
+        dispositionBasis = "Within safe envelope with corrosion-only damage, no cracking, no mechanism interaction, and known reality state. Standard inspection interval applies.";
+
+        actions.push({
+          priority: 1,
+          action: "CONTINUE NORMAL INSPECTION PROGRAM",
+          detail: "Follow existing inspection plan per API 510/570/653. Update thickness data at next scheduled inspection.",
+          who: "Level II Inspector",
+          timeframe: "Per existing schedule"
+        });
+        actions.push({
+          priority: 2,
+          action: "TREND CORROSION DATA",
+          detail: "Update corrosion rate trending with new data points. Verify rate is stable or declining.",
+          who: "Integrity Engineer",
+          timeframe: "At next inspection"
+        });
+
+        interval = "Per API 510/570/653 calculated interval (typically 2-5 years based on corrosion rate)";
+        escalationTriggers.push("Corrosion rate increases significantly");
+        escalationTriggers.push("New damage mechanism identified");
+        escalationTriggers.push("Operating conditions change (new service, higher pressure, etc.)");
+        conditions.push("Standard continued service. Re-evaluate if any escalation trigger fires.");
+      }
+    }
+
+    // ----------------------------------------------------------------
+    // FALLBACK: No safe envelope data
+    // ----------------------------------------------------------------
+
+    else {
+      disposition = "ENGINEERING_ASSESSMENT";
+      urgency = "PRIORITY";
+      dispositionBasis = "Insufficient data to determine safe operating envelope. Engineering assessment required before disposition.";
+
+      actions.push({
+        priority: 1,
+        action: "COMPLETE ASSESSMENT DATA",
+        detail: "Gather wall thickness, flaw sizing, operating conditions, and material data needed for FFS evaluation",
+        who: "Inspection Team",
+        timeframe: "Within 14 days"
+      });
+      actions.push({
+        priority: 2,
+        action: "FFS ASSESSMENT",
+        detail: "Perform API 579-1 fitness-for-service evaluation once data is complete",
+        who: "Integrity Engineer",
+        timeframe: "After data collection"
+      });
+
+      temporaryControls.push("Maintain current operating conditions - no increases");
+      escalationTriggers.push("Any observed deterioration");
+    }
+
+    // ====================================================================
+    // CONSEQUENCE MODIFIER
+    // ====================================================================
+
+    if (consequenceTier === "CRITICAL" && urgency !== "EMERGENCY") {
+      urgency = "PRIORITY";
+      temporaryControls.push("CRITICAL consequence tier: all timeframes compressed by 50%");
+      escalationTriggers.push("Any deviation from disposition actions triggers immediate re-evaluation");
+    }
+
+    // Low confidence modifier
+    if (confidenceBand === "LOW" || confidenceBand === "UNRESOLVED") {
+      conditions.push("LOW confidence band: disposition is provisional pending improved data quality");
+      if (disposition === "CONTINUE_SERVICE") {
+        disposition = "MONITOR";
+        dispositionBasis = dispositionBasis + " [UPGRADED from CONTINUE_SERVICE due to LOW confidence]";
+        interval = "Reduced interval (50% of standard) due to low confidence";
+      }
+    }
+
+    // ====================================================================
+    // RESPONSE
+    // ====================================================================
+
+    var result = {
+      disposition: disposition,
+      urgency: urgency,
+      disposition_basis: dispositionBasis,
+      actions: actions,
+      interval: interval,
+      conditions: conditions,
+      temporary_controls: temporaryControls,
+      escalation_triggers: escalationTriggers,
+      inputs_used: {
+        safe_envelope: safeEnvelope,
+        governing_failure_mode: governingMode,
+        governing_severity: governingSeverity,
+        reality_state: realityState,
+        disposition_blocked: dispositionBlocked,
+        interaction_flag: interactionFlag,
+        brittle_fracture_risk: brittleFractureRisk,
+        has_cracking: hasCracking,
+        wall_loss_percent: wallLossPercent,
+        operating_ratio: operatingRatio,
+        consequence_tier: consequenceTier,
+        confidence_band: confidenceBand
+      },
+      metadata: {
+        engine: "disposition-pathway",
+        version: "1.0",
+        timestamp: new Date().toISOString()
+      }
+    };
+
+    return { statusCode: 200, headers: headers, body: JSON.stringify(result) };
+
+  } catch (err) {
+    return { statusCode: 500, headers: headers, body: JSON.stringify({ error: "Disposition pathway error: " + (err.message || String(err)) }) };
+  }
+};
+
+module.exports = { handler: handler };
