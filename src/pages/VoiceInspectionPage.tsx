@@ -135,3 +135,4 @@
 // GIT BASH: cd "/c/Users/rjohn/OneDrive/Desktop/NDT Platform"
 // ASNT DEMO: October 2026, Columbus, Ohio
 // ============================================================================
+export default VoiceInspectionPage;
