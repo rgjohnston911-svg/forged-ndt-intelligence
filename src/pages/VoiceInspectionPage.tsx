@@ -1,3 +1,5 @@
+// DEPLOY125 — VoiceInspectionPage.tsx v16.1
+// v16.1: Interactive Grammar Bridge readback with editable fields + amendment trail
 // DEPLOY123 — VoiceInspectionPage.tsx v16.0
 // v16.0: Evidence Provenance wired into pipeline + UI
 // Calls evidence-provenance before decision-core, passes results through pipeline.
@@ -628,6 +630,11 @@ export default function VoiceInspectionPage() {
   var [provenanceResult, setProvenanceResult] = useState<any>(null);
   var [provenanceLoading, setProvenanceLoading] = useState(false);
 
+  // GRAMMAR BRIDGE EDITING STATE — v16.1
+  var [gbEditingField, setGbEditingField] = useState<string | null>(null);
+  var [gbAmendments, setGbAmendments] = useState<any[]>([]);
+  var [gbConfirmed, setGbConfirmed] = useState(false);
+
   var handleSaveToCase = async function() {
     if (!decisionCore) return;
     setSaveStatus("saving"); setSaveError(null);
@@ -639,6 +646,31 @@ export default function VoiceInspectionPage() {
       setSaveStatus("error");
       setSaveError(result.error || "Unknown error");
     }
+  };
+
+  // GRAMMAR BRIDGE AMENDMENT HANDLER — v16.1
+  var handleGbAmend = async function(field: string, value: string) {
+    if (!grammarBridgeResult) return;
+    try {
+      var amendRes = await callAPI("voice-grammar-bridge", {
+        action: "amend",
+        current_state: grammarBridgeResult,
+        amendment: { field: field, value: value, source: "inspector_ui" }
+      });
+      if (amendRes && amendRes.ok) {
+        var amended = amendRes.result || amendRes;
+        setGrammarBridgeResult(amended);
+        setGbAmendments(function(prev: any[]) {
+          return prev.concat([{ field: field, value: value, timestamp: new Date().toISOString() }]);
+        });
+      }
+    } catch (err) { /* amendment failure is non-blocking */ }
+    setGbEditingField(null);
+  };
+
+  var handleGbConfirm = function() {
+    setGbConfirmed(true);
+    setGbEditingField(null);
   };
 
   var callEngineeringCore = async function(decResult: any, narrativeText: string) {
@@ -771,6 +803,7 @@ export default function VoiceInspectionPage() {
     setSuperbrainResult(null); setSuperbrainError(null);
     setGrammarBridgeResult(null);
     setProvenanceResult(null); setProvenanceLoading(false);
+    setGbEditingField(null); setGbAmendments([]); setGbConfirmed(false);
     setAiQuestions(null); setAiUnderstood(null); setSelectedAnswers({});
     setSaveStatus("idle"); setSavedCaseId(null); setSaveError(null);
     inputTextRef.current = inputText;
@@ -1050,57 +1083,129 @@ export default function VoiceInspectionPage() {
 
       <div ref={resultsRef}>
 
-        {/* GRAMMAR BRIDGE READBACK — shows before evidence confirmation */}
+        {/* GRAMMAR BRIDGE INTERACTIVE READBACK — v16.1 */}
         {grammarBridgeResult && evidenceConfirmPending && (
-          <div style={{ margin: "0 0 16px 0", padding: "16px", backgroundColor: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: "8px" }}>
-            <div style={{ fontSize: "13px", fontWeight: 700, color: "#0369a1", marginBottom: "8px" }}>Voice Grammar Bridge — Readback</div>
-            <div style={{ fontSize: "14px", color: "#1e3a5f", lineHeight: "1.6", padding: "10px 12px", backgroundColor: "#fff", borderRadius: "6px", border: "1px solid #e0f2fe", marginBottom: "10px" }}>
+          <div style={{ margin: "0 0 16px 0", padding: "16px", backgroundColor: gbConfirmed ? "#f0fdf4" : "#f0f9ff", border: "1px solid " + (gbConfirmed ? "#bbf7d0" : "#bae6fd"), borderRadius: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: gbConfirmed ? "#16a34a" : "#0369a1" }}>
+                {gbConfirmed ? "\u2705 Readback Confirmed" : "\uD83C\uDF99\uFE0F Voice Grammar Bridge \u2014 Review & Edit"}
+              </div>
+              <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: grammarBridgeResult.completeness === "COMPLETE" ? "#dcfce7" : grammarBridgeResult.completeness === "NEAR_COMPLETE" ? "#fef9c3" : "#fee2e2", color: grammarBridgeResult.completeness === "COMPLETE" ? "#166534" : grammarBridgeResult.completeness === "NEAR_COMPLETE" ? "#854d0e" : "#991b1b", fontWeight: 600 }}>
+                {grammarBridgeResult.completeness} ({grammarBridgeResult.field_count ? grammarBridgeResult.field_count.extracted + "/" + grammarBridgeResult.field_count.total_required : ""})
+              </div>
+            </div>
+            <div style={{ fontSize: "14px", color: "#1e3a5f", lineHeight: "1.6", padding: "10px 12px", backgroundColor: "#fff", borderRadius: "6px", border: "1px solid #e0f2fe", marginBottom: "12px" }}>
               {grammarBridgeResult.readback || "No readback generated"}
             </div>
-            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "8px" }}>
-              <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: grammarBridgeResult.completeness === "COMPLETE" ? "#dcfce7" : grammarBridgeResult.completeness === "NEAR_COMPLETE" ? "#fef9c3" : "#fee2e2", color: grammarBridgeResult.completeness === "COMPLETE" ? "#166534" : grammarBridgeResult.completeness === "NEAR_COMPLETE" ? "#854d0e" : "#991b1b", fontWeight: 600 }}>
-                {grammarBridgeResult.completeness} ({grammarBridgeResult.field_count ? grammarBridgeResult.field_count.extracted + "/" + grammarBridgeResult.field_count.total_required + " fields" : ""})
+
+            {/* EDITABLE FIELD GRID */}
+            {grammarBridgeResult.extracted && !gbConfirmed && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "8px", marginBottom: "12px" }}>
+                {[
+                  { key: "asset_type", label: "Asset", color: "#7c3aed", bg: "#f5f3ff", options: ["piping", "pressure_vessel", "pipeline", "tank", "bridge", "rail_bridge", "offshore_platform", "boiler", "heat_exchanger"] },
+                  { key: "material", label: "Material", color: "#6b21a8", bg: "#faf5ff", options: ["carbon_steel", "alloy_steel", "stainless_steel", "duplex", "nickel_alloy", "aluminum", "titanium", "cast_iron"] },
+                  { key: "primary_finding", label: "Primary Finding", color: "#92400e", bg: "#fffbeb", options: ["wall_loss", "crack", "pitting", "corrosion", "deformation", "leak", "erosion", "cui", "fatigue", "scc", "fire_damage", "creep"] },
+                  { key: "service_fluid", label: "Service", color: "#3730a3", bg: "#e0e7ff", options: ["amine", "hydrogen", "h2s", "crude", "steam", "water", "caustic", "acid", "ammonia", "natural_gas", "refined_product"] },
+                  { key: "primary_location", label: "Location", color: "#0e7490", bg: "#ecfeff", options: ["elbow", "weld", "nozzle", "flange", "support", "intrados", "extrados", "tee", "bottom", "connection", "gusset", "web", "haz"] },
+                  { key: "orientation", label: "Orientation", color: "#4338ca", bg: "#eef2ff", options: ["horizontal", "vertical", "inclined", "overhead", "underground"] }
+                ].map(function(fieldDef, fdi) {
+                  var currentVal = grammarBridgeResult.extracted[fieldDef.key];
+                  var isEditing = gbEditingField === fieldDef.key;
+                  return (
+                    <div key={fdi} style={{ position: "relative" }}>
+                      <div onClick={function() { setGbEditingField(isEditing ? null : fieldDef.key); }} style={{ padding: "8px 10px", borderRadius: "6px", backgroundColor: currentVal ? fieldDef.bg : "#f9fafb", border: "1px solid " + (currentVal ? fieldDef.color + "40" : "#e5e7eb"), cursor: "pointer", minHeight: "52px" }}>
+                        <div style={{ fontSize: "9px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "2px" }}>{fieldDef.label}</div>
+                        <div style={{ fontSize: "12px", fontWeight: 600, color: currentVal ? fieldDef.color : "#9ca3af" }}>
+                          {currentVal ? currentVal.replace(/_/g, " ") : "\u2014 tap to add"}
+                        </div>
+                      </div>
+                      {isEditing && (
+                        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, backgroundColor: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", maxHeight: "200px", overflowY: "auto", marginTop: "2px" }}>
+                          {fieldDef.options.map(function(opt, oi) {
+                            var isCurrent = currentVal === opt;
+                            return (
+                              <div key={oi} onClick={function() { handleGbAmend(fieldDef.key, opt); }} style={{ padding: "8px 12px", fontSize: "12px", cursor: "pointer", backgroundColor: isCurrent ? fieldDef.bg : "transparent", fontWeight: isCurrent ? 700 : 400, color: isCurrent ? fieldDef.color : "#374151", borderBottom: "1px solid #f3f4f6" }}>
+                                {opt.replace(/_/g, " ")}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              {grammarBridgeResult.extracted && grammarBridgeResult.extracted.asset_type && (
-                <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: "#ede9fe", color: "#5b21b6", fontWeight: 500 }}>
-                  Asset: {grammarBridgeResult.extracted.asset_type}
-                </div>
-              )}
-              {grammarBridgeResult.extracted && grammarBridgeResult.extracted.material && (
-                <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: "#f3e8ff", color: "#6b21a8", fontWeight: 500 }}>
-                  Material: {grammarBridgeResult.extracted.material.replace(/_/g, " ")}
-                </div>
-              )}
-              {grammarBridgeResult.extracted && grammarBridgeResult.extracted.primary_finding && (
-                <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: "#fef3c7", color: "#92400e", fontWeight: 500 }}>
-                  Primary: {grammarBridgeResult.extracted.primary_finding.replace(/_/g, " ")}
-                </div>
-              )}
-              {grammarBridgeResult.extracted && grammarBridgeResult.extracted.service_fluid && (
-                <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: "#e0e7ff", color: "#3730a3", fontWeight: 500 }}>
-                  Service: {grammarBridgeResult.extracted.service_fluid.replace(/_/g, " ")}
-                </div>
-              )}
-            </div>
+            )}
+
+            {/* NDE METHODS + FINDINGS (read-only badges) */}
+            {grammarBridgeResult.extracted && (
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "10px" }}>
+                {grammarBridgeResult.extracted.nde_methods && grammarBridgeResult.extracted.nde_methods.map(function(m: string, mi: number) {
+                  return <span key={"m" + mi} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#dbeafe", color: "#1e40af", fontWeight: 600 }}>{m}</span>;
+                })}
+                {grammarBridgeResult.extracted.finding_types && grammarBridgeResult.extracted.finding_types.map(function(f: string, fi: number) {
+                  return <span key={"f" + fi} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#fef3c7", color: "#92400e", fontWeight: 500 }}>{f.replace(/_/g, " ")}</span>;
+                })}
+                {grammarBridgeResult.extracted.locations && grammarBridgeResult.extracted.locations.map(function(l: string, li: number) {
+                  return <span key={"l" + li} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#ecfeff", color: "#0e7490", fontWeight: 500 }}>{l.replace(/_/g, " ")}</span>;
+                })}
+              </div>
+            )}
+
+            {/* NUMERIC VALUES */}
+            {grammarBridgeResult.extracted && grammarBridgeResult.extracted.numeric && (
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
+                {grammarBridgeResult.extracted.numeric.diameter_inches && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#374151" }}>{grammarBridgeResult.extracted.numeric.diameter_inches}" dia</span>}
+                {grammarBridgeResult.extracted.numeric.wall_loss_percent && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#fef2f2", color: "#dc2626", fontWeight: 600 }}>{grammarBridgeResult.extracted.numeric.wall_loss_percent}% wall loss</span>}
+                {grammarBridgeResult.extracted.numeric.temperature_f && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#374151" }}>{grammarBridgeResult.extracted.numeric.temperature_f}\u00B0F</span>}
+                {grammarBridgeResult.extracted.numeric.pressure_psi && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#374151" }}>{grammarBridgeResult.extracted.numeric.pressure_psi} psi</span>}
+                {grammarBridgeResult.extracted.numeric.service_years && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#374151" }}>{grammarBridgeResult.extracted.numeric.service_years} yrs</span>}
+              </div>
+            )}
+
+            {/* RISK FLAGS */}
             {grammarBridgeResult.risk_flags && grammarBridgeResult.risk_flags.length > 0 && (
-              <div style={{ marginTop: "8px" }}>
+              <div style={{ marginBottom: "10px" }}>
                 {grammarBridgeResult.risk_flags.map(function(rf: any, ri: number) {
                   var rfBg = rf.severity === "critical" ? "#fef2f2" : rf.severity === "high" ? "#fffbeb" : "#f0f9ff";
                   var rfBorder = rf.severity === "critical" ? "#fecaca" : rf.severity === "high" ? "#fde68a" : "#bae6fd";
                   var rfColor = rf.severity === "critical" ? "#991b1b" : rf.severity === "high" ? "#92400e" : "#0369a1";
                   var rfIcon = rf.severity === "critical" ? "\uD83D\uDED1" : rf.severity === "high" ? "\u26A0\uFE0F" : "\u2139\uFE0F";
                   return (
-                    <div key={ri} style={{ fontSize: "12px", padding: "8px 10px", marginBottom: "4px", backgroundColor: rfBg, border: "1px solid " + rfBorder, borderRadius: "4px", color: rfColor }}>
+                    <div key={ri} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: rfBg, border: "1px solid " + rfBorder, borderRadius: "4px", color: rfColor }}>
                       {rfIcon} {rf.message}
                     </div>
                   );
                 })}
               </div>
             )}
-            {grammarBridgeResult.missing_required && grammarBridgeResult.missing_required.length > 0 && (
-              <div style={{ marginTop: "8px", fontSize: "12px", color: "#92400e", padding: "8px 10px", backgroundColor: "#fffbeb", borderRadius: "4px", border: "1px solid #fde68a" }}>
-                <strong>Missing fields:</strong> {grammarBridgeResult.missing_required.join(", ").replace(/_/g, " ")}
+
+            {/* MISSING FIELDS */}
+            {grammarBridgeResult.missing_required && grammarBridgeResult.missing_required.length > 0 && !gbConfirmed && (
+              <div style={{ padding: "8px 10px", backgroundColor: "#fffbeb", borderRadius: "4px", border: "1px solid #fde68a", marginBottom: "10px", fontSize: "12px", color: "#92400e" }}>
+                <strong>Missing:</strong> {grammarBridgeResult.missing_required.join(", ").replace(/_/g, " ")} \u2014 <em>tap a field above to add</em>
               </div>
+            )}
+
+            {/* AMENDMENT TRAIL */}
+            {gbAmendments.length > 0 && (
+              <div style={{ marginBottom: "10px" }}>
+                <div style={{ fontSize: "10px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Amendment Trail ({gbAmendments.length})</div>
+                {gbAmendments.map(function(am: any, ai: number) {
+                  return (
+                    <div key={ai} style={{ fontSize: "11px", padding: "4px 8px", marginBottom: "2px", backgroundColor: "#fefce8", borderRadius: "3px", borderLeft: "2px solid #ca8a04", color: "#374151" }}>
+                      <strong>{am.field.replace(/_/g, " ")}:</strong> set to <strong>{am.value.replace(/_/g, " ")}</strong>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* CONFIRM BUTTON */}
+            {!gbConfirmed && (
+              <button onClick={handleGbConfirm} style={{ width: "100%", padding: "10px", fontSize: "13px", fontWeight: 700, color: "#fff", backgroundColor: "#0369a1", border: "none", borderRadius: "6px", cursor: "pointer" }}>
+                {"\u2705"} Confirm Readback
+              </button>
             )}
           </div>
         )}
