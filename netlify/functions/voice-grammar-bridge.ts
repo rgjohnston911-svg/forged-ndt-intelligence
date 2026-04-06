@@ -1,3 +1,5 @@
+// DEPLOY124 — voice-grammar-bridge.ts v1.1
+// v1.1: Expanded keywords, clock positions, orientation, better numeric parsing
 // DEPLOY116 — voice-grammar-bridge.ts v1.0
 // Voice → Grammar Bridge — Structured Field Capture
 // Extracts structured fields deterministically from natural speech
@@ -17,7 +19,9 @@ var ASSET_KEYWORDS: any = {
   "tank": ["storage tank", "aboveground tank", "aboveground storage", "ast", "tank bottom", "tank shell"],
   "bridge": ["bridge", "girder", "span", "deck", "truss", "abutment", "pier"],
   "rail_bridge": ["railroad", "railway", "rail bridge", "train", "coal train", "rail"],
-  "offshore_platform": ["offshore", "platform", "jacket", "riser", "caisson", "subsea", "splash zone"]
+  "offshore_platform": ["offshore", "platform", "jacket", "riser", "caisson", "subsea", "splash zone"],
+  "boiler": ["boiler", "steam drum", "superheater", "economizer", "deaerator"],
+  "heat_exchanger": ["exchanger", "heat exchanger", "shell side", "tube side", "tube bundle", "u-tube", "floating head"]
 };
 
 var MATERIAL_KEYWORDS: any = {
@@ -29,7 +33,9 @@ var MATERIAL_KEYWORDS: any = {
   "aluminum": ["aluminum", "aluminium", "al alloy"],
   "titanium": ["titanium", "ti alloy"],
   "concrete": ["concrete", "reinforced concrete", "prestressed", "rebar"],
-  "cfrp": ["cfrp", "carbon fiber", "composite"]
+  "cfrp": ["cfrp", "carbon fiber", "composite"],
+  "cast_iron": ["cast iron", "ductile iron", "grey iron", "gray iron"],
+  "copper_alloy": ["copper", "brass", "bronze", "cupro-nickel", "cupronickel", "cu-ni"]
 };
 
 var NDE_METHOD_KEYWORDS: any = {
@@ -42,7 +48,11 @@ var NDE_METHOD_KEYWORDS: any = {
   "VT": ["visual", "vt ", "vt,", "visual inspection"],
   "ET": ["eddy current", " et ", " et,"],
   "AE": ["acoustic emission", "ae "],
-  "HARDNESS": ["hardness", "brinell", "rockwell", "vickers", "portable hardness"]
+  "HARDNESS": ["hardness", "brinell", "rockwell", "vickers", "portable hardness"],
+  "ACFM": ["acfm", "alternating current field", "ac field measurement"],
+  "MFL": ["mfl", "magnetic flux leakage", "flux leakage"],
+  "IRIS": ["iris", "internal rotary"],
+  "PMI": ["pmi", "positive material", "alloy verification", "xrf"]
 };
 
 var FINDING_TYPE_KEYWORDS: any = {
@@ -55,7 +65,14 @@ var FINDING_TYPE_KEYWORDS: any = {
   "weld_defect": ["lack of fusion", "lof", "incomplete penetration", "undercut", "overlap", "porosity", "slag"],
   "coating_damage": ["coating damage", "coating failure", "paint break", "coating's cooked", "coating loss", "disbond"],
   "lamination": ["lamination", "delamination"],
-  "erosion": ["erosion", "erosion-corrosion", "impingement"]
+  "erosion": ["erosion", "erosion-corrosion", "impingement"],
+  "cui": ["cui", "corrosion under insulation", "under insulation", "under lagging"],
+  "fire_damage": ["fire damage", "fire exposure", "fire exposed", "heat damage", "burned", "discoloration"],
+  "hydrogen_damage": ["hydrogen damage", "htha", "hydrogen attack", "high temperature hydrogen"],
+  "creep": ["creep", "creep damage", "bulging", "swelling"],
+  "fatigue": ["fatigue", "fatigue crack", "cyclic", "vibration fatigue"],
+  "scc": ["stress corrosion", "scc", "intergranular", "transgranular", "branching crack"],
+  "mic": ["mic", "microbiological", "microbial", "under deposit"]
 };
 
 var SERVICE_FLUID_KEYWORDS: any = {
@@ -84,7 +101,43 @@ var LOCATION_KEYWORDS: any = {
   "tee": [" tee ", " tee,", " tee.", "pipe tee", "tee junction"],
   "reducer": ["reducer", "transition"],
   "bottom": ["bottom", "bottom flange", "floor", "tank bottom"],
-  "connection": ["connection", "tie-in", "attachment"]
+  "connection": ["connection", "tie-in", "attachment"],
+  "clock_12": ["12 o'clock", "12 oclock", "top dead center", "top of pipe", "crown"],
+  "clock_3": ["3 o'clock", "3 oclock", "right side", "starboard"],
+  "clock_6": ["6 o'clock", "6 oclock", "bottom dead center", "bottom of pipe", "invert"],
+  "clock_9": ["9 o'clock", "9 oclock", "left side", "port"],
+  "gusset": ["gusset", "gusset plate", "stiffener plate"],
+  "web": ["web", "web plate", "web gap"],
+  "chord": ["chord", "lower chord", "upper chord", "bottom chord", "top chord"],
+  "diaphragm": ["diaphragm", "cross frame", "lateral brace"],
+  "base_plate": ["base plate", "baseplate", "anchor bolt", "anchor"],
+  "butt_weld": ["butt weld", "butt joint", "full penetration", "cjp", "complete joint"],
+  "fillet_weld": ["fillet weld", "fillet", "pjp", "partial penetration"],
+  "socket_weld": ["socket weld", "socket", "sw"],
+  "haz": ["haz", "heat affected zone", "heat affected"],
+  "shell_course": ["shell course", "shell plate", "course"],
+  "head": ["head", "dished head", "elliptical head", "hemispherical head"]
+};
+
+
+// ============================================================================
+// ORIENTATION + WELD CONFIGURATION — v1.1
+// ============================================================================
+
+var ORIENTATION_KEYWORDS: any = {
+  "horizontal": ["horizontal", "horizontal run", "level", "flat run"],
+  "vertical": ["vertical", "vertical run", "riser", "downcomer", "drop"],
+  "inclined": ["inclined", "sloped", "angled", "45 degree"],
+  "overhead": ["overhead", "above", "ceiling"],
+  "underground": ["underground", "buried", "below grade"]
+};
+
+var WELD_CONFIG_KEYWORDS: any = {
+  "circumferential": ["circumferential", "circ weld", "girth weld", "circ"],
+  "longitudinal": ["longitudinal", "long seam", "long weld", "axial weld"],
+  "branch": ["branch weld", "branch connection", "set-on", "set-in"],
+  "attachment": ["attachment weld", "lug weld", "clip weld", "pad weld"],
+  "repair": ["repair weld", "weld repair", "ground out", "gouged out"]
 };
 
 // ============================================================================
@@ -156,6 +209,45 @@ function extractNumericValues(transcript: string): any {
   // Depth
   var depthMatch = /(\d+(?:\.\d+)?)\s*(?:millimeters?|mm)\s*(?:deep|depth)/i.exec(t);
   if (depthMatch) result.depth = { value: parseFloat(depthMatch[1]), unit: "mm" };
+
+
+  // Nominal vs actual thickness comparison (v1.1)
+  var nomActMatch = /(\d+\.?\d*)\s*(?:inch|in\.?|mm)\s*(?:versus|vs\.?|compared\s*to|against)\s*(\d+\.?\d*)\s*(?:inch|in\.?|mm)?\s*(?:nominal|original|design)?/i.exec(t);
+  if (nomActMatch) {
+    result.actual_thickness = parseFloat(nomActMatch[1]);
+    result.nominal_thickness = parseFloat(nomActMatch[2]);
+    if (result.nominal_thickness > 0) {
+      result.wall_loss_percent = Math.round((1 - result.actual_thickness / result.nominal_thickness) * 100);
+    }
+  }
+  if (!nomActMatch) {
+    var nomActMatch2 = /(?:nominal|original|design)\s*(?:of\s*)?(\d+\.?\d*)\s*(?:inch|in\.?|mm)[^.]*(?:shows?|reads?|measured|found|actual)\s*(\d+\.?\d*)/i.exec(t);
+    if (nomActMatch2) {
+      result.nominal_thickness = parseFloat(nomActMatch2[1]);
+      result.actual_thickness = parseFloat(nomActMatch2[2]);
+      if (result.nominal_thickness > 0) {
+        result.wall_loss_percent = Math.round((1 - result.actual_thickness / result.nominal_thickness) * 100);
+      }
+    }
+  }
+
+  // Range expressions ("35 to 40 percent", "35-40%")
+  if (!result.wall_loss_percent) {
+    var rangeMatch2 = /(\d+)\s*(?:to|-)\s*(\d+)\s*(?:percent|%)\s*(?:wall\s*loss|loss|down|gone|thinning)/i.exec(t);
+    if (rangeMatch2) result.wall_loss_percent = parseFloat(rangeMatch2[2]);
+  }
+
+  // Approximate values ("about 200 psi", "roughly 300 degrees")
+  var approxPsi = /(?:about|roughly|approximately|around|~)\s*(\d+)\s*(?:psi|psig)/i.exec(t);
+  if (approxPsi && !result.pressure_psi) result.pressure_psi = parseFloat(approxPsi[1]);
+  var approxTemp = /(?:about|roughly|approximately|around|~)\s*(\d+)\s*(?:degrees?\s*f|fahrenheit)/i.exec(t);
+  if (approxTemp && !result.temperature_f) result.temperature_f = parseFloat(approxTemp[1]);
+
+  // Crack dimensions ("4 inches long, 3mm deep")
+  var crackLenIn = /(\d+(?:\.\d+)?)\s*(?:inches?|in\.?)\s*(?:long|in\s*length)/i.exec(t);
+  if (crackLenIn && !result.length) result.length = { value: parseFloat(crackLenIn[1]), unit: "inches" };
+  var crackDepthMm = /(\d+(?:\.\d+)?)\s*(?:mm|millimeters?)\s*(?:deep|in\s*depth)/i.exec(t);
+  if (crackDepthMm && !result.depth) result.depth = { value: parseFloat(crackDepthMm[1]), unit: "mm" };
 
   return result;
 }
@@ -266,6 +358,8 @@ function generateReadback(extracted: any): string {
     parts.push("at " + locParts.join(" / "));
   }
 
+  if (extracted.orientation) parts.push(extracted.orientation + " run");
+  if (extracted.weld_config) parts.push(extracted.weld_config.replace(/_/g, " ") + " weld");
   if (extracted.nde_methods.length > 0) {
     parts.push("inspected by " + extracted.nde_methods.join(", "));
   }
@@ -364,6 +458,34 @@ function preGateRiskCheck(extracted: any): any[] {
     });
   }
 
+  // CUI risk — insulation + temperature range (v1.1)
+  var hasCUI = false;
+  for (var cui = 0; cui < extracted.finding_types.length; cui++) {
+    if (extracted.finding_types[cui] === "cui") hasCUI = true;
+  }
+  if (!hasCUI && extracted.numeric.temperature_f && extracted.numeric.temperature_f >= 25 && extracted.numeric.temperature_f <= 350) {
+    var hasInsulation = lt.indexOf("insulation") !== -1 || lt.indexOf("lagging") !== -1 || lt.indexOf("jacketing") !== -1;
+    if (hasInsulation) {
+      flags.push({
+        type: "mechanism_alert",
+        severity: "warning",
+        message: "Temperature in CUI range (25-350F) with insulation present. Corrosion under insulation should be evaluated."
+      });
+    }
+  }
+
+  // Vibration + small bore (v1.1)
+  if (extracted.numeric.diameter_inches && extracted.numeric.diameter_inches <= 2) {
+    var hasVibration = lt.indexOf("vibrat") !== -1 || lt.indexOf("shaking") !== -1 || lt.indexOf("chattering") !== -1;
+    if (hasVibration) {
+      flags.push({
+        type: "mechanism_alert",
+        severity: "high",
+        message: "Small bore (" + extracted.numeric.diameter_inches + " inch) with vibration — high fatigue risk at connections. Check socket welds and threadolets."
+      });
+    }
+  }
+
   return flags;
 }
 
@@ -383,6 +505,9 @@ function extractFromTranscript(transcript: string): any {
   var locationResult = extractField(lt, LOCATION_KEYWORDS);
   var numeric = extractNumericValues(transcript);
 
+  var orientResult = extractField(lt, ORIENTATION_KEYWORDS);
+  var weldConfigResult = extractField(lt, WELD_CONFIG_KEYWORDS);
+
   var extracted = {
     asset_type: assetResult.primary,
     asset_candidates: assetResult.all,
@@ -395,6 +520,9 @@ function extractFromTranscript(transcript: string): any {
     service_candidates: serviceResult.all,
     locations: locationResult.all,
     primary_location: locationResult.primary,
+    orientation: orientResult.primary,
+    weld_config: weldConfigResult.primary,
+    weld_configs: weldConfigResult.all,
     numeric: numeric
   };
 
@@ -475,6 +603,25 @@ function applyAmendment(currentState: any, amendment: any): any {
   else if (amendment.field === "diameter") updated.extracted.numeric.diameter_inches = parseFloat(amendment.value);
   else if (amendment.field === "temperature_f") updated.extracted.numeric.temperature_f = parseFloat(amendment.value);
   else if (amendment.field === "pressure_psi") updated.extracted.numeric.pressure_psi = parseFloat(amendment.value);
+  else if (amendment.field === "orientation") updated.extracted.orientation = amendment.value;
+  else if (amendment.field === "weld_config") updated.extracted.weld_config = amendment.value;
+  else if (amendment.field === "finding_type") {
+    if (updated.extracted.finding_types.indexOf(amendment.value) === -1) {
+      updated.extracted.finding_types.push(amendment.value);
+    }
+    if (!updated.extracted.primary_finding) updated.extracted.primary_finding = amendment.value;
+  }
+  else if (amendment.field === "nde_method") {
+    if (updated.extracted.nde_methods.indexOf(amendment.value) === -1) {
+      updated.extracted.nde_methods.push(amendment.value);
+    }
+  }
+  else if (amendment.field === "location") {
+    if (updated.extracted.locations.indexOf(amendment.value) === -1) {
+      updated.extracted.locations.push(amendment.value);
+    }
+    if (!updated.extracted.primary_location) updated.extracted.primary_location = amendment.value;
+  }
 
   // Remove from missing
   var newMissing: string[] = [];
@@ -529,7 +676,7 @@ var handler = async function(event: any): Promise<any> {
         statusCode: 200, headers: headers,
         body: JSON.stringify({
           ok: true,
-          grammar_bridge_version: "1.0",
+          grammar_bridge_version: "1.1",
           action: "extract",
           result: result
         })
@@ -549,7 +696,7 @@ var handler = async function(event: any): Promise<any> {
         statusCode: 200, headers: headers,
         body: JSON.stringify({
           ok: true,
-          grammar_bridge_version: "1.0",
+          grammar_bridge_version: "1.1",
           action: "amend",
           result: amended
         })
@@ -563,7 +710,7 @@ var handler = async function(event: any): Promise<any> {
         statusCode: 200, headers: headers,
         body: JSON.stringify({
           ok: true,
-          grammar_bridge_version: "1.0",
+          grammar_bridge_version: "1.1",
           action: "readback",
           readback: readback
         })
