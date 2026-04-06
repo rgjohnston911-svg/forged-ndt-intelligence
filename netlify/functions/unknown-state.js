@@ -158,9 +158,9 @@ var handler = async function(event) {
 
     // ---- EVALUATE CHALLENGE RESULT ----
     if (challengeResult.challenge_triggered) {
-      if (challengeResult.ambiguity_score >= 50) {
+      if (challengeResult.ambiguity_score >= 0.50) {
         reasonCodes.push('HIGH_AMBIGUITY');
-        unresolvedQuestions.push('Reality Challenge ambiguity score: ' + challengeResult.ambiguity_score + '% — primary interpretation significantly challenged');
+        unresolvedQuestions.push('Reality Challenge ambiguity score: ' + Math.round(challengeResult.ambiguity_score * 100) + '% — primary interpretation significantly challenged');
       }
 
       if (challengeResult.highest_risk_plausible_hypothesis) {
