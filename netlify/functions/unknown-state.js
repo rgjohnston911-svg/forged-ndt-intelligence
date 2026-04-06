@@ -1,322 +1,322 @@
 // ============================================================================
-// FORGED NDT INTELLIGENCE OS — UNKNOWN STATE + MINIMUM DATA ENGINE v1.0
-// Netlify Function: unknown-state
-// DEPLOY129b: netlify/functions/unknown-state.js
-// ============================================================================
-// PURPOSE: Evaluate reality state of the inspection assessment.
-// Determines if enough is known to disposition, identifies gaps,
-// generates minimum data requirements and next-best inspection actions.
-// DETERMINISTIC — no AI calls. Pure logic from structured inputs.
-// NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
+// UNKNOWN STATE ENGINE v1.1 (HOTFIXED)
+// Purpose: Determine if enough evidence exists to support disposition
+// Blocks disposition when reality state is UNKNOWN
+// Hotfix: threshold check uses 0-1 scale (>= 0.50 not >= 50)
+// Pattern: var handler, string concatenation, no template literals
 // ============================================================================
 
 var handler = async function(event) {
-  if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS'
-      },
-      body: ''
-    };
+  "use strict";
+
+  var headers = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json"
+  };
+
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: headers, body: "" };
+  }
+
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, headers: headers, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
   try {
-    var body = JSON.parse(event.body);
-    var challengeResult = body.challenge_result || {};
-    var provenance = body.evidence_provenance_result || {};
-    var damageResult = body.damage_result || {};
-    var methodSufficiency = body.method_sufficiency_result || {};
-    var authorityResult = body.authority_result || {};
-    var contradictionResult = body.contradiction_result || {};
-    var consequenceResult = body.consequence_result || {};
+    var body = JSON.parse(event.body || "{}");
 
-    // ---- COLLECT REASON CODES ----
-    var reasonCodes = [];
-    var unresolvedQuestions = [];
-    var blockedQuestions = [];
-    var minimumData = [];
-    var nextActions = [];
-    var actionCounter = 0;
+    // ========================================================================
+    // INPUTS
+    // ========================================================================
 
-    // ---- EVALUATE EVIDENCE PROVENANCE ----
-    var provSummary = provenance.provenance_summary || provenance;
-    var trustBand = provSummary.trust_band || 'UNKNOWN';
-    var compositeTrust = provSummary.composite_trust_score || 0;
-    var measuredFraction = provSummary.measured_fraction || 0;
+    var assetType = (body.asset_type || "").toLowerCase().trim();
+    var serviceEnvironment = (body.service_environment || "").toLowerCase().trim();
+    var mechanisms = body.damage_mechanisms || body.mechanisms || [];
+    var wallLossPercent = body.wall_loss_percent || 0;
+    var hasCracking = body.has_cracking || false;
+    var transcript = (body.transcript || "").toLowerCase();
+    var observedCount = body.observed_count || 0;
+    var suspectedCount = body.suspected_count || 0;
+    var contradictions = body.contradictions || [];
+    var ambiguityScore = body.ambiguity_score || 0;
+    var evidenceItems = body.evidence_items || [];
+    var provenanceData = body.provenance || {};
 
-    if (trustBand === 'LOW' || compositeTrust < 0.45) {
-      reasonCodes.push('LOW_EVIDENCE_TRUST');
-      unresolvedQuestions.push('Evidence trust band is LOW (' + Math.round(compositeTrust * 100) + '%) — most claims are inferred or reported, not measured');
-      minimumData.push({
-        question: 'Can inspection evidence be upgraded from inferred/reported to measured?',
-        required_data: 'Calibrated NDE measurement results for primary damage claims',
-        preferred_method: 'UT thickness + PAUT/TOFD for crack sizing',
-        reason: 'Measured evidence carries trust weight 1.0 vs reported 0.6 or inferred 0.45',
-        priority: 'critical'
+    // ========================================================================
+    // MINIMUM DATA REQUIREMENTS — what MUST be known to disposition
+    // ========================================================================
+
+    var minimumDataItems = [];
+
+    // --- ALWAYS REQUIRED ---
+
+    // Asset identification
+    if (!assetType || assetType === "unknown" || assetType === "unspecified" || assetType === "") {
+      minimumDataItems.push({
+        item: "Asset Type Identification",
+        reason: "Cannot select governing code or assessment method without knowing what the asset is",
+        priority: "CRITICAL",
+        resolved: false
       });
-    }
-
-    if (measuredFraction < 0.2) {
-      reasonCodes.push('INSUFFICIENT_MEASURED_DATA');
-      unresolvedQuestions.push('Only ' + Math.round(measuredFraction * 100) + '% of evidence is from calibrated measurements');
-    }
-
-    // ---- EVALUATE METHOD ADEQUACY ----
-    var methodAdequacy = provSummary.method_adequacy || 'UNKNOWN';
-    var realityGaps = provenance.measurement_reality_gaps || provSummary.measurement_reality_gaps || [];
-
-    if (methodAdequacy === 'INADEQUATE' || methodAdequacy === 'PARTIALLY_ADEQUATE') {
-      reasonCodes.push('METHOD_GAPS');
-      for (var gi = 0; gi < realityGaps.length; gi++) {
-        var gap = realityGaps[gi];
-        var gapText = typeof gap === 'string' ? gap : (gap.question || gap.gap || JSON.stringify(gap));
-        unresolvedQuestions.push('Method gap: ' + gapText);
-      }
-    }
-
-    // ---- EVALUATE DAMAGE STATE ----
-    if (damageResult) {
-      var damageState = damageResult.damage_state || '';
-      var damageConfidence = damageResult.damage_confidence || 0;
-
-      if (damageConfidence < 0.5) {
-        reasonCodes.push('LOW_DAMAGE_CONFIDENCE');
-        unresolvedQuestions.push('Damage characterization confidence is only ' + Math.round(damageConfidence * 100) + '%');
-        minimumData.push({
-          question: 'What is the actual damage mechanism and extent?',
-          required_data: 'Quantitative damage measurements (depth, length, distribution)',
-          preferred_method: 'UT grid scan for wall loss + MT/PT for surface cracking',
-          reason: 'Current damage confidence (' + Math.round(damageConfidence * 100) + '%) insufficient for disposition',
-          priority: 'critical'
-        });
-      }
-
-      // Check for mixed damage modes
-      var thinningScore = damageResult.thinning_score || damageResult.thinning_plausibility || 0;
-      var crackingScore = damageResult.cracking_score || damageResult.cracking_plausibility || 0;
-
-      if (thinningScore > 0.4 && crackingScore > 0.4) {
-        reasonCodes.push('MIXED_DAMAGE_MODES');
-        unresolvedQuestions.push('Both thinning (' + Math.round(thinningScore * 100) + '%) and cracking (' + Math.round(crackingScore * 100) + '%) are plausible — different inspection approaches required');
-        blockedQuestions.push('Cannot determine single dominant mechanism without additional NDE');
-        minimumData.push({
-          question: 'Is the damage primarily volumetric (corrosion) or planar (cracking)?',
-          required_data: 'Surface NDE for crack confirmation + volumetric NDE for wall loss mapping',
-          preferred_method: 'MT for surface cracks + PAUT for subsurface + UT grid for corrosion extent',
-          reason: 'Mixed damage modes require different disposition pathways',
-          priority: 'critical'
-        });
-      }
-    }
-
-    // ---- EVALUATE CONSEQUENCE ----
-    if (consequenceResult) {
-      var consequenceTier = consequenceResult.consequence_tier || '';
-      var failureMode = consequenceResult.failure_mode || '';
-
-      if (consequenceTier === 'CRITICAL' || consequenceTier === 'SEVERE') {
-        // High consequence raises the bar for what we need to know
-        if (reasonCodes.length > 0) {
-          reasonCodes.push('HIGH_CONSEQUENCE_WITH_GAPS');
-          blockedQuestions.push(consequenceTier + ' consequence asset with unresolved evidence gaps — disposition blocked until gaps resolved');
-        }
-      }
-    }
-
-    // ---- EVALUATE CONTRADICTIONS ----
-    if (contradictionResult) {
-      var contradictions = contradictionResult.contradictions || contradictionResult.conflicts || [];
-      if (typeof contradictionResult === 'string' && contradictionResult.indexOf('CONFLICT') !== -1) {
-        reasonCodes.push('UNRESOLVED_CONTRADICTIONS');
-        unresolvedQuestions.push('Decision core flagged contradictions that require resolution');
-      } else if (contradictions.length > 0) {
-        reasonCodes.push('UNRESOLVED_CONTRADICTIONS');
-        for (var ci = 0; ci < Math.min(contradictions.length, 3); ci++) {
-          var cont = contradictions[ci];
-          unresolvedQuestions.push('Contradiction: ' + (typeof cont === 'string' ? cont : (cont.description || cont.conflict || JSON.stringify(cont))));
-        }
-      }
-    }
-
-    // ---- EVALUATE AUTHORITY GAPS ----
-    if (authorityResult) {
-      var authorityWarnings = authorityResult.warnings || [];
-      var missingAuthorities = authorityResult.missing_authorities || [];
-
-      if (typeof authorityResult === 'string' && authorityResult.indexOf('WARNING') !== -1) {
-        reasonCodes.push('AUTHORITY_GAPS');
-        unresolvedQuestions.push('Authority chain has gaps or warnings — code coverage may be incomplete');
-      }
-
-      for (var ai = 0; ai < missingAuthorities.length; ai++) {
-        unresolvedQuestions.push('Missing authority: ' + missingAuthorities[ai]);
-      }
-    }
-
-    // ---- EVALUATE CHALLENGE RESULT ----
-    if (challengeResult.challenge_triggered) {
-      if (challengeResult.ambiguity_score >= 0.50) {
-        reasonCodes.push('HIGH_AMBIGUITY');
-        unresolvedQuestions.push('Reality Challenge ambiguity score: ' + Math.round(challengeResult.ambiguity_score * 100) + '% — primary interpretation significantly challenged');
-      }
-
-      if (challengeResult.highest_risk_plausible_hypothesis) {
-        var hrh = challengeResult.highest_risk_plausible_hypothesis;
-        unresolvedQuestions.push('Higher-risk alternate hypothesis: ' + hrh.reason);
-      }
-
-      var altFlags = challengeResult.ambiguity_flags || [];
-      for (var afi = 0; afi < altFlags.length; afi++) {
-        if (altFlags[afi] === 'SOUR_SERVICE_CRACKING') {
-          reasonCodes.push('SOUR_SERVICE_UNVERIFIED');
-          blockedQuestions.push('Sour service cracking (SSC/HIC) must be ruled out before disposition');
-          minimumData.push({
-            question: 'Is cracking mechanism SSC, HIC, or fatigue?',
-            required_data: 'Crack morphology analysis (branching pattern, orientation, location relative to welds)',
-            preferred_method: 'Metallographic examination or in-situ replica + hardness survey',
-            reason: 'SSC/HIC require different engineering assessment than fatigue cracking',
-            priority: 'high'
-          });
-        }
-      }
-    }
-
-    // ---- GENERATE NEXT BEST INSPECTION ACTIONS ----
-    // Based on identified gaps
-
-    if (reasonCodes.indexOf('INSUFFICIENT_MEASURED_DATA') !== -1 || reasonCodes.indexOf('LOW_EVIDENCE_TRUST') !== -1) {
-      actionCounter++;
-      nextActions.push({
-        action_id: 'ACTION_' + actionCounter,
-        method: 'UT Thickness Grid',
-        target: 'Primary damage areas identified in field report',
-        purpose: 'Upgrade wall loss evidence from reported to measured',
-        release_condition: 'Grid data establishes measured wall thickness profile'
-      });
-    }
-
-    if (reasonCodes.indexOf('MIXED_DAMAGE_MODES') !== -1 || reasonCodes.indexOf('SOUR_SERVICE_UNVERIFIED') !== -1) {
-      actionCounter++;
-      nextActions.push({
-        action_id: 'ACTION_' + actionCounter,
-        method: 'MT (Magnetic Particle Testing)',
-        target: 'Pit clusters and areas with suspected cracking indications',
-        purpose: 'Confirm or rule out surface-breaking cracks at pitting sites',
-        release_condition: 'MT confirms crack presence/absence at identified locations'
-      });
-
-      actionCounter++;
-      nextActions.push({
-        action_id: 'ACTION_' + actionCounter,
-        method: 'PAUT (Phased Array Ultrasonic Testing)',
-        target: 'Areas with confirmed or suspected cracking',
-        purpose: 'Size any confirmed cracks for fitness-for-service assessment',
-        release_condition: 'Crack depth and length measured for FFS input'
-      });
-    }
-
-    if (reasonCodes.indexOf('METHOD_GAPS') !== -1) {
-      actionCounter++;
-      nextActions.push({
-        action_id: 'ACTION_' + actionCounter,
-        method: 'Supplemental NDE per gap analysis',
-        target: 'Identified measurement reality gaps',
-        purpose: 'Close specific method gaps identified by provenance engine',
-        release_condition: 'All critical reality gaps resolved with measured data'
-      });
-    }
-
-    if (reasonCodes.indexOf('AUTHORITY_GAPS') !== -1) {
-      actionCounter++;
-      nextActions.push({
-        action_id: 'ACTION_' + actionCounter,
-        method: 'Engineering Review',
-        target: 'Authority chain and code applicability',
-        purpose: 'Confirm governing codes and FFS requirements',
-        release_condition: 'Complete authority chain established with applicable codes identified'
-      });
-    }
-
-    // ---- DETERMINE REALITY STATE ----
-    var realityState = 'CONFIRMED';
-    var unknownTriggered = false;
-    var blocksDisposition = false;
-
-    if (reasonCodes.length === 0) {
-      realityState = 'CONFIRMED';
-    } else if (reasonCodes.length === 1 && reasonCodes[0] === 'LOW_EVIDENCE_TRUST') {
-      realityState = 'PROBABLE';
-    } else if (reasonCodes.length <= 2 && blockedQuestions.length === 0) {
-      realityState = 'POSSIBLE';
-      unknownTriggered = true;
-    } else if (blockedQuestions.length > 0) {
-      // Check severity
-      var hasCriticalBlock = false;
-      for (var bi = 0; bi < reasonCodes.length; bi++) {
-        if (reasonCodes[bi] === 'HIGH_CONSEQUENCE_WITH_GAPS' ||
-            reasonCodes[bi] === 'SOUR_SERVICE_UNVERIFIED' ||
-            reasonCodes[bi] === 'MIXED_DAMAGE_MODES') {
-          hasCriticalBlock = true;
-        }
-      }
-
-      if (hasCriticalBlock) {
-        realityState = 'UNKNOWN';
-        unknownTriggered = true;
-        blocksDisposition = true;
-      } else {
-        realityState = 'UNVERIFIED';
-        unknownTriggered = true;
-        blocksDisposition = true;
-      }
-    } else if (reasonCodes.length >= 4) {
-      realityState = 'UNKNOWN';
-      unknownTriggered = true;
-      blocksDisposition = true;
     } else {
-      realityState = 'UNVERIFIED';
-      unknownTriggered = true;
+      minimumDataItems.push({
+        item: "Asset Type Identification",
+        reason: "Asset identified as: " + assetType,
+        priority: "CRITICAL",
+        resolved: true
+      });
     }
 
-    // Override: too many gaps on any asset = unknown
-    if (minimumData.length >= 3 && unresolvedQuestions.length >= 4) {
-      realityState = 'UNRESOLVABLE_WITH_CURRENT_DATA';
-      unknownTriggered = true;
-      blocksDisposition = true;
+    // Service environment
+    if (!serviceEnvironment || serviceEnvironment === "unknown" || serviceEnvironment === "unspecified" || serviceEnvironment === "") {
+      minimumDataItems.push({
+        item: "Service Environment",
+        reason: "Service conditions determine mechanism susceptibility and material requirements",
+        priority: "CRITICAL",
+        resolved: false
+      });
+    } else {
+      minimumDataItems.push({
+        item: "Service Environment",
+        reason: "Service identified as: " + serviceEnvironment,
+        priority: "CRITICAL",
+        resolved: true
+      });
     }
+
+    // Damage mechanism
+    if (!mechanisms || mechanisms.length === 0) {
+      minimumDataItems.push({
+        item: "Damage Mechanism Identification",
+        reason: "At least one damage mechanism must be identified or suspected to evaluate integrity",
+        priority: "CRITICAL",
+        resolved: false
+      });
+    } else {
+      minimumDataItems.push({
+        item: "Damage Mechanism Identification",
+        reason: mechanisms.length + " mechanism(s) identified",
+        priority: "CRITICAL",
+        resolved: true
+      });
+    }
+
+    // --- CONDITIONAL REQUIREMENTS ---
+
+    // If wall loss detected, need sizing
+    if (wallLossPercent > 0) {
+      var hasNominalWall = transcript.indexOf("nominal") >= 0 || transcript.indexOf("schedule") >= 0 || transcript.indexOf("nom wall") >= 0;
+      if (!hasNominalWall) {
+        minimumDataItems.push({
+          item: "Nominal Wall Thickness",
+          reason: "Wall loss of " + wallLossPercent.toFixed(1) + "% reported but nominal wall not provided — cannot calculate remaining strength",
+          priority: "CRITICAL",
+          resolved: false
+        });
+      }
+
+      var hasFlawLength = transcript.indexOf("flaw length") >= 0 || transcript.indexOf("defect length") >= 0 || transcript.indexOf("axial extent") >= 0 || transcript.indexOf("axial length") >= 0;
+      if (!hasFlawLength) {
+        minimumDataItems.push({
+          item: "Flaw Axial Length",
+          reason: "Wall loss detected but flaw length not provided — required for B31G remaining strength calculation",
+          priority: "HIGH",
+          resolved: false
+        });
+      }
+
+      var hasDiameter = transcript.indexOf("diameter") >= 0 || transcript.indexOf("pipe od") >= 0 || transcript.indexOf("inch pipe") >= 0 || transcript.indexOf("\" pipe") >= 0 || transcript.indexOf("nps") >= 0;
+      if (!hasDiameter && (assetType === "pipeline" || assetType === "piping" || assetType === "process_piping")) {
+        minimumDataItems.push({
+          item: "Pipe Diameter / OD",
+          reason: "Required for B31G and Barlow pressure calculations",
+          priority: "HIGH",
+          resolved: false
+        });
+      }
+    }
+
+    // If sour service, need material verification
+    var isSour = serviceEnvironment.indexOf("sour") >= 0 || transcript.indexOf("sour") >= 0 || transcript.indexOf("h2s") >= 0;
+    if (isSour) {
+      var hasMaterialVerification = transcript.indexOf("material cert") >= 0 || transcript.indexOf("mtr") >= 0 || transcript.indexOf("material test report") >= 0 || transcript.indexOf("pmi") >= 0 || transcript.indexOf("hardness") >= 0;
+      if (!hasMaterialVerification) {
+        minimumDataItems.push({
+          item: "Material Verification (Sour Service)",
+          reason: "Sour service requires material suitability verification per NACE MR0175 — hardness, chemistry, and/or PMI needed",
+          priority: "CRITICAL",
+          resolved: false
+        });
+      }
+    }
+
+    // If cracking detected, need crack characterization
+    if (hasCracking) {
+      var hasCrackSizing = transcript.indexOf("crack length") >= 0 || transcript.indexOf("crack depth") >= 0 || transcript.indexOf("flaw height") >= 0 || transcript.indexOf("through-wall") >= 0;
+      if (!hasCrackSizing) {
+        minimumDataItems.push({
+          item: "Crack Sizing (Length + Depth)",
+          reason: "Cracking detected but crack dimensions not provided — required for API 579-1 Part 9 assessment",
+          priority: "CRITICAL",
+          resolved: false
+        });
+      }
+
+      var hasCrackOrientation = transcript.indexOf("axial crack") >= 0 || transcript.indexOf("circumferential") >= 0 || transcript.indexOf("longitudinal") >= 0 || transcript.indexOf("transverse") >= 0;
+      if (!hasCrackOrientation) {
+        minimumDataItems.push({
+          item: "Crack Orientation",
+          reason: "Crack orientation (axial vs circumferential) determines governing stress and assessment approach",
+          priority: "HIGH",
+          resolved: false
+        });
+      }
+    }
+
+    // Operating conditions
+    var hasOperatingPressure = transcript.indexOf("operating pressure") >= 0 || transcript.indexOf("maop") >= 0 || transcript.indexOf("mawp") >= 0 || transcript.indexOf("psi") >= 0 || transcript.indexOf("operating at") >= 0;
+    if (!hasOperatingPressure && (assetType === "pipeline" || assetType === "piping" || assetType === "pressure_vessel" || assetType === "vessel")) {
+      minimumDataItems.push({
+        item: "Operating Pressure",
+        reason: "Operating pressure required to evaluate safe operating envelope and remaining strength adequacy",
+        priority: "HIGH",
+        resolved: false
+      });
+    }
+
+    // Inspection method adequacy
+    if (observedCount === 0 && suspectedCount > 0) {
+      minimumDataItems.push({
+        item: "Confirmatory Inspection Method",
+        reason: "All evidence is SUSPECTED with zero OBSERVED — at least one finding must be confirmed by appropriate inspection method",
+        priority: "CRITICAL",
+        resolved: false
+      });
+    }
+
+    // ========================================================================
+    // REASON CODES — why state is UNKNOWN
+    // ========================================================================
+
+    var reasonCodes = [];
+
+    // Check unresolved critical items
+    var unresolvedCritical = minimumDataItems.filter(function(item) {
+      return !item.resolved && item.priority === "CRITICAL";
+    });
+
+    var unresolvedHigh = minimumDataItems.filter(function(item) {
+      return !item.resolved && item.priority === "HIGH";
+    });
+
+    if (unresolvedCritical.length > 0) {
+      unresolvedCritical.forEach(function(item) {
+        reasonCodes.push({
+          code: "MISSING_CRITICAL_DATA",
+          detail: item.item + " — " + item.reason,
+          blocking: true
+        });
+      });
+    }
+
+    if (unresolvedHigh.length > 0) {
+      unresolvedHigh.forEach(function(item) {
+        reasonCodes.push({
+          code: "MISSING_HIGH_DATA",
+          detail: item.item + " — " + item.reason,
+          blocking: false
+        });
+      });
+    }
+
+    // Contradictions block disposition
+    if (contradictions.length > 0) {
+      reasonCodes.push({
+        code: "UNRESOLVED_CONTRADICTIONS",
+        detail: contradictions.length + " contradiction(s) in evidence must be resolved before disposition",
+        blocking: true
+      });
+    }
+
+    // === HOTFIX: threshold uses 0-1 scale ===
+    // ambiguityScore from reality-challenge is now 0-1
+    if (ambiguityScore >= 0.50) {
+      reasonCodes.push({
+        code: "HIGH_AMBIGUITY",
+        detail: "Ambiguity score " + (ambiguityScore * 100).toFixed(0) + "% exceeds 50% threshold — too much uncertainty for reliable disposition",
+        blocking: true
+      });
+    }
+
+    // Sour service cracking must be ruled out
+    if (isSour && !hasCracking) {
+      var crackingRuledOut = transcript.indexOf("no cracking") >= 0 || transcript.indexOf("cracking ruled out") >= 0 || transcript.indexOf("no indications") >= 0 || transcript.indexOf("crack-free") >= 0;
+      if (!crackingRuledOut) {
+        reasonCodes.push({
+          code: "SOUR_CRACKING_NOT_RULED_OUT",
+          detail: "Sour service cracking (SSC/HIC) must be ruled out before disposition — absence of evidence is not evidence of absence",
+          blocking: true
+        });
+      }
+    }
+
+    // ========================================================================
+    // DETERMINE REALITY STATE
+    // ========================================================================
+
+    var blockingReasons = reasonCodes.filter(function(r) { return r.blocking; });
+    var nonBlockingReasons = reasonCodes.filter(function(r) { return !r.blocking; });
+
+    var realityState = "KNOWN";
+    var dispositionBlocked = false;
+    var stateReason = "Sufficient data exists to support disposition";
+
+    if (blockingReasons.length > 0) {
+      realityState = "UNKNOWN";
+      dispositionBlocked = true;
+      stateReason = blockingReasons.length + " blocking condition(s) prevent disposition — additional data required";
+    } else if (nonBlockingReasons.length >= 3) {
+      realityState = "PARTIALLY_KNOWN";
+      dispositionBlocked = false;
+      stateReason = "Disposition may proceed with caveats — " + nonBlockingReasons.length + " non-critical data gaps noted";
+    }
+
+    // ========================================================================
+    // RESPONSE
+    // ========================================================================
 
     var result = {
-      reality_state: realityState,
-      unknown_triggered: unknownTriggered,
-      unknown_reason_codes: reasonCodes,
-      unresolved_questions: unresolvedQuestions,
-      blocked_questions: blockedQuestions,
-      minimum_data_required: minimumData,
-      next_best_inspection_actions: nextActions,
-      unknown_blocks_final_disposition: blocksDisposition
+      realityState: realityState,
+      dispositionBlocked: dispositionBlocked,
+      stateReason: stateReason,
+      reasonCodes: reasonCodes,
+      reasonCodeCount: reasonCodes.length,
+      blockingCount: blockingReasons.length,
+      nonBlockingCount: nonBlockingReasons.length,
+      minimumDataRequired: minimumDataItems,
+      minimumDataResolvedCount: minimumDataItems.filter(function(i) { return i.resolved; }).length,
+      minimumDataUnresolvedCount: minimumDataItems.filter(function(i) { return !i.resolved; }).length,
+      metadata: {
+        engine: "unknown-state",
+        version: "1.1",
+        hotfix: "threshold_0_1_scale",
+        timestamp: new Date().toISOString()
+      }
     };
 
     return {
       statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
+      headers: headers,
       body: JSON.stringify(result)
     };
 
   } catch (err) {
-    console.error('[unknown-state] Error:', err);
     return {
       statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ error: err.message || 'Unknown error' })
+      headers: headers,
+      body: JSON.stringify({ error: "Unknown state engine error: " + (err.message || String(err)) })
     };
   }
 };
