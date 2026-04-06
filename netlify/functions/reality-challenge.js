@@ -280,7 +280,7 @@ var handler = async function(event) {
       alternate_hypotheses: alternates,
       highest_risk_plausible_hypothesis: highestRisk,
       ambiguity_flags: ambiguityFlags,
-      ambiguity_score: ambiguityScore,
+      ambiguity_score: ambiguityScore / 100,
       challenge_triggered: challengeTriggered,
       reality_lock_recommendation: recommendation,
       challenge_reasoning_trace: trace
