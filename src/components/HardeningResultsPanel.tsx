@@ -1,18 +1,17 @@
-// ============================================================================
-// FORGED NDT INTELLIGENCE OS — HardeningResultsPanel v1.1
-// src/components/HardeningResultsPanel.tsx
-// Build 1: Authority Lock + Remaining Strength cards added
-// ============================================================================
+// FORGED NDT INTELLIGENCE OS — HardeningResultsPanel v1.2
+// File: src/components/HardeningResultsPanel.tsx
+// Build 2: Failure Mode Dominance + Disposition Pathway cards added
 
 import React from 'react';
 
-// Paths relative to src/components/
 import TrustedFactsCard from '../TrustedFactsCard';
 import RealityChallengeCard from '../RealityChallengeCard';
 import UnknownStateCard from '../UnknownStateCard';
 import MinimumDataRequiredCard from '../hardening/MinimumDataRequiredCard';
 import AuthorityLockCard from '../AuthorityLockCard';
 import RemainingStrengthCard from '../RemainingStrengthCard';
+import FailureModeDominanceCard from '../FailureModeDominanceCard';
+import DispositionPathwayCard from '../DispositionPathwayCard';
 
 import type {
   RealityChallengeResult,
@@ -27,6 +26,8 @@ interface HardeningResultsPanelProps {
   visible: boolean;
   authorityLockResult?: any;
   remainingStrengthResult?: any;
+  failureModeDominanceResult?: any;
+  dispositionPathwayResult?: any;
 }
 
 export default function HardeningResultsPanel({
@@ -35,7 +36,9 @@ export default function HardeningResultsPanel({
   trustedFacts,
   visible,
   authorityLockResult,
-  remainingStrengthResult
+  remainingStrengthResult,
+  failureModeDominanceResult,
+  dispositionPathwayResult
 }: HardeningResultsPanelProps) {
   if (!visible) return null;
 
@@ -47,8 +50,10 @@ export default function HardeningResultsPanel({
     unknownStateResult.minimum_data_required.length > 0;
   var hasAuthority = authorityLockResult !== null && authorityLockResult !== undefined;
   var hasStrength = remainingStrengthResult !== null && remainingStrengthResult !== undefined;
+  var hasFailureMode = failureModeDominanceResult !== null && failureModeDominanceResult !== undefined;
+  var hasDisposition = dispositionPathwayResult !== null && dispositionPathwayResult !== undefined;
 
-  if (!hasChallenge && !hasUnknown && !hasFacts && !hasAuthority && !hasStrength) return null;
+  if (!hasChallenge && !hasUnknown && !hasFacts && !hasAuthority && !hasStrength && !hasFailureMode && !hasDisposition) return null;
 
   var isWarningState = (unknownStateResult && unknownStateResult.unknown_triggered) ||
     (challengeResult && challengeResult.challenge_triggered);
@@ -82,18 +87,28 @@ export default function HardeningResultsPanel({
           fontWeight: 400,
           letterSpacing: '0.5px'
         }}>
-          v1.1
+          v1.2
         </span>
       </div>
 
-      {/* BUILD 1: Authority Lock Card — renders FIRST (governing authority) */}
+      {/* Build 1: Authority Lock — renders FIRST */}
       {hasAuthority && (
         <AuthorityLockCard result={authorityLockResult} />
       )}
 
-      {/* BUILD 1: Remaining Strength Card — renders after authority */}
+      {/* Build 1: Remaining Strength */}
       {hasStrength && (
         <RemainingStrengthCard result={remainingStrengthResult} />
+      )}
+
+      {/* Build 2: Failure Mode Dominance */}
+      {hasFailureMode && (
+        <FailureModeDominanceCard result={failureModeDominanceResult} />
+      )}
+
+      {/* Build 2: Disposition Pathway */}
+      {hasDisposition && (
+        <DispositionPathwayCard result={dispositionPathwayResult} />
       )}
 
       {hasUnknown && unknownStateResult!.unknown_triggered && (
