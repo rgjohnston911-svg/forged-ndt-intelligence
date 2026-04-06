@@ -1,9 +1,7 @@
-// PHOTO ANALYSIS ENGINE v1.0
+// PHOTO ANALYSIS ENGINE v1.2
 // File: netlify/functions/photo-analysis.js
 // NO TYPESCRIPT — PURE JAVASCRIPT
-// Purpose: GPT-4o vision analysis of inspection photos
-
-var https = require("https");
+// v1.2: detail "low" + reduced max_tokens to fit in 10s Netlify timeout
 
 var handler = async function(event) {
   "use strict";
@@ -54,42 +52,32 @@ var handler = async function(event) {
       cleanBase64 = cleanBase64.substring(cleanBase64.indexOf(",") + 1);
     }
 
-    // Build the data URL for vision API
     var dataUrl = "data:" + imageMimeType + ";base64," + cleanBase64;
 
-    // Construct the analysis prompt
-    var systemPrompt = "You are a senior NDT inspector and integrity engineer with 30+ years of field experience. " +
-      "You are analyzing a photograph from a field inspection. Your job is to extract OBSERVABLE damage indicators " +
-      "and translate them into structured, physics-traceable inspection findings. " +
-      "DO NOT speculate about causes. DO NOT diagnose mechanisms. ONLY describe what is visible in the image. " +
-      "Use the language of an inspection report - precise, technical, bounded by observation.";
+    // Shorter, more focused prompt to reduce tokens and time
+    var systemPrompt = "You are a senior NDT inspector analyzing a field inspection photograph. " +
+      "Extract OBSERVABLE damage indicators only. Do NOT speculate about causes or mechanisms. " +
+      "Return only valid JSON, no markdown.";
 
-    var userPromptText = "Analyze this inspection photograph and extract all OBSERVABLE damage indicators. ";
-    if (assetType) userPromptText = userPromptText + "Asset type: " + assetType + ". ";
-    if (serviceEnvironment) userPromptText = userPromptText + "Service environment: " + serviceEnvironment + ". ";
-    if (contextTranscript) userPromptText = userPromptText + "Inspector context: " + contextTranscript + ". ";
+    var userPromptText = "Analyze this inspection photo. ";
+    if (assetType) userPromptText = userPromptText + "Asset: " + assetType + ". ";
+    if (serviceEnvironment) userPromptText = userPromptText + "Service: " + serviceEnvironment + ". ";
 
-    userPromptText = userPromptText + "\n\nReturn your analysis as a JSON object with the following structure:\n" +
-      "{\n" +
-      '  "visible_damage": [list of observable damage indicators - be specific],\n' +
-      '  "morphology": "description of damage pattern (pitting, general, localized, etc.)",\n' +
-      '  "extent": "rough estimate of affected area or length",\n' +
-      '  "color_indicators": "any color changes, deposits, staining visible",\n' +
-      '  "surface_condition": "description of surface condition",\n' +
-      '  "geometric_features": [welds, nozzles, supports, or other features visible],\n' +
-      '  "measurement_references": [any visible scales, rulers, or reference objects],\n' +
-      '  "image_quality": "ASSESSABLE | MARGINAL | INADEQUATE",\n' +
-      '  "image_quality_reason": "why image is or is not adequate for assessment",\n' +
-      '  "additional_inspection_needed": [list of specific NDE methods that should follow up],\n' +
-      '  "confidence": "HIGH | MODERATE | LOW",\n' +
-      '  "transcript_addendum": "concise sentence to append to inspection transcript - factual observations only"\n' +
-      "}\n\n" +
-      "CRITICAL: Return ONLY valid JSON. No prose, no markdown fences, no commentary. " +
-      "If you cannot see damage clearly, set image_quality to INADEQUATE and explain why.";
+    userPromptText = userPromptText + "Return JSON with these fields: " +
+      "visible_damage (array of observed damage), " +
+      "morphology (damage pattern description), " +
+      "extent (rough affected area), " +
+      "color_indicators (staining/deposits visible), " +
+      "surface_condition (description), " +
+      "geometric_features (array of welds/nozzles/supports visible), " +
+      "image_quality (ASSESSABLE | MARGINAL | INADEQUATE), " +
+      "additional_inspection_needed (array of NDE methods to follow up), " +
+      "confidence (HIGH | MODERATE | LOW), " +
+      "transcript_addendum (one factual sentence to append to inspection transcript).";
 
-    var openaiPayload = JSON.stringify({
+    var openaiPayload = {
       model: "gpt-4o",
-      max_tokens: 1500,
+      max_tokens: 800,
       temperature: 0.2,
       response_format: { type: "json_object" },
       messages: [
@@ -98,48 +86,58 @@ var handler = async function(event) {
           role: "user",
           content: [
             { type: "text", text: userPromptText },
-            { type: "image_url", image_url: { url: dataUrl, detail: "high" } }
+            { type: "image_url", image_url: { url: dataUrl, detail: "low" } }
           ]
         }
       ]
-    });
+    };
 
-    // Call OpenAI API
-    var openaiResponse = await new Promise(function(resolve, reject) {
-      var options = {
-        hostname: "api.openai.com",
-        port: 443,
-        path: "/v1/chat/completions",
+    // Native fetch with explicit timeout via AbortController
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function() { controller.abort(); }, 8500); // 8.5s, under 10s Netlify limit
+
+    var openaiRes;
+    try {
+      openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": "Bearer " + apiKey,
-          "Content-Length": Buffer.byteLength(openaiPayload)
-        }
-      };
-
-      var req = https.request(options, function(res) {
-        var data = "";
-        res.on("data", function(chunk) { data = data + chunk; });
-        res.on("end", function() {
-          if (res.statusCode === 200) {
-            try {
-              resolve(JSON.parse(data));
-            } catch (parseErr) {
-              reject(new Error("Invalid OpenAI response: " + parseErr.message));
-            }
-          } else {
-            reject(new Error("OpenAI status " + res.statusCode + ": " + data.substring(0, 500)));
-          }
-        });
+          "Authorization": "Bearer " + apiKey
+        },
+        body: JSON.stringify(openaiPayload),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      if (fetchErr.name === "AbortError") {
+        return {
+          statusCode: 504,
+          headers: headers,
+          body: JSON.stringify({ error: "OpenAI request timed out (>8.5s). Try a smaller image or simpler scene." })
+        };
+      }
+      return {
+        statusCode: 500,
+        headers: headers,
+        body: JSON.stringify({ error: "Fetch error: " + (fetchErr.message || String(fetchErr)) })
+      };
+    }
 
-      req.on("error", function(err) { reject(err); });
-      req.write(openaiPayload);
-      req.end();
-    });
+    if (!openaiRes.ok) {
+      var errText = await openaiRes.text();
+      return {
+        statusCode: 500,
+        headers: headers,
+        body: JSON.stringify({
+          error: "OpenAI API status " + openaiRes.status,
+          detail: errText.substring(0, 500)
+        })
+      };
+    }
 
-    // Extract and parse the analysis
+    var openaiResponse = await openaiRes.json();
+
     var rawContent = "";
     if (openaiResponse.choices && openaiResponse.choices[0] && openaiResponse.choices[0].message) {
       rawContent = openaiResponse.choices[0].message.content || "";
@@ -150,12 +148,9 @@ var handler = async function(event) {
     try {
       analysis = JSON.parse(rawContent);
     } catch (parseErr) {
-      parseError = parseErr.message;
-      // Try to strip markdown fences
       var cleaned = rawContent.replace(/```json/g, "").replace(/```/g, "").trim();
       try {
         analysis = JSON.parse(cleaned);
-        parseError = null;
       } catch (parseErr2) {
         parseError = "Could not parse OpenAI response as JSON";
       }
@@ -172,18 +167,18 @@ var handler = async function(event) {
       };
     }
 
-    // Build response
     var result = {
       ok: true,
       analysis: analysis,
-      transcript_addendum: analysis.transcript_addendum || "",
-      image_quality: analysis.image_quality || "UNKNOWN",
-      confidence: analysis.confidence || "UNKNOWN",
+      transcript_addendum: (analysis && analysis.transcript_addendum) || "",
+      image_quality: (analysis && analysis.image_quality) || "UNKNOWN",
+      confidence: (analysis && analysis.confidence) || "UNKNOWN",
       tokens_used: openaiResponse.usage ? openaiResponse.usage.total_tokens : 0,
       metadata: {
         engine: "photo-analysis",
-        version: "1.0",
+        version: "1.2",
         model: "gpt-4o",
+        detail_level: "low",
         timestamp: new Date().toISOString()
       }
     };
