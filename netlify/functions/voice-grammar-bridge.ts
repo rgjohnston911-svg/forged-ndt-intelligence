@@ -72,7 +72,7 @@ var FINDING_TYPE_KEYWORDS: any = {
   "creep": ["creep", "creep damage", "bulging", "swelling"],
   "fatigue": ["fatigue", "fatigue crack", "cyclic", "vibration fatigue"],
   "scc": ["stress corrosion", "scc", "intergranular", "transgranular", "branching crack"],
-  "mic": ["mic", "microbiological", "microbial", "under deposit"]
+  "mic": [" mic ", " mic,", " mic.", "microbiological", "microbial", "under deposit", "microbiologically influenced"]
 };
 
 var SERVICE_FLUID_KEYWORDS: any = {
