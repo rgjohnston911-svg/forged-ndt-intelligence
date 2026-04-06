@@ -1183,7 +1183,7 @@ export default function VoiceInspectionPage() {
             {/* MISSING FIELDS */}
             {grammarBridgeResult.missing_required && grammarBridgeResult.missing_required.length > 0 && !gbConfirmed && (
               <div style={{ padding: "8px 10px", backgroundColor: "#fffbeb", borderRadius: "4px", border: "1px solid #fde68a", marginBottom: "10px", fontSize: "12px", color: "#92400e" }}>
-                <strong>Missing:</strong> {grammarBridgeResult.missing_required.join(", ").replace(/_/g, " ")} \u2014 <em>tap a field above to add</em>
+                <strong>Missing:</strong> {grammarBridgeResult.missing_required.join(", ").replace(/_/g, " ")} {"\u2014"} <em>tap a field above to add</em>
               </div>
             )}
 
