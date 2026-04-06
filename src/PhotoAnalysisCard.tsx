@@ -1,7 +1,8 @@
-// PHOTO ANALYSIS CARD v1.3
+// PHOTO ANALYSIS CARD v1.4
 // File: src/PhotoAnalysisCard.tsx
-// v1.3: Client-side canvas resize to 1024px max edge before upload
-// Always exports as JPEG to eliminate mime type null narrowing issues
+// v1.4: Universal asset-agnostic display - shows asset identification,
+//       geometric integrity (any asset), material degradation, critical interface zone
+//       Works for offshore, refinery, piping, tanks, structural, concrete, etc.
 
 import React, { useState, useRef } from "react";
 
@@ -59,14 +60,13 @@ function PhotoAnalysisCard(props: PhotoAnalysisCardProps) {
         var ctx = canvas.getContext("2d");
 
         if (!ctx) {
-          // Fallback: use original (canvas not supported)
+          // Fallback: use original
           setImageData(originalDataUrl);
           setImageMimeType("image/jpeg");
           setResizing(false);
           return;
         }
 
-        // High-quality scaling
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
         ctx.drawImage(img, 0, 0, newWidth, newHeight);
@@ -136,6 +136,13 @@ function PhotoAnalysisCard(props: PhotoAnalysisCardProps) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  // Helper: is geometric integrity normal/good?
+  var isGeometryNormal = function(gi: string) {
+    if (!gi) return true;
+    var upper = gi.toUpperCase();
+    return upper.indexOf("PLUMB") === 0 || upper.indexOf("LEVEL") === 0;
+  };
+
   var qualityColor = analysis && analysis.image_quality === "ASSESSABLE" ? "#10b981"
     : analysis && analysis.image_quality === "MARGINAL" ? "#f59e0b"
     : "#ef4444";
@@ -158,7 +165,7 @@ function PhotoAnalysisCard(props: PhotoAnalysisCardProps) {
         React.createElement("span", { style: { fontSize: "22px" } }, "\u{1F4F8}"),
         React.createElement("span", { style: { color: "#3b82f6", fontSize: "14px", fontWeight: "700", letterSpacing: "0.05em", textTransform: "uppercase" as const } }, "PHOTO ANALYSIS \u2014 GPT-4o VISION")
       ),
-      React.createElement("span", { style: { color: "#64748b", fontSize: "11px", fontFamily: "monospace" } }, "ENGINE: photo-analysis v1.3")
+      React.createElement("span", { style: { color: "#64748b", fontSize: "11px", fontFamily: "monospace" } }, "ENGINE: photo-analysis v1.4")
     ),
 
     // Upload area
@@ -250,6 +257,13 @@ function PhotoAnalysisCard(props: PhotoAnalysisCardProps) {
         style: { width: "100%", maxHeight: "200px", objectFit: "contain" as const, borderRadius: "8px", marginBottom: "12px", background: "rgba(30, 41, 59, 0.5)" }
       }),
 
+      // Asset identification (NEW v1.4)
+      analysis.analysis && analysis.analysis.asset_identification && React.createElement("div", { style: { padding: "10px 14px", background: "rgba(59, 130, 246, 0.06)", border: "1px solid rgba(59, 130, 246, 0.2)", borderRadius: "8px", marginBottom: "12px" } },
+        React.createElement("div", { style: { color: "#3b82f6", fontSize: "10px", fontWeight: "700", textTransform: "uppercase" as const, marginBottom: "4px" } }, "\u{1F4D1} ASSET IDENTIFIED"),
+        React.createElement("div", { style: { color: "#cbd5e1", fontSize: "13px", fontWeight: "600" } }, analysis.analysis.asset_identification),
+        analysis.analysis.expected_geometry && React.createElement("div", { style: { color: "#94a3b8", fontSize: "11px", marginTop: "2px" } }, "Expected geometry: " + analysis.analysis.expected_geometry)
+      ),
+
       // Critical findings banner (top-priority)
       hasCriticalFindings && React.createElement("div", { style: { padding: "12px 14px", background: "rgba(239, 68, 68, 0.1)", border: "2px solid #ef4444", borderRadius: "8px", marginBottom: "12px" } },
         React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" } },
@@ -269,10 +283,11 @@ function PhotoAnalysisCard(props: PhotoAnalysisCardProps) {
         analysis.tokens_used > 0 && React.createElement("span", { style: { fontSize: "11px", padding: "4px 10px", borderRadius: "4px", background: "rgba(100, 116, 139, 0.15)", color: "#64748b", fontFamily: "monospace" } }, analysis.tokens_used + " tokens")
       ),
 
-      // Structural attitude (NEW v1.3)
-      analysis.analysis && analysis.analysis.structural_attitude && analysis.analysis.structural_attitude !== "PLUMB" && React.createElement("div", { style: { padding: "10px 12px", background: "rgba(245, 158, 11, 0.08)", border: "1px solid rgba(245, 158, 11, 0.3)", borderRadius: "8px", marginBottom: "12px" } },
-        React.createElement("div", { style: { color: "#f59e0b", fontSize: "10px", fontWeight: "700", textTransform: "uppercase" as const, marginBottom: "4px" } }, "\u{1F4D0} STRUCTURAL ATTITUDE"),
-        React.createElement("div", { style: { color: "#fbbf24", fontSize: "12px", lineHeight: "1.5" } }, analysis.analysis.structural_attitude)
+      // Geometric integrity (UNIVERSAL v1.4 - shows for ANY asset when not plumb/level)
+      analysis.analysis && analysis.analysis.geometric_integrity && !isGeometryNormal(analysis.analysis.geometric_integrity) && React.createElement("div", { style: { padding: "10px 12px", background: "rgba(245, 158, 11, 0.08)", border: "1px solid rgba(245, 158, 11, 0.3)", borderRadius: "8px", marginBottom: "12px" } },
+        React.createElement("div", { style: { color: "#f59e0b", fontSize: "10px", fontWeight: "700", textTransform: "uppercase" as const, marginBottom: "4px" } }, "\u{1F4D0} GEOMETRIC INTEGRITY"),
+        React.createElement("div", { style: { color: "#fbbf24", fontSize: "12px", lineHeight: "1.5" } }, analysis.analysis.geometric_integrity),
+        analysis.analysis.geometric_reference_used && React.createElement("div", { style: { color: "#94a3b8", fontSize: "10px", marginTop: "4px", fontStyle: "italic" as const } }, "Reference used: " + analysis.analysis.geometric_reference_used)
       ),
 
       // Visible damage
@@ -283,15 +298,22 @@ function PhotoAnalysisCard(props: PhotoAnalysisCardProps) {
         })
       ),
 
-      // Corrosion severity + locations (NEW v1.3)
-      analysis.analysis && analysis.analysis.corrosion_severity && analysis.analysis.corrosion_severity !== "NONE" && React.createElement("div", { style: { padding: "10px 12px", background: "rgba(245, 158, 11, 0.06)", border: "1px solid rgba(245, 158, 11, 0.2)", borderRadius: "8px", marginBottom: "12px" } },
-        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" } },
-          React.createElement("span", { style: { color: "#f59e0b", fontSize: "10px", fontWeight: "700", textTransform: "uppercase" as const } }, "CORROSION SEVERITY:"),
-          React.createElement("span", { style: { color: "#fbbf24", fontSize: "12px", fontWeight: "700" } }, analysis.analysis.corrosion_severity)
+      // Material degradation (UNIVERSAL v1.4 - replaces corrosion-specific)
+      analysis.analysis && analysis.analysis.material_degradation_severity && analysis.analysis.material_degradation_severity !== "NONE" && React.createElement("div", { style: { padding: "10px 12px", background: "rgba(245, 158, 11, 0.06)", border: "1px solid rgba(245, 158, 11, 0.2)", borderRadius: "8px", marginBottom: "12px" } },
+        React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", flexWrap: "wrap" as const } },
+          React.createElement("span", { style: { color: "#f59e0b", fontSize: "10px", fontWeight: "700", textTransform: "uppercase" as const } }, "MATERIAL DEGRADATION:"),
+          React.createElement("span", { style: { color: "#fbbf24", fontSize: "12px", fontWeight: "700" } }, analysis.analysis.material_degradation_severity),
+          analysis.analysis.material_degradation_pattern && analysis.analysis.material_degradation_pattern !== "none" && React.createElement("span", { style: { color: "#94a3b8", fontSize: "10px", fontStyle: "italic" as const } }, "(" + analysis.analysis.material_degradation_pattern + ")")
         ),
-        analysis.analysis.corrosion_locations && analysis.analysis.corrosion_locations.length > 0 && React.createElement("div", { style: { color: "#fbbf24", fontSize: "11px", lineHeight: "1.5" } },
-          "Locations: " + analysis.analysis.corrosion_locations.join(", ")
+        analysis.analysis.material_degradation_locations && analysis.analysis.material_degradation_locations.length > 0 && React.createElement("div", { style: { color: "#fbbf24", fontSize: "11px", lineHeight: "1.5" } },
+          "Locations: " + analysis.analysis.material_degradation_locations.join(", ")
         )
+      ),
+
+      // Critical interface zone (UNIVERSAL v1.4 - replaces splash_zone)
+      analysis.analysis && analysis.analysis.critical_interface_zone && analysis.analysis.critical_interface_condition && React.createElement("div", { style: { padding: "10px 12px", background: "rgba(168, 85, 247, 0.06)", border: "1px solid rgba(168, 85, 247, 0.2)", borderRadius: "8px", marginBottom: "12px" } },
+        React.createElement("div", { style: { color: "#a855f7", fontSize: "10px", fontWeight: "700", textTransform: "uppercase" as const, marginBottom: "4px" } }, "\u{1F3AF} CRITICAL INTERFACE: " + analysis.analysis.critical_interface_zone),
+        React.createElement("div", { style: { color: "#cbd5e1", fontSize: "12px", lineHeight: "1.5" } }, analysis.analysis.critical_interface_condition)
       ),
 
       // Morphology + Extent
@@ -307,23 +329,20 @@ function PhotoAnalysisCard(props: PhotoAnalysisCardProps) {
       ),
 
       // Additional details (collapsible)
-      analysis.analysis && (analysis.analysis.surface_condition || analysis.analysis.color_indicators || analysis.analysis.welds_connections || analysis.analysis.splash_zone_condition || analysis.analysis.deformation_observed) && React.createElement("details", { style: { marginBottom: "12px" } },
+      analysis.analysis && (analysis.analysis.deformation_observed || analysis.analysis.process_indicators || analysis.analysis.welds_connections || analysis.analysis.appurtenances) && React.createElement("details", { style: { marginBottom: "12px" } },
         React.createElement("summary", { style: { color: "#64748b", fontSize: "12px", cursor: "pointer", userSelect: "none" as const } }, "Detailed Observations"),
         React.createElement("div", { style: { marginTop: "8px", padding: "10px", background: "rgba(30, 41, 59, 0.5)", borderRadius: "6px" } },
-          analysis.analysis.splash_zone_condition && analysis.analysis.splash_zone_condition !== "N/A" && React.createElement("div", { style: { fontSize: "11px", color: "#94a3b8", marginBottom: "6px" } },
-            React.createElement("strong", null, "Splash zone: "), analysis.analysis.splash_zone_condition
-          ),
           analysis.analysis.deformation_observed && analysis.analysis.deformation_observed !== "NONE" && React.createElement("div", { style: { fontSize: "11px", color: "#94a3b8", marginBottom: "6px" } },
             React.createElement("strong", null, "Deformation: "), analysis.analysis.deformation_observed
+          ),
+          analysis.analysis.process_indicators && analysis.analysis.process_indicators !== "NONE" && React.createElement("div", { style: { fontSize: "11px", color: "#94a3b8", marginBottom: "6px" } },
+            React.createElement("strong", null, "Process indicators: "), analysis.analysis.process_indicators
           ),
           analysis.analysis.welds_connections && React.createElement("div", { style: { fontSize: "11px", color: "#94a3b8", marginBottom: "6px" } },
             React.createElement("strong", null, "Welds/Connections: "), analysis.analysis.welds_connections
           ),
-          analysis.analysis.surface_condition && React.createElement("div", { style: { fontSize: "11px", color: "#94a3b8", marginBottom: "6px" } },
-            React.createElement("strong", null, "Surface: "), analysis.analysis.surface_condition
-          ),
-          analysis.analysis.color_indicators && React.createElement("div", { style: { fontSize: "11px", color: "#94a3b8", marginBottom: "6px" } },
-            React.createElement("strong", null, "Color: "), analysis.analysis.color_indicators
+          analysis.analysis.appurtenances && React.createElement("div", { style: { fontSize: "11px", color: "#94a3b8", marginBottom: "6px" } },
+            React.createElement("strong", null, "Appurtenances: "), analysis.analysis.appurtenances
           ),
           analysis.analysis.geometric_features && analysis.analysis.geometric_features.length > 0 && React.createElement("div", { style: { fontSize: "11px", color: "#94a3b8" } },
             React.createElement("strong", null, "Features: "), analysis.analysis.geometric_features.join(", ")
@@ -342,7 +361,7 @@ function PhotoAnalysisCard(props: PhotoAnalysisCardProps) {
       // Transcript addendum
       analysis.transcript_addendum && React.createElement("div", { style: { padding: "12px", background: "rgba(16, 185, 129, 0.06)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: "8px", marginBottom: "12px" } },
         React.createElement("div", { style: { color: "#10b981", fontSize: "10px", fontWeight: "700", textTransform: "uppercase" as const, marginBottom: "6px" } }, "TRANSCRIPT ADDENDUM"),
-        React.createElement("div", { style: { color: "#cbd5e1", fontSize: "12px", lineHeight: "1.5", marginBottom: "8px", fontStyle: "italic" } }, "\"" + analysis.transcript_addendum + "\""),
+        React.createElement("div", { style: { color: "#cbd5e1", fontSize: "12px", lineHeight: "1.5", marginBottom: "8px", fontStyle: "italic" as const } }, "\"" + analysis.transcript_addendum + "\""),
         props.onAddendumReady && React.createElement("button", {
           onClick: handleAppend,
           disabled: appended,
