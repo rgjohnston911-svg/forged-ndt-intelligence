@@ -1,9 +1,19 @@
-// DEPLOY111 — VoiceInspectionPage.tsx v14.0
-// v14.0: Save to Case Manager button + engine version v2.3
-// FIX: voice-incident-plan call now passes decisionResult directly (DEPLOY107 path 1)
+// DEPLOY129 — VoiceInspectionPage.tsx v16.2
+// v16.2: Hardening Sprint 1 wired — Reality Challenge + Unknown State + Trusted Facts
+// DEPLOY125 — VoiceInspectionPage.tsx v16.1
+// v16.1: Interactive Grammar Bridge readback with editable fields + amendment trail
+// DEPLOY123 — VoiceInspectionPage.tsx v16.0
+// v16.0: Evidence Provenance wired into pipeline + UI
+// Calls evidence-provenance before decision-core, passes results through pipeline.
+// Evidence Provenance card shows trust band, evidence items, measurement reality gaps.
+// DEPLOY113 — VoiceInspectionPage.tsx v15.0
+// v15.0: Superbrain Synthesis — Five Magic Features rendered
+// Replaces AI Narrative with full superbrain intelligence output
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
+import { runHardeningPipeline } from "../utils/hardening-pipeline";
+import HardeningResultsPanel from "../components/HardeningResultsPanel";
 
 function generateInspectionReport(data: {
   transcript: string;
@@ -11,6 +21,8 @@ function generateInspectionReport(data: {
   asset: any;
   decisionCore: any;
   aiNarrative: string | null;
+  superbrainResult: any;
+  provenanceResult?: any;
 }) {
   var dc = data.decisionCore;
   if (!dc) { alert("No Decision Core data to export."); return; }
@@ -23,14 +35,15 @@ function generateInspectionReport(data: {
   var conf = dc.reality_confidence;
   var dec = dc.decision_reality;
   var comp = dc.physics_computations;
+  var sb = data.superbrainResult;
 
   var now = new Date();
   var dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   var timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
   var caseRef = "FORGED-" + now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + String(now.getDate()).padStart(2, "0") + "-" + String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0") + String(now.getSeconds()).padStart(2, "0");
 
-  var tierColor = con.consequence_tier === "CRITICAL" ? "#dc2626" : con.consequence_tier === "HIGH" ? "#ea580c" : con.consequence_tier === "MEDIUM" ? "#ca8a04" : "#16a34a";
-  var bandColor = conf.band === "TRUSTED" || conf.band === "HIGH" ? "#16a34a" : conf.band === "GUARDED" ? "#ca8a04" : "#dc2626";
+  var tierColorVal = con.consequence_tier === "CRITICAL" ? "#dc2626" : con.consequence_tier === "HIGH" ? "#ea580c" : con.consequence_tier === "MEDIUM" ? "#ca8a04" : "#16a34a";
+  var bandColorVal = conf.band === "TRUSTED" || conf.band === "HIGH" ? "#16a34a" : conf.band === "GUARDED" ? "#ca8a04" : "#dc2626";
 
   function esc(s: any): string { return String(s || "").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
@@ -69,15 +82,19 @@ function generateInspectionReport(data: {
   html += ".sig-label { font-size: 10px; color: #6b7280; }";
   html += ".print-btn { position: fixed; top: 20px; right: 20px; padding: 12px 24px; font-size: 14px; font-weight: 700; color: #fff; background: #2563eb; border: none; border-radius: 6px; cursor: pointer; z-index: 1000; }";
   html += ".print-btn:hover { background: #1d4ed8; }";
+  html += ".sb-table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 12px; }";
+  html += ".sb-table th { background: #f0f4ff; padding: 6px 8px; text-align: left; border: 1px solid #dbeafe; font-weight: 700; color: #1e40af; }";
+  html += ".sb-table td { padding: 5px 8px; border: 1px solid #e5e7eb; vertical-align: top; }";
+  html += ".sb-item { padding: 6px 10px; margin-bottom: 4px; background: #f9fafb; border-radius: 4px; border-left: 3px solid #2563eb; font-size: 11px; }";
   html += "</style></head><body>";
 
   html += "<button class='print-btn no-print' onclick='window.print()'>Save as PDF / Print</button>";
 
   html += "<div class='header'>";
   html += "<h1>FORGED NDT Intelligence OS</h1>";
-  html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Plan Report</div>";
+  html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>Engine: physics-first-decision-core v2.3 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>Engine: decision-core v2.5 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -88,15 +105,128 @@ function generateInspectionReport(data: {
     assetNote = " (corrected from " + esc(dc.asset_correction.original) + ")";
   }
   html += "<div class='meta-box'><div class='meta-label'>Asset Classification</div><div class='meta-value'>" + esc(displayAssetClass) + assetNote + "</div></div>";
-  html += "<div class='meta-box'><div class='meta-label'>Consequence Tier</div><div class='meta-value' style='color:" + tierColor + "'>" + esc(con.consequence_tier) + " - " + esc(con.failure_mode).replace(/_/g, " ") + "</div></div>";
+  html += "<div class='meta-box'><div class='meta-label'>Consequence Tier</div><div class='meta-value' style='color:" + tierColorVal + "'>" + esc(con.consequence_tier) + " - " + esc(con.failure_mode).replace(/_/g, " ") + "</div></div>";
   html += "<div class='meta-box'><div class='meta-label'>Disposition</div><div class='meta-value'>" + esc(dec.disposition).replace(/_/g, " ").toUpperCase() + "</div></div>";
   html += "<div class='meta-box'><div class='meta-label'>Primary Authority</div><div class='meta-value'>" + esc(auth.primary_authority) + "</div></div>";
   html += "</div>";
 
+  // SUPERBRAIN FEATURES IN PDF
+  if (sb && sb.synthesis) {
+    var syn = sb.synthesis;
+
+    // Failure Narrative
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Failure Narrative (Physics-Traced)</div>";
+    html += "<div class='narrative'>" + esc(syn.failure_narrative) + "</div>";
+    html += "</div>";
+
+    // Contradiction Matrix
+    if (syn.contradiction_matrix && syn.contradiction_matrix.length > 0) {
+      html += "<div class='section'>";
+      html += "<div class='section-title'>Contradiction Matrix — Code vs Physics</div>";
+      html += "<table class='sb-table'>";
+      html += "<tr><th>Framework</th><th>Verdict</th><th>Basis</th><th>Limitation</th><th>Gap Reason</th></tr>";
+      for (var ci = 0; ci < syn.contradiction_matrix.length; ci++) {
+        var cm = syn.contradiction_matrix[ci];
+        var vColor = (cm.verdict || "").indexOf("ACCEPT") !== -1 ? "#16a34a" : "#dc2626";
+        html += "<tr><td><strong>" + esc(cm.framework) + "</strong></td><td style='color:" + vColor + ";font-weight:700;'>" + esc(cm.verdict) + "</td><td>" + esc(cm.basis) + "</td><td>" + esc(cm.limitation) + "</td><td style='color:#dc2626;'>" + esc(cm.gap_reason) + "</td></tr>";
+      }
+      html += "</table></div>";
+    }
+
+    // Pre-Inspection Briefing
+    if (syn.pre_inspection_briefing) {
+      var pib = syn.pre_inspection_briefing;
+      html += "<div class='section'>";
+      html += "<div class='section-title'>Pre-Inspection Briefing — What to Look For</div>";
+      if (pib.target_zones && pib.target_zones.length > 0) {
+        html += "<div style='margin-bottom:8px;'><strong>Target Zones:</strong></div>";
+        for (var tz = 0; tz < pib.target_zones.length; tz++) html += "<div class='sb-item'>" + esc(pib.target_zones[tz]) + "</div>";
+      }
+      if (pib.expected_flaws && pib.expected_flaws.length > 0) {
+        html += "<div style='margin-bottom:8px;margin-top:8px;'><strong>Expected Flaw Morphology:</strong></div>";
+        for (var ef = 0; ef < pib.expected_flaws.length; ef++) html += "<div class='sb-item'>" + esc(pib.expected_flaws[ef]) + "</div>";
+      }
+      if (pib.method_recommendations && pib.method_recommendations.length > 0) {
+        html += "<div style='margin-bottom:8px;margin-top:8px;'><strong>Method Recommendations:</strong></div>";
+        for (var mr = 0; mr < pib.method_recommendations.length; mr++) html += "<div class='sb-item'>" + esc(pib.method_recommendations[mr]) + "</div>";
+      }
+      if (pib.sensitivity_settings) html += "<div style='margin-top:8px;font-size:11px;'><strong>Sensitivity:</strong> " + esc(pib.sensitivity_settings) + "</div>";
+      if (pib.watch_items && pib.watch_items.length > 0) {
+        html += "<div style='margin-bottom:8px;margin-top:8px;'><strong>Watch Items:</strong></div>";
+        for (var wi = 0; wi < pib.watch_items.length; wi++) html += "<div class='sb-item' style='border-left-color:#ea580c;'>" + esc(pib.watch_items[wi]) + "</div>";
+      }
+      html += "</div>";
+    }
+
+    // Inspector Action Card
+    if (syn.inspector_action_card && syn.inspector_action_card.length > 0) {
+      html += "<div class='section'>";
+      html += "<div class='section-title'>Inspector Action Card</div>";
+      for (var ac = 0; ac < syn.inspector_action_card.length; ac++) {
+        var action = syn.inspector_action_card[ac];
+        html += "<div class='recovery-item'>";
+        html += "<strong>#" + (ac + 1) + " " + esc(action.step) + "</strong><br/>";
+        html += "Rationale: " + esc(action.rationale) + "<br/>";
+        html += "<span style='color:#16a34a;'>If positive: " + esc(action.threshold_if_positive) + "</span><br/>";
+        html += "<span style='color:#dc2626;'>If negative: " + esc(action.threshold_if_negative) + "</span>";
+        html += "</div>";
+      }
+      html += "</div>";
+    }
+
+    // Reviewer Brief
+    if (syn.reviewer_brief) {
+      html += "<div class='section'>";
+      html += "<div class='section-title'>Reviewer Brief</div>";
+      html += "<div class='narrative'>" + esc(syn.reviewer_brief) + "</div>";
+      html += "</div>";
+    }
+
+    // Procedure Forensics
+    if (syn.procedure_forensics) {
+      var pf = syn.procedure_forensics;
+      html += "<div class='section'>";
+      html += "<div class='section-title'>Procedure Forensics — What Went Wrong</div>";
+      if (pf.likely_causes && pf.likely_causes.length > 0) {
+        for (var lc = 0; lc < pf.likely_causes.length; lc++) html += "<div class='sb-item'>" + esc(pf.likely_causes[lc]) + "</div>";
+      }
+      if (pf.reverse_inference_chain && pf.reverse_inference_chain.length > 0) {
+        html += "<div style='margin-top:8px;'><strong>Reverse Inference Chain:</strong></div>";
+        for (var ri = 0; ri < pf.reverse_inference_chain.length; ri++) html += "<div style='font-size:11px;padding:3px 0;'>" + (ri + 1) + ". " + esc(pf.reverse_inference_chain[ri]) + "</div>";
+      }
+      html += "</div>";
+    }
+  }
+
+  // Evidence Provenance in PDF
+  if (data.provenanceResult && data.provenanceResult.provenance_summary) {
+    var prov = data.provenanceResult;
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Evidence Provenance</div>";
+    html += "<div class='info-row'><span class='info-label'>Trust Band</span><span class='info-value'>" + esc(prov.provenance_summary.trust_band) + " (" + Math.round(prov.provenance_summary.average_trust_weight * 100) + "%)</span></div>";
+    html += "<div class='info-row'><span class='info-label'>Dominant Source</span><span class='info-value'>" + esc(prov.provenance_summary.dominant_source) + "</span></div>";
+    html += "<div class='info-row'><span class='info-label'>Measured Fraction</span><span class='info-value'>" + Math.round(prov.provenance_summary.measured_fraction * 100) + "%</span></div>";
+    html += "<div class='info-row'><span class='info-label'>Total Items</span><span class='info-value'>" + (prov.provenance_summary.total_evidence_items || 0) + "</span></div>";
+    if (prov.measurement_reality) {
+      html += "<div class='info-row'><span class='info-label'>Method Adequacy</span><span class='info-value'>" + esc(prov.measurement_reality.overall_adequacy) + "</span></div>";
+      if (prov.measurement_reality.unanswered_gaps) {
+        for (var ugi = 0; ugi < prov.measurement_reality.unanswered_gaps.length; ugi++) {
+          html += "<div class='gap-item'>" + esc(prov.measurement_reality.unanswered_gaps[ugi].message) + "</div>";
+        }
+      }
+    }
+    if (prov.provenance_summary.recommendation) {
+      html += "<div style='margin-top:8px;font-size:11px;color:#92400e;padding:6px 10px;background:#fffbeb;border-radius:4px;'>" + esc(prov.provenance_summary.recommendation) + "</div>";
+    }
+    html += "</div>";
+  }
+
+  // Reality Confidence
   html += "<div class='section'>";
   html += "<div class='section-title'>Reality Confidence</div>";
   html += "<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>";
-  html += "<div><strong style='color:" + bandColor + ";font-size:14px;'>" + esc(conf.band) + "</strong> (" + Math.round(conf.overall * 100) + "%)</div>";
+  html += "<div><strong style='color:" + bandColorVal + ";font-size:14px;'>" + esc(conf.band) + "</strong> (" + Math.round(conf.overall * 100) + "%)</div>";
   html += "</div>";
   html += "<div class='confidence-grid'>";
   var confDims = [
@@ -106,10 +236,10 @@ function generateInspectionReport(data: {
     { label: "Authority", value: conf.authority_confidence },
     { label: "Inspection", value: conf.inspection_confidence },
   ];
-  for (var ci = 0; ci < confDims.length; ci++) {
-    var pct = Math.round(confDims[ci].value * 100);
+  for (var cdi = 0; cdi < confDims.length; cdi++) {
+    var pct = Math.round(confDims[cdi].value * 100);
     var cc = pct >= 70 ? "#16a34a" : pct >= 50 ? "#ca8a04" : "#dc2626";
-    html += "<div class='conf-box'><div class='conf-label'>" + confDims[ci].label + "</div><div class='conf-value' style='color:" + cc + "'>" + pct + "%</div></div>";
+    html += "<div class='conf-box'><div class='conf-label'>" + confDims[cdi].label + "</div><div class='conf-value' style='color:" + cc + "'>" + pct + "%</div></div>";
   }
   html += "</div>";
   if (conf.limiting_factors && conf.limiting_factors.length > 0) {
@@ -117,108 +247,38 @@ function generateInspectionReport(data: {
   }
   html += "</div>";
 
+  // Consequence
   html += "<div class='section'>";
   html += "<div class='section-title'>Consequence Reality</div>";
-  html += "<div class='banner' style='background:" + tierColor + "'>" + esc(con.consequence_tier) + " CONSEQUENCE</div>";
+  html += "<div class='banner' style='background:" + tierColorVal + "'>" + esc(con.consequence_tier) + " CONSEQUENCE</div>";
   html += "<div class='info-row'><span class='info-label'>Failure Mode</span><span class='info-value'>" + esc(con.failure_mode).replace(/_/g, " ") + "</span></div>";
   html += "<div class='info-row'><span class='info-label'>Human Impact</span><span class='info-value'>" + esc(con.human_impact) + "</span></div>";
   html += "<div class='info-row'><span class='info-label'>Damage State</span><span class='info-value'>" + esc(con.damage_state || "STABLE") + "</span></div>";
-  html += "<div class='info-row'><span class='info-label'>Monitoring Urgency</span><span class='info-value'>" + esc(con.monitoring_urgency || "Routine") + "</span></div>";
   if (con.failure_physics) html += "<div style='margin-top:8px;padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;font-size:11px;'><strong>Failure Physics:</strong> " + esc(con.failure_physics) + "</div>";
-  if (con.damage_trajectory) html += "<div style='margin-top:6px;font-size:11px;'><strong>Trajectory:</strong> " + esc(con.damage_trajectory) + "</div>";
   html += "</div>";
 
-  html += "<div class='section'>";
-  html += "<div class='section-title'>Physical Reality (confidence: " + Math.round(phy.physics_confidence * 100) + "%)</div>";
-  html += "<div style='padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;margin-bottom:8px;font-size:11px;'>" + esc(phy.physics_summary) + "</div>";
-  html += "<div class='info-row'><span class='info-label'>Load Types</span><span class='info-value'>" + esc((phy.stress.primary_load_types || []).join(", ") || "none") + "</span></div>";
-  html += "<div class='info-row'><span class='info-label'>Cyclic Loading</span><span class='info-value'>" + (phy.stress.cyclic_loading ? "YES - " + esc(phy.stress.cyclic_source) : "No") + "</span></div>";
-  html += "<div class='info-row'><span class='info-label'>Stress Concentration</span><span class='info-value'>" + (phy.stress.stress_concentration_present ? "YES - " + esc((phy.stress.stress_concentration_locations || []).join(", ")) : "No") + "</span></div>";
-  html += "<div class='info-row'><span class='info-label'>Corrosive Environment</span><span class='info-value'>" + (phy.chemical.corrosive_environment ? "YES - " + esc((phy.chemical.environment_agents || []).join(", ")) : "No") + "</span></div>";
-  html += "<div class='info-row'><span class='info-label'>Stored Energy</span><span class='info-value'>" + (phy.energy.stored_energy_significant ? "Significant" : "Low") + "</span></div>";
-  if (phy.field_interaction && phy.field_interaction.hotspots.length > 0) {
-    html += "<div style='margin-top:8px;padding:8px 10px;background:" + (phy.field_interaction.interaction_level === "HIGH" ? "#fef2f2" : "#fffbeb") + ";border-radius:4px;border-left:3px solid " + (phy.field_interaction.interaction_level === "HIGH" ? "#dc2626" : "#ca8a04") + ";'>";
-    html += "<strong>Field Interaction: " + esc(phy.field_interaction.interaction_level) + " (" + phy.field_interaction.interaction_score + "/100)</strong><br/>";
-    for (var fi = 0; fi < phy.field_interaction.warnings.length; fi++) html += "<span style='font-size:10px;'>" + esc(phy.field_interaction.warnings[fi]) + "</span><br/>";
-    html += "</div>";
-  }
-  html += "</div>";
-
-  html += "<div class='section'>";
-  html += "<div class='section-title'>Damage Reality (" + (dmg.validated_mechanisms?.length || 0) + " validated, " + (dmg.rejected_mechanisms?.length || 0) + " impossible)</div>";
-  if (dmg.primary_mechanism) {
-    html += "<div class='mech-valid'><strong>Primary: " + esc(dmg.primary_mechanism.name) + "</strong> (" + esc(dmg.primary_mechanism.reality_state) + ", score: " + dmg.primary_mechanism.reality_score + ")<br/>Physics: " + esc(dmg.primary_mechanism.physics_basis) + "</div>";
-  }
-  if (dmg.validated_mechanisms && dmg.validated_mechanisms.length > 1) {
-    for (var vi = 1; vi < dmg.validated_mechanisms.length; vi++) {
-      var vm = dmg.validated_mechanisms[vi];
-      html += "<div class='mech-valid' style='border-left-color:#ca8a04;'>" + esc(vm.name) + " (" + esc(vm.reality_state) + ") - " + esc(vm.physics_basis) + "</div>";
-    }
-  }
-  if (dmg.rejected_mechanisms && dmg.rejected_mechanisms.length > 0) {
-    html += "<div style='font-size:10px;font-weight:700;color:#dc2626;margin:8px 0 4px 0;'>PHYSICALLY IMPOSSIBLE (" + dmg.rejected_mechanisms.length + ")</div>";
-    for (var ri = 0; ri < Math.min(dmg.rejected_mechanisms.length, 8); ri++) {
-      var rm = dmg.rejected_mechanisms[ri];
-      html += "<div class='mech-reject'>" + esc(rm.name) + ": " + esc(rm.rejection_reason) + "</div>";
-    }
-    if (dmg.rejected_mechanisms.length > 8) html += "<div style='font-size:10px;color:#6b7280;'>...and " + (dmg.rejected_mechanisms.length - 8) + " more rejected</div>";
-  }
-  html += "</div>";
-
-  html += "<div class='section'>";
-  html += "<div class='section-title'>Inspection Reality</div>";
-  var inspColor = insp.sufficiency_verdict === "BLOCKED" ? "#dc2626" : insp.sufficiency_verdict === "INSUFFICIENT" ? "#ea580c" : "#16a34a";
-  html += "<div class='banner' style='background:" + inspColor + "'>" + esc(insp.sufficiency_verdict) + " - " + esc((insp.proposed_methods || []).join(", ") || (insp.recommended_package && insp.recommended_package.length > 0 ? "Recommended: " + insp.recommended_package.join(" + ") : "No methods in transcript")) + "</div>";
-  html += "<div style='font-size:11px;margin-bottom:8px;'>" + esc(insp.physics_reason) + "</div>";
-  if (insp.missing_coverage && insp.missing_coverage.length > 0) {
-    for (var mi = 0; mi < insp.missing_coverage.length; mi++) html += "<div class='gap-item'>" + esc(insp.missing_coverage[mi]) + "</div>";
-  }
-  if (insp.best_method) {
-    html += "<div style='margin-top:8px;padding:8px 10px;background:#f0fdf4;border-radius:4px;border-left:3px solid #16a34a;'><strong>Best Method: " + esc(insp.best_method.method) + " (score: " + insp.best_method.overall_score + "/100)</strong></div>";
-  }
-  if (insp.constraint_analysis && insp.constraint_analysis.truth_quality !== "HIGH") {
-    html += "<div style='margin-top:8px;padding:8px 10px;background:#fffbeb;border-radius:4px;border-left:3px solid #ca8a04;font-size:10px;'><strong>Truth Quality: " + esc(insp.constraint_analysis.truth_quality) + "</strong> (" + insp.constraint_analysis.constraint_score + "/100)</div>";
-  }
-  html += "</div>";
-
+  // Decision
   html += "<div class='section'>";
   html += "<div class='section-title'>Decision</div>";
   var decColor = dec.disposition === "no_go" ? "#dc2626" : dec.disposition === "hold_for_review" || dec.disposition === "engineering_review_required" ? "#ca8a04" : "#16a34a";
   html += "<div class='banner' style='background:" + decColor + "'>" + esc(dec.disposition).replace(/_/g, " ").toUpperCase() + "</div>";
   html += "<div style='font-size:11px;margin-bottom:10px;'>" + esc(dec.disposition_basis) + "</div>";
   if (dec.gates && dec.gates.length > 0) {
-    html += "<div style='font-size:10px;font-weight:700;color:#6b7280;margin-bottom:4px;'>PRECEDENCE GATES</div>";
     for (var gi = 0; gi < dec.gates.length; gi++) {
       var g = dec.gates[gi];
       var gc = g.result === "PASS" ? "gate-pass" : g.result === "BLOCKED" ? "gate-block" : g.result === "ESCALATED" ? "gate-warn" : "gate-info";
-      var gIcon = g.result === "PASS" ? "PASS" : g.result === "BLOCKED" ? "BLOCKED" : g.result === "ESCALATED" ? "ESCALATED" : "INFO";
-      html += "<div class='gate-row " + gc + "'><strong>[" + gIcon + "]</strong> <span style='font-weight:600;'>" + esc(g.gate).replace(/_/g, " ") + "</span> <span style='color:#6b7280;margin-left:6px;'>" + esc(g.reason) + "</span></div>";
+      html += "<div class='gate-row " + gc + "'><strong>[" + g.result + "]</strong> <span style='font-weight:600;'>" + esc(g.gate).replace(/_/g, " ") + "</span> <span style='color:#6b7280;margin-left:6px;'>" + esc(g.reason) + "</span></div>";
     }
   }
   html += "</div>";
 
-  if (dec.guided_recovery && dec.guided_recovery.length > 0) {
-    html += "<div class='section'>";
-    html += "<div class='section-title'>Guided Recovery (" + dec.guided_recovery.length + " actions)</div>";
-    for (var ri2 = 0; ri2 < dec.guided_recovery.length; ri2++) {
-      var r = dec.guided_recovery[ri2];
-      html += "<div class='recovery-item'><strong>#" + r.priority + " " + esc(r.action) + "</strong><br/>Physics: " + esc(r.physics_reason) + "<br/>Who: " + esc(r.who) + "</div>";
-    }
-    html += "</div>";
-  }
-
-  if (data.aiNarrative) {
-    html += "<div class='section'>";
-    html += "<div class='section-title'>AI Narrative Summary (GPT-4o constrained by physics core)</div>";
-    html += "<div class='narrative'>" + esc(data.aiNarrative) + "</div>";
-    html += "</div>";
-  }
-
+  // Transcript
   html += "<div class='section'>";
   html += "<div class='section-title'>Original Input Transcript</div>";
   html += "<div style='padding:10px;background:#f9fafb;border-radius:6px;font-size:11px;white-space:pre-wrap;border:1px solid #e5e7eb;'>" + esc(data.transcript) + "</div>";
   html += "</div>";
 
+  // Signature
   html += "<div class='sig-line'>";
   html += "<div class='sig-box'><div class='sig-label'>Inspector</div><div style='height:24px;'></div><div class='sig-label'>Date</div></div>";
   html += "<div class='sig-box'><div class='sig-label'>Reviewed By</div><div style='height:24px;'></div><div class='sig-label'>Date</div></div>";
@@ -226,7 +286,7 @@ function generateInspectionReport(data: {
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
   html += "Generated by FORGED NDT Intelligence OS - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
-  html += "<br/>Engine: physics-first-decision-core v2.3 | Klein Bottle Architecture | " + (dc.klein_bottle_states || 6) + " states";
+  html += "<br/>Engine: decision-core v2.5 + Superbrain v1.1 + Provenance v1.0 | Klein Bottle Architecture | " + (dc.klein_bottle_states || 6) + " states";
   html += "</div>";
 
   html += "</body></html>";
@@ -254,7 +314,7 @@ async function callAPI(endpoint: string, body: any): Promise<any> {
 }
 
 // ============================================================================
-// SAVE TO CASE MANAGER — v14.0
+// SAVE TO CASE MANAGER
 // ============================================================================
 var SUPABASE_URL = "https://lrxwirjcuzultolomnos.supabase.co";
 var SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyeHdpcmpjdXp1bHRvbG9tbm9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzQ1NjcsImV4cCI6MjA5MDY1MDU2N30.oVGJybVpR2ktkHWMXsNeVFkBB7QFzfpp9QyIk00zwUU";
@@ -416,12 +476,13 @@ function gateColor(result: string): string {
 // ============================================================================
 // CARD WRAPPER
 // ============================================================================
-function Card({ title, icon, children, status, collapsible, defaultCollapsed }: { title: string; icon: string; children: React.ReactNode; status?: string; collapsible?: boolean; defaultCollapsed?: boolean }) {
+function Card({ title, icon, children, status, collapsible, defaultCollapsed, accent }: { title: string; icon: string; children: React.ReactNode; status?: string; collapsible?: boolean; defaultCollapsed?: boolean; accent?: string }) {
   var [collapsed, setCollapsed] = useState(defaultCollapsed || false);
   var canCollapse = collapsible !== false;
+  var borderLeft = accent ? "3px solid " + accent : "none";
   return (
-    <div style={{ marginBottom: "16px", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
-      <div onClick={function() { if (canCollapse) setCollapsed(!collapsed); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", backgroundColor: "#f9fafb", borderBottom: collapsed ? "none" : "1px solid #e5e7eb", cursor: canCollapse ? "pointer" : "default", userSelect: "none" }}>
+    <div style={{ marginBottom: "16px", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff", borderLeft: borderLeft }}>
+      <div onClick={function() { if (canCollapse) setCollapsed(!collapsed); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", backgroundColor: accent ? accent + "08" : "#f9fafb", borderBottom: collapsed ? "none" : "1px solid #e5e7eb", cursor: canCollapse ? "pointer" : "default", userSelect: "none" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span style={{ fontSize: "18px" }}>{icon}</span>
           <span style={{ fontWeight: 700, fontSize: "14px" }}>{title}</span>
@@ -544,12 +605,10 @@ export default function VoiceInspectionPage() {
   var [engineeringResult, setEngineeringResult] = useState<any>(null);
   var [engineeringLoading, setEngineeringLoading] = useState(false);
   var [engineeringError, setEngineeringError] = useState<string | null>(null);
-  var [showExpertMode, setShowExpertMode] = useState(false);
   var [architectureResult, setArchitectureResult] = useState<any>(null);
   var [architectureLoading, setArchitectureLoading] = useState(false);
   var [materialsResult, setMaterialsResult] = useState<any>(null);
   var [materialsLoading, setMaterialsLoading] = useState(false);
-  var [showLayer3, setShowLayer3] = useState(false);
   var [aiNarrative, setAiNarrative] = useState<string | null>(null);
   var [errors, setErrors] = useState<string[]>([]);
   var [isListening, setIsListening] = useState(false);
@@ -560,10 +619,27 @@ export default function VoiceInspectionPage() {
   var [pipelinePaused, setPipelinePaused] = useState(false);
   var resultsRef = useRef<HTMLDivElement>(null);
 
-  // SAVE TO CASE MANAGER STATE — v14.0
+  // SAVE TO CASE MANAGER STATE
   var [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   var [savedCaseId, setSavedCaseId] = useState<string | null>(null);
   var [saveError, setSaveError] = useState<string | null>(null);
+
+  // SUPERBRAIN STATE — v15.0
+  var [superbrainResult, setSuperbrainResult] = useState<any>(null);
+  var [superbrainLoading, setSuperbrainLoading] = useState(false);
+  var [superbrainError, setSuperbrainError] = useState<string | null>(null);
+  var [grammarBridgeResult, setGrammarBridgeResult] = useState<any>(null);
+
+  // EVIDENCE PROVENANCE STATE — v16.0
+  var [provenanceResult, setProvenanceResult] = useState<any>(null);
+  var [provenanceLoading, setProvenanceLoading] = useState(false);
+  var [hardeningResult, setHardeningResult] = useState<any>(null);
+  var [hardeningLoading, setHardeningLoading] = useState(false);
+
+  // GRAMMAR BRIDGE EDITING STATE — v16.1
+  var [gbEditingField, setGbEditingField] = useState<string | null>(null);
+  var [gbAmendments, setGbAmendments] = useState<any[]>([]);
+  var [gbConfirmed, setGbConfirmed] = useState(false);
 
   var handleSaveToCase = async function() {
     if (!decisionCore) return;
@@ -576,6 +652,31 @@ export default function VoiceInspectionPage() {
       setSaveStatus("error");
       setSaveError(result.error || "Unknown error");
     }
+  };
+
+  // GRAMMAR BRIDGE AMENDMENT HANDLER — v16.1
+  var handleGbAmend = async function(field: string, value: string) {
+    if (!grammarBridgeResult) return;
+    try {
+      var amendRes = await callAPI("voice-grammar-bridge", {
+        action: "amend",
+        current_state: grammarBridgeResult,
+        amendment: { field: field, value: value, source: "inspector_ui" }
+      });
+      if (amendRes && amendRes.ok) {
+        var amended = amendRes.result || amendRes;
+        setGrammarBridgeResult(amended);
+        setGbAmendments(function(prev: any[]) {
+          return prev.concat([{ field: field, value: value, timestamp: new Date().toISOString() }]);
+        });
+      }
+    } catch (err) { /* amendment failure is non-blocking */ }
+    setGbEditingField(null);
+  };
+
+  var handleGbConfirm = function() {
+    setGbConfirmed(true);
+    setGbEditingField(null);
   };
 
   var callEngineeringCore = async function(decResult: any, narrativeText: string) {
@@ -644,6 +745,32 @@ export default function VoiceInspectionPage() {
     } catch(ex) {} finally { setMaterialsLoading(false); }
   };
 
+  // SUPERBRAIN SYNTHESIS CALL — v15.0
+  var callSuperbrainSynthesis = async function(dcResult: any, transcriptText: string) {
+    setSuperbrainLoading(true); setSuperbrainError(null);
+    try {
+      var sbRes = await fetch('/.netlify/functions/superbrain-synthesis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decision_core: dcResult,
+          transcript: transcriptText
+        })
+      });
+      if (sbRes.ok) {
+        var sbData = await sbRes.json();
+        setSuperbrainResult(sbData);
+      } else {
+        var sbErr = await sbRes.text();
+        setSuperbrainError('Superbrain status ' + sbRes.status + ': ' + sbErr.substring(0, 200));
+      }
+    } catch (ex: any) {
+      setSuperbrainError('Superbrain: ' + (ex.message || String(ex)));
+    } finally {
+      setSuperbrainLoading(false);
+    }
+  };
+
   var parsedRef = useRef<any>(null);
   var assetRef = useRef<any>(null);
   var stepsRef = useRef<StepState[]>([]);
@@ -679,6 +806,11 @@ export default function VoiceInspectionPage() {
     setPreliminaryEvidence(null); setErrors([]);
     setParsed(null); setAsset(null); setRealityLock(null);
     setDecisionCore(null); setAiNarrative(null);
+    setSuperbrainResult(null); setSuperbrainError(null);
+    setGrammarBridgeResult(null);
+    setProvenanceResult(null); setProvenanceLoading(false);
+    setHardeningResult(null); setHardeningLoading(false);
+    setGbEditingField(null); setGbAmendments([]); setGbConfirmed(false);
     setAiQuestions(null); setAiUnderstood(null); setSelectedAnswers({});
     setSaveStatus("idle"); setSavedCaseId(null); setSaveError(null);
     inputTextRef.current = inputText;
@@ -686,8 +818,10 @@ export default function VoiceInspectionPage() {
     var initialSteps: StepState[] = [
       { label: "AI Incident Parser (GPT-4o)", status: "pending" },
       { label: "Resolve Asset + Domain Gate", status: "pending" },
+      { label: "Evidence Provenance (trust classification)", status: "pending" },
       { label: "Physics-First Decision Core (6 states)", status: "pending" },
-      { label: "AI Narrative (GPT-4o)", status: "pending" },
+      { label: "Superbrain Synthesis (Five Magic Features)", status: "pending" },
+      { label: "Reality Hardening (challenge + unknown state)", status: "pending" },
     ];
     var s = initialSteps.slice();
     setSteps(s); stepsRef.current = s;
@@ -698,10 +832,21 @@ export default function VoiceInspectionPage() {
     try {
       s = updateStep(0, { status: "running" }, s); s = updateStep(1, { status: "running" }, s); setSteps(s.slice());
 
+      // Grammar Bridge runs silently in parallel — results shown in readback panel
+      var gbPromise = callAPI("voice-grammar-bridge", { action: "extract", transcript: inputText }).catch(function() { return null; });
+
       var [parseRes, assetRes] = await Promise.allSettled([
         callAPI("parse-incident", { transcript: inputText }),
         callAPI("resolve-asset", { raw_text: inputText }),
       ]);
+
+      // Grammar Bridge result (non-blocking)
+      try {
+        var gbValue = await gbPromise;
+        if (gbValue && gbValue.ok) {
+          setGrammarBridgeResult(gbValue.result || gbValue);
+        }
+      } catch (gbErr) { /* Grammar bridge failure is non-blocking */ }
 
       if (parseRes.status === "fulfilled") {
         parsedResult = parseRes.value.parsed || parseRes.value;
@@ -709,7 +854,7 @@ export default function VoiceInspectionPage() {
         if (parseRes.value.needs_input && parseRes.value.questions) {
           setAiQuestions(parseRes.value.questions);
           setAiUnderstood(parseRes.value.understood || "");
-          for (var wi = 2; wi < s.length; wi++) s = updateStep(wi, { status: "waiting", detail: "waiting for answers" }, s);
+          for (var wi = 3; wi < s.length; wi++) s = updateStep(wi, { status: "waiting", detail: "waiting for answers" }, s);
           s = updateStep(0, { status: "done", detail: (parsedResult?.events?.length || 0) + " events" }, s);
           if (assetRes.status === "fulfilled") {
             assetResult = assetRes.value.resolved || assetRes.value;
@@ -764,7 +909,7 @@ export default function VoiceInspectionPage() {
       setPreliminaryEvidence(prelimEvidence);
       setEvidenceConfirmPending(true);
 
-      for (var ei = 2; ei < s.length; ei++) s = updateStep(ei, { status: "waiting", detail: "waiting for evidence confirmation" }, s);
+      for (var ei = 3; ei < s.length; ei++) s = updateStep(ei, { status: "waiting", detail: "waiting for evidence confirmation" }, s);
       setSteps(s.slice()); stepsRef.current = s;
       setErrors(errs); errorsRef.current = errs;
       setIsGenerating(false);
@@ -785,7 +930,35 @@ export default function VoiceInspectionPage() {
     var errs = errorsRef.current.slice();
 
     try {
-      s = updateStep(2, { status: "running", detail: "6 Klein bottle states..." }, s); setSteps(s.slice());
+      // STEP 3: EVIDENCE PROVENANCE — v16.0
+      s = updateStep(2, { status: "running", detail: "classifying evidence trust..." }, s); setSteps(s.slice());
+      var provenanceData: any = null;
+      try {
+        setProvenanceLoading(true);
+        var provRes = await callAPI("evidence-provenance", {
+          transcript: inputText,
+          numeric_values: parsedResult ? parsedResult.numeric_values || {} : {},
+          methods: [],
+          findings: []
+        });
+        if (provRes && provRes.ok) {
+          provenanceData = provRes;
+          setProvenanceResult(provRes);
+          var trustLabel = (provRes.provenance_summary ? provRes.provenance_summary.trust_band : "?");
+          var evidenceCount = (provRes.evidence ? provRes.evidence.length : 0);
+          s = updateStep(2, { status: "done", detail: trustLabel + " trust | " + evidenceCount + " items" }, s);
+        } else {
+          s = updateStep(2, { status: "done", detail: "no provenance data" }, s);
+        }
+      } catch (provErr: any) {
+        s = updateStep(2, { status: "error", detail: provErr.message }, s);
+        errs.push("evidence-provenance: " + provErr.message);
+      }
+      setProvenanceLoading(false);
+      setSteps(s.slice());
+
+      // STEP 4: DECISION CORE
+      s = updateStep(3, { status: "running", detail: "6 Klein bottle states..." }, s); setSteps(s.slice());
       var coreResult: any = null;
       try {
         var coreRes = await callAPI("decision-core", {
@@ -793,13 +966,15 @@ export default function VoiceInspectionPage() {
           asset: assetResult,
           confirmed_flags: confirmedFlags,
           transcript: inputText,
-          reality_lock: realityLock
+          reality_lock: realityLock,
+          evidence_provenance: provenanceData
         });
         coreResult = coreRes.decision_core || coreRes;
         setDecisionCore(coreResult);
         if (coreResult) {
           var txVal = '';
           try { if (transcript) { txVal = String(transcript); } } catch(ex) {}
+          // Fire background calls (stored, not rendered)
           callEngineeringCore(coreResult, txVal);
           callArchitectureCore(coreResult, txVal);
           callMaterialsCore(coreResult, txVal);
@@ -810,22 +985,93 @@ export default function VoiceInspectionPage() {
         if (coreResult?.asset_correction?.corrected) {
           s = updateStep(1, { status: "done", detail: coreResult.asset_correction.corrected_to + " (corrected from " + coreResult.asset_correction.original + ")" }, s);
         }
-        s = updateStep(2, { status: "done", detail: tier + " | " + disp + " | " + elapsed + "ms" }, s);
+        s = updateStep(3, { status: "done", detail: tier + " | " + disp + " | " + elapsed + "ms" }, s);
       } catch (e: any) {
-        s = updateStep(2, { status: "error", detail: e.message }, s);
+        s = updateStep(3, { status: "error", detail: e.message }, s);
         errs.push("decision-core: " + e.message);
       }
       setSteps(s.slice());
 
-      s = updateStep(3, { status: "running" }, s); setSteps(s.slice());
-      try {
-        var planRes = await callAPI("voice-incident-plan", { transcript: inputText, decisionResult: coreResult });
-        var narrative = planRes?.plan || planRes?.text || planRes?.result || JSON.stringify(planRes);
-        setAiNarrative(typeof narrative === "string" ? narrative : JSON.stringify(narrative));
-        s = updateStep(3, { status: "done", detail: "narrative generated" }, s);
-      } catch (e: any) {
-        s = updateStep(3, { status: "error", detail: e.message }, s);
-        errs.push("narrative: " + e.message);
+      // STEP 5: SUPERBRAIN SYNTHESIS — v15.0
+      s = updateStep(4, { status: "running", detail: "GPT-4o constrained by decision-core..." }, s); setSteps(s.slice());
+      if (coreResult) {
+        try {
+          var sbRes = await fetch('/.netlify/functions/superbrain-synthesis', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              decision_core: coreResult,
+              transcript: inputText
+            })
+          });
+          if (sbRes.ok) {
+            var sbData = await sbRes.json();
+            setSuperbrainResult(sbData);
+            var featureCount = 0;
+            if (sbData.synthesis) {
+              if (sbData.synthesis.failure_narrative) featureCount++;
+              if (sbData.synthesis.contradiction_matrix) featureCount++;
+              if (sbData.synthesis.pre_inspection_briefing) featureCount++;
+              if (sbData.synthesis.procedure_forensics) featureCount++;
+              if (sbData.synthesis.inspector_action_card) featureCount++;
+            }
+            s = updateStep(4, { status: "done", detail: featureCount + " features synthesized" }, s);
+          } else {
+            var sbErrText = await sbRes.text();
+            setSuperbrainError('Status ' + sbRes.status);
+            s = updateStep(4, { status: "error", detail: "status " + sbRes.status }, s);
+            errs.push("superbrain-synthesis: " + sbErrText.substring(0, 200));
+            // FALLBACK: try old narrative
+            try {
+              var planRes = await callAPI("voice-incident-plan", { transcript: inputText, decisionResult: coreResult });
+              var narrative = planRes?.plan || planRes?.text || planRes?.result || JSON.stringify(planRes);
+              setAiNarrative(typeof narrative === "string" ? narrative : JSON.stringify(narrative));
+              s = updateStep(4, { status: "done", detail: "fallback narrative" }, s);
+            } catch (fallbackErr: any) {
+              errs.push("narrative fallback: " + fallbackErr.message);
+            }
+          }
+        } catch (sbEx: any) {
+          setSuperbrainError(sbEx.message || String(sbEx));
+          s = updateStep(4, { status: "error", detail: sbEx.message }, s);
+          errs.push("superbrain-synthesis: " + sbEx.message);
+        }
+      } else {
+        s = updateStep(4, { status: "error", detail: "no decision-core data" }, s);
+      }
+      setSteps(s.slice());
+
+      // STEP 6: REALITY HARDENING — Sprint 1
+      s = updateStep(5, { status: "running", detail: "challenge + unknown state..." }, s); setSteps(s.slice());
+      if (coreResult) {
+        try {
+          setHardeningLoading(true);
+          var hardenRes = await runHardeningPipeline(
+            inputText,
+            parsedResult,
+            assetResult,
+            grammarBridgeResult,
+            provenanceData,
+            coreResult.damage_reality || null,
+            coreResult.inspection_reality || null,
+            coreResult.authority_reality || null,
+            coreResult.contradiction_engine || null,
+            coreResult.consequence_reality || null,
+            coreResult,
+            savedCaseId || undefined
+          );
+          setHardeningResult(hardenRes);
+          var rState = hardenRes?.unknownStateResult?.reality_state || "?";
+          var tFacts = hardenRes?.trustedFacts?.length || 0;
+          s = updateStep(5, { status: "done", detail: rState + " | " + tFacts + " trusted facts" }, s);
+        } catch (hErr: any) {
+          s = updateStep(5, { status: "error", detail: hErr.message }, s);
+          errs.push("hardening: " + hErr.message);
+        } finally {
+          setHardeningLoading(false);
+        }
+      } else {
+        s = updateStep(5, { status: "error", detail: "no decision-core data" }, s);
       }
       setSteps(s.slice());
 
@@ -853,6 +1099,7 @@ export default function VoiceInspectionPage() {
   var comp = dc?.physics_computations;
   var conf = dc?.reality_confidence;
   var dec = dc?.decision_reality;
+  var syn = superbrainResult?.synthesis;
 
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
@@ -877,6 +1124,133 @@ export default function VoiceInspectionPage() {
       {errors.length > 0 && (<div style={{ margin: "12px 0", padding: "12px 16px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px" }}>{errors.map(function(e, i) { return <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0" }}>{e}</div>; })}</div>)}
 
       <div ref={resultsRef}>
+
+        {/* GRAMMAR BRIDGE INTERACTIVE READBACK — v16.1 */}
+        {grammarBridgeResult && evidenceConfirmPending && (
+          <div style={{ margin: "0 0 16px 0", padding: "16px", backgroundColor: gbConfirmed ? "#f0fdf4" : "#f0f9ff", border: "1px solid " + (gbConfirmed ? "#bbf7d0" : "#bae6fd"), borderRadius: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: gbConfirmed ? "#16a34a" : "#0369a1" }}>
+                {gbConfirmed ? "\u2705 Readback Confirmed" : "\uD83C\uDF99\uFE0F Voice Grammar Bridge \u2014 Review & Edit"}
+              </div>
+              <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: grammarBridgeResult.completeness === "COMPLETE" ? "#dcfce7" : grammarBridgeResult.completeness === "NEAR_COMPLETE" ? "#fef9c3" : "#fee2e2", color: grammarBridgeResult.completeness === "COMPLETE" ? "#166534" : grammarBridgeResult.completeness === "NEAR_COMPLETE" ? "#854d0e" : "#991b1b", fontWeight: 600 }}>
+                {grammarBridgeResult.completeness} ({grammarBridgeResult.field_count ? grammarBridgeResult.field_count.extracted + "/" + grammarBridgeResult.field_count.total_required : ""})
+              </div>
+            </div>
+            <div style={{ fontSize: "14px", color: "#1e3a5f", lineHeight: "1.6", padding: "10px 12px", backgroundColor: "#fff", borderRadius: "6px", border: "1px solid #e0f2fe", marginBottom: "12px" }}>
+              {grammarBridgeResult.readback || "No readback generated"}
+            </div>
+
+            {/* EDITABLE FIELD GRID */}
+            {grammarBridgeResult.extracted && !gbConfirmed && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "8px", marginBottom: "12px" }}>
+                {[
+                  { key: "asset_type", label: "Asset", color: "#7c3aed", bg: "#f5f3ff", options: ["piping", "pressure_vessel", "pipeline", "tank", "bridge", "rail_bridge", "offshore_platform", "boiler", "heat_exchanger"] },
+                  { key: "material", label: "Material", color: "#6b21a8", bg: "#faf5ff", options: ["carbon_steel", "alloy_steel", "stainless_steel", "duplex", "nickel_alloy", "aluminum", "titanium", "cast_iron"] },
+                  { key: "primary_finding", label: "Primary Finding", color: "#92400e", bg: "#fffbeb", options: ["wall_loss", "crack", "pitting", "corrosion", "deformation", "leak", "erosion", "cui", "fatigue", "scc", "fire_damage", "creep"] },
+                  { key: "service_fluid", label: "Service", color: "#3730a3", bg: "#e0e7ff", options: ["amine", "hydrogen", "h2s", "crude", "steam", "water", "caustic", "acid", "ammonia", "natural_gas", "refined_product"] },
+                  { key: "primary_location", label: "Location", color: "#0e7490", bg: "#ecfeff", options: ["elbow", "weld", "nozzle", "flange", "support", "intrados", "extrados", "tee", "bottom", "connection", "gusset", "web", "haz"] },
+                  { key: "orientation", label: "Orientation", color: "#4338ca", bg: "#eef2ff", options: ["horizontal", "vertical", "inclined", "overhead", "underground"] }
+                ].map(function(fieldDef, fdi) {
+                  var currentVal = grammarBridgeResult.extracted[fieldDef.key];
+                  var isEditing = gbEditingField === fieldDef.key;
+                  return (
+                    <div key={fdi} style={{ position: "relative" }}>
+                      <div onClick={function() { setGbEditingField(isEditing ? null : fieldDef.key); }} style={{ padding: "8px 10px", borderRadius: "6px", backgroundColor: currentVal ? fieldDef.bg : "#f9fafb", border: "1px solid " + (currentVal ? fieldDef.color + "40" : "#e5e7eb"), cursor: "pointer", minHeight: "52px" }}>
+                        <div style={{ fontSize: "9px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "2px" }}>{fieldDef.label}</div>
+                        <div style={{ fontSize: "12px", fontWeight: 600, color: currentVal ? fieldDef.color : "#9ca3af" }}>
+                          {currentVal ? currentVal.replace(/_/g, " ") : "\u2014 tap to add"}
+                        </div>
+                      </div>
+                      {isEditing && (
+                        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, backgroundColor: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", maxHeight: "200px", overflowY: "auto", marginTop: "2px" }}>
+                          {fieldDef.options.map(function(opt, oi) {
+                            var isCurrent = currentVal === opt;
+                            return (
+                              <div key={oi} onClick={function() { handleGbAmend(fieldDef.key, opt); }} style={{ padding: "8px 12px", fontSize: "12px", cursor: "pointer", backgroundColor: isCurrent ? fieldDef.bg : "transparent", fontWeight: isCurrent ? 700 : 400, color: isCurrent ? fieldDef.color : "#374151", borderBottom: "1px solid #f3f4f6" }}>
+                                {opt.replace(/_/g, " ")}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* NDE METHODS + FINDINGS (read-only badges) */}
+            {grammarBridgeResult.extracted && (
+              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "10px" }}>
+                {grammarBridgeResult.extracted.nde_methods && grammarBridgeResult.extracted.nde_methods.map(function(m: string, mi: number) {
+                  return <span key={"m" + mi} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#dbeafe", color: "#1e40af", fontWeight: 600 }}>{m}</span>;
+                })}
+                {grammarBridgeResult.extracted.finding_types && grammarBridgeResult.extracted.finding_types.map(function(f: string, fi: number) {
+                  return <span key={"f" + fi} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#fef3c7", color: "#92400e", fontWeight: 500 }}>{f.replace(/_/g, " ")}</span>;
+                })}
+                {grammarBridgeResult.extracted.locations && grammarBridgeResult.extracted.locations.map(function(l: string, li: number) {
+                  return <span key={"l" + li} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#ecfeff", color: "#0e7490", fontWeight: 500 }}>{l.replace(/_/g, " ")}</span>;
+                })}
+              </div>
+            )}
+
+            {/* NUMERIC VALUES */}
+            {grammarBridgeResult.extracted && grammarBridgeResult.extracted.numeric && (
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
+                {grammarBridgeResult.extracted.numeric.diameter_inches && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#374151" }}>{grammarBridgeResult.extracted.numeric.diameter_inches}" dia</span>}
+                {grammarBridgeResult.extracted.numeric.wall_loss_percent && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#fef2f2", color: "#dc2626", fontWeight: 600 }}>{grammarBridgeResult.extracted.numeric.wall_loss_percent}% wall loss</span>}
+                {grammarBridgeResult.extracted.numeric.temperature_f && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#374151" }}>{grammarBridgeResult.extracted.numeric.temperature_f}\u00B0F</span>}
+                {grammarBridgeResult.extracted.numeric.pressure_psi && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#374151" }}>{grammarBridgeResult.extracted.numeric.pressure_psi} psi</span>}
+                {grammarBridgeResult.extracted.numeric.service_years && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#374151" }}>{grammarBridgeResult.extracted.numeric.service_years} yrs</span>}
+              </div>
+            )}
+
+            {/* RISK FLAGS */}
+            {grammarBridgeResult.risk_flags && grammarBridgeResult.risk_flags.length > 0 && (
+              <div style={{ marginBottom: "10px" }}>
+                {grammarBridgeResult.risk_flags.map(function(rf: any, ri: number) {
+                  var rfBg = rf.severity === "critical" ? "#fef2f2" : rf.severity === "high" ? "#fffbeb" : "#f0f9ff";
+                  var rfBorder = rf.severity === "critical" ? "#fecaca" : rf.severity === "high" ? "#fde68a" : "#bae6fd";
+                  var rfColor = rf.severity === "critical" ? "#991b1b" : rf.severity === "high" ? "#92400e" : "#0369a1";
+                  var rfIcon = rf.severity === "critical" ? "\uD83D\uDED1" : rf.severity === "high" ? "\u26A0\uFE0F" : "\u2139\uFE0F";
+                  return (
+                    <div key={ri} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: rfBg, border: "1px solid " + rfBorder, borderRadius: "4px", color: rfColor }}>
+                      {rfIcon} {rf.message}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* MISSING FIELDS */}
+            {grammarBridgeResult.missing_required && grammarBridgeResult.missing_required.length > 0 && !gbConfirmed && (
+              <div style={{ padding: "8px 10px", backgroundColor: "#fffbeb", borderRadius: "4px", border: "1px solid #fde68a", marginBottom: "10px", fontSize: "12px", color: "#92400e" }}>
+                <strong>Missing:</strong> {grammarBridgeResult.missing_required.join(", ").replace(/_/g, " ")} \u2014 <em>tap a field above to add</em>
+              </div>
+            )}
+
+            {/* AMENDMENT TRAIL */}
+            {gbAmendments.length > 0 && (
+              <div style={{ marginBottom: "10px" }}>
+                <div style={{ fontSize: "10px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Amendment Trail ({gbAmendments.length})</div>
+                {gbAmendments.map(function(am: any, ai: number) {
+                  return (
+                    <div key={ai} style={{ fontSize: "11px", padding: "4px 8px", marginBottom: "2px", backgroundColor: "#fefce8", borderRadius: "3px", borderLeft: "2px solid #ca8a04", color: "#374151" }}>
+                      <strong>{am.field.replace(/_/g, " ")}:</strong> set to <strong>{am.value.replace(/_/g, " ")}</strong>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* CONFIRM BUTTON */}
+            {!gbConfirmed && (
+              <button onClick={handleGbConfirm} style={{ width: "100%", padding: "10px", fontSize: "13px", fontWeight: 700, color: "#fff", backgroundColor: "#0369a1", border: "none", borderRadius: "6px", cursor: "pointer" }}>
+                {"\u2705"} Confirm Readback
+              </button>
+            )}
+          </div>
+        )}
 
         {evidenceConfirmPending && preliminaryEvidence && (
           <EvidenceConfirmationCard evidence={preliminaryEvidence} onConfirm={handleConfirmEvidence} onSkip={handleSkipEvidence} isGenerating={isGenerating} />
@@ -907,10 +1281,11 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
+        {/* ACTION BUTTONS */}
         {dc && (
           <div style={{ marginBottom: "16px" }}>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative }); }} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: "#1e40af", border: "none", borderRadius: "6px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+              <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative, superbrainResult: superbrainResult, provenanceResult: provenanceResult }); }} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: "#1e40af", border: "none", borderRadius: "6px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
                 {"\uD83D\uDCC4"} Export PDF
               </button>
               {saveStatus === "saved" ? (
@@ -937,6 +1312,7 @@ export default function VoiceInspectionPage() {
           </div>
         )}
 
+        {/* CONFIDENCE BAND */}
         {conf && (
           <div style={{ marginBottom: "16px", padding: "14px 18px", backgroundColor: conf.band === "TRUSTED" || conf.band === "HIGH" ? "#f0fdf4" : conf.band === "GUARDED" ? "#fffbeb" : "#fef2f2", border: "2px solid " + bandColor(conf.band), borderRadius: "8px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
@@ -957,12 +1333,12 @@ export default function VoiceInspectionPage() {
                 { label: "Authority", value: conf.authority_confidence },
                 { label: "Inspection", value: conf.inspection_confidence },
               ].map(function(dim, i) {
-                var pct = Math.round(dim.value * 100);
-                var c = pct >= 70 ? "#16a34a" : pct >= 50 ? "#ca8a04" : "#dc2626";
+                var pctVal = Math.round(dim.value * 100);
+                var c = pctVal >= 70 ? "#16a34a" : pctVal >= 50 ? "#ca8a04" : "#dc2626";
                 return (
                   <div key={i} style={{ textAlign: "center", padding: "6px", backgroundColor: "#fff", borderRadius: "6px", border: "1px solid #e5e7eb" }}>
                     <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>{dim.label}</div>
-                    <div style={{ fontSize: "16px", fontWeight: 700, color: c }}>{pct}%</div>
+                    <div style={{ fontSize: "16px", fontWeight: 700, color: c }}>{pctVal}%</div>
                   </div>
                 );
               })}
@@ -975,6 +1351,7 @@ export default function VoiceInspectionPage() {
           </div>
         )}
 
+        {/* CONSEQUENCE */}
         {con && (
           <Card title={"Consequence: " + con.consequence_tier} icon={con.consequence_tier === "CRITICAL" ? "\uD83D\uDED1" : con.consequence_tier === "HIGH" ? "\u26A0\uFE0F" : "\u2139\uFE0F"} collapsible={false}>
             <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "18px", color: "#fff", backgroundColor: tierColor(con.consequence_tier), textAlign: "center" }}>
@@ -1004,113 +1381,7 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {phy && (
-          <Card title="Physical Reality" icon={"\u269B\uFE0F"} status={"confidence: " + Math.round(phy.physics_confidence * 100) + "%"}>
-            <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "12px", padding: "10px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}>{phy.physics_summary}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-              <div style={{ padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Stress State</div>
-                <div style={{ fontSize: "12px" }}>Loads: {phy.stress.primary_load_types.join(", ") || "none identified"}</div>
-                <div style={{ fontSize: "12px" }}>Cyclic: {phy.stress.cyclic_loading ? "\u2705 " + (phy.stress.cyclic_source || "yes") : "\u274c No"}</div>
-                <div style={{ fontSize: "12px" }}>Stress concentration: {phy.stress.stress_concentration_present ? "\u2705 " + phy.stress.stress_concentration_locations.join(", ") : "\u274c No"}</div>
-                <div style={{ fontSize: "12px" }}>Load path: {phy.stress.load_path_criticality}</div>
-              </div>
-              <div style={{ padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Environment</div>
-                <div style={{ fontSize: "12px" }}>Corrosive: {phy.chemical.corrosive_environment ? "\u2705 " + phy.chemical.environment_agents.join(", ") : "\u274c No"}</div>
-                <div style={{ fontSize: "12px" }}>Thermal: {phy.thermal.fire_exposure ? "\uD83D\uDD25 Fire exposure" : phy.thermal.creep_range ? "\u2622\uFE0F Creep range" : "Normal"}</div>
-                <div style={{ fontSize: "12px" }}>Pressure cycling: {phy.energy.pressure_cycling ? "\u2705 Yes" : "\u274c No"}</div>
-                <div style={{ fontSize: "12px" }}>Stored energy: {phy.energy.stored_energy_significant ? "\u26A0\uFE0F Significant" : "Low"}</div>
-              </div>
-            </div>
-            {phy.field_interaction && phy.field_interaction.hotspots.length > 0 && (
-              <div style={{ padding: "10px 12px", backgroundColor: phy.field_interaction.interaction_level === "HIGH" ? "#fef2f2" : "#fffbeb", borderRadius: "6px", borderLeft: "3px solid " + (phy.field_interaction.interaction_level === "HIGH" ? "#dc2626" : "#ca8a04") }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", color: phy.field_interaction.interaction_level === "HIGH" ? "#dc2626" : "#92400e", marginBottom: "4px" }}>Field Interaction: {phy.field_interaction.interaction_level} ({phy.field_interaction.interaction_score}/100)</div>
-                {phy.field_interaction.warnings.map(function(w: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#374151", padding: "2px 0" }}>{w}</div>; })}
-              </div>
-            )}
-          </Card>
-        )}
-
-        {dmg && (
-          <Card title="Damage Reality" icon={"\uD83E\uDDEA"} status={(dmg.validated_mechanisms?.length || 0) + " validated, " + (dmg.rejected_mechanisms?.length || 0) + " impossible"}>
-            {dmg.primary_mechanism && (
-              <div style={{ padding: "10px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", borderLeft: "3px solid #16a34a", marginBottom: "12px" }}>
-                <div style={{ fontWeight: 700, fontSize: "14px", color: "#16a34a" }}>Primary: {dmg.primary_mechanism.name}</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>Physics basis: {dmg.primary_mechanism.physics_basis}</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>Reality: {dmg.primary_mechanism.reality_state} (score: {dmg.primary_mechanism.reality_score}) | Severity: {dmg.primary_mechanism.severity}</div>
-                {dmg.primary_mechanism.evidence_for.length > 0 && <div style={{ fontSize: "11px", color: "#16a34a", marginTop: "4px" }}>Evidence: {dmg.primary_mechanism.evidence_for.join(", ")}</div>}
-                {dmg.primary_mechanism.evidence_against && dmg.primary_mechanism.evidence_against.length > 0 && <div style={{ fontSize: "11px", color: "#ea580c", marginTop: "4px" }}>Uncertainty: {dmg.primary_mechanism.evidence_against.join("; ")}</div>}
-              </div>
-            )}
-            {dmg.validated_mechanisms && dmg.validated_mechanisms.length > 1 && (
-              <div style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Other Validated Mechanisms</div>
-                {dmg.validated_mechanisms.slice(1).map(function(m: any, i: number) {
-                  return <div key={i} style={{ fontSize: "12px", padding: "4px 10px", marginBottom: "3px", backgroundColor: "#f9fafb", borderRadius: "4px" }}>{m.name} ({m.reality_state}, score: {m.reality_score}) {"\u2014"} {m.physics_basis}</div>;
-                })}
-              </div>
-            )}
-            {dmg.rejected_mechanisms && dmg.rejected_mechanisms.length > 0 && (
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "6px" }}>Physically Impossible ({dmg.rejected_mechanisms.length})</div>
-                {dmg.rejected_mechanisms.slice(0, 5).map(function(m: any, i: number) {
-                  return <div key={i} style={{ fontSize: "11px", padding: "3px 10px", marginBottom: "2px", backgroundColor: "#fef2f2", borderRadius: "4px", color: "#991b1b", opacity: 0.8 }}>{m.name}: {m.rejection_reason}</div>;
-                })}
-                {dmg.rejected_mechanisms.length > 5 && <div style={{ fontSize: "11px", color: "#6b7280", padding: "3px 10px" }}>...and {dmg.rejected_mechanisms.length - 5} more rejected</div>}
-              </div>
-            )}
-          </Card>
-        )}
-
-        {auth && (
-          <Card title="Authority Reality" icon={"\uD83D\uDCDC"} status={auth.primary_authority} defaultCollapsed={true}>
-            <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>Primary: {auth.primary_authority}</div>
-            {auth.secondary_authorities && auth.secondary_authorities.length > 0 && <div style={{ fontSize: "12px", color: "#374151", marginBottom: "6px" }}>Secondary: {auth.secondary_authorities.join(", ")}</div>}
-            <div style={{ fontSize: "12px", color: "#374151", padding: "8px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", marginBottom: "8px" }}>{auth.physics_code_alignment}</div>
-            {auth.design_state_warning && <div style={{ fontSize: "12px", color: "#ea580c", fontWeight: 700, padding: "6px 12px", backgroundColor: "#fffbeb", borderRadius: "6px", marginBottom: "6px" }}>{"\u26A0\uFE0F"} {auth.design_state_warning}</div>}
-            {auth.code_gaps && auth.code_gaps.length > 0 && (
-              <div style={{ marginTop: "6px" }}>
-                {auth.code_gaps.map(function(g: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0" }}>{"\u274c"} {g}</div>; })}
-              </div>
-            )}
-          </Card>
-        )}
-
-        {insp && (
-          <Card title="Inspection Reality" icon={"\uD83D\uDD2C"} status={insp.sufficiency_verdict + " | " + (insp.proposed_methods.length > 0 ? insp.proposed_methods.join(", ") : insp.recommended_package && insp.recommended_package.length > 0 ? "Recommended: " + insp.recommended_package.join(", ") : "None")}>
-            <div style={{ padding: "10px 14px", borderRadius: "6px", marginBottom: "12px", fontWeight: 700, fontSize: "14px", color: "#fff", backgroundColor: insp.sufficiency_verdict === "BLOCKED" ? "#dc2626" : insp.sufficiency_verdict === "INSUFFICIENT" ? "#ea580c" : "#16a34a", textAlign: "center" }}>
-              {insp.sufficiency_verdict === "BLOCKED" ? "\uD83D\uDED1 DISPOSITION BLOCKED" : insp.sufficiency_verdict === "INSUFFICIENT" ? "\u26A0\uFE0F INSUFFICIENT" : "\u2705 SUFFICIENT"} {"\u2014"} {insp.proposed_methods.length > 0 ? insp.proposed_methods.join(", ") : "No methods in transcript"}
-            </div>
-            {insp.recommended_package && insp.recommended_package.length > 0 && insp.proposed_methods.length === 0 && (
-              <div style={{ padding: "10px 14px", borderRadius: "6px", marginBottom: "12px", fontWeight: 700, fontSize: "14px", color: "#fff", backgroundColor: "#2563eb", textAlign: "center" }}>
-                {"\uD83D\uDCCB"} RECOMMENDED: {insp.recommended_package.join(" + ")}
-              </div>
-            )}
-            <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "12px" }}>{insp.physics_reason}</div>
-            {insp.missing_coverage && insp.missing_coverage.length > 0 && (
-              <div style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "4px" }}>Physics Gaps</div>
-                {insp.missing_coverage.map(function(m: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#991b1b", padding: "4px 10px", marginBottom: "3px", backgroundColor: "#fef2f2", borderRadius: "4px" }}>{"\u274c"} {m}</div>; })}
-              </div>
-            )}
-            {insp.best_method && (
-              <div style={{ padding: "8px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", marginBottom: "10px" }}>
-                <div style={{ fontWeight: 700, fontSize: "13px", color: "#16a34a" }}>Best Method: {insp.best_method.method} (score: {insp.best_method.overall_score}/100)</div>
-                <div style={{ fontSize: "11px", color: "#374151" }}>{insp.best_method.physics_principle}</div>
-                {insp.best_method.blind_spots && insp.best_method.blind_spots.length > 0 && <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "4px" }}>Blind spots: {insp.best_method.blind_spots.join("; ")}</div>}
-                {insp.best_method.complementary_methods && insp.best_method.complementary_methods.length > 0 && <div style={{ fontSize: "11px", color: "#1e40af", marginTop: "2px" }}>Complementary: {insp.best_method.complementary_methods.join(", ")}</div>}
-              </div>
-            )}
-            {insp.constraint_analysis && insp.constraint_analysis.truth_quality !== "HIGH" && (
-              <div style={{ padding: "8px 12px", backgroundColor: insp.constraint_analysis.truth_quality === "UNRELIABLE" ? "#fef2f2" : "#fffbeb", borderRadius: "6px", borderLeft: "3px solid " + (insp.constraint_analysis.truth_quality === "UNRELIABLE" ? "#dc2626" : "#ca8a04") }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", color: insp.constraint_analysis.truth_quality === "UNRELIABLE" ? "#dc2626" : "#92400e" }}>Truth Quality: {insp.constraint_analysis.truth_quality} ({insp.constraint_analysis.constraint_score}/100)</div>
-                {insp.constraint_analysis.warnings.map(function(w: string, i: number) { return <div key={i} style={{ fontSize: "11px", color: "#374151", padding: "2px 0" }}>{w}</div>; })}
-              </div>
-            )}
-          </Card>
-        )}
-
+        {/* DECISION */}
         {dec && (
           <Card title={"Decision: " + (dec.disposition || "").replace(/_/g, " ").toUpperCase()} icon={dec.disposition === "no_go" ? "\uD83D\uDED1" : dec.disposition === "hold_for_review" ? "\u23F8\uFE0F" : dec.disposition === "engineering_review_required" ? "\u26A0\uFE0F" : "\u2705"} collapsible={false}>
             <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "16px", color: "#fff", backgroundColor: dec.disposition === "no_go" ? "#dc2626" : dec.disposition === "repair_before_restart" ? "#ea580c" : dec.disposition === "hold_for_review" || dec.disposition === "engineering_review_required" ? "#ca8a04" : "#16a34a", textAlign: "center" }}>
@@ -1142,9 +1413,422 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
+        {/* ================================================================ */}
+        {/* SUPERBRAIN INTELLIGENCE — FIVE MAGIC FEATURES                    */}
+        {/* ================================================================ */}
+
+        {syn && (
+          <div style={{ marginTop: "8px", marginBottom: "8px", padding: "8px 16px", backgroundColor: "#1e40af", borderRadius: "6px", display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontSize: "20px" }}>{"\uD83E\uDDE0"}</span>
+            <span style={{ fontSize: "15px", fontWeight: 800, color: "#fff" }}>Superbrain Intelligence</span>
+            <span style={{ fontSize: "11px", color: "#93c5fd" }}>5 features synthesized from decision-core v2.3.1</span>
+          </div>
+        )}
+
+        {/* FEATURE 1: FAILURE NARRATIVE */}
+        {syn && syn.failure_narrative && (
+          <Card title="Failure Narrative" icon={"\uD83D\uDCD6"} accent="#2563eb" collapsible={true} defaultCollapsed={false}>
+            <div style={{ fontSize: "13px", lineHeight: "1.8", color: "#1a1a1a", whiteSpace: "pre-wrap" }}>{syn.failure_narrative}</div>
+          </Card>
+        )}
+
+        {/* FEATURE 5: INSPECTOR ACTION CARD */}
+        {syn && syn.inspector_action_card && syn.inspector_action_card.length > 0 && (
+          <Card title="Inspector Action Card" icon={"\u2705"} accent="#16a34a" collapsible={true} defaultCollapsed={false}>
+            {syn.inspector_action_card.map(function(action: any, i: number) {
+              return (
+                <div key={i} style={{ padding: "10px 12px", marginBottom: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", borderLeft: "3px solid #16a34a" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                    <span style={{ fontWeight: 800, fontSize: "16px", color: "#16a34a", backgroundColor: "#f0fdf4", width: "28px", height: "28px", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+                    <span style={{ fontWeight: 700, fontSize: "13px", color: "#111" }}>{action.step}</span>
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px", paddingLeft: "36px" }}>{action.rationale}</div>
+                  <div style={{ paddingLeft: "36px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                    <div style={{ fontSize: "11px", padding: "4px 8px", backgroundColor: "#f0fdf4", borderRadius: "4px", borderLeft: "2px solid #16a34a" }}>
+                      <strong style={{ color: "#16a34a" }}>If confirmed:</strong> <span style={{ color: "#374151" }}>{action.threshold_if_positive}</span>
+                    </div>
+                    <div style={{ fontSize: "11px", padding: "4px 8px", backgroundColor: "#fef2f2", borderRadius: "4px", borderLeft: "2px solid #dc2626" }}>
+                      <strong style={{ color: "#dc2626" }}>If not found:</strong> <span style={{ color: "#374151" }}>{action.threshold_if_negative}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </Card>
+        )}
+
+        {/* FEATURE 3: PRE-INSPECTION BRIEFING */}
+        {syn && syn.pre_inspection_briefing && (
+          <Card title="Pre-Inspection Briefing" icon={"\uD83C\uDFAF"} accent="#7c3aed" collapsible={true} defaultCollapsed={false} status="What to Look For">
+            {syn.pre_inspection_briefing.target_zones && syn.pre_inspection_briefing.target_zones.length > 0 && (
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#7c3aed", textTransform: "uppercase", marginBottom: "6px" }}>Target Zones</div>
+                {syn.pre_inspection_briefing.target_zones.map(function(z: string, i: number) {
+                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#f5f3ff", borderRadius: "4px", borderLeft: "3px solid #7c3aed", color: "#374151" }}>{z}</div>;
+                })}
+              </div>
+            )}
+            {syn.pre_inspection_briefing.expected_flaws && syn.pre_inspection_briefing.expected_flaws.length > 0 && (
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Expected Flaw Morphology</div>
+                {syn.pre_inspection_briefing.expected_flaws.map(function(f: string, i: number) {
+                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#f9fafb", borderRadius: "4px", color: "#374151" }}>{f}</div>;
+                })}
+              </div>
+            )}
+            {syn.pre_inspection_briefing.method_recommendations && syn.pre_inspection_briefing.method_recommendations.length > 0 && (
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Method Recommendations</div>
+                {syn.pre_inspection_briefing.method_recommendations.map(function(m: string, i: number) {
+                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#eff6ff", borderRadius: "4px", borderLeft: "3px solid #2563eb", color: "#374151" }}>{m}</div>;
+                })}
+              </div>
+            )}
+            {syn.pre_inspection_briefing.sensitivity_settings && (
+              <div style={{ fontSize: "12px", color: "#374151", marginBottom: "8px" }}><strong>Sensitivity:</strong> {syn.pre_inspection_briefing.sensitivity_settings}</div>
+            )}
+            {syn.pre_inspection_briefing.watch_items && syn.pre_inspection_briefing.watch_items.length > 0 && (
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#ea580c", textTransform: "uppercase", marginBottom: "6px" }}>Watch Items</div>
+                {syn.pre_inspection_briefing.watch_items.map(function(w: string, i: number) {
+                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#fffbeb", borderRadius: "4px", borderLeft: "3px solid #ea580c", color: "#374151" }}>{w}</div>;
+                })}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* FEATURE 2: CONTRADICTION MATRIX */}
+        {syn && syn.contradiction_matrix && syn.contradiction_matrix.length > 0 && (
+          <Card title="Contradiction Matrix" icon={"\u26A0\uFE0F"} accent="#dc2626" collapsible={true} defaultCollapsed={true} status="Code vs Physics">
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                <thead>
+                  <tr style={{ backgroundColor: "#fef2f2" }}>
+                    <th style={{ padding: "8px 10px", textAlign: "left", borderBottom: "2px solid #fecaca", fontWeight: 700, color: "#991b1b" }}>Framework</th>
+                    <th style={{ padding: "8px 10px", textAlign: "center", borderBottom: "2px solid #fecaca", fontWeight: 700, color: "#991b1b" }}>Verdict</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left", borderBottom: "2px solid #fecaca", fontWeight: 700, color: "#991b1b" }}>Basis</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left", borderBottom: "2px solid #fecaca", fontWeight: 700, color: "#991b1b" }}>Limitation</th>
+                    <th style={{ padding: "8px 10px", textAlign: "left", borderBottom: "2px solid #fecaca", fontWeight: 700, color: "#991b1b" }}>Gap Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {syn.contradiction_matrix.map(function(row: any, i: number) {
+                    var vColor = (row.verdict || "").indexOf("ACCEPT") !== -1 ? "#16a34a" : "#dc2626";
+                    return (
+                      <tr key={i} style={{ borderBottom: "1px solid #e5e7eb" }}>
+                        <td style={{ padding: "6px 10px", fontWeight: 600 }}>{row.framework}</td>
+                        <td style={{ padding: "6px 10px", textAlign: "center", fontWeight: 700, color: vColor }}>{row.verdict}</td>
+                        <td style={{ padding: "6px 10px", color: "#374151" }}>{row.basis}</td>
+                        <td style={{ padding: "6px 10px", color: "#6b7280" }}>{row.limitation}</td>
+                        <td style={{ padding: "6px 10px", color: "#dc2626", fontWeight: 600 }}>{row.gap_reason}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
+        {/* FEATURE 4: PROCEDURE FORENSICS */}
+        {syn && syn.procedure_forensics && (
+          <Card title="Procedure Forensics" icon={"\uD83D\uDD0D"} accent="#ea580c" collapsible={true} defaultCollapsed={true} status="What Went Wrong">
+            {syn.procedure_forensics.likely_causes && syn.procedure_forensics.likely_causes.length > 0 && (
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#ea580c", textTransform: "uppercase", marginBottom: "6px" }}>Likely Root Causes</div>
+                {syn.procedure_forensics.likely_causes.map(function(c: string, i: number) {
+                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#fff7ed", borderRadius: "4px", borderLeft: "3px solid #ea580c", color: "#374151" }}>{c}</div>;
+                })}
+              </div>
+            )}
+            {syn.procedure_forensics.procedural_gaps && syn.procedure_forensics.procedural_gaps.length > 0 && (
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Procedural Gaps</div>
+                {syn.procedure_forensics.procedural_gaps.map(function(g: string, i: number) {
+                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#fef2f2", borderRadius: "4px", color: "#991b1b" }}>{g}</div>;
+                })}
+              </div>
+            )}
+            {syn.procedure_forensics.reverse_inference_chain && syn.procedure_forensics.reverse_inference_chain.length > 0 && (
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Reverse Inference Chain</div>
+                {syn.procedure_forensics.reverse_inference_chain.map(function(step: string, i: number) {
+                  return (
+                    <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: "8px", marginBottom: "4px" }}>
+                      <span style={{ fontWeight: 700, fontSize: "12px", color: "#ea580c", minWidth: "20px" }}>{i + 1}.</span>
+                      <span style={{ fontSize: "12px", color: "#374151" }}>{step}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* REVIEWER BRIEF */}
+        {syn && syn.reviewer_brief && (
+          <Card title="Reviewer Brief" icon={"\uD83D\uDCCB"} accent="#0891b2" collapsible={true} defaultCollapsed={true} status="For Engineering Review">
+            <div style={{ fontSize: "13px", lineHeight: "1.8", color: "#1a1a1a", whiteSpace: "pre-wrap", padding: "8px 12px", backgroundColor: "#ecfeff", borderRadius: "6px", borderLeft: "3px solid #0891b2" }}>{syn.reviewer_brief}</div>
+          </Card>
+        )}
+
+
+        {/* EVIDENCE PROVENANCE — v16.0 */}
+        {provenanceResult && provenanceResult.provenance_summary && (
+          <Card title="Evidence Provenance" icon={"\uD83D\uDD17"} accent="#0d9488" collapsible={true} defaultCollapsed={false} status={provenanceResult.provenance_summary.trust_band + " trust"}>
+            <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: provenanceResult.provenance_summary.trust_band === "HIGH" ? "#f0fdf4" : provenanceResult.provenance_summary.trust_band === "MODERATE" ? "#fffbeb" : "#fef2f2", border: "1px solid " + (provenanceResult.provenance_summary.trust_band === "HIGH" ? "#bbf7d0" : provenanceResult.provenance_summary.trust_band === "MODERATE" ? "#fde68a" : "#fecaca") }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: "14px", color: provenanceResult.provenance_summary.trust_band === "HIGH" ? "#16a34a" : provenanceResult.provenance_summary.trust_band === "MODERATE" ? "#ca8a04" : "#dc2626" }}>
+                  Evidence Trust: {provenanceResult.provenance_summary.trust_band}
+                </div>
+                <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "2px" }}>
+                  {provenanceResult.provenance_summary.total_evidence_items} items | Dominant: {provenanceResult.provenance_summary.dominant_source} | Measured: {Math.round(provenanceResult.provenance_summary.measured_fraction * 100)}%
+                </div>
+              </div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: provenanceResult.provenance_summary.trust_band === "HIGH" ? "#16a34a" : provenanceResult.provenance_summary.trust_band === "MODERATE" ? "#ca8a04" : "#dc2626" }}>
+                {Math.round(provenanceResult.provenance_summary.average_trust_weight * 100)}%
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "6px", marginBottom: "12px" }}>
+              {[
+                { key: "MEASURED", color: "#16a34a", icon: "\uD83D\uDCCF" },
+                { key: "OBSERVED", color: "#2563eb", icon: "\uD83D\uDC41\uFE0F" },
+                { key: "REPORTED", color: "#ca8a04", icon: "\uD83D\uDCDD" },
+                { key: "INFERRED", color: "#9333ea", icon: "\uD83E\uDD14" }
+              ].map(function(item, idx) {
+                var cnt = (provenanceResult.provenance_summary.counts || {})[item.key] || 0;
+                return (
+                  <div key={idx} style={{ textAlign: "center", padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", border: "1px solid #e5e7eb" }}>
+                    <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>{item.icon} {item.key}</div>
+                    <div style={{ fontSize: "18px", fontWeight: 700, color: item.color }}>{cnt}</div>
+                  </div>
+                );
+              })}
+            </div>
+            {provenanceResult.evidence && provenanceResult.evidence.length > 0 && (
+              <div style={{ marginBottom: "12px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Evidence Items</div>
+                {provenanceResult.evidence.map(function(ev: any, ei: number) {
+                  var provColor = ev.provenance === "MEASURED" ? "#16a34a" : ev.provenance === "OBSERVED" ? "#2563eb" : ev.provenance === "REPORTED" ? "#ca8a04" : ev.provenance === "INFERRED" ? "#9333ea" : "#dc2626";
+                  var bgColor = ev.provenance === "MEASURED" ? "#f0fdf4" : ev.provenance === "OBSERVED" ? "#eff6ff" : ev.provenance === "REPORTED" ? "#fffbeb" : ev.provenance === "INFERRED" ? "#faf5ff" : "#fef2f2";
+                  return (
+                    <div key={ei} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 10px", marginBottom: "3px", backgroundColor: bgColor, borderRadius: "4px", borderLeft: "3px solid " + provColor }}>
+                      <span style={{ fontSize: "9px", fontWeight: 700, color: provColor, backgroundColor: provColor + "18", padding: "2px 6px", borderRadius: "3px", minWidth: "70px", textAlign: "center" }}>{ev.provenance}</span>
+                      <span style={{ fontSize: "12px", color: "#374151", flex: 1 }}>{(ev.claim || "").replace(/_/g, " ")}</span>
+                      <span style={{ fontSize: "10px", color: "#6b7280" }}>trust: {Math.round((ev.provenance_weight || 0) * 100)}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {provenanceResult.measurement_reality && (
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Measurement Reality</div>
+                <div style={{ padding: "8px 12px", borderRadius: "6px", marginBottom: "8px", backgroundColor: provenanceResult.measurement_reality.overall_adequacy === "ADEQUATE" ? "#f0fdf4" : provenanceResult.measurement_reality.overall_adequacy === "PARTIAL" ? "#fffbeb" : "#fef2f2", borderLeft: "3px solid " + (provenanceResult.measurement_reality.overall_adequacy === "ADEQUATE" ? "#16a34a" : provenanceResult.measurement_reality.overall_adequacy === "PARTIAL" ? "#ca8a04" : "#dc2626") }}>
+                  <span style={{ fontWeight: 700, fontSize: "13px", color: provenanceResult.measurement_reality.overall_adequacy === "ADEQUATE" ? "#16a34a" : provenanceResult.measurement_reality.overall_adequacy === "PARTIAL" ? "#ca8a04" : "#dc2626" }}>
+                    Method Adequacy: {provenanceResult.measurement_reality.overall_adequacy}
+                  </span>
+                </div>
+                {provenanceResult.measurement_reality.unanswered_gaps && provenanceResult.measurement_reality.unanswered_gaps.length > 0 && (
+                  <div>
+                    {provenanceResult.measurement_reality.unanswered_gaps.map(function(gap: any, gi: number) {
+                      var gapColor = gap.severity === "critical" ? "#dc2626" : "#ca8a04";
+                      var gapBg = gap.severity === "critical" ? "#fef2f2" : "#fffbeb";
+                      return (
+                        <div key={gi} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: gapBg, borderRadius: "4px", borderLeft: "3px solid " + gapColor, color: "#374151" }}>
+                          <strong style={{ color: gapColor }}>{gap.severity === "critical" ? "\uD83D\uDED1" : "\u26A0\uFE0F"} {gap.question}</strong>
+                          <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>{gap.message}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+            {provenanceResult.provenance_summary.recommendation && (
+              <div style={{ marginTop: "10px", padding: "8px 12px", backgroundColor: "#fffbeb", borderRadius: "6px", borderLeft: "3px solid #ca8a04", fontSize: "12px", color: "#92400e" }}>
+                {"\u26A0\uFE0F"} {provenanceResult.provenance_summary.recommendation}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* LIVE PHYSICS STATE */}
+        {syn && syn.live_physics_state && (
+          <Card title="Live Physics State" icon={"\uD83D\uDCCA"} accent="#6d28d9" collapsible={true} defaultCollapsed={true}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div style={{ padding: "8px 12px", backgroundColor: "#f5f3ff", borderRadius: "6px" }}>
+                <div style={{ fontSize: "10px", fontWeight: 700, color: "#6d28d9", textTransform: "uppercase" }}>FAD Position</div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginTop: "4px" }}>{syn.live_physics_state.fad_position || "NOT CALCULATED"}</div>
+              </div>
+              <div style={{ padding: "8px 12px", backgroundColor: "#f5f3ff", borderRadius: "6px" }}>
+                <div style={{ fontSize: "10px", fontWeight: 700, color: "#6d28d9", textTransform: "uppercase" }}>Remaining Life</div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginTop: "4px" }}>{syn.live_physics_state.remaining_life || "NOT CALCULATED"}</div>
+              </div>
+              <div style={{ padding: "8px 12px", backgroundColor: "#f5f3ff", borderRadius: "6px" }}>
+                <div style={{ fontSize: "10px", fontWeight: 700, color: "#6d28d9", textTransform: "uppercase" }}>Threshold Proximity</div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginTop: "4px" }}>{syn.live_physics_state.threshold_proximity || "NOT CALCULATED"}</div>
+              </div>
+              <div style={{ padding: "8px 12px", backgroundColor: "#f5f3ff", borderRadius: "6px" }}>
+                <div style={{ fontSize: "10px", fontWeight: 700, color: "#6d28d9", textTransform: "uppercase" }}>Gate Status</div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginTop: "4px" }}>{typeof syn.live_physics_state.gate_status === "string" ? syn.live_physics_state.gate_status : JSON.stringify(syn.live_physics_state.gate_status)}</div>
+              </div>
+            </div>
+            {syn.live_physics_state.critical_values && (
+              <div style={{ marginTop: "10px", fontSize: "12px", color: "#374151", padding: "6px 10px", backgroundColor: "#f9fafb", borderRadius: "4px" }}>
+                <strong>Critical Values:</strong> {typeof syn.live_physics_state.critical_values === "string" ? syn.live_physics_state.critical_values : JSON.stringify(syn.live_physics_state.critical_values)}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* EVIDENCE TRACE (AUDIT) */}
+        {syn && syn.evidence_trace && syn.evidence_trace.length > 0 && (
+          <Card title="Evidence Trace" icon={"\uD83D\uDD17"} accent="#4b5563" collapsible={true} defaultCollapsed={true} status={syn.evidence_trace.length + " claims traced"}>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
+                <thead>
+                  <tr style={{ backgroundColor: "#f3f4f6" }}>
+                    <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "2px solid #d1d5db", fontWeight: 700, color: "#374151" }}>Claim</th>
+                    <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "2px solid #d1d5db", fontWeight: 700, color: "#374151" }}>Source Field</th>
+                    <th style={{ padding: "6px 8px", textAlign: "center", borderBottom: "2px solid #d1d5db", fontWeight: 700, color: "#374151" }}>Confidence</th>
+                    <th style={{ padding: "6px 8px", textAlign: "center", borderBottom: "2px solid #d1d5db", fontWeight: 700, color: "#374151" }}>Class</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {syn.evidence_trace.map(function(et: any, i: number) {
+                    var confColor = et.confidence === "HIGH" ? "#16a34a" : et.confidence === "MEDIUM" ? "#ca8a04" : "#dc2626";
+                    var classColor = et.claim_class === "OBSERVED" ? "#16a34a" : et.claim_class === "CALCULATED" ? "#2563eb" : et.claim_class === "INFERRED" ? "#ca8a04" : "#6d28d9";
+                    return (
+                      <tr key={i} style={{ borderBottom: "1px solid #e5e7eb" }}>
+                        <td style={{ padding: "5px 8px", color: "#374151" }}>{et.claim}</td>
+                        <td style={{ padding: "5px 8px", color: "#6b7280", fontFamily: "monospace", fontSize: "10px" }}>{et.source_field}</td>
+                        <td style={{ padding: "5px 8px", textAlign: "center", fontWeight: 700, color: confColor }}>{et.confidence}</td>
+                        <td style={{ padding: "5px 8px", textAlign: "center" }}>
+                          <span style={{ fontSize: "9px", fontWeight: 700, color: classColor, backgroundColor: classColor + "15", padding: "2px 6px", borderRadius: "3px" }}>{et.claim_class}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
+        {/* SUPERBRAIN LOADING / ERROR */}
+        {superbrainLoading && (
+          <div style={{ padding: "16px", textAlign: "center", color: "#2563eb", fontSize: "14px" }}>
+            {"\u23F3"} Synthesizing Five Magic Features...
+          </div>
+        )}
+        {superbrainError && !syn && (
+          <div style={{ padding: "12px 16px", backgroundColor: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", marginBottom: "16px" }}>
+            <div style={{ fontSize: "12px", color: "#92400e" }}>{"\u26A0\uFE0F"} Superbrain synthesis unavailable: {superbrainError}</div>
+          </div>
+        )}
+
+        {/* ================================================================ */}
+        {/* DECISION CORE DETAIL (collapsed by default)                      */}
+        {/* ================================================================ */}
+
+        {dc && (
+          <div style={{ marginTop: "8px", marginBottom: "8px", padding: "6px 16px", backgroundColor: "#6b7280", borderRadius: "6px" }}>
+            <span style={{ fontSize: "12px", fontWeight: 700, color: "#fff" }}>Decision Core Detail</span>
+          </div>
+        )}
+
+        {phy && (
+          <Card title="Physical Reality" icon={"\u269B\uFE0F"} status={"confidence: " + Math.round(phy.physics_confidence * 100) + "%"} defaultCollapsed={true}>
+            <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "12px", padding: "10px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}>{phy.physics_summary}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+              <div style={{ padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Stress State</div>
+                <div style={{ fontSize: "12px" }}>Loads: {phy.stress.primary_load_types.join(", ") || "none identified"}</div>
+                <div style={{ fontSize: "12px" }}>Cyclic: {phy.stress.cyclic_loading ? "\u2705 " + (phy.stress.cyclic_source || "yes") : "\u274c No"}</div>
+                <div style={{ fontSize: "12px" }}>Stress concentration: {phy.stress.stress_concentration_present ? "\u2705 " + phy.stress.stress_concentration_locations.join(", ") : "\u274c No"}</div>
+                <div style={{ fontSize: "12px" }}>Load path: {phy.stress.load_path_criticality}</div>
+              </div>
+              <div style={{ padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Environment</div>
+                <div style={{ fontSize: "12px" }}>Corrosive: {phy.chemical.corrosive_environment ? "\u2705 " + phy.chemical.environment_agents.join(", ") : "\u274c No"}</div>
+                <div style={{ fontSize: "12px" }}>Thermal: {phy.thermal.fire_exposure ? "\uD83D\uDD25 Fire exposure" : phy.thermal.creep_range ? "\u2622\uFE0F Creep range" : "Normal"}</div>
+                <div style={{ fontSize: "12px" }}>Pressure cycling: {phy.energy.pressure_cycling ? "\u2705 Yes" : "\u274c No"}</div>
+                <div style={{ fontSize: "12px" }}>Stored energy: {phy.energy.stored_energy_significant ? "\u26A0\uFE0F Significant" : "Low"}</div>
+              </div>
+            </div>
+            {phy.field_interaction && phy.field_interaction.hotspots.length > 0 && (
+              <div style={{ padding: "10px 12px", backgroundColor: phy.field_interaction.interaction_level === "HIGH" ? "#fef2f2" : "#fffbeb", borderRadius: "6px", borderLeft: "3px solid " + (phy.field_interaction.interaction_level === "HIGH" ? "#dc2626" : "#ca8a04") }}>
+                <div style={{ fontWeight: 700, fontSize: "12px", color: phy.field_interaction.interaction_level === "HIGH" ? "#dc2626" : "#92400e", marginBottom: "4px" }}>Field Interaction: {phy.field_interaction.interaction_level} ({phy.field_interaction.interaction_score}/100)</div>
+                {phy.field_interaction.warnings.map(function(w: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#374151", padding: "2px 0" }}>{w}</div>; })}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {dmg && (
+          <Card title="Damage Reality" icon={"\uD83E\uDDEA"} status={(dmg.validated_mechanisms?.length || 0) + " validated, " + (dmg.rejected_mechanisms?.length || 0) + " impossible"} defaultCollapsed={true}>
+            {dmg.primary_mechanism && (
+              <div style={{ padding: "10px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", borderLeft: "3px solid #16a34a", marginBottom: "12px" }}>
+                <div style={{ fontWeight: 700, fontSize: "14px", color: "#16a34a" }}>Primary: {dmg.primary_mechanism.name}</div>
+                <div style={{ fontSize: "12px", color: "#374151" }}>Physics basis: {dmg.primary_mechanism.physics_basis}</div>
+                <div style={{ fontSize: "12px", color: "#374151" }}>Reality: {dmg.primary_mechanism.reality_state} (score: {dmg.primary_mechanism.reality_score}) | Severity: {dmg.primary_mechanism.severity}</div>
+              </div>
+            )}
+            {dmg.validated_mechanisms && dmg.validated_mechanisms.length > 1 && (
+              <div style={{ marginBottom: "12px" }}>
+                {dmg.validated_mechanisms.slice(1).map(function(m: any, i: number) {
+                  return <div key={i} style={{ fontSize: "12px", padding: "4px 10px", marginBottom: "3px", backgroundColor: "#f9fafb", borderRadius: "4px" }}>{m.name} ({m.reality_state}, score: {m.reality_score}) {"\u2014"} {m.physics_basis}</div>;
+                })}
+              </div>
+            )}
+            {dmg.rejected_mechanisms && dmg.rejected_mechanisms.length > 0 && (
+              <div>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "6px" }}>Physically Impossible ({dmg.rejected_mechanisms.length})</div>
+                {dmg.rejected_mechanisms.slice(0, 5).map(function(m: any, i: number) {
+                  return <div key={i} style={{ fontSize: "11px", padding: "3px 10px", marginBottom: "2px", backgroundColor: "#fef2f2", borderRadius: "4px", color: "#991b1b", opacity: 0.8 }}>{m.name}: {m.rejection_reason}</div>;
+                })}
+                {dmg.rejected_mechanisms.length > 5 && <div style={{ fontSize: "11px", color: "#6b7280", padding: "3px 10px" }}>...and {dmg.rejected_mechanisms.length - 5} more rejected</div>}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {auth && (
+          <Card title="Authority Reality" icon={"\uD83D\uDCDC"} status={auth.primary_authority} defaultCollapsed={true}>
+            <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>Primary: {auth.primary_authority}</div>
+            {auth.secondary_authorities && auth.secondary_authorities.length > 0 && <div style={{ fontSize: "12px", color: "#374151", marginBottom: "6px" }}>Secondary: {auth.secondary_authorities.join(", ")}</div>}
+            <div style={{ fontSize: "12px", color: "#374151", padding: "8px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", marginBottom: "8px" }}>{auth.physics_code_alignment}</div>
+            {auth.code_gaps && auth.code_gaps.length > 0 && (
+              <div style={{ marginTop: "6px" }}>
+                {auth.code_gaps.map(function(g: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0" }}>{"\u274c"} {g}</div>; })}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {insp && (
+          <Card title="Inspection Reality" icon={"\uD83D\uDD2C"} status={insp.sufficiency_verdict} defaultCollapsed={true}>
+            <div style={{ padding: "10px 14px", borderRadius: "6px", marginBottom: "12px", fontWeight: 700, fontSize: "14px", color: "#fff", backgroundColor: insp.sufficiency_verdict === "BLOCKED" ? "#dc2626" : insp.sufficiency_verdict === "INSUFFICIENT" ? "#ea580c" : "#16a34a", textAlign: "center" }}>
+              {insp.sufficiency_verdict} {"\u2014"} {insp.proposed_methods.length > 0 ? insp.proposed_methods.join(", ") : "No methods in transcript"}
+            </div>
+            <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "12px" }}>{insp.physics_reason}</div>
+            {insp.missing_coverage && insp.missing_coverage.length > 0 && (
+              <div style={{ marginBottom: "12px" }}>
+                {insp.missing_coverage.map(function(m: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#991b1b", padding: "4px 10px", marginBottom: "3px", backgroundColor: "#fef2f2", borderRadius: "4px" }}>{"\u274c"} {m}</div>; })}
+              </div>
+            )}
+            {insp.best_method && (
+              <div style={{ padding: "8px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px" }}>
+                <div style={{ fontWeight: 700, fontSize: "13px", color: "#16a34a" }}>Best Method: {insp.best_method.method} (score: {insp.best_method.overall_score}/100)</div>
+              </div>
+            )}
+          </Card>
+        )}
+
         {dec && dec.guided_recovery && dec.guided_recovery.length > 0 && (
-          <Card title="Guided Recovery" icon={"\uD83D\uDEE0\uFE0F"} status={dec.guided_recovery.length + " actions to resolve"}>
-            <div style={{ fontSize: "12px", color: "#374151", marginBottom: "10px" }}>These are the specific actions needed to resolve blocked gates and move toward disposition.</div>
+          <Card title="Guided Recovery" icon={"\uD83D\uDEE0\uFE0F"} status={dec.guided_recovery.length + " actions"} defaultCollapsed={true}>
             {dec.guided_recovery.map(function(r: any, i: number) {
               return (
                 <div key={i} style={{ padding: "10px 12px", marginBottom: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}>
@@ -1160,28 +1844,12 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {dec && dec.phased_strategy && dec.phased_strategy.length > 0 && (
-          <Card title="Phased Inspection Strategy" icon={"\uD83D\uDCCB"} status="4-phase plan" defaultCollapsed={true}>
-            {dec.phased_strategy.map(function(phase: any, i: number) {
-              return (
-                <div key={i} style={{ padding: "10px 12px", marginBottom: "10px", backgroundColor: i === 0 ? "#fef2f2" : "#f9fafb", borderRadius: "6px", borderLeft: "3px solid " + (i === 0 ? "#dc2626" : i === 1 ? "#ea580c" : i === 2 ? "#ca8a04" : "#16a34a") }}>
-                  <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "4px" }}>Phase {phase.phase}: {phase.name}</div>
-                  <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>{phase.objective}</div>
-                  {phase.actions.map(function(a: string, ai: number) { return <div key={ai} style={{ fontSize: "12px", color: "#374151", padding: "2px 0", paddingLeft: "8px" }}>{ai + 1}. {a}</div>; })}
-                  <div style={{ fontSize: "11px", color: "#2563eb", marginTop: "6px", fontWeight: 600 }}>Gate: {phase.gate} | Time: {phase.time_frame}</div>
-                </div>
-              );
-            })}
-          </Card>
-        )}
-
         {comp && (comp.fatigue.enabled || comp.critical_flaw.enabled || comp.wall_loss.enabled || comp.leak_vs_burst.enabled) && (
           <Card title="Physics Computations" icon={"\uD83D\uDCCA"} status="Paris Law, Critical Flaw, Wall Loss" defaultCollapsed={true}>
             {comp.fatigue.enabled && (
               <div style={{ marginBottom: "10px", padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
                 <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Fatigue Crack Growth (Paris Law)</div>
                 <div style={{ fontSize: "12px", color: "#374151" }}>{comp.fatigue.narrative}</div>
-                {comp.fatigue.delta_k && <div style={{ fontSize: "11px", color: "#6b7280" }}>{"\u0394"}K = {comp.fatigue.delta_k} MPa{"\u221A"}m{comp.fatigue.days_to_critical ? " | Days to critical: " + comp.fatigue.days_to_critical : ""}</div>}
               </div>
             )}
             {comp.critical_flaw.enabled && (
@@ -1200,14 +1868,14 @@ export default function VoiceInspectionPage() {
               <div style={{ padding: "8px 12px", backgroundColor: comp.leak_vs_burst.tendency === "BURST_FAVORED" ? "#fef2f2" : "#f9fafb", borderRadius: "6px" }}>
                 <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Leak vs Burst Tendency</div>
                 <div style={{ fontSize: "12px", color: "#374151" }}>{comp.leak_vs_burst.narrative}</div>
-                <div style={{ fontSize: "11px", color: "#6b7280" }}>Tendency: {comp.leak_vs_burst.tendency} | Through-wall risk: {comp.leak_vs_burst.through_wall_risk} | Fracture risk: {comp.leak_vs_burst.fracture_risk}</div>
               </div>
             )}
           </Card>
         )}
 
-        {aiNarrative && (
-          <Card title="AI Narrative Summary" icon={"\uD83E\uDD16"} status="GPT-4o constrained by physics core" defaultCollapsed={true}>
+        {/* FALLBACK: AI NARRATIVE (if superbrain failed) */}
+        {aiNarrative && !syn && (
+          <Card title="AI Narrative Summary (Fallback)" icon={"\uD83E\uDD16"} status="GPT-4o constrained by physics core" defaultCollapsed={true}>
             <div style={{ fontSize: "13px", lineHeight: "1.7", color: "#374151", whiteSpace: "pre-wrap" }}>{aiNarrative}</div>
           </Card>
         )}
@@ -1222,6 +1890,14 @@ export default function VoiceInspectionPage() {
             })}
           </Card>
         )}
+
+        {/* HARDENING SPRINT 1: Reality Challenge + Unknown State + Trusted Facts */}
+        <HardeningResultsPanel
+          challengeResult={hardeningResult?.challengeResult || null}
+          unknownStateResult={hardeningResult?.unknownStateResult || null}
+          trustedFacts={hardeningResult?.trustedFacts || []}
+          visible={hardeningResult !== null}
+        />
 
       </div>
     </div>
