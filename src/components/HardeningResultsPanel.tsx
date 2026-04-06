@@ -1,6 +1,6 @@
-// FORGED NDT INTELLIGENCE OS — HardeningResultsPanel v1.2
+// FORGED NDT INTELLIGENCE OS — HardeningResultsPanel v1.3
 // File: src/components/HardeningResultsPanel.tsx
-// Build 2: Failure Mode Dominance + Disposition Pathway cards added
+// Build 3: FailureTimelineCard added
 
 import React from 'react';
 
@@ -12,6 +12,7 @@ import AuthorityLockCard from '../AuthorityLockCard';
 import RemainingStrengthCard from '../RemainingStrengthCard';
 import FailureModeDominanceCard from '../FailureModeDominanceCard';
 import DispositionPathwayCard from '../DispositionPathwayCard';
+import FailureTimelineCard from '../FailureTimelineCard';
 
 import type {
   RealityChallengeResult,
@@ -28,6 +29,7 @@ interface HardeningResultsPanelProps {
   remainingStrengthResult?: any;
   failureModeDominanceResult?: any;
   dispositionPathwayResult?: any;
+  failureTimelineResult?: any;
 }
 
 export default function HardeningResultsPanel({
@@ -38,7 +40,8 @@ export default function HardeningResultsPanel({
   authorityLockResult,
   remainingStrengthResult,
   failureModeDominanceResult,
-  dispositionPathwayResult
+  dispositionPathwayResult,
+  failureTimelineResult
 }: HardeningResultsPanelProps) {
   if (!visible) return null;
 
@@ -52,8 +55,9 @@ export default function HardeningResultsPanel({
   var hasStrength = remainingStrengthResult !== null && remainingStrengthResult !== undefined;
   var hasFailureMode = failureModeDominanceResult !== null && failureModeDominanceResult !== undefined;
   var hasDisposition = dispositionPathwayResult !== null && dispositionPathwayResult !== undefined;
+  var hasTimeline = failureTimelineResult !== null && failureTimelineResult !== undefined;
 
-  if (!hasChallenge && !hasUnknown && !hasFacts && !hasAuthority && !hasStrength && !hasFailureMode && !hasDisposition) return null;
+  if (!hasChallenge && !hasUnknown && !hasFacts && !hasAuthority && !hasStrength && !hasFailureMode && !hasDisposition && !hasTimeline) return null;
 
   var isWarningState = (unknownStateResult && unknownStateResult.unknown_triggered) ||
     (challengeResult && challengeResult.challenge_triggered);
@@ -87,7 +91,7 @@ export default function HardeningResultsPanel({
           fontWeight: 400,
           letterSpacing: '0.5px'
         }}>
-          v1.2
+          v1.3
         </span>
       </div>
 
@@ -104,6 +108,11 @@ export default function HardeningResultsPanel({
       {/* Build 2: Failure Mode Dominance */}
       {hasFailureMode && (
         <FailureModeDominanceCard result={failureModeDominanceResult} />
+      )}
+
+      {/* Build 3: Failure Timeline */}
+      {hasTimeline && (
+        <FailureTimelineCard result={failureTimelineResult} />
       )}
 
       {/* Build 2: Disposition Pathway */}
