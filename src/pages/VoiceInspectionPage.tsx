@@ -1,6 +1,8 @@
+// DEPLOY135 — VoiceInspectionPage.tsx v16.4
+// v16.4: Build 2 — Failure Mode Dominance Engine + Disposition Pathway Engine
+// Adds Step 7 (failure mode dominance + disposition pathway) after hardening
 // DEPLOY134 — VoiceInspectionPage.tsx v16.3
 // v16.3: Build 1 — Authority Lock Engine + B31G Remaining Strength Calculator
-// Adds Step 3 (authority lock + remaining strength) between provenance and decision-core
 // DEPLOY129 — VoiceInspectionPage.tsx v16.2
 // v16.2: Hardening Sprint 1 wired — Reality Challenge + Unknown State + Trusted Facts
 // DEPLOY125 — VoiceInspectionPage.tsx v16.1
@@ -648,6 +650,10 @@ export default function VoiceInspectionPage() {
   var [authorityLockResult, setAuthorityLockResult] = useState<any>(null);
   var [remainingStrengthResult, setRemainingStrengthResult] = useState<any>(null);
 
+  // BUILD 2: FAILURE MODE DOMINANCE + DISPOSITION PATHWAY STATE — v16.4
+  var [failureModeDominanceResult, setFailureModeDominanceResult] = useState<any>(null);
+  var [dispositionPathwayResult, setDispositionPathwayResult] = useState<any>(null);
+
   var handleSaveToCase = async function() {
     if (!decisionCore) return;
     setSaveStatus("saving"); setSaveError(null);
@@ -961,6 +967,130 @@ export default function VoiceInspectionPage() {
     }
   };
 
+  // ========================================================================
+  // BUILD 2: FAILURE MODE DOMINANCE + DISPOSITION PATHWAY CALLS — v16.4
+  // ========================================================================
+
+  var callFailureModeDominance = async function(parsedData: any, gbData: any, confirmedFlags: any, authLockRes: any, remStrengthRes: any) {
+    try {
+      var mechanisms: string[] = [];
+      var wallLossPercent = 0;
+      var hasCracking = false;
+      var serviceEnv = "";
+      var opPressure = 0;
+      var nomWall = 0;
+      var measWall = 0;
+      var od = 0;
+      var smysVal = 0;
+
+      if (gbData && gbData.extracted) {
+        serviceEnv = gbData.extracted.service_fluid || "";
+        if (gbData.extracted.primary_finding) mechanisms.push(gbData.extracted.primary_finding);
+        if (gbData.extracted.finding_types) mechanisms = mechanisms.concat(gbData.extracted.finding_types);
+        if (gbData.extracted.numeric) {
+          wallLossPercent = gbData.extracted.numeric.wall_loss_percent || 0;
+          opPressure = gbData.extracted.numeric.pressure_psi || 0;
+          nomWall = gbData.extracted.numeric.nominal_wall || 0;
+          measWall = gbData.extracted.numeric.measured_wall || gbData.extracted.numeric.minimum_wall || 0;
+          od = gbData.extracted.numeric.diameter_inches || 0;
+        }
+      }
+
+      if (parsedData && parsedData.numeric_values) {
+        wallLossPercent = wallLossPercent || parsedData.numeric_values.wall_loss_percent || 0;
+      }
+
+      if (confirmedFlags) {
+        if (confirmedFlags.crack_confirmed || confirmedFlags.visible_cracking) hasCracking = true;
+      }
+
+      var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
+      if (lt.indexOf("crack") >= 0) hasCracking = true;
+      if (lt.indexOf("corrosion") >= 0 && mechanisms.indexOf("corrosion") < 0) mechanisms.push("corrosion");
+      if (lt.indexOf("pitting") >= 0 && mechanisms.indexOf("pitting") < 0) mechanisms.push("pitting");
+      if (lt.indexOf("wall loss") >= 0 && mechanisms.indexOf("wall_loss") < 0) mechanisms.push("wall_loss");
+      if (lt.indexOf("hic") >= 0 && mechanisms.indexOf("hic") < 0) mechanisms.push("hic");
+      if (lt.indexOf("sohic") >= 0 && mechanisms.indexOf("sohic") < 0) mechanisms.push("sohic");
+      if (lt.indexOf("ssc") >= 0 && mechanisms.indexOf("ssc") < 0) mechanisms.push("ssc");
+      if (lt.indexOf("mic") >= 0 && mechanisms.indexOf("mic") < 0) mechanisms.push("mic");
+      if (lt.indexOf("fatigue") >= 0 && mechanisms.indexOf("fatigue") < 0) mechanisms.push("fatigue");
+      if (lt.indexOf("erosion") >= 0 && mechanisms.indexOf("erosion") < 0) mechanisms.push("erosion");
+      if (lt.indexOf("scc") >= 0 && mechanisms.indexOf("scc") < 0) mechanisms.push("scc");
+      if (lt.indexOf("cui") >= 0 && mechanisms.indexOf("cui") < 0) mechanisms.push("cui");
+
+      var response = await fetch("/.netlify/functions/failure-mode-dominance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          damage_mechanisms: mechanisms,
+          remaining_strength: remStrengthRes,
+          authority_lock: authLockRes,
+          wall_loss_percent: wallLossPercent,
+          has_cracking: hasCracking,
+          service_environment: serviceEnv,
+          transcript: (parsedData && parsedData.raw_text) || "",
+          operating_pressure: opPressure,
+          nominal_wall: nomWall,
+          measured_minimum_wall: measWall,
+          pipe_od: od,
+          smys: smysVal
+        })
+      });
+      var result = await response.json();
+      setFailureModeDominanceResult(result);
+      return result;
+    } catch (err) {
+      console.error("Failure mode dominance error:", err);
+      return null;
+    }
+  };
+
+  var callDispositionPathway = async function(fmdResult: any, remStrengthRes: any, hardenRes: any, coreResult: any) {
+    try {
+      var safeEnv = (remStrengthRes && remStrengthRes.safe_envelope) || "";
+      var govMode = (fmdResult && fmdResult.governing_failure_mode) || "";
+      var govSev = (fmdResult && fmdResult.governing_severity) || "";
+      var realState = (hardenRes && hardenRes.unknownStateResult && hardenRes.unknownStateResult.reality_state) || "";
+      var dispBlocked = (hardenRes && hardenRes.unknownStateResult && hardenRes.unknownStateResult.unknown_blocks_final_disposition) || false;
+      var interFlag = (fmdResult && fmdResult.interaction_flag) || false;
+      var interType = (fmdResult && fmdResult.interaction_type) || "";
+      var brittleRisk = (fmdResult && fmdResult.cracking_path && fmdResult.cracking_path.brittle_fracture_risk) || false;
+      var wallLoss = (remStrengthRes && remStrengthRes.calculations && remStrengthRes.calculations.wall_loss_percent) || 0;
+      var opRatio = (remStrengthRes && remStrengthRes.operating_ratio) || 0;
+      var pressReduc = (remStrengthRes && remStrengthRes.pressure_reduction_required) || 0;
+      var hasCrack = (fmdResult && fmdResult.cracking_path && fmdResult.cracking_path.active) || false;
+      var confBand = (coreResult && coreResult.reality_confidence && coreResult.reality_confidence.band) || "";
+      var conTier = (coreResult && coreResult.consequence_reality && coreResult.consequence_reality.consequence_tier) || "";
+
+      var response = await fetch("/.netlify/functions/disposition-pathway", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          safe_envelope: safeEnv,
+          governing_failure_mode: govMode,
+          governing_severity: govSev,
+          reality_state: realState,
+          disposition_blocked: dispBlocked,
+          interaction_flag: interFlag,
+          interaction_type: interType,
+          brittle_fracture_risk: brittleRisk,
+          wall_loss_percent: wallLoss,
+          operating_ratio: opRatio,
+          pressure_reduction_required: pressReduc,
+          has_cracking: hasCrack,
+          confidence_band: confBand,
+          consequence_tier: conTier
+        })
+      });
+      var result = await response.json();
+      setDispositionPathwayResult(result);
+      return result;
+    } catch (err) {
+      console.error("Disposition pathway error:", err);
+      return null;
+    }
+  };
+
   var parsedRef = useRef<any>(null);
   var assetRef = useRef<any>(null);
   var stepsRef = useRef<StepState[]>([]);
@@ -1005,6 +1135,8 @@ export default function VoiceInspectionPage() {
     setSaveStatus("idle"); setSavedCaseId(null); setSaveError(null);
     // BUILD 1: Reset authority + strength
     setAuthorityLockResult(null); setRemainingStrengthResult(null);
+    // BUILD 2: Reset failure mode + disposition
+    setFailureModeDominanceResult(null); setDispositionPathwayResult(null);
     inputTextRef.current = inputText;
 
     var initialSteps: StepState[] = [
@@ -1015,6 +1147,7 @@ export default function VoiceInspectionPage() {
       { label: "Physics-First Decision Core (6 states)", status: "pending" },
       { label: "Superbrain Synthesis (Five Magic Features)", status: "pending" },
       { label: "Reality Hardening (challenge + unknown state)", status: "pending" },
+      { label: "Failure Mode Dominance + Disposition Pathway", status: "pending" },
     ];
     var s = initialSteps.slice();
     setSteps(s); stepsRef.current = s;
@@ -1298,6 +1431,32 @@ export default function VoiceInspectionPage() {
         }
       } else {
         s = updateStep(6, { status: "error", detail: "no decision-core data" }, s);
+      }
+      setSteps(s.slice());
+
+      // STEP 7: FAILURE MODE DOMINANCE + DISPOSITION PATHWAY — Build 2
+      s = updateStep(7, { status: "running", detail: "evaluating failure modes + disposition..." }, s); setSteps(s.slice());
+      try {
+        var fmdResult = await callFailureModeDominance(parsedResult, grammarBridgeResult, confirmedFlags, authorityLockResult, remainingStrengthResult);
+        if (fmdResult) {
+          var govMode = fmdResult.governing_failure_mode || "?";
+          var govSev = fmdResult.governing_severity || "?";
+          var fmdDetail = govMode + " | " + govSev;
+          if (fmdResult.interaction_flag) fmdDetail = fmdDetail + " | INTERACTION";
+
+          var dpResult = await callDispositionPathway(fmdResult, remainingStrengthResult, hardenRes, coreResult);
+          if (dpResult) {
+            fmdDetail = fmdDetail + " | " + dpResult.disposition;
+            s = updateStep(7, { status: "done", detail: fmdDetail }, s);
+          } else {
+            s = updateStep(7, { status: "done", detail: fmdDetail + " | no disposition" }, s);
+          }
+        } else {
+          s = updateStep(7, { status: "done", detail: "no failure mode data" }, s);
+        }
+      } catch (fmdErr: any) {
+        s = updateStep(7, { status: "error", detail: fmdErr.message }, s);
+        errs.push("failure-mode-dominance: " + fmdErr.message);
       }
       setSteps(s.slice());
 
@@ -2122,9 +2281,11 @@ export default function VoiceInspectionPage() {
           challengeResult={hardeningResult?.challengeResult || null}
           unknownStateResult={hardeningResult?.unknownStateResult || null}
           trustedFacts={hardeningResult?.trustedFacts || []}
-          visible={hardeningResult !== null || authorityLockResult !== null || remainingStrengthResult !== null}
+          visible={hardeningResult !== null || authorityLockResult !== null || remainingStrengthResult !== null || failureModeDominanceResult !== null || dispositionPathwayResult !== null}
           authorityLockResult={authorityLockResult}
           remainingStrengthResult={remainingStrengthResult}
+          failureModeDominanceResult={failureModeDominanceResult}
+          dispositionPathwayResult={dispositionPathwayResult}
         />
 
       </div>
