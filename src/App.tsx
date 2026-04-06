@@ -6,7 +6,7 @@ import Dashboard from "./pages/Dashboard";
 import Cases from "./pages/Cases";
 import NewCase from "./pages/NewCase";
 import CaseDetail from "./pages/CaseDetail";
-import { VoiceInspectionPage } from './pages/VoiceInspectionPage';
+import VoiceInspectionPage from './pages/VoiceInspectionPage';
 export default function App() {
   const { user, loading } = useAuth();
   if (loading) {
