@@ -1,17 +1,13 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/auth";
-
 const NAV_ITEMS = [
   { path: "/", label: "Dashboard", icon: "\u25A3" },
   { path: "/cases", label: "Cases", icon: "\u25C9" },
-  { path: "/cases/new", label: "New Case", icon: "+" },
-  { path: "/voice", label: "Voice", icon: "\uD83C\uDF99\uFE0F" },
+  { path: "/voice", label: "Inspect", icon: "\uD83C\uDF99\uFE0F" },
 ];
-
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { profile, signOut } = useAuth();
   const location = useLocation();
-
   return (
     <div className="app-shell">
       <header className="app-header">
