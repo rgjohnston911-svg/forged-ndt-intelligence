@@ -1,6 +1,10 @@
-// FAILURE MODE DOMINANCE ENGINE v1.0
+// FAILURE MODE DOMINANCE ENGINE v1.1
 // File: netlify/functions/failure-mode-dominance.js
 // NO TYPESCRIPT — PURE JAVASCRIPT
+// v1.1: Adds STRUCTURAL_INSTABILITY as third failure mode path
+//       Detects tilt, lean, list, settlement, buckling, deformation, foundation_failure
+//       Structural instability outranks corrosion and cracking when present
+//       (because tilt/buckling/settlement = capacity already exceeded, post-failure indicators)
 
 var handler = async function(event) {
   "use strict";
@@ -36,12 +40,20 @@ var handler = async function(event) {
     var pipeOD = body.pipe_od || 0;
     var smys = body.smys || 0;
 
+    // BUILD 4 v1.1: Structural inputs
+    var hasTilt = body.has_tilt || body.has_lean || false;
+    var hasSettlement = body.has_settlement || body.has_foundation_movement || false;
+    var hasBuckling = body.has_buckling || false;
+    var hasDeformation = body.has_deformation || false;
+    var assetClass = (body.asset_class || "").toLowerCase().trim();
+
     // ====================================================================
     // CLASSIFY EACH MECHANISM INTO FAILURE MODE CATEGORY
     // ====================================================================
 
     var corrosionMechanisms = [];
     var crackingMechanisms = [];
+    var structuralMechanisms = [];
     var otherMechanisms = [];
 
     mechanisms.forEach(function(mech) {
@@ -61,6 +73,16 @@ var handler = async function(event) {
                mech.indexOf("cui") >= 0 || mech.indexOf("metal_loss") >= 0) {
         corrosionMechanisms.push(mech);
       }
+      // Structural instability family (BUILD 4 v1.1)
+      else if (mech.indexOf("tilt") >= 0 || mech.indexOf("lean") >= 0 || mech.indexOf("list") >= 0 ||
+               mech.indexOf("settlement") >= 0 || mech.indexOf("buckling") >= 0 ||
+               mech.indexOf("deformation") >= 0 || mech.indexOf("foundation") >= 0 ||
+               mech.indexOf("instability") >= 0 || mech.indexOf("misalignment") >= 0 ||
+               mech.indexOf("displacement") >= 0 || mech.indexOf("collapse") >= 0 ||
+               mech.indexOf("section_loss") >= 0 || mech.indexOf("member_loss") >= 0 ||
+               mech.indexOf("subsidence") >= 0 || mech.indexOf("sinking") >= 0) {
+        structuralMechanisms.push(mech);
+      }
       // Other
       else {
         otherMechanisms.push(mech);
@@ -73,12 +95,36 @@ var handler = async function(event) {
       hasCracking = true;
     }
 
+    // BUILD 4 v1.1: Check transcript for structural instability keywords
+    if (transcript.indexOf("tilt") >= 0 || transcript.indexOf("leaning") >= 0 ||
+        transcript.indexOf("listing") >= 0 || transcript.indexOf("not plumb") >= 0 ||
+        transcript.indexOf("out of plumb") >= 0 || transcript.indexOf("off vertical") >= 0) {
+      hasTilt = true;
+      if (structuralMechanisms.indexOf("tilt") < 0) structuralMechanisms.push("tilt");
+    }
+    if (transcript.indexOf("settlement") >= 0 || transcript.indexOf("settling") >= 0 ||
+        transcript.indexOf("foundation movement") >= 0 || transcript.indexOf("subsidence") >= 0) {
+      hasSettlement = true;
+      if (structuralMechanisms.indexOf("settlement") < 0) structuralMechanisms.push("settlement");
+    }
+    if (transcript.indexOf("buckling") >= 0 || transcript.indexOf("buckled") >= 0 ||
+        transcript.indexOf("bowed") >= 0) {
+      hasBuckling = true;
+      if (structuralMechanisms.indexOf("buckling") < 0) structuralMechanisms.push("buckling");
+    }
+    if (transcript.indexOf("deformation") >= 0 || transcript.indexOf("deformed") >= 0 ||
+        transcript.indexOf("bent") >= 0 || transcript.indexOf("distorted") >= 0) {
+      hasDeformation = true;
+      if (structuralMechanisms.indexOf("deformation") < 0) structuralMechanisms.push("deformation");
+    }
+
     if (hasCracking && crackingMechanisms.length === 0) {
       crackingMechanisms.push("cracking_unspecified");
     }
 
     var hasCorrosionMode = corrosionMechanisms.length > 0 || wallLossPercent > 0;
     var hasCrackingMode = crackingMechanisms.length > 0 || hasCracking;
+    var hasStructuralMode = structuralMechanisms.length > 0 || hasTilt || hasSettlement || hasBuckling || hasDeformation;
 
     // ====================================================================
     // EVALUATE CORROSION FAILURE PATH
@@ -213,6 +259,80 @@ var handler = async function(event) {
     }
 
     // ====================================================================
+    // EVALUATE STRUCTURAL INSTABILITY PATH (BUILD 4 v1.1)
+    // ====================================================================
+    // Tilt, lean, settlement, buckling, deformation = capacity already exceeded
+    // These are POST-failure indicators of underlying capacity loss
+    // Structural instability outranks corrosion and cracking when present
+
+    var structuralPath = {
+      active: hasStructuralMode,
+      mechanisms: structuralMechanisms,
+      indicators: {
+        tilt: hasTilt,
+        settlement: hasSettlement,
+        buckling: hasBuckling,
+        deformation: hasDeformation
+      },
+      severity: "none",
+      capacity_loss_state: "none",
+      assessment_method: "none",
+      notes: []
+    };
+
+    if (hasStructuralMode) {
+      structuralPath.assessment_method = "Structural FFS / Engineering Assessment";
+
+      // Severity ladder: tilt + settlement + buckling = catastrophic capacity loss
+      // Even one of these represents capacity already exceeded
+      var instabilityCount = 0;
+      if (hasTilt) instabilityCount++;
+      if (hasSettlement) instabilityCount++;
+      if (hasBuckling) instabilityCount++;
+      if (hasDeformation) instabilityCount++;
+
+      if (hasTilt && hasSettlement) {
+        structuralPath.severity = "CRITICAL";
+        structuralPath.capacity_loss_state = "PROGRESSIVE_FAILURE_IN_PROGRESS";
+        structuralPath.notes.push("Tilt + settlement = active progressive failure. Foundation or pile system has lost integrity.");
+      } else if (hasBuckling) {
+        structuralPath.severity = "CRITICAL";
+        structuralPath.capacity_loss_state = "COMPRESSIVE_CAPACITY_EXCEEDED";
+        structuralPath.notes.push("Visible buckling = compressive capacity already exceeded. Member or system has lost load-carrying ability.");
+      } else if (hasTilt) {
+        structuralPath.severity = "CRITICAL";
+        structuralPath.capacity_loss_state = "GLOBAL_GEOMETRY_DEVIATION";
+        structuralPath.notes.push("Visible tilt = global geometry has deviated from designed position. Underlying capacity loss has manifested as displacement.");
+      } else if (hasSettlement) {
+        structuralPath.severity = "SEVERE";
+        structuralPath.capacity_loss_state = "FOUNDATION_INSTABILITY";
+        structuralPath.notes.push("Foundation settlement = support condition has changed. Load redistribution is occurring.");
+      } else if (hasDeformation) {
+        structuralPath.severity = "HIGH";
+        structuralPath.capacity_loss_state = "LOCAL_PLASTIC_DEFORMATION";
+        structuralPath.notes.push("Visible deformation = local yielding has occurred. Member may have residual capacity but at reduced margin.");
+      } else if (structuralMechanisms.length > 0) {
+        structuralPath.severity = "HIGH";
+        structuralPath.capacity_loss_state = "STRUCTURAL_DISTRESS";
+      }
+
+      // Mandatory reasoning paths for structural instability
+      structuralPath.notes.push("Required reasoning: load path evaluation, support condition evaluation, member capacity loss check");
+      structuralPath.notes.push("Required NDE: laser/total station tilt survey, photogrammetry, structural FFS per applicable code");
+
+      // Asset-class specific notes
+      if (assetClass.indexOf("offshore") >= 0 || assetClass.indexOf("platform") >= 0 || assetClass.indexOf("jacket") >= 0) {
+        structuralPath.notes.push("Offshore structure: ROV/diver inspection of submerged jacket, pile, and foundation system required");
+      }
+      if (assetClass.indexOf("tank") >= 0) {
+        structuralPath.notes.push("Storage tank: settlement survey, shell-to-bottom weld inspection, foundation differential measurement required");
+      }
+      if (assetClass.indexOf("bridge") >= 0) {
+        structuralPath.notes.push("Bridge: load rating reassessment, deflection survey, support condition inspection required");
+      }
+    }
+
+    // ====================================================================
     // DETERMINE GOVERNING FAILURE MODE
     // ====================================================================
 
@@ -223,7 +343,32 @@ var handler = async function(event) {
     var interactionType = "none";
     var interactionDetail = "";
 
-    if (hasCorrosionMode && hasCrackingMode) {
+    // BUILD 4 v1.1: Structural instability has top priority
+    // Tilt/buckling/settlement = capacity already exceeded (post-failure indicators)
+    // These outrank corrosion and cracking which are mechanisms (pre-failure indicators)
+    if (hasStructuralMode) {
+      governingMode = "STRUCTURAL_INSTABILITY";
+      governingBasis = "Structural instability indicators (" + structuralMechanisms.join(", ") + ") represent capacity already exceeded - global geometry has deviated from designed position. This outranks corrosion/cracking mechanism analysis because the failure consequence has already manifested.";
+
+      // Detect what's driving the structural instability
+      if (hasCorrosionMode && hasCrackingMode) {
+        interactionFlag = true;
+        interactionType = "COMPOUND_DRIVER";
+        interactionDetail = "Structural instability with both corrosion and cracking active. Section loss from corrosion combined with crack propagation has driven the asset past its capacity envelope. All three failure paths must be assessed.";
+      } else if (hasCorrosionMode) {
+        interactionFlag = true;
+        interactionType = "SYNERGY";
+        interactionDetail = "Structural instability driven by corrosion-induced section loss. Material degradation in load-bearing members has reduced cross-sectional area below capacity requirements, causing geometric deviation. This is a progressive failure scenario.";
+      } else if (hasCrackingMode) {
+        interactionFlag = true;
+        interactionType = "CASCADE";
+        interactionDetail = "Structural instability with active cracking. Crack propagation has reduced section integrity to the point of geometric distress. Brittle fracture risk is elevated.";
+      } else {
+        interactionType = "STRUCTURAL_PRIMARY";
+        interactionDetail = "Structural instability without identified mechanism driver. Possible causes: foundation/pile failure, design loading exceeded, undocumented impact event, or degradation mechanism not yet characterized.";
+      }
+    }
+    else if (hasCorrosionMode && hasCrackingMode) {
       // COMPOUND — both active
       interactionFlag = true;
 
@@ -281,12 +426,16 @@ var handler = async function(event) {
       governingBasis = "No active failure modes identified from available data";
     }
 
-    // Severity = max of both paths
+    // Severity = max across all three paths
     var severityRank = { "CRITICAL": 5, "SEVERE": 4, "HIGH": 3, "MODERATE": 2, "LOW": 1, "none": 0 };
     var corSev = severityRank[corrosionPath.severity] || 0;
     var craSev = severityRank[crackingPath.severity] || 0;
-    var governingSeverity = corSev >= craSev ? corrosionPath.severity : crackingPath.severity;
-    if (governingSeverity === "none") governingSeverity = "UNDETERMINED";
+    var strSev = severityRank[structuralPath.severity] || 0;
+    var maxSev = Math.max(corSev, craSev, strSev);
+    var governingSeverity = "UNDETERMINED";
+    if (maxSev === strSev && maxSev > 0) governingSeverity = structuralPath.severity;
+    else if (maxSev === corSev && maxSev > 0) governingSeverity = corrosionPath.severity;
+    else if (maxSev === craSev && maxSev > 0) governingSeverity = crackingPath.severity;
 
     // Governing code reference
     var governingCode = "API 579-1/ASME FFS-1";
@@ -296,6 +445,19 @@ var handler = async function(event) {
       governingCode = "API 579-1 Part 9 (Crack-Like Flaws)";
     } else if (governingMode === "COMPOUND") {
       governingCode = "API 579-1 Part 4/5 + Part 9 (Both Required)";
+    } else if (governingMode === "STRUCTURAL_INSTABILITY") {
+      // BUILD 4 v1.1: Structural FFS code reference depends on asset class
+      if (assetClass.indexOf("offshore") >= 0 || assetClass.indexOf("platform") >= 0 || assetClass.indexOf("jacket") >= 0) {
+        governingCode = "API RP 2A / API RP 2SIM (Offshore Structural FFS)";
+      } else if (assetClass.indexOf("tank") >= 0) {
+        governingCode = "API 653 (Tank Settlement & Shell Stability)";
+      } else if (assetClass.indexOf("bridge") >= 0) {
+        governingCode = "AASHTO MBE (Manual for Bridge Evaluation)";
+      } else if (assetClass.indexOf("vessel") >= 0 || assetClass.indexOf("pressure") >= 0) {
+        governingCode = "API 579-1 Part 8 (Distortions) + ASME FFS-1";
+      } else {
+        governingCode = "Structural Engineering Assessment Required (asset-specific code)";
+      }
     }
 
     // ====================================================================
@@ -313,15 +475,17 @@ var handler = async function(event) {
       interaction_detail: interactionDetail,
       corrosion_path: corrosionPath,
       cracking_path: crackingPath,
+      structural_path: structuralPath,
       mechanism_count: {
         total: mechanisms.length,
         corrosion: corrosionMechanisms.length,
         cracking: crackingMechanisms.length,
+        structural: structuralMechanisms.length,
         other: otherMechanisms.length
       },
       metadata: {
         engine: "failure-mode-dominance",
-        version: "1.0",
+        version: "1.1",
         timestamp: new Date().toISOString()
       }
     };
