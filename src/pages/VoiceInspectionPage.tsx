@@ -1,29 +1,24 @@
-// DEPLOY151 — VoiceInspectionPage.tsx v16.6b
-// v16.6b: DIAGNOSTIC BUILD — surface silent failures + fix closure staleness
-// CHANGES from v16.6 (DEPLOY150):
-//   1. All five callX catch blocks now push to errors[] (not just console.error)
-//   2. callX HTTP-non-OK paths also push to errors[]
-//   3. continuePipeline captures localAuthResult / localStrengthResult from
-//      callX return values, passes them to FMD/Disposition/Timeline
-//      (fixes React state staleness across pipeline calls — BONUS FIX,
-//       not in original v16.6b plan)
-//   4. PDF report generator accepts errors[] and renders Hardening Diagnostic
-//      section showing PRESENT/NULL state of every Build 1+2+3 result
-//   5. Export PDF onClick passes errors[] to generateInspectionReport
+// DEPLOY152 — VoiceInspectionPage.tsx v16.6c
+// v16.6c: BYPASSES HardeningResultsPanel — child card was crashing on .confidence
+// CHANGE from v16.6b: <HardeningResultsPanel/> JSX call replaced with inline
+// diagnostic block. AuthorityLockCard (the only Build 1+2+3 card actually
+// rendering when fmd/dpr/ftr were null) was reading .confidence on undefined
+// somewhere, crashing the React render and masking all downstream state updates.
+// The inline block shows ALR/RSR/FMD/DPR/FTR present/null + key fields in plain
+// text. Once we see FMD/Disposition/Timeline populating, we know the closure-
+// staleness fix worked and the only remaining bug is in AuthorityLockCard.tsx.
 //
-// IMPORTANT: change #3 (closure-staleness fix) was added BEYOND the original
-// diagnostic plan. If FMD now shows STRUCTURAL_INSTABILITY for the offshore
-// platform case, we cannot tell whether it was the diagnostic surfacing the
-// problem or the closure fix actually solving it.
-//
-// HOW TO USE: Run the offshore platform case. If FMD/Disposition/Timeline are
-// still empty in the UI, check the Hardening Diagnostic block at the top of the
-// generated PDF. It will show which engines returned null and any caught errors.
+// Carries forward all v16.6b patches:
+//   1. callX catch blocks push to errors[]
+//   2. callX HTTP-non-OK paths push to errors[]
+//   3. continuePipeline closure-staleness fix (localAuthResult/localStrengthResult)
+//   4. PDF Hardening Diagnostic block
+//   5. Export PDF passes errors[] to generateInspectionReport
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
 import { runHardeningPipeline } from "../utils/hardening-pipeline";
-import HardeningResultsPanel from "../components/HardeningResultsPanel";
+// v16.6c: HardeningResultsPanel import removed — bypassed in JSX due to child card crash
 import PhotoAnalysisCard from "../PhotoAnalysisCard";
 
 function generateInspectionReport(data: {
@@ -1861,17 +1856,19 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        <HardeningResultsPanel
-          challengeResult={hardeningResult?.challengeResult || null}
-          unknownStateResult={hardeningResult?.unknownStateResult || null}
-          trustedFacts={hardeningResult?.trustedFacts || []}
-          visible={hardeningResult !== null || authorityLockResult !== null || remainingStrengthResult !== null || failureModeDominanceResult !== null || dispositionPathwayResult !== null || failureTimelineResult !== null}
-          authorityLockResult={authorityLockResult}
-          remainingStrengthResult={remainingStrengthResult}
-          failureModeDominanceResult={failureModeDominanceResult}
-          dispositionPathwayResult={dispositionPathwayResult}
-          failureTimelineResult={failureTimelineResult}
-        />
+        {/* v16.6c: HardeningResultsPanel BYPASSED — child card was crashing on .confidence access. Inline diagnostic instead. */}
+        {(authorityLockResult || remainingStrengthResult || failureModeDominanceResult || dispositionPathwayResult || failureTimelineResult) && (
+          <div style={{ marginBottom: "16px", padding: "12px", border: "2px solid #000", borderRadius: "8px", backgroundColor: "#fffbe6" }}>
+            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6c inline diagnostic)</div>
+            <div style={{ fontSize: "11px", fontFamily: "monospace", lineHeight: "1.6" }}>
+              <div>ALR: {authorityLockResult ? "PRESENT \u2014 status=" + (authorityLockResult.status || "?") + " | " + ((authorityLockResult.authority_chain || []).length) + " primary | trigger_b31g=" + String(!!authorityLockResult.trigger_b31g) : "null"}</div>
+              <div>RSR: {remainingStrengthResult ? "PRESENT \u2014 envelope=" + (remainingStrengthResult.safe_envelope || "?") + " | MAOP=" + (remainingStrengthResult.governing_maop || "?") : "null"}</div>
+              <div>FMD: {failureModeDominanceResult ? "PRESENT \u2014 governing=" + (failureModeDominanceResult.governing_failure_mode || "?") + " | severity=" + (failureModeDominanceResult.governing_severity || "?") : "null"}</div>
+              <div>DPR: {dispositionPathwayResult ? "PRESENT \u2014 disposition=" + (dispositionPathwayResult.disposition || "?") + " | urgency=" + (dispositionPathwayResult.urgency || "?") : "null"}</div>
+              <div>FTR: {failureTimelineResult ? "PRESENT \u2014 mode=" + (failureTimelineResult.governing_failure_mode || "?") + " | urgency=" + (failureTimelineResult.urgency || "?") : "null"}</div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>
