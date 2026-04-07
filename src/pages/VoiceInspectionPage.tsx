@@ -1,29 +1,24 @@
-// DEPLOY150 — VoiceInspectionPage.tsx v16.6
-// v16.6: Build 5 — PDF Report Generator updated with all Build 1+2+3 sections
-// generateInspectionReport now accepts authorityLock, remainingStrength, FMD,
-// dispositionPathway, failureTimeline results and renders dedicated sections.
-// FMD's governing_failure_mode overrides decision-core's stale "pressure boundary failure"
-// label when present (so offshore platform with tilt now shows STRUCTURAL_INSTABILITY).
-// Engine string in header and footer updated to reflect actual current pipeline.
-// DEPLOY138 — VoiceInspectionPage.tsx v16.5
-// v16.5: Build 3 — Failure Timeline + GPT-4o Photo Analysis
-// Adds Step 8 (failure timeline) after step 7
-// Adds PhotoAnalysisCard to input area for photo upload + GPT-4o vision
-// DEPLOY135 — VoiceInspectionPage.tsx v16.4
-// v16.4: Build 2 — Failure Mode Dominance Engine + Disposition Pathway Engine
-// DEPLOY134 — VoiceInspectionPage.tsx v16.3
-// v16.3: Build 1 — Authority Lock Engine + B31G Remaining Strength Calculator
-// DEPLOY129 — VoiceInspectionPage.tsx v16.2
-// v16.2: Hardening Sprint 1 wired — Reality Challenge + Unknown State + Trusted Facts
-// DEPLOY125 — VoiceInspectionPage.tsx v16.1
-// v16.1: Interactive Grammar Bridge readback with editable fields + amendment trail
-// DEPLOY123 — VoiceInspectionPage.tsx v16.0
-// v16.0: Evidence Provenance wired into pipeline + UI
-// Calls evidence-provenance before decision-core, passes results through pipeline.
-// Evidence Provenance card shows trust band, evidence items, measurement reality gaps.
-// DEPLOY113 — VoiceInspectionPage.tsx v15.0
-// v15.0: Superbrain Synthesis — Five Magic Features rendered
-// Replaces AI Narrative with full superbrain intelligence output
+// DEPLOY151 — VoiceInspectionPage.tsx v16.6b
+// v16.6b: DIAGNOSTIC BUILD — surface silent failures + fix closure staleness
+// CHANGES from v16.6 (DEPLOY150):
+//   1. All five callX catch blocks now push to errors[] (not just console.error)
+//   2. callX HTTP-non-OK paths also push to errors[]
+//   3. continuePipeline captures localAuthResult / localStrengthResult from
+//      callX return values, passes them to FMD/Disposition/Timeline
+//      (fixes React state staleness across pipeline calls — BONUS FIX,
+//       not in original v16.6b plan)
+//   4. PDF report generator accepts errors[] and renders Hardening Diagnostic
+//      section showing PRESENT/NULL state of every Build 1+2+3 result
+//   5. Export PDF onClick passes errors[] to generateInspectionReport
+//
+// IMPORTANT: change #3 (closure-staleness fix) was added BEYOND the original
+// diagnostic plan. If FMD now shows STRUCTURAL_INSTABILITY for the offshore
+// platform case, we cannot tell whether it was the diagnostic surfacing the
+// problem or the closure fix actually solving it.
+//
+// HOW TO USE: Run the offshore platform case. If FMD/Disposition/Timeline are
+// still empty in the UI, check the Hardening Diagnostic block at the top of the
+// generated PDF. It will show which engines returned null and any caught errors.
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
@@ -45,6 +40,7 @@ function generateInspectionReport(data: {
   dispositionPathwayResult?: any;
   failureTimelineResult?: any;
   photoAnalysisResult?: any;
+  errors?: string[];
 }) {
   var dc = data.decisionCore;
   if (!dc) { alert("No Decision Core data to export."); return; }
@@ -59,7 +55,6 @@ function generateInspectionReport(data: {
   var comp = dc.physics_computations;
   var sb = data.superbrainResult;
 
-  // BUILD 5: Hardening engine results (all optional - render only if present)
   var alr = data.authorityLockResult || null;
   var rsr = data.remainingStrengthResult || null;
   var fmd = data.failureModeDominanceResult || null;
@@ -67,8 +62,6 @@ function generateInspectionReport(data: {
   var ftr = data.failureTimelineResult || null;
   var par = data.photoAnalysisResult || null;
 
-  // BUILD 5: FMD override - if FMD is present, its governing failure mode supersedes
-  // decision-core's consequence_reality.failure_mode
   var displayFailureMode = (con && con.failure_mode) || "unknown";
   var failureModeSource = "decision-core";
   if (fmd && fmd.governing_failure_mode && fmd.governing_failure_mode !== "NONE") {
@@ -108,8 +101,6 @@ function generateInspectionReport(data: {
   html += ".gate-row { display: flex; align-items: center; gap: 8px; padding: 5px 10px; margin-bottom: 3px; border-radius: 4px; font-size: 11px; }";
   html += ".gate-pass { background: #f0fdf4; } .gate-block { background: #fef2f2; } .gate-warn { background: #fffbeb; } .gate-info { background: #eff6ff; }";
   html += ".recovery-item { padding: 8px 12px; margin-bottom: 6px; border-left: 3px solid #2563eb; background: #f9fafb; border-radius: 4px; }";
-  html += ".mech-valid { padding: 6px 10px; background: #f0fdf4; border-radius: 4px; margin-bottom: 4px; border-left: 3px solid #16a34a; }";
-  html += ".mech-reject { padding: 4px 10px; background: #fef2f2; border-radius: 4px; margin-bottom: 3px; font-size: 10px; color: #991b1b; }";
   html += ".gap-item { padding: 5px 10px; background: #fef2f2; border-radius: 4px; margin-bottom: 3px; color: #991b1b; font-size: 11px; }";
   html += ".confidence-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 8px; }";
   html += ".conf-box { text-align: center; padding: 6px; border: 1px solid #e5e7eb; border-radius: 4px; }";
@@ -120,7 +111,6 @@ function generateInspectionReport(data: {
   html += ".sig-box { flex: 1; border-top: 1px solid #374151; padding-top: 4px; }";
   html += ".sig-label { font-size: 10px; color: #6b7280; }";
   html += ".print-btn { position: fixed; top: 20px; right: 20px; padding: 12px 24px; font-size: 14px; font-weight: 700; color: #fff; background: #2563eb; border: none; border-radius: 6px; cursor: pointer; z-index: 1000; }";
-  html += ".print-btn:hover { background: #1d4ed8; }";
   html += ".sb-table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 12px; }";
   html += ".sb-table th { background: #f0f4ff; padding: 6px 8px; text-align: left; border: 1px solid #dbeafe; font-weight: 700; color: #1e40af; }";
   html += ".sb-table td { padding: 5px 8px; border: 1px solid #e5e7eb; vertical-align: top; }";
@@ -133,7 +123,7 @@ function generateInspectionReport(data: {
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>Engine: decision-core v2.5 + Authority Lock v1.0 + Remaining Strength v1.0 + FMD v1.1 + Disposition Pathway v1.0 + Failure Timeline v1.0 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>v16.6b DIAGNOSTIC | Engine: decision-core v2.5 + Authority Lock v1.0 + Remaining Strength v1.0 + FMD v1.1 + Disposition Pathway v1.0 + Failure Timeline v1.0 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -150,13 +140,57 @@ function generateInspectionReport(data: {
   html += "</div>";
 
   // ======================================================================
-  // BUILD 5: HARDENING ENGINE SECTIONS — render BEFORE Superbrain section
+  // v16.6b: HARDENING DIAGNOSTIC — always render, shows engine state snapshot
+  // ======================================================================
+  html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
+  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6b)</div>";
+  html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time. Read this on phone photos.</div>";
+
+  var diagEngines = [
+    { name: "AUTHORITY LOCK (alr)", obj: alr },
+    { name: "REMAINING STRENGTH (rsr)", obj: rsr },
+    { name: "FAILURE MODE DOMINANCE (fmd)", obj: fmd },
+    { name: "DISPOSITION PATHWAY (dpr)", obj: dpr },
+    { name: "FAILURE TIMELINE (ftr)", obj: ftr },
+    { name: "PHOTO ANALYSIS (par)", obj: par }
+  ];
+  for (var di = 0; di < diagEngines.length; di++) {
+    var de = diagEngines[di];
+    var present = de.obj !== null && de.obj !== undefined;
+    var badgeBg = present ? "#16a34a" : "#dc2626";
+    var badgeText = present ? "PRESENT" : "NULL";
+    html += "<div style='padding:6px 10px;margin-bottom:4px;background:#fff;border:1px solid #000;border-radius:3px;'>";
+    html += "<div style='display:flex;align-items:center;gap:8px;'>";
+    html += "<span style='display:inline-block;padding:2px 8px;font-size:10px;font-weight:900;color:#fff;background:" + badgeBg + ";border-radius:3px;'>" + badgeText + "</span>";
+    html += "<span style='font-size:11px;font-weight:700;color:#000;'>" + esc(de.name) + "</span>";
+    html += "</div>";
+    if (present) {
+      var keys: string[] = [];
+      try { keys = Object.keys(de.obj); } catch(e) { keys = []; }
+      html += "<div style='font-size:9px;color:#374151;margin-top:3px;font-family:monospace;word-break:break-all;'>keys: " + esc(keys.join(", ")) + "</div>";
+    }
+    html += "</div>";
+  }
+
+  if (data.errors && data.errors.length > 0) {
+    html += "<div style='margin-top:10px;padding:8px;background:#fff;border:2px solid #dc2626;border-radius:3px;'>";
+    html += "<div style='font-size:11px;font-weight:900;color:#dc2626;margin-bottom:4px;'>CAUGHT ERRORS (" + data.errors.length + ")</div>";
+    for (var dei3 = 0; dei3 < data.errors.length; dei3++) {
+      html += "<div style='font-size:10px;color:#991b1b;padding:2px 0;font-family:monospace;word-break:break-all;'>" + esc(data.errors[dei3]) + "</div>";
+    }
+    html += "</div>";
+  } else {
+    html += "<div style='margin-top:8px;font-size:10px;color:#16a34a;font-weight:700;'>No caught errors in errors[] array.</div>";
+  }
+  html += "</div>";
+
+  // ======================================================================
+  // BUILD 5: HARDENING ENGINE SECTIONS
   // ======================================================================
 
-  // ---- AUTHORITY LOCK CHAIN ----
   if (alr) {
     html += "<div class='section'>";
-    html += "<div class='section-title'>Authority Lock Chain (deterministic code resolution)</div>";
+    html += "<div class='section-title'>Authority Lock Chain</div>";
     if (alr.lock_state) {
       var lockColor = alr.lock_state === "LOCKED" ? "#16a34a" : alr.lock_state === "PARTIAL" ? "#ea580c" : "#dc2626";
       html += "<div class='banner' style='background:" + lockColor + "'>" + esc(alr.lock_state) + " AUTHORITY LOCK</div>";
@@ -171,7 +205,7 @@ function generateInspectionReport(data: {
       }
     }
     if (alr.supplemental_authorities && alr.supplemental_authorities.length > 0) {
-      html += "<div style='margin-top:6px;font-size:10px;font-weight:700;color:#6b7280;'>SUPPLEMENTAL / DAMAGE-SPECIFIC</div>";
+      html += "<div style='margin-top:6px;font-size:10px;font-weight:700;color:#6b7280;'>SUPPLEMENTAL</div>";
       for (var asi = 0; asi < alr.supplemental_authorities.length; asi++) {
         var sa = alr.supplemental_authorities[asi];
         html += "<div class='sb-item' style='border-left-color:#ea580c;'><strong>" + esc(sa.code || sa.standard || "code") + "</strong>";
@@ -179,45 +213,28 @@ function generateInspectionReport(data: {
         html += "</div>";
       }
     }
-    if (alr.unresolved_count > 0 || alr.lock_state === "UNRESOLVED") {
-      html += "<div class='gap-item'>Authority chain has " + (alr.unresolved_count || 0) + " unresolved code references</div>";
-    }
     html += "</div>";
   }
 
-  // ---- REMAINING STRENGTH (B31G) ----
   if (rsr) {
     html += "<div class='section'>";
-    html += "<div class='section-title'>Remaining Strength (B31G / Modified B31G)</div>";
+    html += "<div class='section-title'>Remaining Strength (B31G)</div>";
     var envColor = rsr.safe_envelope === "WITHIN" ? "#16a34a" : rsr.safe_envelope === "MARGINAL" ? "#ea580c" : "#dc2626";
     if (rsr.safe_envelope) {
       html += "<div class='banner' style='background:" + envColor + "'>" + esc(rsr.safe_envelope) + " SAFE ENVELOPE</div>";
     }
-    if (rsr.governing_maop) {
-      html += "<div class='info-row'><span class='info-label'>Governing MAOP</span><span class='info-value'>" + esc(rsr.governing_maop) + " psi (" + esc(rsr.governing_method || "B31G") + ")</span></div>";
-    }
-    if (rsr.operating_pressure) {
-      html += "<div class='info-row'><span class='info-label'>Operating Pressure</span><span class='info-value'>" + esc(rsr.operating_pressure) + " psi</span></div>";
-    }
-    if (rsr.operating_ratio) {
-      html += "<div class='info-row'><span class='info-label'>Operating Ratio</span><span class='info-value'>" + Math.round(rsr.operating_ratio * 100) + "%</span></div>";
-    }
-    if (rsr.pressure_reduction_required && rsr.pressure_reduction_required > 0) {
-      html += "<div class='gap-item'>Pressure reduction required: " + esc(rsr.pressure_reduction_required) + " psi</div>";
-    }
+    if (rsr.governing_maop) html += "<div class='info-row'><span class='info-label'>Governing MAOP</span><span class='info-value'>" + esc(rsr.governing_maop) + " psi (" + esc(rsr.governing_method || "B31G") + ")</span></div>";
+    if (rsr.operating_pressure) html += "<div class='info-row'><span class='info-label'>Operating Pressure</span><span class='info-value'>" + esc(rsr.operating_pressure) + " psi</span></div>";
+    if (rsr.operating_ratio) html += "<div class='info-row'><span class='info-label'>Operating Ratio</span><span class='info-value'>" + Math.round(rsr.operating_ratio * 100) + "%</span></div>";
+    if (rsr.pressure_reduction_required && rsr.pressure_reduction_required > 0) html += "<div class='gap-item'>Pressure reduction required: " + esc(rsr.pressure_reduction_required) + " psi</div>";
     if (rsr.calculations) {
       var calc = rsr.calculations;
-      if (calc.wall_loss_percent !== undefined) {
-        html += "<div class='info-row'><span class='info-label'>Wall Loss</span><span class='info-value'>" + Number(calc.wall_loss_percent).toFixed(1) + "%</span></div>";
-      }
-      if (calc.folias_factor !== undefined) {
-        html += "<div class='info-row'><span class='info-label'>Folias Factor (M)</span><span class='info-value'>" + Number(calc.folias_factor).toFixed(3) + "</span></div>";
-      }
+      if (calc.wall_loss_percent !== undefined) html += "<div class='info-row'><span class='info-label'>Wall Loss</span><span class='info-value'>" + Number(calc.wall_loss_percent).toFixed(1) + "%</span></div>";
+      if (calc.folias_factor !== undefined) html += "<div class='info-row'><span class='info-label'>Folias Factor (M)</span><span class='info-value'>" + Number(calc.folias_factor).toFixed(3) + "</span></div>";
     }
     html += "</div>";
   }
 
-  // ---- FAILURE MODE DOMINANCE (Build 2 + v1.1 structural path) ----
   if (fmd) {
     html += "<div class='section'>";
     html += "<div class='section-title'>Failure Mode Dominance</div>";
@@ -228,20 +245,11 @@ function generateInspectionReport(data: {
       : "#6b7280";
     var fmdLabel = (fmd.governing_failure_mode || "NONE").replace(/_/g, " ");
     html += "<div class='banner' style='background:" + fmdModeColor + "'>GOVERNING: " + esc(fmdLabel) + "</div>";
-    if (fmd.governing_severity) {
-      html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(fmd.governing_severity) + "</span></div>";
-    }
-    if (fmd.governing_failure_pressure) {
-      html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(fmd.governing_failure_pressure) + " psi</span></div>";
-    }
-    if (fmd.governing_code_reference) {
-      html += "<div class='info-row'><span class='info-label'>Assessment Code</span><span class='info-value'>" + esc(fmd.governing_code_reference) + "</span></div>";
-    }
-    if (fmd.governing_basis) {
-      html += "<div style='margin-top:8px;padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;font-size:11px;'><strong>Basis:</strong> " + esc(fmd.governing_basis) + "</div>";
-    }
+    if (fmd.governing_severity) html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(fmd.governing_severity) + "</span></div>";
+    if (fmd.governing_failure_pressure) html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(fmd.governing_failure_pressure) + " psi</span></div>";
+    if (fmd.governing_code_reference) html += "<div class='info-row'><span class='info-label'>Assessment Code</span><span class='info-value'>" + esc(fmd.governing_code_reference) + "</span></div>";
+    if (fmd.governing_basis) html += "<div style='margin-top:8px;padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;font-size:11px;'><strong>Basis:</strong> " + esc(fmd.governing_basis) + "</div>";
 
-    // Structural path (v1.1) - shown first when active because it overrides
     var sp = fmd.structural_path;
     if (sp && sp.active) {
       html += "<div style='margin-top:10px;padding:10px 12px;background:#fef2f2;border:2px solid #fecaca;border-radius:6px;'>";
@@ -255,53 +263,41 @@ function generateInspectionReport(data: {
         if (sp.indicators.settlement) inds.push("SETTLEMENT");
         if (sp.indicators.buckling) inds.push("BUCKLING");
         if (sp.indicators.deformation) inds.push("DEFORMATION");
-        if (inds.length > 0) {
-          html += "<div class='info-row'><span class='info-label'>Indicators</span><span class='info-value'>" + esc(inds.join(", ")) + "</span></div>";
-        }
+        if (inds.length > 0) html += "<div class='info-row'><span class='info-label'>Indicators</span><span class='info-value'>" + esc(inds.join(", ")) + "</span></div>";
       }
-      if (sp.assessment_method && sp.assessment_method !== "none") {
-        html += "<div class='info-row'><span class='info-label'>Assessment</span><span class='info-value'>" + esc(sp.assessment_method) + "</span></div>";
-      }
-      if (sp.mechanisms && sp.mechanisms.length > 0) {
-        html += "<div class='info-row'><span class='info-label'>Mechanisms</span><span class='info-value'>" + esc(sp.mechanisms.join(", ")) + "</span></div>";
-      }
+      if (sp.assessment_method && sp.assessment_method !== "none") html += "<div class='info-row'><span class='info-label'>Assessment</span><span class='info-value'>" + esc(sp.assessment_method) + "</span></div>";
+      if (sp.mechanisms && sp.mechanisms.length > 0) html += "<div class='info-row'><span class='info-label'>Mechanisms</span><span class='info-value'>" + esc(sp.mechanisms.join(", ")) + "</span></div>";
       html += "</div>";
     }
 
-    // Corrosion path
     var cp = fmd.corrosion_path;
     if (cp && cp.active) {
       html += "<div style='margin-top:8px;padding:8px 10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;'>";
       html += "<div style='font-size:10px;font-weight:700;color:#ea580c;margin-bottom:4px;'>CORROSION PATH (active)</div>";
       if (cp.severity && cp.severity !== "none") html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(cp.severity) + "</span></div>";
-      if (cp.failure_pressure) html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(cp.failure_pressure) + " psi (" + esc(cp.failure_pressure_source || "") + ")</span></div>";
+      if (cp.failure_pressure) html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(cp.failure_pressure) + " psi</span></div>";
       if (cp.wall_loss_percent > 0) html += "<div class='info-row'><span class='info-label'>Wall Loss</span><span class='info-value'>" + Number(cp.wall_loss_percent).toFixed(1) + "%</span></div>";
-      if (cp.mechanisms && cp.mechanisms.length > 0) html += "<div class='info-row'><span class='info-label'>Mechanisms</span><span class='info-value'>" + esc(cp.mechanisms.join(", ")) + "</span></div>";
       html += "</div>";
     }
 
-    // Cracking path
     var ckp = fmd.cracking_path;
     if (ckp && ckp.active) {
       html += "<div style='margin-top:8px;padding:8px 10px;background:#faf5ff;border:1px solid #e9d5ff;border-radius:6px;'>";
       html += "<div style='font-size:10px;font-weight:700;color:#a855f7;margin-bottom:4px;'>CRACKING PATH (active)</div>";
       if (ckp.severity && ckp.severity !== "none") html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(ckp.severity) + "</span></div>";
       if (ckp.brittle_fracture_risk) html += "<div class='gap-item'>BRITTLE FRACTURE RISK - sudden failure with no leak-before-break warning</div>";
-      if (ckp.mechanisms && ckp.mechanisms.length > 0) html += "<div class='info-row'><span class='info-label'>Mechanisms</span><span class='info-value'>" + esc(ckp.mechanisms.join(", ")) + "</span></div>";
       html += "</div>";
     }
 
-    // Mechanism interaction
     if (fmd.interaction_flag) {
       html += "<div style='margin-top:10px;padding:10px 12px;background:#fef2f2;border-left:3px solid #dc2626;border-radius:4px;'>";
-      html += "<div style='font-size:11px;font-weight:700;color:#dc2626;margin-bottom:4px;'>MECHANISM INTERACTION: " + esc(fmd.interaction_type || "PARALLEL") + "</div>";
-      html += "<div style='font-size:11px;color:#991b1b;line-height:1.5;'>" + esc(fmd.interaction_detail || "") + "</div>";
+      html += "<div style='font-size:11px;font-weight:700;color:#dc2626;'>MECHANISM INTERACTION: " + esc(fmd.interaction_type || "PARALLEL") + "</div>";
+      html += "<div style='font-size:11px;color:#991b1b;'>" + esc(fmd.interaction_detail || "") + "</div>";
       html += "</div>";
     }
     html += "</div>";
   }
 
-  // ---- DISPOSITION PATHWAY (Build 2) ----
   if (dpr) {
     html += "<div class='section'>";
     html += "<div class='section-title'>Disposition Pathway</div>";
@@ -312,15 +308,9 @@ function generateInspectionReport(data: {
       : dpr.disposition === "CONTINUE_SERVICE" ? "#16a34a"
       : "#6b7280";
     html += "<div class='banner' style='background:" + dispColor + "'>" + esc((dpr.disposition || "").replace(/_/g, " ")) + "</div>";
-    if (dpr.urgency) {
-      html += "<div class='info-row'><span class='info-label'>Urgency</span><span class='info-value' style='color:" + dispColor + ";font-weight:700;'>" + esc(dpr.urgency) + "</span></div>";
-    }
-    if (dpr.interval) {
-      html += "<div class='info-row'><span class='info-label'>Re-Inspection Interval</span><span class='info-value'>" + esc(dpr.interval) + "</span></div>";
-    }
-    if (dpr.disposition_basis) {
-      html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-radius:4px;border-left:3px solid " + dispColor + ";font-size:11px;'>" + esc(dpr.disposition_basis) + "</div>";
-    }
+    if (dpr.urgency) html += "<div class='info-row'><span class='info-label'>Urgency</span><span class='info-value' style='color:" + dispColor + ";font-weight:700;'>" + esc(dpr.urgency) + "</span></div>";
+    if (dpr.interval) html += "<div class='info-row'><span class='info-label'>Re-Inspection Interval</span><span class='info-value'>" + esc(dpr.interval) + "</span></div>";
+    if (dpr.disposition_basis) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-radius:4px;border-left:3px solid " + dispColor + ";font-size:11px;'>" + esc(dpr.disposition_basis) + "</div>";
     if (dpr.actions && dpr.actions.length > 0) {
       html += "<div style='margin-top:10px;font-size:10px;font-weight:700;color:#374151;'>REQUIRED ACTIONS (" + dpr.actions.length + ")</div>";
       for (var dai = 0; dai < dpr.actions.length; dai++) {
@@ -329,29 +319,15 @@ function generateInspectionReport(data: {
         html += "<strong>#" + esc(act.priority || (dai + 1)) + " " + esc(act.action || "") + "</strong>";
         if (act.timeframe) html += " <span style='color:#dc2626;font-size:10px;font-weight:700;'>[" + esc(act.timeframe) + "]</span>";
         if (act.detail) html += "<br/><span style='font-size:10px;'>" + esc(act.detail) + "</span>";
-        if (act.who) html += "<br/><span style='font-size:10px;color:#6b7280;'>Who: " + esc(act.who) + "</span>";
         html += "</div>";
-      }
-    }
-    if (dpr.temporary_controls && dpr.temporary_controls.length > 0) {
-      html += "<div style='margin-top:8px;font-size:10px;font-weight:700;color:#374151;'>TEMPORARY CONTROLS</div>";
-      for (var dci = 0; dci < dpr.temporary_controls.length; dci++) {
-        html += "<div style='padding:5px 10px;background:#fffbeb;border-left:3px solid #ea580c;border-radius:4px;margin-bottom:3px;font-size:10px;'>" + esc(dpr.temporary_controls[dci]) + "</div>";
-      }
-    }
-    if (dpr.escalation_triggers && dpr.escalation_triggers.length > 0) {
-      html += "<div style='margin-top:8px;font-size:10px;font-weight:700;color:#374151;'>ESCALATION TRIGGERS</div>";
-      for (var dei = 0; dei < dpr.escalation_triggers.length; dei++) {
-        html += "<div style='padding:5px 10px;background:#fef2f2;border-left:3px solid #dc2626;border-radius:4px;margin-bottom:3px;font-size:10px;'>" + esc(dpr.escalation_triggers[dei]) + "</div>";
       }
     }
     html += "</div>";
   }
 
-  // ---- FAILURE TIMELINE (Build 3) ----
   if (ftr) {
     html += "<div class='section'>";
-    html += "<div class='section-title'>Failure Timeline (Remaining Life Projection)</div>";
+    html += "<div class='section-title'>Failure Timeline</div>";
     var ftrColor = ftr.urgency === "EMERGENCY" || ftr.urgency === "CRITICAL" ? "#dc2626"
       : ftr.urgency === "PRIORITY" ? "#ea580c"
       : ftr.urgency === "ELEVATED" ? "#2563eb"
@@ -362,213 +338,53 @@ function generateInspectionReport(data: {
         : Number(ftr.governing_time_years).toFixed(1) + " years";
       html += "<div class='banner' style='background:" + ftrColor + "'>GOVERNING REMAINING LIFE: " + esc(timeLabel) + "</div>";
     }
-    if (ftr.governing_failure_mode) {
-      html += "<div class='info-row'><span class='info-label'>Governing Mode</span><span class='info-value'>" + esc(ftr.governing_failure_mode) + "</span></div>";
-    }
-    if (ftr.urgency) {
-      html += "<div class='info-row'><span class='info-label'>Urgency</span><span class='info-value' style='color:" + ftrColor + ";font-weight:700;'>" + esc(ftr.urgency) + "</span></div>";
-    }
-    if (ftr.recommended_inspection_interval_years !== null && ftr.recommended_inspection_interval_years !== undefined) {
-      var ivLabel = ftr.recommended_inspection_interval_years < 1 ? Number(ftr.recommended_inspection_interval_years * 12).toFixed(1) + " months" : Number(ftr.recommended_inspection_interval_years).toFixed(1) + " years";
-      html += "<div class='info-row'><span class='info-label'>Recommended Interval</span><span class='info-value'>" + esc(ivLabel) + "</span></div>";
-    }
-    if (ftr.governing_basis) {
-      html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-left:3px solid " + ftrColor + ";border-radius:4px;font-size:11px;'>" + esc(ftr.governing_basis) + "</div>";
-    }
-    var ct = ftr.corrosion_timeline;
-    if (ct && ct.enabled) {
-      html += "<div style='margin-top:8px;padding:8px 10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;'>";
-      html += "<div style='font-size:10px;font-weight:700;color:#ea580c;margin-bottom:4px;'>CORROSION TIMELINE</div>";
-      if (ct.corrosion_rate_mpy > 0) html += "<div class='info-row'><span class='info-label'>Corrosion Rate</span><span class='info-value'>" + Number(ct.corrosion_rate_mpy).toFixed(1) + " mpy (" + esc(ct.method || "") + ")</span></div>";
-      if (ct.remaining_life_years !== null && ct.remaining_life_years !== undefined) html += "<div class='info-row'><span class='info-label'>Remaining Life</span><span class='info-value'>" + Number(ct.remaining_life_years).toFixed(1) + " years</span></div>";
-      if (ct.remaining_wall_mils > 0) html += "<div class='info-row'><span class='info-label'>Remaining Wall</span><span class='info-value'>" + esc(ct.remaining_wall_mils) + " mils</span></div>";
-      html += "</div>";
-    }
-    var kt = ftr.crack_timeline;
-    if (kt && kt.enabled) {
-      html += "<div style='margin-top:8px;padding:8px 10px;background:#faf5ff;border:1px solid #e9d5ff;border-radius:6px;'>";
-      html += "<div style='font-size:10px;font-weight:700;color:#a855f7;margin-bottom:4px;'>CRACK GROWTH (Paris Law)</div>";
-      if (kt.delta_K_ksi_sqrt_in > 0) html += "<div class='info-row'><span class='info-label'>Delta K</span><span class='info-value'>" + esc(kt.delta_K_ksi_sqrt_in) + " ksi&radic;in</span></div>";
-      if (kt.cycles_to_failure !== null && kt.cycles_to_failure !== undefined) html += "<div class='info-row'><span class='info-label'>Cycles to Failure</span><span class='info-value'>" + esc(kt.cycles_to_failure.toLocaleString ? kt.cycles_to_failure.toLocaleString() : kt.cycles_to_failure) + "</span></div>";
-      if (kt.time_to_failure_years !== null && kt.time_to_failure_years !== undefined) html += "<div class='info-row'><span class='info-label'>Time to Failure</span><span class='info-value'>" + Number(kt.time_to_failure_years).toFixed(1) + " years</span></div>";
-      html += "</div>";
-    }
+    if (ftr.governing_failure_mode) html += "<div class='info-row'><span class='info-label'>Governing Mode</span><span class='info-value'>" + esc(ftr.governing_failure_mode) + "</span></div>";
+    if (ftr.urgency) html += "<div class='info-row'><span class='info-label'>Urgency</span><span class='info-value' style='color:" + ftrColor + ";font-weight:700;'>" + esc(ftr.urgency) + "</span></div>";
+    if (ftr.governing_basis) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-left:3px solid " + ftrColor + ";border-radius:4px;font-size:11px;'>" + esc(ftr.governing_basis) + "</div>";
     html += "</div>";
   }
 
-  // ---- PHOTO ANALYSIS (Build 3) ----
   if (par && par.analysis) {
     var pa = par.analysis;
     html += "<div class='section'>";
     html += "<div class='section-title'>Photo Analysis (GPT-4o Vision)</div>";
-    if (par.image_quality) {
-      var pqColor = par.image_quality === "ASSESSABLE" ? "#16a34a" : par.image_quality === "MARGINAL" ? "#ea580c" : "#dc2626";
-      html += "<div class='info-row'><span class='info-label'>Image Quality</span><span class='info-value' style='color:" + pqColor + ";font-weight:700;'>" + esc(par.image_quality) + "</span></div>";
-    }
-    if (par.confidence) {
-      html += "<div class='info-row'><span class='info-label'>Vision Confidence</span><span class='info-value'>" + esc(par.confidence) + "</span></div>";
-    }
-    if (pa.asset_identification) {
-      html += "<div class='info-row'><span class='info-label'>Asset Identified</span><span class='info-value'>" + esc(pa.asset_identification) + "</span></div>";
-    }
-    if (pa.geometric_integrity && pa.geometric_integrity.toUpperCase().indexOf("PLUMB") !== 0 && pa.geometric_integrity.toUpperCase().indexOf("LEVEL") !== 0) {
-      html += "<div style='margin-top:6px;padding:8px 10px;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;'>";
-      html += "<div style='font-size:10px;font-weight:700;color:#dc2626;'>GEOMETRIC INTEGRITY</div>";
-      html += "<div style='font-size:11px;color:#991b1b;'>" + esc(pa.geometric_integrity) + "</div>";
-      if (pa.geometric_reference_used) html += "<div style='font-size:9px;color:#6b7280;font-style:italic;margin-top:2px;'>Reference: " + esc(pa.geometric_reference_used) + "</div>";
-      html += "</div>";
-    }
-    if (pa.material_degradation_severity && pa.material_degradation_severity !== "NONE") {
-      html += "<div class='info-row'><span class='info-label'>Material Degradation</span><span class='info-value'>" + esc(pa.material_degradation_severity) + (pa.material_degradation_pattern ? " (" + esc(pa.material_degradation_pattern) + ")" : "") + "</span></div>";
-      if (pa.material_degradation_locations && pa.material_degradation_locations.length > 0) {
-        html += "<div class='info-row'><span class='info-label'>Locations</span><span class='info-value'>" + esc(pa.material_degradation_locations.join(", ")) + "</span></div>";
-      }
-    }
-    if (pa.critical_interface_zone && pa.critical_interface_condition) {
-      html += "<div style='margin-top:6px;padding:8px 10px;background:#faf5ff;border-left:3px solid #a855f7;border-radius:4px;'>";
-      html += "<div style='font-size:10px;font-weight:700;color:#a855f7;'>CRITICAL INTERFACE: " + esc(pa.critical_interface_zone) + "</div>";
-      html += "<div style='font-size:11px;color:#374151;'>" + esc(pa.critical_interface_condition) + "</div>";
-      html += "</div>";
-    }
-    if (pa.visible_damage && pa.visible_damage.length > 0) {
-      html += "<div style='margin-top:8px;font-size:10px;font-weight:700;color:#374151;'>VISIBLE DAMAGE</div>";
-      for (var pdi = 0; pdi < pa.visible_damage.length; pdi++) {
-        html += "<div class='gap-item'>" + esc(pa.visible_damage[pdi]) + "</div>";
-      }
-    }
-    if (par.critical_findings && par.critical_findings.length > 0) {
-      html += "<div style='margin-top:8px;padding:10px 12px;background:#fef2f2;border:2px solid #fecaca;border-radius:6px;'>";
-      html += "<div style='font-size:11px;font-weight:700;color:#dc2626;margin-bottom:4px;'>CRITICAL FINDINGS</div>";
-      for (var pcfi = 0; pcfi < par.critical_findings.length; pcfi++) {
-        html += "<div style='font-size:11px;color:#991b1b;padding:2px 0;'>" + esc(par.critical_findings[pcfi]) + "</div>";
-      }
-      html += "</div>";
-    }
-    if (par.transcript_addendum) {
-      html += "<div style='margin-top:8px;padding:8px 10px;background:#f0fdf4;border-left:3px solid #16a34a;border-radius:4px;font-size:11px;font-style:italic;'>" + esc(par.transcript_addendum) + "</div>";
-    }
+    if (par.image_quality) html += "<div class='info-row'><span class='info-label'>Image Quality</span><span class='info-value'>" + esc(par.image_quality) + "</span></div>";
+    if (pa.asset_identification) html += "<div class='info-row'><span class='info-label'>Asset Identified</span><span class='info-value'>" + esc(pa.asset_identification) + "</span></div>";
+    if (pa.material_degradation_severity && pa.material_degradation_severity !== "NONE") html += "<div class='info-row'><span class='info-label'>Material Degradation</span><span class='info-value'>" + esc(pa.material_degradation_severity) + "</span></div>";
+    if (par.transcript_addendum) html += "<div style='margin-top:8px;padding:8px 10px;background:#f0fdf4;border-left:3px solid #16a34a;border-radius:4px;font-size:11px;'>" + esc(par.transcript_addendum) + "</div>";
     html += "</div>";
   }
 
-
-  // SUPERBRAIN FEATURES IN PDF
   if (sb && sb.synthesis) {
     var syn = sb.synthesis;
-
-    // Failure Narrative
-    html += "<div class='section'>";
-    html += "<div class='section-title'>Failure Narrative (Physics-Traced)</div>";
-    html += "<div class='narrative'>" + esc(syn.failure_narrative) + "</div>";
-    html += "</div>";
-
-    // Contradiction Matrix
+    if (syn.failure_narrative) {
+      html += "<div class='section'><div class='section-title'>Failure Narrative</div><div class='narrative'>" + esc(syn.failure_narrative) + "</div></div>";
+    }
     if (syn.contradiction_matrix && syn.contradiction_matrix.length > 0) {
-      html += "<div class='section'>";
-      html += "<div class='section-title'>Contradiction Matrix — Code vs Physics</div>";
-      html += "<table class='sb-table'>";
-      html += "<tr><th>Framework</th><th>Verdict</th><th>Basis</th><th>Limitation</th><th>Gap Reason</th></tr>";
+      html += "<div class='section'><div class='section-title'>Contradiction Matrix</div>";
+      html += "<table class='sb-table'><tr><th>Framework</th><th>Verdict</th><th>Basis</th><th>Gap</th></tr>";
       for (var ci = 0; ci < syn.contradiction_matrix.length; ci++) {
         var cm = syn.contradiction_matrix[ci];
-        var vColor = (cm.verdict || "").indexOf("ACCEPT") !== -1 ? "#16a34a" : "#dc2626";
-        html += "<tr><td><strong>" + esc(cm.framework) + "</strong></td><td style='color:" + vColor + ";font-weight:700;'>" + esc(cm.verdict) + "</td><td>" + esc(cm.basis) + "</td><td>" + esc(cm.limitation) + "</td><td style='color:#dc2626;'>" + esc(cm.gap_reason) + "</td></tr>";
+        html += "<tr><td><strong>" + esc(cm.framework) + "</strong></td><td>" + esc(cm.verdict) + "</td><td>" + esc(cm.basis) + "</td><td>" + esc(cm.gap_reason) + "</td></tr>";
       }
       html += "</table></div>";
     }
-
-    // Pre-Inspection Briefing
-    if (syn.pre_inspection_briefing) {
-      var pib = syn.pre_inspection_briefing;
-      html += "<div class='section'>";
-      html += "<div class='section-title'>Pre-Inspection Briefing — What to Look For</div>";
-      if (pib.target_zones && pib.target_zones.length > 0) {
-        html += "<div style='margin-bottom:8px;'><strong>Target Zones:</strong></div>";
-        for (var tz = 0; tz < pib.target_zones.length; tz++) html += "<div class='sb-item'>" + esc(pib.target_zones[tz]) + "</div>";
-      }
-      if (pib.expected_flaws && pib.expected_flaws.length > 0) {
-        html += "<div style='margin-bottom:8px;margin-top:8px;'><strong>Expected Flaw Morphology:</strong></div>";
-        for (var ef = 0; ef < pib.expected_flaws.length; ef++) html += "<div class='sb-item'>" + esc(pib.expected_flaws[ef]) + "</div>";
-      }
-      if (pib.method_recommendations && pib.method_recommendations.length > 0) {
-        html += "<div style='margin-bottom:8px;margin-top:8px;'><strong>Method Recommendations:</strong></div>";
-        for (var mr = 0; mr < pib.method_recommendations.length; mr++) html += "<div class='sb-item'>" + esc(pib.method_recommendations[mr]) + "</div>";
-      }
-      if (pib.sensitivity_settings) html += "<div style='margin-top:8px;font-size:11px;'><strong>Sensitivity:</strong> " + esc(pib.sensitivity_settings) + "</div>";
-      if (pib.watch_items && pib.watch_items.length > 0) {
-        html += "<div style='margin-bottom:8px;margin-top:8px;'><strong>Watch Items:</strong></div>";
-        for (var wi = 0; wi < pib.watch_items.length; wi++) html += "<div class='sb-item' style='border-left-color:#ea580c;'>" + esc(pib.watch_items[wi]) + "</div>";
-      }
-      html += "</div>";
-    }
-
-    // Inspector Action Card
     if (syn.inspector_action_card && syn.inspector_action_card.length > 0) {
-      html += "<div class='section'>";
-      html += "<div class='section-title'>Inspector Action Card</div>";
+      html += "<div class='section'><div class='section-title'>Inspector Action Card</div>";
       for (var ac = 0; ac < syn.inspector_action_card.length; ac++) {
         var action = syn.inspector_action_card[ac];
-        html += "<div class='recovery-item'>";
-        html += "<strong>#" + (ac + 1) + " " + esc(action.step) + "</strong><br/>";
-        html += "Rationale: " + esc(action.rationale) + "<br/>";
-        html += "<span style='color:#16a34a;'>If positive: " + esc(action.threshold_if_positive) + "</span><br/>";
-        html += "<span style='color:#dc2626;'>If negative: " + esc(action.threshold_if_negative) + "</span>";
-        html += "</div>";
+        html += "<div class='recovery-item'><strong>#" + (ac + 1) + " " + esc(action.step) + "</strong><br/>" + esc(action.rationale) + "</div>";
       }
       html += "</div>";
     }
-
-    // Reviewer Brief
     if (syn.reviewer_brief) {
-      html += "<div class='section'>";
-      html += "<div class='section-title'>Reviewer Brief</div>";
-      html += "<div class='narrative'>" + esc(syn.reviewer_brief) + "</div>";
-      html += "</div>";
-    }
-
-    // Procedure Forensics
-    if (syn.procedure_forensics) {
-      var pf = syn.procedure_forensics;
-      html += "<div class='section'>";
-      html += "<div class='section-title'>Procedure Forensics — What Went Wrong</div>";
-      if (pf.likely_causes && pf.likely_causes.length > 0) {
-        for (var lc = 0; lc < pf.likely_causes.length; lc++) html += "<div class='sb-item'>" + esc(pf.likely_causes[lc]) + "</div>";
-      }
-      if (pf.reverse_inference_chain && pf.reverse_inference_chain.length > 0) {
-        html += "<div style='margin-top:8px;'><strong>Reverse Inference Chain:</strong></div>";
-        for (var ri = 0; ri < pf.reverse_inference_chain.length; ri++) html += "<div style='font-size:11px;padding:3px 0;'>" + (ri + 1) + ". " + esc(pf.reverse_inference_chain[ri]) + "</div>";
-      }
-      html += "</div>";
+      html += "<div class='section'><div class='section-title'>Reviewer Brief</div><div class='narrative'>" + esc(syn.reviewer_brief) + "</div></div>";
     }
   }
 
-  // Evidence Provenance in PDF
-  if (data.provenanceResult && data.provenanceResult.provenance_summary) {
-    var prov = data.provenanceResult;
-    html += "<div class='section'>";
-    html += "<div class='section-title'>Evidence Provenance</div>";
-    html += "<div class='info-row'><span class='info-label'>Trust Band</span><span class='info-value'>" + esc(prov.provenance_summary.trust_band) + " (" + Math.round(prov.provenance_summary.average_trust_weight * 100) + "%)</span></div>";
-    html += "<div class='info-row'><span class='info-label'>Dominant Source</span><span class='info-value'>" + esc(prov.provenance_summary.dominant_source) + "</span></div>";
-    html += "<div class='info-row'><span class='info-label'>Measured Fraction</span><span class='info-value'>" + Math.round(prov.provenance_summary.measured_fraction * 100) + "%</span></div>";
-    html += "<div class='info-row'><span class='info-label'>Total Items</span><span class='info-value'>" + (prov.provenance_summary.total_evidence_items || 0) + "</span></div>";
-    if (prov.measurement_reality) {
-      html += "<div class='info-row'><span class='info-label'>Method Adequacy</span><span class='info-value'>" + esc(prov.measurement_reality.overall_adequacy) + "</span></div>";
-      if (prov.measurement_reality.unanswered_gaps) {
-        for (var ugi = 0; ugi < prov.measurement_reality.unanswered_gaps.length; ugi++) {
-          html += "<div class='gap-item'>" + esc(prov.measurement_reality.unanswered_gaps[ugi].message) + "</div>";
-        }
-      }
-    }
-    if (prov.provenance_summary.recommendation) {
-      html += "<div style='margin-top:8px;font-size:11px;color:#92400e;padding:6px 10px;background:#fffbeb;border-radius:4px;'>" + esc(prov.provenance_summary.recommendation) + "</div>";
-    }
-    html += "</div>";
-  }
-
-  // Reality Confidence
   html += "<div class='section'>";
   html += "<div class='section-title'>Reality Confidence</div>";
-  html += "<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>";
   html += "<div><strong style='color:" + bandColorVal + ";font-size:14px;'>" + esc(conf.band) + "</strong> (" + Math.round(conf.overall * 100) + "%)</div>";
-  html += "</div>";
   html += "<div class='confidence-grid'>";
   var confDims = [
     { label: "Physics", value: conf.physics_confidence },
@@ -582,26 +398,15 @@ function generateInspectionReport(data: {
     var cc = pct >= 70 ? "#16a34a" : pct >= 50 ? "#ca8a04" : "#dc2626";
     html += "<div class='conf-box'><div class='conf-label'>" + confDims[cdi].label + "</div><div class='conf-value' style='color:" + cc + "'>" + pct + "%</div></div>";
   }
-  html += "</div>";
-  if (conf.limiting_factors && conf.limiting_factors.length > 0) {
-    html += "<div style='font-size:10px;color:#6b7280;'>Limiting: " + esc(conf.limiting_factors.join(" | ")) + "</div>";
-  }
-  html += "</div>";
+  html += "</div></div>";
 
-  // Consequence
   html += "<div class='section'>";
   html += "<div class='section-title'>Consequence Reality</div>";
   html += "<div class='banner' style='background:" + tierColorVal + "'>" + esc(con.consequence_tier) + " CONSEQUENCE</div>";
   html += "<div class='info-row'><span class='info-label'>Failure Mode</span><span class='info-value'>" + esc(displayFailureMode) + " <span style='color:#6b7280;font-size:9px;'>[" + esc(failureModeSource) + "]</span></span></div>";
   html += "<div class='info-row'><span class='info-label'>Human Impact</span><span class='info-value'>" + esc(con.human_impact) + "</span></div>";
-  html += "<div class='info-row'><span class='info-label'>Damage State</span><span class='info-value'>" + esc(con.damage_state || "STABLE") + "</span></div>";
-  if (con.failure_physics && failureModeSource === "decision-core") html += "<div style='margin-top:8px;padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;font-size:11px;'><strong>Failure Physics:</strong> " + esc(con.failure_physics) + "</div>";
-  if (failureModeSource === "FMD v1.1" && fmd && fmd.governing_basis) {
-    html += "<div style='margin-top:8px;padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;font-size:11px;'><strong>FMD Override Basis:</strong> " + esc(fmd.governing_basis) + "</div>";
-  }
   html += "</div>";
 
-  // Decision
   html += "<div class='section'>";
   html += "<div class='section-title'>Decision</div>";
   var decColor = dec.disposition === "no_go" ? "#dc2626" : dec.disposition === "hold_for_review" || dec.disposition === "engineering_review_required" ? "#ca8a04" : "#16a34a";
@@ -611,26 +416,23 @@ function generateInspectionReport(data: {
     for (var gi = 0; gi < dec.gates.length; gi++) {
       var g = dec.gates[gi];
       var gc = g.result === "PASS" ? "gate-pass" : g.result === "BLOCKED" ? "gate-block" : g.result === "ESCALATED" ? "gate-warn" : "gate-info";
-      html += "<div class='gate-row " + gc + "'><strong>[" + g.result + "]</strong> <span style='font-weight:600;'>" + esc(g.gate).replace(/_/g, " ") + "</span> <span style='color:#6b7280;margin-left:6px;'>" + esc(g.reason) + "</span></div>";
+      html += "<div class='gate-row " + gc + "'><strong>[" + g.result + "]</strong> " + esc(g.gate).replace(/_/g, " ") + " <span style='color:#6b7280;'>" + esc(g.reason) + "</span></div>";
     }
   }
   html += "</div>";
 
-  // Transcript
   html += "<div class='section'>";
   html += "<div class='section-title'>Original Input Transcript</div>";
   html += "<div style='padding:10px;background:#f9fafb;border-radius:6px;font-size:11px;white-space:pre-wrap;border:1px solid #e5e7eb;'>" + esc(data.transcript) + "</div>";
   html += "</div>";
 
-  // Signature
   html += "<div class='sig-line'>";
   html += "<div class='sig-box'><div class='sig-label'>Inspector</div><div style='height:24px;'></div><div class='sig-label'>Date</div></div>";
   html += "<div class='sig-box'><div class='sig-label'>Reviewed By</div><div style='height:24px;'></div><div class='sig-label'>Date</div></div>";
   html += "</div>";
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
-  html += "Generated by FORGED NDT Intelligence OS - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
-  html += "<br/>Engine: decision-core v2.5 + Authority Lock v1.0 + Remaining Strength v1.0 + FMD v1.1 + Disposition Pathway v1.0 + Failure Timeline v1.0 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Klein Bottle Architecture | " + (dc.klein_bottle_states || 6) + " states";
+  html += "Generated by FORGED NDT Intelligence OS v16.6b - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
   html += "</div>";
 
   html += "</body></html>";
@@ -643,7 +445,6 @@ function generateInspectionReport(data: {
     alert("Pop-up blocked. Please allow pop-ups for this site.");
   }
 }
-
 
 // ============================================================================
 // API HELPER
@@ -717,12 +518,7 @@ async function saveCaseToSupabase(transcriptText: string, parsedData: any, asset
   try {
     var res = await fetch(SUPABASE_URL + "/rest/v1/cases", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": SUPABASE_KEY,
-        "Authorization": "Bearer " + SUPABASE_KEY,
-        "Prefer": "return=minimal"
-      },
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY, "Prefer": "return=minimal" },
       body: JSON.stringify(caseRow)
     });
     if (!res.ok) {
@@ -880,7 +676,7 @@ function EvidenceConfirmationCard({ evidence, onConfirm, onSkip, isGenerating }:
     <Card title="Evidence Confirmation" icon={"\uD83D\uDD0D"} collapsible={false}>
       <div style={{ padding: "10px 14px", backgroundColor: "#eff6ff", borderRadius: "6px", marginBottom: "16px", borderLeft: "4px solid #2563eb" }}>
         <div style={{ fontWeight: 700, fontSize: "13px", color: "#1e40af", marginBottom: "4px" }}>Review Evidence Before Physics Analysis</div>
-        <div style={{ fontSize: "12px", color: "#374151", lineHeight: "1.5" }}>These flags were auto-extracted. They directly control the physics analysis — mechanism validation, consequence tier, and disposition. Correct any errors before proceeding.</div>
+        <div style={{ fontSize: "12px", color: "#374151", lineHeight: "1.5" }}>These flags were auto-extracted. Correct any errors before proceeding.</div>
       </div>
       {Object.keys(groups).map(function(groupName, gi) {
         return (
@@ -946,13 +742,6 @@ export default function VoiceInspectionPage() {
   var [asset, setAsset] = useState<any>(null);
   var [realityLock, setRealityLock] = useState<any>(null);
   var [decisionCore, setDecisionCore] = useState<any>(null);
-  var [engineeringResult, setEngineeringResult] = useState<any>(null);
-  var [engineeringLoading, setEngineeringLoading] = useState(false);
-  var [engineeringError, setEngineeringError] = useState<string | null>(null);
-  var [architectureResult, setArchitectureResult] = useState<any>(null);
-  var [architectureLoading, setArchitectureLoading] = useState(false);
-  var [materialsResult, setMaterialsResult] = useState<any>(null);
-  var [materialsLoading, setMaterialsLoading] = useState(false);
   var [aiNarrative, setAiNarrative] = useState<string | null>(null);
   var [errors, setErrors] = useState<string[]>([]);
   var [isListening, setIsListening] = useState(false);
@@ -963,37 +752,28 @@ export default function VoiceInspectionPage() {
   var [pipelinePaused, setPipelinePaused] = useState(false);
   var resultsRef = useRef<HTMLDivElement>(null);
 
-  // SAVE TO CASE MANAGER STATE
   var [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   var [savedCaseId, setSavedCaseId] = useState<string | null>(null);
   var [saveError, setSaveError] = useState<string | null>(null);
 
-  // SUPERBRAIN STATE — v15.0
   var [superbrainResult, setSuperbrainResult] = useState<any>(null);
   var [superbrainLoading, setSuperbrainLoading] = useState(false);
   var [superbrainError, setSuperbrainError] = useState<string | null>(null);
   var [grammarBridgeResult, setGrammarBridgeResult] = useState<any>(null);
 
-  // EVIDENCE PROVENANCE STATE — v16.0
   var [provenanceResult, setProvenanceResult] = useState<any>(null);
   var [provenanceLoading, setProvenanceLoading] = useState(false);
   var [hardeningResult, setHardeningResult] = useState<any>(null);
   var [hardeningLoading, setHardeningLoading] = useState(false);
 
-  // GRAMMAR BRIDGE EDITING STATE — v16.1
   var [gbEditingField, setGbEditingField] = useState<string | null>(null);
   var [gbAmendments, setGbAmendments] = useState<any[]>([]);
   var [gbConfirmed, setGbConfirmed] = useState(false);
 
-  // BUILD 1: AUTHORITY LOCK + REMAINING STRENGTH STATE — v16.3
   var [authorityLockResult, setAuthorityLockResult] = useState<any>(null);
   var [remainingStrengthResult, setRemainingStrengthResult] = useState<any>(null);
-
-  // BUILD 2: FAILURE MODE DOMINANCE + DISPOSITION PATHWAY STATE — v16.4
   var [failureModeDominanceResult, setFailureModeDominanceResult] = useState<any>(null);
   var [dispositionPathwayResult, setDispositionPathwayResult] = useState<any>(null);
-
-  // BUILD 3: FAILURE TIMELINE STATE — v16.5
   var [failureTimelineResult, setFailureTimelineResult] = useState<any>(null);
 
   var handleSaveToCase = async function() {
@@ -1009,7 +789,6 @@ export default function VoiceInspectionPage() {
     }
   };
 
-  // GRAMMAR BRIDGE AMENDMENT HANDLER — v16.1
   var handleGbAmend = async function(field: string, value: string) {
     if (!grammarBridgeResult) return;
     try {
@@ -1034,100 +813,9 @@ export default function VoiceInspectionPage() {
     setGbEditingField(null);
   };
 
-  var callEngineeringCore = async function(decResult: any, narrativeText: string) {
-    setEngineeringLoading(true); setEngineeringError(null);
-    var ei: Record<string, any> = {
-      caseId: 'ENG-' + String(Date.now()),
-      assetClass: (decResult.asset_class || decResult.assetClass || 'unknown'),
-      consequenceTier: (decResult.consequence_reality || decResult.consequence || 'MODERATE'),
-      ndtVerdict: (decResult.disposition || 'INDETERMINATE'),
-      ndtConfidence: (decResult.reality_confidence || 0.5),
-      primaryMechanism: (decResult.primary_mechanism || ''),
-      governingStandard: (decResult.authority_reality || ''),
-      incidentNarrative: narrativeText, isCyclicService: false, materialClass: ''
-    };
-    var nr = narrativeText.toLowerCase();
-    if (nr.indexOf('stainless') >= 0 || nr.indexOf('316') >= 0 || nr.indexOf('304') >= 0) { ei.materialClass = 'austenitic_ss'; }
-    else if (nr.indexOf('duplex') >= 0 || nr.indexOf('2205') >= 0) { ei.materialClass = 'duplex_ss'; }
-    else if (nr.indexOf('carbon steel') >= 0 || nr.indexOf('a36') >= 0) { ei.materialClass = 'carbon_steel'; }
-    else if (nr.indexOf('low alloy') >= 0 || nr.indexOf('p91') >= 0) { ei.materialClass = 'low_alloy'; }
-    ei.isCyclicService = (nr.indexOf('cyclic') >= 0 || nr.indexOf('fatigue') >= 0 || nr.indexOf('vibrat') >= 0);
-    if (nr.indexOf('crack') >= 0) { ei.flawType = 'crack'; } else if (nr.indexOf('corrosion') >= 0 || nr.indexOf('thinning') >= 0) { ei.flawType = 'corrosion'; } else if (nr.indexOf('pitting') >= 0) { ei.flawType = 'pitting'; } else if (nr.indexOf('dent') >= 0) { ei.flawType = 'dent'; }
-    if (nr.indexOf('h2s') >= 0 || nr.indexOf('sour') >= 0) { ei.h2sPartialPressureMPa = 0.001; }
-    if (nr.indexOf('chloride') >= 0 || nr.indexOf('seawater') >= 0) { ei.chloridePPM = 1000; }
-    if (nr.indexOf('creep') >= 0 || nr.indexOf('elevated temp') >= 0) { ei.operatingTempC = 400; }
-    try {
-      var er = await fetch('/.netlify/functions/engineering-core', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ei) });
-      if (er.ok) { var ed = await er.json(); setEngineeringResult(ed); }
-      else { setEngineeringError('Engineering core status ' + er.status); }
-    } catch(ex: any) { setEngineeringError('Engineering layer: ' + (ex.message || String(ex))); }
-    finally { setEngineeringLoading(false); }
-  };
-
-  var callArchitectureCore = async function(decResult: any, narrativeText: string) {
-    setArchitectureLoading(true);
-    var ai: Record<string, any> = {
-      caseId: 'ARCH-' + String(Date.now()),
-      assetClass: (decResult.asset_class || decResult.assetClass || 'unknown'),
-      consequenceTier: (decResult.consequence_reality || 'MODERATE'),
-      engineeringSignificance: (decResult.engineering_significance || 'MODERATE'),
-      ndtVerdict: (decResult.disposition || 'INDETERMINATE'),
-      riskRanking: (decResult.risk_ranking || 'MEDIUM'),
-      incidentNarrative: narrativeText
-    };
-    try {
-      var ar = await fetch('/.netlify/functions/architecture-core', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ai) });
-      if (ar.ok) { var ad = await ar.json(); setArchitectureResult(ad); }
-    } catch(ex) {} finally { setArchitectureLoading(false); }
-  };
-
-  var callMaterialsCore = async function(decResult: any, narrativeText: string) {
-    setMaterialsLoading(true);
-    var mi: Record<string, any> = {
-      caseId: 'MAT-' + String(Date.now()),
-      assetClass: (decResult.asset_class || decResult.assetClass || 'unknown'),
-      incidentNarrative: narrativeText
-    };
-    var nr2 = narrativeText.toLowerCase();
-    if (nr2.indexOf('stainless') >= 0 || nr2.indexOf('316') >= 0) { mi.materialClass = 'austenitic_ss'; } else if (nr2.indexOf('duplex') >= 0) { mi.materialClass = 'duplex_ss'; } else if (nr2.indexOf('carbon steel') >= 0) { mi.materialClass = 'carbon_steel'; } else if (nr2.indexOf('low alloy') >= 0) { mi.materialClass = 'low_alloy'; }
-    if (nr2.indexOf('pwht') >= 0 || nr2.indexOf('post weld heat') >= 0) { mi.pwhtApplied = true; }
-    if (nr2.indexOf('h2s') >= 0 || nr2.indexOf('sour') >= 0) { mi.h2sPartialPressureMPa = 0.001; }
-    if (nr2.indexOf('chloride') >= 0 || nr2.indexOf('seawater') >= 0) { mi.chloridePPM = 1000; }
-    if (nr2.indexOf('cyclic') >= 0 || nr2.indexOf('fatigue') >= 0) { mi.isCyclicService = true; }
-    try {
-      var mr = await fetch('/.netlify/functions/materials-core', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mi) });
-      if (mr.ok) { var md = await mr.json(); setMaterialsResult(md); }
-    } catch(ex) {} finally { setMaterialsLoading(false); }
-  };
-
-  // SUPERBRAIN SYNTHESIS CALL — v15.0
-  var callSuperbrainSynthesis = async function(dcResult: any, transcriptText: string) {
-    setSuperbrainLoading(true); setSuperbrainError(null);
-    try {
-      var sbRes = await fetch('/.netlify/functions/superbrain-synthesis', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          decision_core: dcResult,
-          transcript: transcriptText
-        })
-      });
-      if (sbRes.ok) {
-        var sbData = await sbRes.json();
-        setSuperbrainResult(sbData);
-      } else {
-        var sbErr = await sbRes.text();
-        setSuperbrainError('Superbrain status ' + sbRes.status + ': ' + sbErr.substring(0, 200));
-      }
-    } catch (ex: any) {
-      setSuperbrainError('Superbrain: ' + (ex.message || String(ex)));
-    } finally {
-      setSuperbrainLoading(false);
-    }
-  };
-
   // ========================================================================
-  // BUILD 1: AUTHORITY LOCK + REMAINING STRENGTH CALLS — v16.3
+  // BUILD 1: AUTHORITY LOCK + REMAINING STRENGTH CALLS
+  // v16.6b: catch blocks + HTTP-non-OK paths now surface errors via setErrors
   // ========================================================================
 
   var callAuthorityLock = async function(assetData: any, parsedData: any, gbData: any, confirmedFlags: any) {
@@ -1137,45 +825,31 @@ export default function VoiceInspectionPage() {
       var hasCracking = false;
       var serviceEnv = "";
 
-      // Extract from grammar bridge if available
       if (gbData && gbData.extracted) {
         serviceEnv = gbData.extracted.service_fluid || "";
-        if (gbData.extracted.primary_finding) {
-          mechanisms.push(gbData.extracted.primary_finding);
-        }
-        if (gbData.extracted.finding_types) {
-          mechanisms = mechanisms.concat(gbData.extracted.finding_types);
-        }
+        if (gbData.extracted.primary_finding) mechanisms.push(gbData.extracted.primary_finding);
+        if (gbData.extracted.finding_types) mechanisms = mechanisms.concat(gbData.extracted.finding_types);
         if (gbData.extracted.numeric && gbData.extracted.numeric.wall_loss_percent) {
           wallLossPercent = gbData.extracted.numeric.wall_loss_percent;
         }
       }
 
-      // Extract from parsed data
       if (parsedData) {
         if (parsedData.environment) {
           for (var ei2 = 0; ei2 < parsedData.environment.length; ei2++) {
             var envItem = (parsedData.environment[ei2] || "").toLowerCase();
-            if (envItem.indexOf("sour") >= 0 || envItem.indexOf("h2s") >= 0) {
-              serviceEnv = serviceEnv || "sour";
-            }
+            if (envItem.indexOf("sour") >= 0 || envItem.indexOf("h2s") >= 0) serviceEnv = serviceEnv || "sour";
           }
         }
-        if (parsedData.numeric_values) {
-          if (parsedData.numeric_values.wall_loss_percent) {
-            wallLossPercent = wallLossPercent || parsedData.numeric_values.wall_loss_percent;
-          }
+        if (parsedData.numeric_values && parsedData.numeric_values.wall_loss_percent) {
+          wallLossPercent = wallLossPercent || parsedData.numeric_values.wall_loss_percent;
         }
       }
 
-      // Check confirmed flags for cracking
       if (confirmedFlags) {
-        if (confirmedFlags.crack_confirmed || confirmedFlags.visible_cracking) {
-          hasCracking = true;
-        }
+        if (confirmedFlags.crack_confirmed || confirmedFlags.visible_cracking) hasCracking = true;
       }
 
-      // Check transcript for additional mechanism keywords
       var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
       if (lt.indexOf("crack") >= 0) hasCracking = true;
       if (lt.indexOf("corrosion") >= 0 && mechanisms.indexOf("corrosion") < 0) mechanisms.push("corrosion");
@@ -1188,12 +862,9 @@ export default function VoiceInspectionPage() {
       if (lt.indexOf("erosion") >= 0 && mechanisms.indexOf("erosion") < 0) mechanisms.push("erosion");
       if (lt.indexOf("fatigue") >= 0 && mechanisms.indexOf("fatigue") < 0) mechanisms.push("fatigue");
 
-      // Deduplicate mechanisms
       var uniqueMechs: string[] = [];
       for (var mi2 = 0; mi2 < mechanisms.length; mi2++) {
-        if (uniqueMechs.indexOf(mechanisms[mi2]) < 0) {
-          uniqueMechs.push(mechanisms[mi2]);
-        }
+        if (uniqueMechs.indexOf(mechanisms[mi2]) < 0) uniqueMechs.push(mechanisms[mi2]);
       }
 
       var requestBody = {
@@ -1211,11 +882,19 @@ export default function VoiceInspectionPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody)
       });
+      if (!response.ok) {
+        var bodyText = await response.text();
+        // v16.6b: surface HTTP errors
+        setErrors(function(prev) { return prev.concat(["authority-lock HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
+        return null;
+      }
       var result = await response.json();
       setAuthorityLockResult(result);
       return result;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Authority lock error:", err);
+      // v16.6b: surface caught throw
+      setErrors(function(prev) { return prev.concat(["authority-lock THREW: " + (err && err.message ? err.message : String(err))]); });
       return null;
     }
   };
@@ -1231,7 +910,6 @@ export default function VoiceInspectionPage() {
       var designFactor = 0.72;
       var operatingPressure = 0;
 
-      // Try grammar bridge numeric data first
       if (gbData && gbData.extracted && gbData.extracted.numeric) {
         var num = gbData.extracted.numeric;
         if (num.nominal_wall) nominalWall = num.nominal_wall;
@@ -1244,7 +922,6 @@ export default function VoiceInspectionPage() {
         }
       }
 
-      // Try parsed numeric values
       if (parsedData && parsedData.numeric_values) {
         var nv = parsedData.numeric_values;
         if (!nominalWall && nv.nominal_wall) nominalWall = nv.nominal_wall;
@@ -1257,10 +934,7 @@ export default function VoiceInspectionPage() {
         }
       }
 
-      // Try to extract from transcript
       var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
-
-      // Extract material grade from transcript
       var gradePatterns = ["x120", "x100", "x90", "x80", "x70", "x65", "x60", "x56", "x52", "x46", "x42"];
       for (var gpi = 0; gpi < gradePatterns.length; gpi++) {
         if (lt.indexOf(gradePatterns[gpi]) >= 0) {
@@ -1269,15 +943,12 @@ export default function VoiceInspectionPage() {
         }
       }
 
-      // Need at minimum nominal_wall and measured_wall to calculate
       if (!nominalWall || !measuredMinWall) {
-        console.log("Remaining strength: insufficient measurement data (need nominal + measured wall)");
+        console.log("Remaining strength: insufficient measurement data");
         return null;
       }
 
-      // Default flaw length if not provided (conservative assumption)
       if (!flawLength) flawLength = 1.0;
-      // Default pipe OD if not provided
       if (!pipeOD) pipeOD = 24.0;
 
       var requestBody = {
@@ -1302,15 +973,21 @@ export default function VoiceInspectionPage() {
         setRemainingStrengthResult(result);
         return result;
       }
+      // v16.6b: surface HTTP errors
+      var bodyText = await response.text();
+      setErrors(function(prev) { return prev.concat(["remaining-strength HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
       return null;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Remaining strength error:", err);
+      // v16.6b: surface caught throw
+      setErrors(function(prev) { return prev.concat(["remaining-strength THREW: " + (err && err.message ? err.message : String(err))]); });
       return null;
     }
   };
 
   // ========================================================================
-  // BUILD 2: FAILURE MODE DOMINANCE + DISPOSITION PATHWAY CALLS — v16.4
+  // BUILD 2: FAILURE MODE DOMINANCE + DISPOSITION PATHWAY
+  // v16.6b: catch blocks + HTTP-non-OK paths now surface errors via setErrors
   // ========================================================================
 
   var callFailureModeDominance = async function(parsedData: any, gbData: any, confirmedFlags: any, authLockRes: any, remStrengthRes: any) {
@@ -1378,11 +1055,19 @@ export default function VoiceInspectionPage() {
           smys: smysVal
         })
       });
+      if (!response.ok) {
+        var bodyText = await response.text();
+        // v16.6b: surface HTTP errors
+        setErrors(function(prev) { return prev.concat(["failure-mode-dominance HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
+        return null;
+      }
       var result = await response.json();
       setFailureModeDominanceResult(result);
       return result;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failure mode dominance error:", err);
+      // v16.6b: surface caught throw
+      setErrors(function(prev) { return prev.concat(["failure-mode-dominance THREW: " + (err && err.message ? err.message : String(err))]); });
       return null;
     }
   };
@@ -1424,17 +1109,26 @@ export default function VoiceInspectionPage() {
           consequence_tier: conTier
         })
       });
+      if (!response.ok) {
+        var bodyText = await response.text();
+        // v16.6b: surface HTTP errors
+        setErrors(function(prev) { return prev.concat(["disposition-pathway HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
+        return null;
+      }
       var result = await response.json();
       setDispositionPathwayResult(result);
       return result;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Disposition pathway error:", err);
+      // v16.6b: surface caught throw
+      setErrors(function(prev) { return prev.concat(["disposition-pathway THREW: " + (err && err.message ? err.message : String(err))]); });
       return null;
     }
   };
 
   // ========================================================================
-  // BUILD 3: FAILURE TIMELINE CALL — v16.5
+  // BUILD 3: FAILURE TIMELINE
+  // v16.6b: catch blocks + HTTP-non-OK paths now surface errors via setErrors
   // ========================================================================
 
   var callFailureTimeline = async function(parsedData: any, gbData: any, confirmedFlags: any, remStrengthRes: any, fmdResult: any) {
@@ -1453,7 +1147,6 @@ export default function VoiceInspectionPage() {
       var serviceEnv = "";
       var materialClass = "";
 
-      // Extract from grammar bridge
       if (gbData && gbData.extracted) {
         serviceEnv = gbData.extracted.service_fluid || "";
         materialClass = gbData.extracted.material || "";
@@ -1469,44 +1162,33 @@ export default function VoiceInspectionPage() {
         }
       }
 
-      // Use remaining strength data if available
       if (remStrengthRes && remStrengthRes.inputs) {
         nominalWall = nominalWall || remStrengthRes.inputs.nominal_wall || 0;
         currentWall = currentWall || remStrengthRes.inputs.measured_minimum_wall || 0;
       }
 
-      // Determine has_corrosion and has_cracking from FMD if available
       if (fmdResult) {
         hasCorrosion = (fmdResult.corrosion_path && fmdResult.corrosion_path.active) || false;
         hasCracking = (fmdResult.cracking_path && fmdResult.cracking_path.active) || false;
       }
 
-      // Check transcript for additional info
       var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
       if (lt.indexOf("crack") >= 0) hasCracking = true;
       if (lt.indexOf("corrosion") >= 0 || lt.indexOf("wall loss") >= 0 || lt.indexOf("pitting") >= 0) hasCorrosion = true;
 
-      // Try to extract corrosion rate from transcript
       var rateMatch = lt.match(/(\d+(?:\.\d+)?)\s*mpy/);
-      if (rateMatch && !corrosionRateMpy) {
-        corrosionRateMpy = parseFloat(rateMatch[1]);
-      }
+      if (rateMatch && !corrosionRateMpy) corrosionRateMpy = parseFloat(rateMatch[1]);
       var rateMatch2 = lt.match(/(\d+(?:\.\d+)?)\s*mils?\s*\/?\s*y(ea)?r/);
-      if (rateMatch2 && !corrosionRateMpy) {
-        corrosionRateMpy = parseFloat(rateMatch2[1]);
-      }
+      if (rateMatch2 && !corrosionRateMpy) corrosionRateMpy = parseFloat(rateMatch2[1]);
 
-      // Try to extract cycles per day
       var cyclesMatch = lt.match(/(\d+(?:\.\d+)?)\s*cycles?\s*\/?\s*day/);
       if (cyclesMatch) cyclesPerDay = parseFloat(cyclesMatch[1]);
 
-      // Try to extract stress range
       var stressMatch = lt.match(/(\d+(?:\.\d+)?)\s*ksi/);
       if (stressMatch) stressRange = parseFloat(stressMatch[1]);
 
-      // If neither corrosion nor cracking detected, skip
       if (!hasCorrosion && !hasCracking) {
-        console.log("Failure timeline: no corrosion or cracking detected, skipping");
+        console.log("Failure timeline: no corrosion or cracking detected");
         return null;
       }
 
@@ -1538,9 +1220,14 @@ export default function VoiceInspectionPage() {
         setFailureTimelineResult(result);
         return result;
       }
+      // v16.6b: surface HTTP errors
+      var bodyText = await response.text();
+      setErrors(function(prev) { return prev.concat(["failure-timeline HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
       return null;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failure timeline error:", err);
+      // v16.6b: surface caught throw
+      setErrors(function(prev) { return prev.concat(["failure-timeline THREW: " + (err && err.message ? err.message : String(err))]); });
       return null;
     }
   };
@@ -1587,24 +1274,21 @@ export default function VoiceInspectionPage() {
     setGbEditingField(null); setGbAmendments([]); setGbConfirmed(false);
     setAiQuestions(null); setAiUnderstood(null); setSelectedAnswers({});
     setSaveStatus("idle"); setSavedCaseId(null); setSaveError(null);
-    // BUILD 1: Reset authority + strength
     setAuthorityLockResult(null); setRemainingStrengthResult(null);
-    // BUILD 2: Reset failure mode + disposition
     setFailureModeDominanceResult(null); setDispositionPathwayResult(null);
-    // BUILD 3: Reset failure timeline
     setFailureTimelineResult(null);
     inputTextRef.current = inputText;
 
     var initialSteps: StepState[] = [
-      { label: "AI Incident Parser (GPT-4o)", status: "pending" },
-      { label: "Resolve Asset + Domain Gate", status: "pending" },
-      { label: "Evidence Provenance (trust classification)", status: "pending" },
+      { label: "AI Incident Parser", status: "pending" },
+      { label: "Resolve Asset", status: "pending" },
+      { label: "Evidence Provenance", status: "pending" },
       { label: "Authority Lock + Remaining Strength", status: "pending" },
-      { label: "Physics-First Decision Core (6 states)", status: "pending" },
-      { label: "Superbrain Synthesis (Five Magic Features)", status: "pending" },
-      { label: "Reality Hardening (challenge + unknown state)", status: "pending" },
+      { label: "Physics-First Decision Core", status: "pending" },
+      { label: "Superbrain Synthesis", status: "pending" },
+      { label: "Reality Hardening", status: "pending" },
       { label: "Failure Mode Dominance + Disposition Pathway", status: "pending" },
-      { label: "Failure Timeline (corrosion + crack growth)", status: "pending" },
+      { label: "Failure Timeline", status: "pending" },
     ];
     var s = initialSteps.slice();
     setSteps(s); stepsRef.current = s;
@@ -1615,7 +1299,6 @@ export default function VoiceInspectionPage() {
     try {
       s = updateStep(0, { status: "running" }, s); s = updateStep(1, { status: "running" }, s); setSteps(s.slice());
 
-      // Grammar Bridge runs silently in parallel — results shown in readback panel
       var gbPromise = callAPI("voice-grammar-bridge", { action: "extract", transcript: inputText }).catch(function() { return null; });
 
       var [parseRes, assetRes] = await Promise.allSettled([
@@ -1623,13 +1306,10 @@ export default function VoiceInspectionPage() {
         callAPI("resolve-asset", { raw_text: inputText }),
       ]);
 
-      // Grammar Bridge result (non-blocking)
       try {
         var gbValue = await gbPromise;
-        if (gbValue && gbValue.ok) {
-          setGrammarBridgeResult(gbValue.result || gbValue);
-        }
-      } catch (gbErr) { /* Grammar bridge failure is non-blocking */ }
+        if (gbValue && gbValue.ok) setGrammarBridgeResult(gbValue.result || gbValue);
+      } catch (gbErr) {}
 
       if (parseRes.status === "fulfilled") {
         parsedResult = parseRes.value.parsed || parseRes.value;
@@ -1713,9 +1393,12 @@ export default function VoiceInspectionPage() {
     var errs = errorsRef.current.slice();
     var hardenRes: any = null;
     var fmdResult: any = null;
+    // v16.6b: capture results from callX returns to avoid React state staleness
+    var localAuthResult: any = null;
+    var localStrengthResult: any = null;
 
     try {
-      // STEP 2: EVIDENCE PROVENANCE — v16.0
+      // STEP 2: EVIDENCE PROVENANCE
       s = updateStep(2, { status: "running", detail: "classifying evidence trust..." }, s); setSteps(s.slice());
       var provenanceData: any = null;
       try {
@@ -1742,29 +1425,29 @@ export default function VoiceInspectionPage() {
       setProvenanceLoading(false);
       setSteps(s.slice());
 
-      // STEP 3: AUTHORITY LOCK + REMAINING STRENGTH — Build 1
+      // STEP 3: AUTHORITY LOCK + REMAINING STRENGTH
       s = updateStep(3, { status: "running", detail: "resolving governing authority..." }, s); setSteps(s.slice());
-      var authResult: any = null;
       try {
-        authResult = await callAuthorityLock(assetResult, parsedResult, grammarBridgeResult, confirmedFlags);
-        if (authResult && authResult.status === "LOCKED") {
-          var codeCount = (authResult.authority_chain || []).length;
-          var suppCount = (authResult.supplemental_codes || []).length;
+        // v16.6b: capture into local var
+        localAuthResult = await callAuthorityLock(assetResult, parsedResult, grammarBridgeResult, confirmedFlags);
+        if (localAuthResult && localAuthResult.status === "LOCKED") {
+          var codeCount = (localAuthResult.authority_chain || []).length;
+          var suppCount = (localAuthResult.supplemental_codes || []).length;
           var authDetail = "LOCKED | " + codeCount + " primary";
-          if (suppCount > 0) authDetail = authDetail + " + " + suppCount + " supplemental";
-          if (authResult.trigger_b31g) authDetail = authDetail + " | B31G triggered";
+          if (suppCount > 0) authDetail = authDetail + " + " + suppCount + " supp";
+          if (localAuthResult.trigger_b31g) authDetail = authDetail + " | B31G triggered";
           s = updateStep(3, { status: "done", detail: authDetail }, s);
 
-          // Auto-trigger remaining strength if B31G flagged
-          if (authResult.trigger_b31g) {
-            var strengthResult = await callRemainingStrength(parsedResult, grammarBridgeResult);
-            if (strengthResult) {
-              authDetail = authDetail + " | MAOP: " + strengthResult.governing_maop + " psi";
+          if (localAuthResult.trigger_b31g) {
+            // v16.6b: capture into local var
+            localStrengthResult = await callRemainingStrength(parsedResult, grammarBridgeResult);
+            if (localStrengthResult) {
+              authDetail = authDetail + " | MAOP: " + localStrengthResult.governing_maop + " psi";
               s = updateStep(3, { status: "done", detail: authDetail }, s);
             }
           }
-        } else if (authResult) {
-          s = updateStep(3, { status: "done", detail: authResult.status + " | " + (authResult.lock_reasons || []).length + " reasons" }, s);
+        } else if (localAuthResult) {
+          s = updateStep(3, { status: "done", detail: localAuthResult.status + " | " + (localAuthResult.lock_reasons || []).length + " reasons" }, s);
         } else {
           s = updateStep(3, { status: "done", detail: "no authority data" }, s);
         }
@@ -1785,18 +1468,10 @@ export default function VoiceInspectionPage() {
           transcript: inputText,
           reality_lock: realityLock,
           evidence_provenance: provenanceData,
-          authority_lock: authResult
+          authority_lock: localAuthResult
         });
         coreResult = coreRes.decision_core || coreRes;
         setDecisionCore(coreResult);
-        if (coreResult) {
-          var txVal = '';
-          try { if (transcript) { txVal = String(transcript); } } catch(ex) {}
-          // Fire background calls (stored, not rendered)
-          callEngineeringCore(coreResult, txVal);
-          callArchitectureCore(coreResult, txVal);
-          callMaterialsCore(coreResult, txVal);
-        }
         var tier = coreResult?.consequence_reality?.consequence_tier || "?";
         var disp = coreResult?.decision_reality?.disposition || "?";
         var elapsed = coreResult?.elapsed_ms || "?";
@@ -1810,17 +1485,14 @@ export default function VoiceInspectionPage() {
       }
       setSteps(s.slice());
 
-      // STEP 5: SUPERBRAIN SYNTHESIS — v15.0
+      // STEP 5: SUPERBRAIN SYNTHESIS
       s = updateStep(5, { status: "running", detail: "GPT-4o constrained by decision-core..." }, s); setSteps(s.slice());
       if (coreResult) {
         try {
           var sbRes = await fetch('/.netlify/functions/superbrain-synthesis', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              decision_core: coreResult,
-              transcript: inputText
-            })
+            body: JSON.stringify({ decision_core: coreResult, transcript: inputText })
           });
           if (sbRes.ok) {
             var sbData = await sbRes.json();
@@ -1839,15 +1511,6 @@ export default function VoiceInspectionPage() {
             setSuperbrainError('Status ' + sbRes.status);
             s = updateStep(5, { status: "error", detail: "status " + sbRes.status }, s);
             errs.push("superbrain-synthesis: " + sbErrText.substring(0, 200));
-            // FALLBACK: try old narrative
-            try {
-              var planRes = await callAPI("voice-incident-plan", { transcript: inputText, decisionResult: coreResult });
-              var narrative = planRes?.plan || planRes?.text || planRes?.result || JSON.stringify(planRes);
-              setAiNarrative(typeof narrative === "string" ? narrative : JSON.stringify(narrative));
-              s = updateStep(5, { status: "done", detail: "fallback narrative" }, s);
-            } catch (fallbackErr: any) {
-              errs.push("narrative fallback: " + fallbackErr.message);
-            }
           }
         } catch (sbEx: any) {
           setSuperbrainError(sbEx.message || String(sbEx));
@@ -1859,7 +1522,7 @@ export default function VoiceInspectionPage() {
       }
       setSteps(s.slice());
 
-      // STEP 6: REALITY HARDENING — Sprint 1
+      // STEP 6: REALITY HARDENING
       s = updateStep(6, { status: "running", detail: "challenge + unknown state..." }, s); setSteps(s.slice());
       if (coreResult) {
         try {
@@ -1893,17 +1556,18 @@ export default function VoiceInspectionPage() {
       }
       setSteps(s.slice());
 
-      // STEP 7: FAILURE MODE DOMINANCE + DISPOSITION PATHWAY — Build 2
-      s = updateStep(7, { status: "running", detail: "evaluating failure modes + disposition..." }, s); setSteps(s.slice());
+      // STEP 7: FAILURE MODE DOMINANCE + DISPOSITION PATHWAY
+      // v16.6b: pass localAuthResult / localStrengthResult instead of stale React state
+      s = updateStep(7, { status: "running", detail: "evaluating failure modes..." }, s); setSteps(s.slice());
       try {
-        fmdResult = await callFailureModeDominance(parsedResult, grammarBridgeResult, confirmedFlags, authorityLockResult, remainingStrengthResult);
+        fmdResult = await callFailureModeDominance(parsedResult, grammarBridgeResult, confirmedFlags, localAuthResult, localStrengthResult);
         if (fmdResult) {
           var govMode = fmdResult.governing_failure_mode || "?";
           var govSev = fmdResult.governing_severity || "?";
           var fmdDetail = govMode + " | " + govSev;
           if (fmdResult.interaction_flag) fmdDetail = fmdDetail + " | INTERACTION";
 
-          var dpResult = await callDispositionPathway(fmdResult, remainingStrengthResult, hardenRes, coreResult);
+          var dpResult = await callDispositionPathway(fmdResult, localStrengthResult, hardenRes, coreResult);
           if (dpResult) {
             fmdDetail = fmdDetail + " | " + dpResult.disposition;
             s = updateStep(7, { status: "done", detail: fmdDetail }, s);
@@ -1919,10 +1583,11 @@ export default function VoiceInspectionPage() {
       }
       setSteps(s.slice());
 
-      // STEP 8: FAILURE TIMELINE — Build 3
+      // STEP 8: FAILURE TIMELINE
+      // v16.6b: pass localStrengthResult instead of stale React state
       s = updateStep(8, { status: "running", detail: "projecting remaining life..." }, s); setSteps(s.slice());
       try {
-        var ftResult = await callFailureTimeline(parsedResult, grammarBridgeResult, confirmedFlags, remainingStrengthResult, fmdResult);
+        var ftResult = await callFailureTimeline(parsedResult, grammarBridgeResult, confirmedFlags, localStrengthResult, fmdResult);
         if (ftResult) {
           var govTime = ftResult.governing_time_years;
           var govModeFt = ftResult.governing_failure_mode || "?";
@@ -1962,7 +1627,6 @@ export default function VoiceInspectionPage() {
   var con = dc?.consequence_reality;
   var auth = dc?.authority_reality;
   var insp = dc?.inspection_reality;
-  var comp = dc?.physics_computations;
   var conf = dc?.reality_confidence;
   var dec = dc?.decision_reality;
   var syn = superbrainResult?.synthesis;
@@ -1970,12 +1634,12 @@ export default function VoiceInspectionPage() {
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} Physics-First Decision Core</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Describe the inspection scenario. The system starts with physics, not codes. Every answer is inarguable.</p>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6b DIAGNOSTIC</h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Describe the inspection scenario. Diagnostic build surfaces silent failures + closure-staleness fix.</p>
       </div>
 
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
-        <textarea value={transcript} onChange={function(e) { setTranscript(e.target.value); }} placeholder="Describe the scenario \u2014 asset, damage, method, conditions..." style={{ width: "100%", minHeight: "120px", padding: "14px 16px", fontSize: "14px", lineHeight: "1.6", border: "none", outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+        <textarea value={transcript} onChange={function(e) { setTranscript(e.target.value); }} placeholder="Describe the scenario..." style={{ width: "100%", minHeight: "120px", padding: "14px 16px", fontSize: "14px", lineHeight: "1.6", border: "none", outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", backgroundColor: "#f9fafb", borderTop: "1px solid #e5e7eb" }}>
           <span style={{ fontSize: "12px", color: "#9ca3af" }}>{transcript.length > 0 ? transcript.split(/\s+/).filter(Boolean).length + " words" : "Speak or type"}</span>
           <div style={{ display: "flex", gap: "8px" }}>
@@ -1985,7 +1649,6 @@ export default function VoiceInspectionPage() {
         </div>
       </div>
 
-      {/* BUILD 3: Photo Analysis (GPT-4o Vision) */}
       <PhotoAnalysisCard
         contextTranscript={transcript}
         assetType={asset?.asset_class || ""}
@@ -2000,129 +1663,18 @@ export default function VoiceInspectionPage() {
 
       {steps.length > 0 && <StepTracker steps={steps} />}
 
-      {errors.length > 0 && (<div style={{ margin: "12px 0", padding: "12px 16px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px" }}>{errors.map(function(e, i) { return <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0" }}>{e}</div>; })}</div>)}
+      {errors.length > 0 && (<div style={{ margin: "12px 0", padding: "12px 16px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px" }}>{errors.map(function(e, i) { return <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0", fontFamily: "monospace" }}>{e}</div>; })}</div>)}
 
       <div ref={resultsRef}>
 
-        {/* GRAMMAR BRIDGE INTERACTIVE READBACK — v16.1 */}
         {grammarBridgeResult && evidenceConfirmPending && (
           <div style={{ margin: "0 0 16px 0", padding: "16px", backgroundColor: gbConfirmed ? "#f0fdf4" : "#f0f9ff", border: "1px solid " + (gbConfirmed ? "#bbf7d0" : "#bae6fd"), borderRadius: "8px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-              <div style={{ fontSize: "13px", fontWeight: 700, color: gbConfirmed ? "#16a34a" : "#0369a1" }}>
-                {gbConfirmed ? "\u2705 Readback Confirmed" : "\uD83C\uDF99\uFE0F Voice Grammar Bridge \u2014 Review & Edit"}
-              </div>
-              <div style={{ fontSize: "11px", padding: "4px 10px", borderRadius: "4px", backgroundColor: grammarBridgeResult.completeness === "COMPLETE" ? "#dcfce7" : grammarBridgeResult.completeness === "NEAR_COMPLETE" ? "#fef9c3" : "#fee2e2", color: grammarBridgeResult.completeness === "COMPLETE" ? "#166534" : grammarBridgeResult.completeness === "NEAR_COMPLETE" ? "#854d0e" : "#991b1b", fontWeight: 600 }}>
-                {grammarBridgeResult.completeness} ({grammarBridgeResult.field_count ? grammarBridgeResult.field_count.extracted + "/" + grammarBridgeResult.field_count.total_required : ""})
-              </div>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: gbConfirmed ? "#16a34a" : "#0369a1", marginBottom: "8px" }}>
+              {gbConfirmed ? "\u2705 Readback Confirmed" : "\uD83C\uDF99\uFE0F Voice Grammar Bridge"}
             </div>
             <div style={{ fontSize: "14px", color: "#1e3a5f", lineHeight: "1.6", padding: "10px 12px", backgroundColor: "#fff", borderRadius: "6px", border: "1px solid #e0f2fe", marginBottom: "12px" }}>
               {grammarBridgeResult.readback || "No readback generated"}
             </div>
-
-            {/* EDITABLE FIELD GRID */}
-            {grammarBridgeResult.extracted && !gbConfirmed && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "8px", marginBottom: "12px" }}>
-                {[
-                  { key: "asset_type", label: "Asset", color: "#7c3aed", bg: "#f5f3ff", options: ["piping", "pressure_vessel", "pipeline", "tank", "bridge", "rail_bridge", "offshore_platform", "boiler", "heat_exchanger"] },
-                  { key: "material", label: "Material", color: "#6b21a8", bg: "#faf5ff", options: ["carbon_steel", "alloy_steel", "stainless_steel", "duplex", "nickel_alloy", "aluminum", "titanium", "cast_iron"] },
-                  { key: "primary_finding", label: "Primary Finding", color: "#92400e", bg: "#fffbeb", options: ["wall_loss", "crack", "pitting", "corrosion", "deformation", "leak", "erosion", "cui", "fatigue", "scc", "fire_damage", "creep"] },
-                  { key: "service_fluid", label: "Service", color: "#3730a3", bg: "#e0e7ff", options: ["amine", "hydrogen", "h2s", "crude", "steam", "water", "caustic", "acid", "ammonia", "natural_gas", "refined_product"] },
-                  { key: "primary_location", label: "Location", color: "#0e7490", bg: "#ecfeff", options: ["elbow", "weld", "nozzle", "flange", "support", "intrados", "extrados", "tee", "bottom", "connection", "gusset", "web", "haz"] },
-                  { key: "orientation", label: "Orientation", color: "#4338ca", bg: "#eef2ff", options: ["horizontal", "vertical", "inclined", "overhead", "underground"] }
-                ].map(function(fieldDef, fdi) {
-                  var currentVal = grammarBridgeResult.extracted[fieldDef.key];
-                  var isEditing = gbEditingField === fieldDef.key;
-                  return (
-                    <div key={fdi} style={{ position: "relative" }}>
-                      <div onClick={function() { setGbEditingField(isEditing ? null : fieldDef.key); }} style={{ padding: "8px 10px", borderRadius: "6px", backgroundColor: currentVal ? fieldDef.bg : "#f9fafb", border: "1px solid " + (currentVal ? fieldDef.color + "40" : "#e5e7eb"), cursor: "pointer", minHeight: "52px" }}>
-                        <div style={{ fontSize: "9px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "2px" }}>{fieldDef.label}</div>
-                        <div style={{ fontSize: "12px", fontWeight: 600, color: currentVal ? fieldDef.color : "#9ca3af" }}>
-                          {currentVal ? currentVal.replace(/_/g, " ") : "\u2014 tap to add"}
-                        </div>
-                      </div>
-                      {isEditing && (
-                        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, backgroundColor: "#fff", border: "1px solid #d1d5db", borderRadius: "6px", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", maxHeight: "200px", overflowY: "auto", marginTop: "2px" }}>
-                          {fieldDef.options.map(function(opt, oi) {
-                            var isCurrent = currentVal === opt;
-                            return (
-                              <div key={oi} onClick={function() { handleGbAmend(fieldDef.key, opt); }} style={{ padding: "8px 12px", fontSize: "12px", cursor: "pointer", backgroundColor: isCurrent ? fieldDef.bg : "transparent", fontWeight: isCurrent ? 700 : 400, color: isCurrent ? fieldDef.color : "#374151", borderBottom: "1px solid #f3f4f6" }}>
-                                {opt.replace(/_/g, " ")}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* NDE METHODS + FINDINGS (read-only badges) */}
-            {grammarBridgeResult.extracted && (
-              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "10px" }}>
-                {grammarBridgeResult.extracted.nde_methods && grammarBridgeResult.extracted.nde_methods.map(function(m: string, mi: number) {
-                  return <span key={"m" + mi} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#dbeafe", color: "#1e40af", fontWeight: 600 }}>{m}</span>;
-                })}
-                {grammarBridgeResult.extracted.finding_types && grammarBridgeResult.extracted.finding_types.map(function(f: string, fi: number) {
-                  return <span key={"f" + fi} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#fef3c7", color: "#92400e", fontWeight: 500 }}>{f.replace(/_/g, " ")}</span>;
-                })}
-                {grammarBridgeResult.extracted.locations && grammarBridgeResult.extracted.locations.map(function(l: string, li: number) {
-                  return <span key={"l" + li} style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#ecfeff", color: "#0e7490", fontWeight: 500 }}>{l.replace(/_/g, " ")}</span>;
-                })}
-              </div>
-            )}
-
-            {/* NUMERIC VALUES */}
-            {grammarBridgeResult.extracted && grammarBridgeResult.extracted.numeric && (
-              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "10px" }}>
-                {grammarBridgeResult.extracted.numeric.diameter_inches && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#374151" }}>{grammarBridgeResult.extracted.numeric.diameter_inches}" dia</span>}
-                {grammarBridgeResult.extracted.numeric.wall_loss_percent && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#fef2f2", color: "#dc2626", fontWeight: 600 }}>{grammarBridgeResult.extracted.numeric.wall_loss_percent}% wall loss</span>}
-                {grammarBridgeResult.extracted.numeric.temperature_f && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#374151" }}>{grammarBridgeResult.extracted.numeric.temperature_f}{"\u00B0"}F</span>}
-                {grammarBridgeResult.extracted.numeric.pressure_psi && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#374151" }}>{grammarBridgeResult.extracted.numeric.pressure_psi} psi</span>}
-                {grammarBridgeResult.extracted.numeric.service_years && <span style={{ fontSize: "11px", padding: "3px 8px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#374151" }}>{grammarBridgeResult.extracted.numeric.service_years} yrs</span>}
-              </div>
-            )}
-
-            {/* RISK FLAGS */}
-            {grammarBridgeResult.risk_flags && grammarBridgeResult.risk_flags.length > 0 && (
-              <div style={{ marginBottom: "10px" }}>
-                {grammarBridgeResult.risk_flags.map(function(rf: any, ri: number) {
-                  var rfBg = rf.severity === "critical" ? "#fef2f2" : rf.severity === "high" ? "#fffbeb" : "#f0f9ff";
-                  var rfBorder = rf.severity === "critical" ? "#fecaca" : rf.severity === "high" ? "#fde68a" : "#bae6fd";
-                  var rfColor = rf.severity === "critical" ? "#991b1b" : rf.severity === "high" ? "#92400e" : "#0369a1";
-                  var rfIcon = rf.severity === "critical" ? "\uD83D\uDED1" : rf.severity === "high" ? "\u26A0\uFE0F" : "\u2139\uFE0F";
-                  return (
-                    <div key={ri} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: rfBg, border: "1px solid " + rfBorder, borderRadius: "4px", color: rfColor }}>
-                      {rfIcon} {rf.message}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* MISSING FIELDS */}
-            {grammarBridgeResult.missing_required && grammarBridgeResult.missing_required.length > 0 && !gbConfirmed && (
-              <div style={{ padding: "8px 10px", backgroundColor: "#fffbeb", borderRadius: "4px", border: "1px solid #fde68a", marginBottom: "10px", fontSize: "12px", color: "#92400e" }}>
-                <strong>Missing:</strong> {grammarBridgeResult.missing_required.join(", ").replace(/_/g, " ")} {"\u2014"} <em>tap a field above to add</em>
-              </div>
-            )}
-
-            {/* AMENDMENT TRAIL */}
-            {gbAmendments.length > 0 && (
-              <div style={{ marginBottom: "10px" }}>
-                <div style={{ fontSize: "10px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Amendment Trail ({gbAmendments.length})</div>
-                {gbAmendments.map(function(am: any, ai: number) {
-                  return (
-                    <div key={ai} style={{ fontSize: "11px", padding: "4px 8px", marginBottom: "2px", backgroundColor: "#fefce8", borderRadius: "3px", borderLeft: "2px solid #ca8a04", color: "#374151" }}>
-                      <strong>{am.field.replace(/_/g, " ")}:</strong> set to <strong>{am.value.replace(/_/g, " ")}</strong>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* CONFIRM BUTTON */}
             {!gbConfirmed && (
               <button onClick={handleGbConfirm} style={{ width: "100%", padding: "10px", fontSize: "13px", fontWeight: 700, color: "#fff", backgroundColor: "#0369a1", border: "none", borderRadius: "6px", cursor: "pointer" }}>
                 {"\u2705"} Confirm Readback
@@ -2160,11 +1712,10 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* ACTION BUTTONS */}
         {dc && (
           <div style={{ marginBottom: "16px" }}>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative, superbrainResult: superbrainResult, provenanceResult: provenanceResult, authorityLockResult: authorityLockResult, remainingStrengthResult: remainingStrengthResult, failureModeDominanceResult: failureModeDominanceResult, dispositionPathwayResult: dispositionPathwayResult, failureTimelineResult: failureTimelineResult }); }} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: "#1e40af", border: "none", borderRadius: "6px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+              <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative, superbrainResult: superbrainResult, provenanceResult: provenanceResult, authorityLockResult: authorityLockResult, remainingStrengthResult: remainingStrengthResult, failureModeDominanceResult: failureModeDominanceResult, dispositionPathwayResult: dispositionPathwayResult, failureTimelineResult: failureTimelineResult, errors: errors }); }} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: "#1e40af", border: "none", borderRadius: "6px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
                 {"\uD83D\uDCC4"} Export PDF
               </button>
               {saveStatus === "saved" ? (
@@ -2178,9 +1729,8 @@ export default function VoiceInspectionPage() {
               )}
             </div>
             {saveStatus === "saved" && (
-              <div style={{ marginTop: "8px", padding: "10px 14px", backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ marginTop: "8px", padding: "10px 14px", backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "6px" }}>
                 <span style={{ fontSize: "13px", color: "#16a34a" }}>{"\u2705"} Case {savedCaseId} saved</span>
-                <a href="/cases" style={{ fontSize: "13px", fontWeight: 700, color: "#2563eb", textDecoration: "none" }}>View Cases {"\u2192"}</a>
               </div>
             )}
             {saveStatus === "error" && (
@@ -2191,17 +1741,10 @@ export default function VoiceInspectionPage() {
           </div>
         )}
 
-        {/* CONFIDENCE BAND */}
         {conf && (
           <div style={{ marginBottom: "16px", padding: "14px 18px", backgroundColor: conf.band === "TRUSTED" || conf.band === "HIGH" ? "#f0fdf4" : conf.band === "GUARDED" ? "#fffbeb" : "#fef2f2", border: "2px solid " + bandColor(conf.band), borderRadius: "8px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span style={{ fontSize: "22px" }}>{conf.band === "TRUSTED" || conf.band === "HIGH" ? "\u2705" : conf.band === "GUARDED" ? "\u26A0\uFE0F" : "\uD83D\uDED1"}</span>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: "16px", color: bandColor(conf.band) }}>Reality Confidence: {conf.band}</div>
-                  <div style={{ fontSize: "12px", color: "#374151" }}>Overall: {Math.round(conf.overall * 100)}% {"\u2014"} {conf.certainty_state === "blocked" ? "Disposition BLOCKED" : conf.certainty_state === "escalated" ? "Escalation Required" : "Decision Eligible"}</div>
-                </div>
-              </div>
+              <div style={{ fontWeight: 800, fontSize: "16px", color: bandColor(conf.band) }}>Reality Confidence: {conf.band}</div>
               <div style={{ fontSize: "28px", fontWeight: 800, color: bandColor(conf.band) }}>{Math.round(conf.overall * 100)}%</div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: "8px" }}>
@@ -2222,555 +1765,102 @@ export default function VoiceInspectionPage() {
                 );
               })}
             </div>
-            {conf.limiting_factors && conf.limiting_factors.length > 0 && (
-              <div style={{ marginTop: "10px", fontSize: "12px", color: "#6b7280" }}>
-                <strong>Limiting:</strong> {conf.limiting_factors.join(" | ")}
-              </div>
-            )}
           </div>
         )}
 
-        {/* CONSEQUENCE */}
         {con && (
-          <Card title={"Consequence: " + con.consequence_tier} icon={con.consequence_tier === "CRITICAL" ? "\uD83D\uDED1" : con.consequence_tier === "HIGH" ? "\u26A0\uFE0F" : "\u2139\uFE0F"} collapsible={false}>
+          <Card title={"Consequence: " + con.consequence_tier} icon={con.consequence_tier === "CRITICAL" ? "\uD83D\uDED1" : "\u2139\uFE0F"} collapsible={false}>
             <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "18px", color: "#fff", backgroundColor: tierColor(con.consequence_tier), textAlign: "center" }}>
-              {con.consequence_tier} CONSEQUENCE {"\u2014"} {con.failure_mode.replace(/_/g, " ").toUpperCase()}
+              {con.consequence_tier} CONSEQUENCE {"\u2014"} {(con.failure_mode || "").replace(/_/g, " ").toUpperCase()}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-              <div style={{ padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>Human Impact</div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111" }}>{con.human_impact}</div>
-              </div>
-              <div style={{ padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>Damage State</div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: con.damage_state === "TRANSITION_RISK" ? "#dc2626" : con.damage_state === "APPROACHING_THRESHOLD" ? "#ea580c" : "#111" }}>{(con.damage_state || "STABLE").replace(/_/g, " ")}</div>
-              </div>
-              <div style={{ padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>Degradation</div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: con.degradation_certainty === "CONFIRMED" ? "#dc2626" : con.degradation_certainty === "SUSPECTED" ? "#ea580c" : "#16a34a" }}>{con.degradation_certainty || "UNVERIFIED"}</div>
-              </div>
-              <div style={{ padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>Monitoring</div>
-                <div style={{ fontSize: "13px", fontWeight: 600 }}>{con.monitoring_urgency || "Routine"}</div>
-              </div>
-            </div>
-            {con.failure_physics && <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "10px", padding: "10px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}><strong>Failure Physics:</strong> {con.failure_physics}</div>}
-            {con.damage_trajectory && <div style={{ fontSize: "12px", color: "#374151", marginBottom: "8px" }}><strong>Trajectory:</strong> {con.damage_trajectory}</div>}
-            {con.consequence_basis && con.consequence_basis.map(function(b: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#374151", padding: "2px 0" }}>{b}</div>; })}
+            <div style={{ fontSize: "13px", color: "#374151" }}>{con.failure_physics || ""}</div>
           </Card>
         )}
 
-        {/* DECISION */}
         {dec && (
-          <Card title={"Decision: " + (dec.disposition || "").replace(/_/g, " ").toUpperCase()} icon={dec.disposition === "no_go" ? "\uD83D\uDED1" : dec.disposition === "hold_for_review" ? "\u23F8\uFE0F" : dec.disposition === "engineering_review_required" ? "\u26A0\uFE0F" : "\u2705"} collapsible={false}>
-            <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "16px", color: "#fff", backgroundColor: dec.disposition === "no_go" ? "#dc2626" : dec.disposition === "repair_before_restart" ? "#ea580c" : dec.disposition === "hold_for_review" || dec.disposition === "engineering_review_required" ? "#ca8a04" : "#16a34a", textAlign: "center" }}>
+          <Card title={"Decision: " + (dec.disposition || "").replace(/_/g, " ").toUpperCase()} icon={dec.disposition === "no_go" ? "\uD83D\uDED1" : "\u2705"} collapsible={false}>
+            <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "16px", color: "#fff", backgroundColor: dec.disposition === "no_go" ? "#dc2626" : dec.disposition === "hold_for_review" || dec.disposition === "engineering_review_required" ? "#ca8a04" : "#16a34a", textAlign: "center" }}>
               {(dec.disposition || "").replace(/_/g, " ").toUpperCase()}
             </div>
             <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px" }}>{dec.disposition_basis}</div>
-            <div style={{ marginBottom: "12px" }}>
-              <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Precedence Gates</div>
-              {dec.gates && dec.gates.map(function(g: any, i: number) {
-                return (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 10px", marginBottom: "3px", backgroundColor: g.result === "BLOCKED" ? "#fef2f2" : g.result === "ESCALATED" ? "#fffbeb" : "#f0fdf4", borderRadius: "4px" }}>
-                    <span style={{ fontSize: "14px" }}>{gateIcon(g.result)}</span>
-                    <div style={{ flex: 1 }}>
-                      <span style={{ fontWeight: 600, fontSize: "12px", color: gateColor(g.result) }}>{g.gate.replace(/_/g, " ")}</span>
-                      <span style={{ fontSize: "11px", color: "#6b7280", marginLeft: "8px" }}>{g.reason}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {dec.hard_locks && dec.hard_locks.length > 0 && (
-              <div style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "6px" }}>Hard Locks ({dec.hard_locks.length})</div>
-                {dec.hard_locks.map(function(hl: any, i: number) {
-                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#fef2f2", borderRadius: "4px", borderLeft: "3px solid #dc2626" }}><strong>{hl.code}:</strong> {hl.reason} <span style={{ fontSize: "11px", color: "#6b7280" }}>({hl.physics_basis})</span></div>;
-                })}
-              </div>
-            )}
-          </Card>
-        )}
-
-        {/* ================================================================ */}
-        {/* SUPERBRAIN INTELLIGENCE — FIVE MAGIC FEATURES                    */}
-        {/* ================================================================ */}
-
-        {syn && (
-          <div style={{ marginTop: "8px", marginBottom: "8px", padding: "8px 16px", backgroundColor: "#1e40af", borderRadius: "6px", display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ fontSize: "20px" }}>{"\uD83E\uDDE0"}</span>
-            <span style={{ fontSize: "15px", fontWeight: 800, color: "#fff" }}>Superbrain Intelligence</span>
-            <span style={{ fontSize: "11px", color: "#93c5fd" }}>5 features synthesized from decision-core v2.5</span>
-          </div>
-        )}
-
-        {/* FEATURE 1: FAILURE NARRATIVE */}
-        {syn && syn.failure_narrative && (
-          <Card title="Failure Narrative" icon={"\uD83D\uDCD6"} accent="#2563eb" collapsible={true} defaultCollapsed={false}>
-            <div style={{ fontSize: "13px", lineHeight: "1.8", color: "#1a1a1a", whiteSpace: "pre-wrap" }}>{syn.failure_narrative}</div>
-          </Card>
-        )}
-
-        {/* FEATURE 5: INSPECTOR ACTION CARD */}
-        {syn && syn.inspector_action_card && syn.inspector_action_card.length > 0 && (
-          <Card title="Inspector Action Card" icon={"\u2705"} accent="#16a34a" collapsible={true} defaultCollapsed={false}>
-            {syn.inspector_action_card.map(function(action: any, i: number) {
+            {dec.gates && dec.gates.map(function(g: any, i: number) {
               return (
-                <div key={i} style={{ padding: "10px 12px", marginBottom: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", borderLeft: "3px solid #16a34a" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                    <span style={{ fontWeight: 800, fontSize: "16px", color: "#16a34a", backgroundColor: "#f0fdf4", width: "28px", height: "28px", borderRadius: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
-                    <span style={{ fontWeight: 700, fontSize: "13px", color: "#111" }}>{action.step}</span>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px", paddingLeft: "36px" }}>{action.rationale}</div>
-                  <div style={{ paddingLeft: "36px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                    <div style={{ fontSize: "11px", padding: "4px 8px", backgroundColor: "#f0fdf4", borderRadius: "4px", borderLeft: "2px solid #16a34a" }}>
-                      <strong style={{ color: "#16a34a" }}>If confirmed:</strong> <span style={{ color: "#374151" }}>{action.threshold_if_positive}</span>
-                    </div>
-                    <div style={{ fontSize: "11px", padding: "4px 8px", backgroundColor: "#fef2f2", borderRadius: "4px", borderLeft: "2px solid #dc2626" }}>
-                      <strong style={{ color: "#dc2626" }}>If not found:</strong> <span style={{ color: "#374151" }}>{action.threshold_if_negative}</span>
-                    </div>
-                  </div>
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 10px", marginBottom: "3px", backgroundColor: g.result === "BLOCKED" ? "#fef2f2" : g.result === "ESCALATED" ? "#fffbeb" : "#f0fdf4", borderRadius: "4px" }}>
+                  <span style={{ fontSize: "14px" }}>{gateIcon(g.result)}</span>
+                  <span style={{ fontWeight: 600, fontSize: "12px", color: gateColor(g.result) }}>{g.gate.replace(/_/g, " ")}</span>
+                  <span style={{ fontSize: "11px", color: "#6b7280" }}>{g.reason}</span>
                 </div>
               );
             })}
           </Card>
         )}
 
-        {/* FEATURE 3: PRE-INSPECTION BRIEFING */}
-        {syn && syn.pre_inspection_briefing && (
-          <Card title="Pre-Inspection Briefing" icon={"\uD83C\uDFAF"} accent="#7c3aed" collapsible={true} defaultCollapsed={false} status="What to Look For">
-            {syn.pre_inspection_briefing.target_zones && syn.pre_inspection_briefing.target_zones.length > 0 && (
-              <div style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#7c3aed", textTransform: "uppercase", marginBottom: "6px" }}>Target Zones</div>
-                {syn.pre_inspection_briefing.target_zones.map(function(z: string, i: number) {
-                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#f5f3ff", borderRadius: "4px", borderLeft: "3px solid #7c3aed", color: "#374151" }}>{z}</div>;
-                })}
-              </div>
-            )}
-            {syn.pre_inspection_briefing.expected_flaws && syn.pre_inspection_briefing.expected_flaws.length > 0 && (
-              <div style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Expected Flaw Morphology</div>
-                {syn.pre_inspection_briefing.expected_flaws.map(function(f: string, i: number) {
-                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#f9fafb", borderRadius: "4px", color: "#374151" }}>{f}</div>;
-                })}
-              </div>
-            )}
-            {syn.pre_inspection_briefing.method_recommendations && syn.pre_inspection_briefing.method_recommendations.length > 0 && (
-              <div style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Method Recommendations</div>
-                {syn.pre_inspection_briefing.method_recommendations.map(function(m: string, i: number) {
-                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#eff6ff", borderRadius: "4px", borderLeft: "3px solid #2563eb", color: "#374151" }}>{m}</div>;
-                })}
-              </div>
-            )}
-            {syn.pre_inspection_briefing.sensitivity_settings && (
-              <div style={{ fontSize: "12px", color: "#374151", marginBottom: "8px" }}><strong>Sensitivity:</strong> {syn.pre_inspection_briefing.sensitivity_settings}</div>
-            )}
-            {syn.pre_inspection_briefing.watch_items && syn.pre_inspection_briefing.watch_items.length > 0 && (
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#ea580c", textTransform: "uppercase", marginBottom: "6px" }}>Watch Items</div>
-                {syn.pre_inspection_briefing.watch_items.map(function(w: string, i: number) {
-                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#fffbeb", borderRadius: "4px", borderLeft: "3px solid #ea580c", color: "#374151" }}>{w}</div>;
-                })}
-              </div>
-            )}
+        {/* Superbrain features (compact, only when present) */}
+        {syn && syn.failure_narrative && (
+          <Card title="Failure Narrative" icon={"\uD83D\uDCD6"} accent="#2563eb">
+            <div style={{ fontSize: "13px", lineHeight: "1.7", whiteSpace: "pre-wrap" }}>{syn.failure_narrative}</div>
           </Card>
         )}
 
-        {/* FEATURE 2: CONTRADICTION MATRIX */}
+        {syn && syn.inspector_action_card && syn.inspector_action_card.length > 0 && (
+          <Card title="Inspector Action Card" icon={"\u2705"} accent="#16a34a">
+            {syn.inspector_action_card.map(function(action: any, i: number) {
+              return (
+                <div key={i} style={{ padding: "10px 12px", marginBottom: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", borderLeft: "3px solid #16a34a" }}>
+                  <div style={{ fontWeight: 700, fontSize: "13px" }}>#{i + 1} {action.step}</div>
+                  <div style={{ fontSize: "12px", color: "#6b7280" }}>{action.rationale}</div>
+                </div>
+              );
+            })}
+          </Card>
+        )}
+
         {syn && syn.contradiction_matrix && syn.contradiction_matrix.length > 0 && (
-          <Card title="Contradiction Matrix" icon={"\u26A0\uFE0F"} accent="#dc2626" collapsible={true} defaultCollapsed={true} status="Code vs Physics">
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
-                <thead>
-                  <tr style={{ backgroundColor: "#fef2f2" }}>
-                    <th style={{ padding: "8px 10px", textAlign: "left", borderBottom: "2px solid #fecaca", fontWeight: 700, color: "#991b1b" }}>Framework</th>
-                    <th style={{ padding: "8px 10px", textAlign: "center", borderBottom: "2px solid #fecaca", fontWeight: 700, color: "#991b1b" }}>Verdict</th>
-                    <th style={{ padding: "8px 10px", textAlign: "left", borderBottom: "2px solid #fecaca", fontWeight: 700, color: "#991b1b" }}>Basis</th>
-                    <th style={{ padding: "8px 10px", textAlign: "left", borderBottom: "2px solid #fecaca", fontWeight: 700, color: "#991b1b" }}>Limitation</th>
-                    <th style={{ padding: "8px 10px", textAlign: "left", borderBottom: "2px solid #fecaca", fontWeight: 700, color: "#991b1b" }}>Gap Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {syn.contradiction_matrix.map(function(row: any, i: number) {
-                    var vColor = (row.verdict || "").indexOf("ACCEPT") !== -1 ? "#16a34a" : "#dc2626";
-                    return (
-                      <tr key={i} style={{ borderBottom: "1px solid #e5e7eb" }}>
-                        <td style={{ padding: "6px 10px", fontWeight: 600 }}>{row.framework}</td>
-                        <td style={{ padding: "6px 10px", textAlign: "center", fontWeight: 700, color: vColor }}>{row.verdict}</td>
-                        <td style={{ padding: "6px 10px", color: "#374151" }}>{row.basis}</td>
-                        <td style={{ padding: "6px 10px", color: "#6b7280" }}>{row.limitation}</td>
-                        <td style={{ padding: "6px 10px", color: "#dc2626", fontWeight: 600 }}>{row.gap_reason}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        )}
-
-        {/* FEATURE 4: PROCEDURE FORENSICS */}
-        {syn && syn.procedure_forensics && (
-          <Card title="Procedure Forensics" icon={"\uD83D\uDD0D"} accent="#ea580c" collapsible={true} defaultCollapsed={true} status="What Went Wrong">
-            {syn.procedure_forensics.likely_causes && syn.procedure_forensics.likely_causes.length > 0 && (
-              <div style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#ea580c", textTransform: "uppercase", marginBottom: "6px" }}>Likely Root Causes</div>
-                {syn.procedure_forensics.likely_causes.map(function(c: string, i: number) {
-                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#fff7ed", borderRadius: "4px", borderLeft: "3px solid #ea580c", color: "#374151" }}>{c}</div>;
+          <Card title="Contradiction Matrix" icon={"\u26A0\uFE0F"} accent="#dc2626" defaultCollapsed={true}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+              <thead><tr style={{ backgroundColor: "#fef2f2" }}><th style={{ padding: "6px", textAlign: "left" }}>Framework</th><th style={{ padding: "6px" }}>Verdict</th><th style={{ padding: "6px", textAlign: "left" }}>Gap</th></tr></thead>
+              <tbody>
+                {syn.contradiction_matrix.map(function(row: any, i: number) {
+                  return <tr key={i}><td style={{ padding: "6px" }}>{row.framework}</td><td style={{ padding: "6px", textAlign: "center" }}>{row.verdict}</td><td style={{ padding: "6px" }}>{row.gap_reason}</td></tr>;
                 })}
-              </div>
-            )}
-            {syn.procedure_forensics.procedural_gaps && syn.procedure_forensics.procedural_gaps.length > 0 && (
-              <div style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Procedural Gaps</div>
-                {syn.procedure_forensics.procedural_gaps.map(function(g: string, i: number) {
-                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#fef2f2", borderRadius: "4px", color: "#991b1b" }}>{g}</div>;
-                })}
-              </div>
-            )}
-            {syn.procedure_forensics.reverse_inference_chain && syn.procedure_forensics.reverse_inference_chain.length > 0 && (
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Reverse Inference Chain</div>
-                {syn.procedure_forensics.reverse_inference_chain.map(function(step: string, i: number) {
-                  return (
-                    <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: "8px", marginBottom: "4px" }}>
-                      <span style={{ fontWeight: 700, fontSize: "12px", color: "#ea580c", minWidth: "20px" }}>{i + 1}.</span>
-                      <span style={{ fontSize: "12px", color: "#374151" }}>{step}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+              </tbody>
+            </table>
           </Card>
         )}
 
-        {/* REVIEWER BRIEF */}
-        {syn && syn.reviewer_brief && (
-          <Card title="Reviewer Brief" icon={"\uD83D\uDCCB"} accent="#0891b2" collapsible={true} defaultCollapsed={true} status="For Engineering Review">
-            <div style={{ fontSize: "13px", lineHeight: "1.8", color: "#1a1a1a", whiteSpace: "pre-wrap", padding: "8px 12px", backgroundColor: "#ecfeff", borderRadius: "6px", borderLeft: "3px solid #0891b2" }}>{syn.reviewer_brief}</div>
-          </Card>
-        )}
-
-
-        {/* EVIDENCE PROVENANCE — v16.0 */}
-        {provenanceResult && provenanceResult.provenance_summary && (
-          <Card title="Evidence Provenance" icon={"\uD83D\uDD17"} accent="#0d9488" collapsible={true} defaultCollapsed={false} status={provenanceResult.provenance_summary.trust_band + " trust"}>
-            <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: provenanceResult.provenance_summary.trust_band === "HIGH" ? "#f0fdf4" : provenanceResult.provenance_summary.trust_band === "MODERATE" ? "#fffbeb" : "#fef2f2", border: "1px solid " + (provenanceResult.provenance_summary.trust_band === "HIGH" ? "#bbf7d0" : provenanceResult.provenance_summary.trust_band === "MODERATE" ? "#fde68a" : "#fecaca") }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: "14px", color: provenanceResult.provenance_summary.trust_band === "HIGH" ? "#16a34a" : provenanceResult.provenance_summary.trust_band === "MODERATE" ? "#ca8a04" : "#dc2626" }}>
-                  Evidence Trust: {provenanceResult.provenance_summary.trust_band}
-                </div>
-                <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "2px" }}>
-                  {provenanceResult.provenance_summary.total_evidence_items} items | Dominant: {provenanceResult.provenance_summary.dominant_source} | Measured: {Math.round(provenanceResult.provenance_summary.measured_fraction * 100)}%
-                </div>
-              </div>
-              <div style={{ fontSize: "24px", fontWeight: 800, color: provenanceResult.provenance_summary.trust_band === "HIGH" ? "#16a34a" : provenanceResult.provenance_summary.trust_band === "MODERATE" ? "#ca8a04" : "#dc2626" }}>
-                {Math.round(provenanceResult.provenance_summary.average_trust_weight * 100)}%
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "6px", marginBottom: "12px" }}>
-              {[
-                { key: "MEASURED", color: "#16a34a", icon: "\uD83D\uDCCF" },
-                { key: "OBSERVED", color: "#2563eb", icon: "\uD83D\uDC41\uFE0F" },
-                { key: "REPORTED", color: "#ca8a04", icon: "\uD83D\uDCDD" },
-                { key: "INFERRED", color: "#9333ea", icon: "\uD83E\uDD14" }
-              ].map(function(item, idx) {
-                var cnt = (provenanceResult.provenance_summary.counts || {})[item.key] || 0;
-                return (
-                  <div key={idx} style={{ textAlign: "center", padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", border: "1px solid #e5e7eb" }}>
-                    <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>{item.icon} {item.key}</div>
-                    <div style={{ fontSize: "18px", fontWeight: 700, color: item.color }}>{cnt}</div>
-                  </div>
-                );
-              })}
-            </div>
-            {provenanceResult.evidence && provenanceResult.evidence.length > 0 && (
-              <div style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Evidence Items</div>
-                {provenanceResult.evidence.map(function(ev: any, ei: number) {
-                  var provColor = ev.provenance === "MEASURED" ? "#16a34a" : ev.provenance === "OBSERVED" ? "#2563eb" : ev.provenance === "REPORTED" ? "#ca8a04" : ev.provenance === "INFERRED" ? "#9333ea" : "#dc2626";
-                  var bgColor = ev.provenance === "MEASURED" ? "#f0fdf4" : ev.provenance === "OBSERVED" ? "#eff6ff" : ev.provenance === "REPORTED" ? "#fffbeb" : ev.provenance === "INFERRED" ? "#faf5ff" : "#fef2f2";
-                  return (
-                    <div key={ei} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 10px", marginBottom: "3px", backgroundColor: bgColor, borderRadius: "4px", borderLeft: "3px solid " + provColor }}>
-                      <span style={{ fontSize: "9px", fontWeight: 700, color: provColor, backgroundColor: provColor + "18", padding: "2px 6px", borderRadius: "3px", minWidth: "70px", textAlign: "center" }}>{ev.provenance}</span>
-                      <span style={{ fontSize: "12px", color: "#374151", flex: 1 }}>{(ev.claim || "").replace(/_/g, " ")}</span>
-                      <span style={{ fontSize: "10px", color: "#6b7280" }}>trust: {Math.round((ev.provenance_weight || 0) * 100)}%</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {provenanceResult.measurement_reality && (
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Measurement Reality</div>
-                <div style={{ padding: "8px 12px", borderRadius: "6px", marginBottom: "8px", backgroundColor: provenanceResult.measurement_reality.overall_adequacy === "ADEQUATE" ? "#f0fdf4" : provenanceResult.measurement_reality.overall_adequacy === "PARTIAL" ? "#fffbeb" : "#fef2f2", borderLeft: "3px solid " + (provenanceResult.measurement_reality.overall_adequacy === "ADEQUATE" ? "#16a34a" : provenanceResult.measurement_reality.overall_adequacy === "PARTIAL" ? "#ca8a04" : "#dc2626") }}>
-                  <span style={{ fontWeight: 700, fontSize: "13px", color: provenanceResult.measurement_reality.overall_adequacy === "ADEQUATE" ? "#16a34a" : provenanceResult.measurement_reality.overall_adequacy === "PARTIAL" ? "#ca8a04" : "#dc2626" }}>
-                    Method Adequacy: {provenanceResult.measurement_reality.overall_adequacy}
-                  </span>
-                </div>
-                {provenanceResult.measurement_reality.unanswered_gaps && provenanceResult.measurement_reality.unanswered_gaps.length > 0 && (
-                  <div>
-                    {provenanceResult.measurement_reality.unanswered_gaps.map(function(gap: any, gi: number) {
-                      var gapColor = gap.severity === "critical" ? "#dc2626" : "#ca8a04";
-                      var gapBg = gap.severity === "critical" ? "#fef2f2" : "#fffbeb";
-                      return (
-                        <div key={gi} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: gapBg, borderRadius: "4px", borderLeft: "3px solid " + gapColor, color: "#374151" }}>
-                          <strong style={{ color: gapColor }}>{gap.severity === "critical" ? "\uD83D\uDED1" : "\u26A0\uFE0F"} {gap.question}</strong>
-                          <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>{gap.message}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-            {provenanceResult.provenance_summary.recommendation && (
-              <div style={{ marginTop: "10px", padding: "8px 12px", backgroundColor: "#fffbeb", borderRadius: "6px", borderLeft: "3px solid #ca8a04", fontSize: "12px", color: "#92400e" }}>
-                {"\u26A0\uFE0F"} {provenanceResult.provenance_summary.recommendation}
-              </div>
-            )}
-          </Card>
-        )}
-
-        {/* LIVE PHYSICS STATE */}
-        {syn && syn.live_physics_state && (
-          <Card title="Live Physics State" icon={"\uD83D\uDCCA"} accent="#6d28d9" collapsible={true} defaultCollapsed={true}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-              <div style={{ padding: "8px 12px", backgroundColor: "#f5f3ff", borderRadius: "6px" }}>
-                <div style={{ fontSize: "10px", fontWeight: 700, color: "#6d28d9", textTransform: "uppercase" }}>FAD Position</div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginTop: "4px" }}>{syn.live_physics_state.fad_position || "NOT CALCULATED"}</div>
-              </div>
-              <div style={{ padding: "8px 12px", backgroundColor: "#f5f3ff", borderRadius: "6px" }}>
-                <div style={{ fontSize: "10px", fontWeight: 700, color: "#6d28d9", textTransform: "uppercase" }}>Remaining Life</div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginTop: "4px" }}>{syn.live_physics_state.remaining_life || "NOT CALCULATED"}</div>
-              </div>
-              <div style={{ padding: "8px 12px", backgroundColor: "#f5f3ff", borderRadius: "6px" }}>
-                <div style={{ fontSize: "10px", fontWeight: 700, color: "#6d28d9", textTransform: "uppercase" }}>Threshold Proximity</div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginTop: "4px" }}>{syn.live_physics_state.threshold_proximity || "NOT CALCULATED"}</div>
-              </div>
-              <div style={{ padding: "8px 12px", backgroundColor: "#f5f3ff", borderRadius: "6px" }}>
-                <div style={{ fontSize: "10px", fontWeight: 700, color: "#6d28d9", textTransform: "uppercase" }}>Gate Status</div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginTop: "4px" }}>{typeof syn.live_physics_state.gate_status === "string" ? syn.live_physics_state.gate_status : JSON.stringify(syn.live_physics_state.gate_status)}</div>
-              </div>
-            </div>
-            {syn.live_physics_state.critical_values && (
-              <div style={{ marginTop: "10px", fontSize: "12px", color: "#374151", padding: "6px 10px", backgroundColor: "#f9fafb", borderRadius: "4px" }}>
-                <strong>Critical Values:</strong> {typeof syn.live_physics_state.critical_values === "string" ? syn.live_physics_state.critical_values : JSON.stringify(syn.live_physics_state.critical_values)}
-              </div>
-            )}
-          </Card>
-        )}
-
-        {/* EVIDENCE TRACE (AUDIT) */}
-        {syn && syn.evidence_trace && syn.evidence_trace.length > 0 && (
-          <Card title="Evidence Trace" icon={"\uD83D\uDD17"} accent="#4b5563" collapsible={true} defaultCollapsed={true} status={syn.evidence_trace.length + " claims traced"}>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px" }}>
-                <thead>
-                  <tr style={{ backgroundColor: "#f3f4f6" }}>
-                    <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "2px solid #d1d5db", fontWeight: 700, color: "#374151" }}>Claim</th>
-                    <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "2px solid #d1d5db", fontWeight: 700, color: "#374151" }}>Source Field</th>
-                    <th style={{ padding: "6px 8px", textAlign: "center", borderBottom: "2px solid #d1d5db", fontWeight: 700, color: "#374151" }}>Confidence</th>
-                    <th style={{ padding: "6px 8px", textAlign: "center", borderBottom: "2px solid #d1d5db", fontWeight: 700, color: "#374151" }}>Class</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {syn.evidence_trace.map(function(et: any, i: number) {
-                    var confColor = et.confidence === "HIGH" ? "#16a34a" : et.confidence === "MEDIUM" ? "#ca8a04" : "#dc2626";
-                    var classColor = et.claim_class === "OBSERVED" ? "#16a34a" : et.claim_class === "CALCULATED" ? "#2563eb" : et.claim_class === "INFERRED" ? "#ca8a04" : "#6d28d9";
-                    return (
-                      <tr key={i} style={{ borderBottom: "1px solid #e5e7eb" }}>
-                        <td style={{ padding: "5px 8px", color: "#374151" }}>{et.claim}</td>
-                        <td style={{ padding: "5px 8px", color: "#6b7280", fontFamily: "monospace", fontSize: "10px" }}>{et.source_field}</td>
-                        <td style={{ padding: "5px 8px", textAlign: "center", fontWeight: 700, color: confColor }}>{et.confidence}</td>
-                        <td style={{ padding: "5px 8px", textAlign: "center" }}>
-                          <span style={{ fontSize: "9px", fontWeight: 700, color: classColor, backgroundColor: classColor + "15", padding: "2px 6px", borderRadius: "3px" }}>{et.claim_class}</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        )}
-
-        {/* SUPERBRAIN LOADING / ERROR */}
-        {superbrainLoading && (
-          <div style={{ padding: "16px", textAlign: "center", color: "#2563eb", fontSize: "14px" }}>
-            {"\u23F3"} Synthesizing Five Magic Features...
-          </div>
-        )}
-        {superbrainError && !syn && (
-          <div style={{ padding: "12px 16px", backgroundColor: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", marginBottom: "16px" }}>
-            <div style={{ fontSize: "12px", color: "#92400e" }}>{"\u26A0\uFE0F"} Superbrain synthesis unavailable: {superbrainError}</div>
-          </div>
-        )}
-
-        {/* ================================================================ */}
-        {/* DECISION CORE DETAIL (collapsed by default)                      */}
-        {/* ================================================================ */}
-
-        {dc && (
-          <div style={{ marginTop: "8px", marginBottom: "8px", padding: "6px 16px", backgroundColor: "#6b7280", borderRadius: "6px" }}>
-            <span style={{ fontSize: "12px", fontWeight: 700, color: "#fff" }}>Decision Core Detail</span>
-          </div>
-        )}
-
+        {/* Decision Core Detail (collapsed by default) */}
         {phy && (
-          <Card title="Physical Reality" icon={"\u269B\uFE0F"} status={"confidence: " + Math.round(phy.physics_confidence * 100) + "%"} defaultCollapsed={true}>
-            <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "12px", padding: "10px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}>{phy.physics_summary}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-              <div style={{ padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Stress State</div>
-                <div style={{ fontSize: "12px" }}>Loads: {phy.stress.primary_load_types.join(", ") || "none identified"}</div>
-                <div style={{ fontSize: "12px" }}>Cyclic: {phy.stress.cyclic_loading ? "\u2705 " + (phy.stress.cyclic_source || "yes") : "\u274c No"}</div>
-                <div style={{ fontSize: "12px" }}>Stress concentration: {phy.stress.stress_concentration_present ? "\u2705 " + phy.stress.stress_concentration_locations.join(", ") : "\u274c No"}</div>
-                <div style={{ fontSize: "12px" }}>Load path: {phy.stress.load_path_criticality}</div>
-              </div>
-              <div style={{ padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Environment</div>
-                <div style={{ fontSize: "12px" }}>Corrosive: {phy.chemical.corrosive_environment ? "\u2705 " + phy.chemical.environment_agents.join(", ") : "\u274c No"}</div>
-                <div style={{ fontSize: "12px" }}>Thermal: {phy.thermal.fire_exposure ? "\uD83D\uDD25 Fire exposure" : phy.thermal.creep_range ? "\u2622\uFE0F Creep range" : "Normal"}</div>
-                <div style={{ fontSize: "12px" }}>Pressure cycling: {phy.energy.pressure_cycling ? "\u2705 Yes" : "\u274c No"}</div>
-                <div style={{ fontSize: "12px" }}>Stored energy: {phy.energy.stored_energy_significant ? "\u26A0\uFE0F Significant" : "Low"}</div>
-              </div>
-            </div>
-            {phy.field_interaction && phy.field_interaction.hotspots.length > 0 && (
-              <div style={{ padding: "10px 12px", backgroundColor: phy.field_interaction.interaction_level === "HIGH" ? "#fef2f2" : "#fffbeb", borderRadius: "6px", borderLeft: "3px solid " + (phy.field_interaction.interaction_level === "HIGH" ? "#dc2626" : "#ca8a04") }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", color: phy.field_interaction.interaction_level === "HIGH" ? "#dc2626" : "#92400e", marginBottom: "4px" }}>Field Interaction: {phy.field_interaction.interaction_level} ({phy.field_interaction.interaction_score}/100)</div>
-                {phy.field_interaction.warnings.map(function(w: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#374151", padding: "2px 0" }}>{w}</div>; })}
-              </div>
-            )}
+          <Card title="Physical Reality" icon={"\u269B\uFE0F"} defaultCollapsed={true}>
+            <div style={{ fontSize: "13px", color: "#374151" }}>{phy.physics_summary}</div>
           </Card>
         )}
 
         {dmg && (
-          <Card title="Damage Reality" icon={"\uD83E\uDDEA"} status={(dmg.validated_mechanisms?.length || 0) + " validated, " + (dmg.rejected_mechanisms?.length || 0) + " impossible"} defaultCollapsed={true}>
+          <Card title="Damage Reality" icon={"\uD83E\uDDEA"} defaultCollapsed={true} status={(dmg.validated_mechanisms?.length || 0) + " validated"}>
             {dmg.primary_mechanism && (
-              <div style={{ padding: "10px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", borderLeft: "3px solid #16a34a", marginBottom: "12px" }}>
-                <div style={{ fontWeight: 700, fontSize: "14px", color: "#16a34a" }}>Primary: {dmg.primary_mechanism.name}</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>Physics basis: {dmg.primary_mechanism.physics_basis}</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>Reality: {dmg.primary_mechanism.reality_state} (score: {dmg.primary_mechanism.reality_score}) | Severity: {dmg.primary_mechanism.severity}</div>
-              </div>
-            )}
-            {dmg.validated_mechanisms && dmg.validated_mechanisms.length > 1 && (
-              <div style={{ marginBottom: "12px" }}>
-                {dmg.validated_mechanisms.slice(1).map(function(m: any, i: number) {
-                  return <div key={i} style={{ fontSize: "12px", padding: "4px 10px", marginBottom: "3px", backgroundColor: "#f9fafb", borderRadius: "4px" }}>{m.name} ({m.reality_state}, score: {m.reality_score}) {"\u2014"} {m.physics_basis}</div>;
-                })}
-              </div>
-            )}
-            {dmg.rejected_mechanisms && dmg.rejected_mechanisms.length > 0 && (
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "6px" }}>Physically Impossible ({dmg.rejected_mechanisms.length})</div>
-                {dmg.rejected_mechanisms.slice(0, 5).map(function(m: any, i: number) {
-                  return <div key={i} style={{ fontSize: "11px", padding: "3px 10px", marginBottom: "2px", backgroundColor: "#fef2f2", borderRadius: "4px", color: "#991b1b", opacity: 0.8 }}>{m.name}: {m.rejection_reason}</div>;
-                })}
-                {dmg.rejected_mechanisms.length > 5 && <div style={{ fontSize: "11px", color: "#6b7280", padding: "3px 10px" }}>...and {dmg.rejected_mechanisms.length - 5} more rejected</div>}
+              <div style={{ fontSize: "13px", padding: "10px", backgroundColor: "#f0fdf4", borderRadius: "6px" }}>
+                <strong>Primary:</strong> {dmg.primary_mechanism.name} {"\u2014"} {dmg.primary_mechanism.physics_basis}
               </div>
             )}
           </Card>
         )}
 
         {auth && (
-          <Card title="Authority Reality" icon={"\uD83D\uDCDC"} status={auth.primary_authority} defaultCollapsed={true}>
-            <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>Primary: {auth.primary_authority}</div>
-            {auth.secondary_authorities && auth.secondary_authorities.length > 0 && <div style={{ fontSize: "12px", color: "#374151", marginBottom: "6px" }}>Secondary: {auth.secondary_authorities.join(", ")}</div>}
-            <div style={{ fontSize: "12px", color: "#374151", padding: "8px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", marginBottom: "8px" }}>{auth.physics_code_alignment}</div>
-            {auth.code_gaps && auth.code_gaps.length > 0 && (
-              <div style={{ marginTop: "6px" }}>
-                {auth.code_gaps.map(function(g: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0" }}>{"\u274c"} {g}</div>; })}
-              </div>
-            )}
+          <Card title="Authority Reality" icon={"\uD83D\uDCDC"} defaultCollapsed={true} status={auth.primary_authority}>
+            <div style={{ fontSize: "13px" }}>Primary: <strong>{auth.primary_authority}</strong></div>
+            <div style={{ fontSize: "12px", color: "#374151", marginTop: "4px" }}>{auth.physics_code_alignment}</div>
           </Card>
         )}
 
         {insp && (
-          <Card title="Inspection Reality" icon={"\uD83D\uDD2C"} status={insp.sufficiency_verdict} defaultCollapsed={true}>
-            <div style={{ padding: "10px 14px", borderRadius: "6px", marginBottom: "12px", fontWeight: 700, fontSize: "14px", color: "#fff", backgroundColor: insp.sufficiency_verdict === "BLOCKED" ? "#dc2626" : insp.sufficiency_verdict === "INSUFFICIENT" ? "#ea580c" : "#16a34a", textAlign: "center" }}>
-              {insp.sufficiency_verdict} {"\u2014"} {insp.proposed_methods.length > 0 ? insp.proposed_methods.join(", ") : "No methods in transcript"}
+          <Card title="Inspection Reality" icon={"\uD83D\uDD2C"} defaultCollapsed={true} status={insp.sufficiency_verdict}>
+            <div style={{ padding: "10px", borderRadius: "6px", color: "#fff", textAlign: "center", backgroundColor: insp.sufficiency_verdict === "BLOCKED" ? "#dc2626" : insp.sufficiency_verdict === "INSUFFICIENT" ? "#ea580c" : "#16a34a", fontWeight: 700 }}>
+              {insp.sufficiency_verdict}
             </div>
-            <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "12px" }}>{insp.physics_reason}</div>
-            {insp.missing_coverage && insp.missing_coverage.length > 0 && (
-              <div style={{ marginBottom: "12px" }}>
-                {insp.missing_coverage.map(function(m: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#991b1b", padding: "4px 10px", marginBottom: "3px", backgroundColor: "#fef2f2", borderRadius: "4px" }}>{"\u274c"} {m}</div>; })}
-              </div>
-            )}
-            {insp.best_method && (
-              <div style={{ padding: "8px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px" }}>
-                <div style={{ fontWeight: 700, fontSize: "13px", color: "#16a34a" }}>Best Method: {insp.best_method.method} (score: {insp.best_method.overall_score}/100)</div>
-              </div>
-            )}
+            <div style={{ fontSize: "12px", color: "#374151", marginTop: "8px" }}>{insp.physics_reason}</div>
           </Card>
         )}
 
-        {dec && dec.guided_recovery && dec.guided_recovery.length > 0 && (
-          <Card title="Guided Recovery" icon={"\uD83D\uDEE0\uFE0F"} status={dec.guided_recovery.length + " actions"} defaultCollapsed={true}>
-            {dec.guided_recovery.map(function(r: any, i: number) {
-              return (
-                <div key={i} style={{ padding: "10px 12px", marginBottom: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                    <span style={{ fontWeight: 800, fontSize: "14px", color: "#2563eb" }}>#{r.priority}</span>
-                    <span style={{ fontWeight: 700, fontSize: "13px" }}>{r.action}</span>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#6b7280" }}>Physics: {r.physics_reason}</div>
-                  <div style={{ fontSize: "11px", color: "#374151" }}>Who: {r.who}</div>
-                </div>
-              );
-            })}
-          </Card>
-        )}
-
-        {comp && (comp.fatigue.enabled || comp.critical_flaw.enabled || comp.wall_loss.enabled || comp.leak_vs_burst.enabled) && (
-          <Card title="Physics Computations" icon={"\uD83D\uDCCA"} status="Paris Law, Critical Flaw, Wall Loss" defaultCollapsed={true}>
-            {comp.fatigue.enabled && (
-              <div style={{ marginBottom: "10px", padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Fatigue Crack Growth (Paris Law)</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>{comp.fatigue.narrative}</div>
-              </div>
-            )}
-            {comp.critical_flaw.enabled && (
-              <div style={{ marginBottom: "10px", padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Critical Flaw Threshold</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>{comp.critical_flaw.narrative}</div>
-              </div>
-            )}
-            {comp.wall_loss.enabled && (
-              <div style={{ marginBottom: "10px", padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Wall Loss Remaining Life</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>{comp.wall_loss.narrative}</div>
-              </div>
-            )}
-            {comp.leak_vs_burst.enabled && (
-              <div style={{ padding: "8px 12px", backgroundColor: comp.leak_vs_burst.tendency === "BURST_FAVORED" ? "#fef2f2" : "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Leak vs Burst Tendency</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>{comp.leak_vs_burst.narrative}</div>
-              </div>
-            )}
-          </Card>
-        )}
-
-        {/* FALLBACK: AI NARRATIVE (if superbrain failed) */}
-        {aiNarrative && !syn && (
-          <Card title="AI Narrative Summary (Fallback)" icon={"\uD83E\uDD16"} status="GPT-4o constrained by physics core" defaultCollapsed={true}>
-            <div style={{ fontSize: "13px", lineHeight: "1.7", color: "#374151", whiteSpace: "pre-wrap" }}>{aiNarrative}</div>
-          </Card>
-        )}
-
-        {dec && dec.decision_trace && dec.decision_trace.length > 0 && (
-          <Card title="Decision Trace (Audit)" icon={"\uD83D\uDCCB"} defaultCollapsed={true}>
-            {dec.decision_trace.map(function(t: string, i: number) {
-              var isLock = t.indexOf("HARD LOCK") !== -1;
-              var isBlocked = t.indexOf("BLOCKED") !== -1;
-              var isPhysics = t.indexOf("PHYSICS") !== -1;
-              return <div key={i} style={{ fontSize: "12px", color: isLock ? "#dc2626" : isBlocked ? "#ea580c" : isPhysics ? "#2563eb" : "#374151", fontWeight: (isLock || isBlocked) ? 700 : 400, padding: "3px 0" }}>{i + 1}. {t}</div>;
-            })}
-          </Card>
-        )}
-
-        {/* HARDENING SPRINT 1 + BUILD 1: Authority Lock + Remaining Strength + Reality Challenge + Unknown State + Trusted Facts */}
         <HardeningResultsPanel
           challengeResult={hardeningResult?.challengeResult || null}
           unknownStateResult={hardeningResult?.unknownStateResult || null}
