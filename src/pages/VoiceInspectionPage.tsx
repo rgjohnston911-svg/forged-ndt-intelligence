@@ -1,3 +1,10 @@
+// DEPLOY150 — VoiceInspectionPage.tsx v16.6
+// v16.6: Build 5 — PDF Report Generator updated with all Build 1+2+3 sections
+// generateInspectionReport now accepts authorityLock, remainingStrength, FMD,
+// dispositionPathway, failureTimeline results and renders dedicated sections.
+// FMD's governing_failure_mode overrides decision-core's stale "pressure boundary failure"
+// label when present (so offshore platform with tilt now shows STRUCTURAL_INSTABILITY).
+// Engine string in header and footer updated to reflect actual current pipeline.
 // DEPLOY138 — VoiceInspectionPage.tsx v16.5
 // v16.5: Build 3 — Failure Timeline + GPT-4o Photo Analysis
 // Adds Step 8 (failure timeline) after step 7
@@ -32,6 +39,12 @@ function generateInspectionReport(data: {
   aiNarrative: string | null;
   superbrainResult: any;
   provenanceResult?: any;
+  authorityLockResult?: any;
+  remainingStrengthResult?: any;
+  failureModeDominanceResult?: any;
+  dispositionPathwayResult?: any;
+  failureTimelineResult?: any;
+  photoAnalysisResult?: any;
 }) {
   var dc = data.decisionCore;
   if (!dc) { alert("No Decision Core data to export."); return; }
@@ -45,6 +58,23 @@ function generateInspectionReport(data: {
   var dec = dc.decision_reality;
   var comp = dc.physics_computations;
   var sb = data.superbrainResult;
+
+  // BUILD 5: Hardening engine results (all optional - render only if present)
+  var alr = data.authorityLockResult || null;
+  var rsr = data.remainingStrengthResult || null;
+  var fmd = data.failureModeDominanceResult || null;
+  var dpr = data.dispositionPathwayResult || null;
+  var ftr = data.failureTimelineResult || null;
+  var par = data.photoAnalysisResult || null;
+
+  // BUILD 5: FMD override - if FMD is present, its governing failure mode supersedes
+  // decision-core's consequence_reality.failure_mode
+  var displayFailureMode = (con && con.failure_mode) || "unknown";
+  var failureModeSource = "decision-core";
+  if (fmd && fmd.governing_failure_mode && fmd.governing_failure_mode !== "NONE") {
+    displayFailureMode = fmd.governing_failure_mode.toLowerCase().replace(/_/g, " ");
+    failureModeSource = "FMD v1.1";
+  }
 
   var now = new Date();
   var dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
@@ -103,7 +133,7 @@ function generateInspectionReport(data: {
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>Engine: decision-core v2.5 + Superbrain v1.1 + Provenance v1.0 + Authority Lock v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>Engine: decision-core v2.5 + Authority Lock v1.0 + Remaining Strength v1.0 + FMD v1.1 + Disposition Pathway v1.0 + Failure Timeline v1.0 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -114,10 +144,312 @@ function generateInspectionReport(data: {
     assetNote = " (corrected from " + esc(dc.asset_correction.original) + ")";
   }
   html += "<div class='meta-box'><div class='meta-label'>Asset Classification</div><div class='meta-value'>" + esc(displayAssetClass) + assetNote + "</div></div>";
-  html += "<div class='meta-box'><div class='meta-label'>Consequence Tier</div><div class='meta-value' style='color:" + tierColorVal + "'>" + esc(con.consequence_tier) + " - " + esc(con.failure_mode).replace(/_/g, " ") + "</div></div>";
+  html += "<div class='meta-box'><div class='meta-label'>Consequence Tier</div><div class='meta-value' style='color:" + tierColorVal + "'>" + esc(con.consequence_tier) + " - " + esc(displayFailureMode) + "</div></div>";
   html += "<div class='meta-box'><div class='meta-label'>Disposition</div><div class='meta-value'>" + esc(dec.disposition).replace(/_/g, " ").toUpperCase() + "</div></div>";
   html += "<div class='meta-box'><div class='meta-label'>Primary Authority</div><div class='meta-value'>" + esc(auth.primary_authority) + "</div></div>";
   html += "</div>";
+
+  // ======================================================================
+  // BUILD 5: HARDENING ENGINE SECTIONS — render BEFORE Superbrain section
+  // ======================================================================
+
+  // ---- AUTHORITY LOCK CHAIN ----
+  if (alr) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Authority Lock Chain (deterministic code resolution)</div>";
+    if (alr.lock_state) {
+      var lockColor = alr.lock_state === "LOCKED" ? "#16a34a" : alr.lock_state === "PARTIAL" ? "#ea580c" : "#dc2626";
+      html += "<div class='banner' style='background:" + lockColor + "'>" + esc(alr.lock_state) + " AUTHORITY LOCK</div>";
+    }
+    if (alr.governing_authorities && alr.governing_authorities.length > 0) {
+      for (var ali = 0; ali < alr.governing_authorities.length; ali++) {
+        var ga = alr.governing_authorities[ali];
+        html += "<div class='sb-item'><strong>" + esc(ga.code || ga.standard || "code") + "</strong>";
+        if (ga.title) html += " - " + esc(ga.title);
+        if (ga.role) html += " <span style='color:#6b7280;font-size:10px;'>[" + esc(ga.role) + "]</span>";
+        html += "</div>";
+      }
+    }
+    if (alr.supplemental_authorities && alr.supplemental_authorities.length > 0) {
+      html += "<div style='margin-top:6px;font-size:10px;font-weight:700;color:#6b7280;'>SUPPLEMENTAL / DAMAGE-SPECIFIC</div>";
+      for (var asi = 0; asi < alr.supplemental_authorities.length; asi++) {
+        var sa = alr.supplemental_authorities[asi];
+        html += "<div class='sb-item' style='border-left-color:#ea580c;'><strong>" + esc(sa.code || sa.standard || "code") + "</strong>";
+        if (sa.title) html += " - " + esc(sa.title);
+        html += "</div>";
+      }
+    }
+    if (alr.unresolved_count > 0 || alr.lock_state === "UNRESOLVED") {
+      html += "<div class='gap-item'>Authority chain has " + (alr.unresolved_count || 0) + " unresolved code references</div>";
+    }
+    html += "</div>";
+  }
+
+  // ---- REMAINING STRENGTH (B31G) ----
+  if (rsr) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Remaining Strength (B31G / Modified B31G)</div>";
+    var envColor = rsr.safe_envelope === "WITHIN" ? "#16a34a" : rsr.safe_envelope === "MARGINAL" ? "#ea580c" : "#dc2626";
+    if (rsr.safe_envelope) {
+      html += "<div class='banner' style='background:" + envColor + "'>" + esc(rsr.safe_envelope) + " SAFE ENVELOPE</div>";
+    }
+    if (rsr.governing_maop) {
+      html += "<div class='info-row'><span class='info-label'>Governing MAOP</span><span class='info-value'>" + esc(rsr.governing_maop) + " psi (" + esc(rsr.governing_method || "B31G") + ")</span></div>";
+    }
+    if (rsr.operating_pressure) {
+      html += "<div class='info-row'><span class='info-label'>Operating Pressure</span><span class='info-value'>" + esc(rsr.operating_pressure) + " psi</span></div>";
+    }
+    if (rsr.operating_ratio) {
+      html += "<div class='info-row'><span class='info-label'>Operating Ratio</span><span class='info-value'>" + Math.round(rsr.operating_ratio * 100) + "%</span></div>";
+    }
+    if (rsr.pressure_reduction_required && rsr.pressure_reduction_required > 0) {
+      html += "<div class='gap-item'>Pressure reduction required: " + esc(rsr.pressure_reduction_required) + " psi</div>";
+    }
+    if (rsr.calculations) {
+      var calc = rsr.calculations;
+      if (calc.wall_loss_percent !== undefined) {
+        html += "<div class='info-row'><span class='info-label'>Wall Loss</span><span class='info-value'>" + Number(calc.wall_loss_percent).toFixed(1) + "%</span></div>";
+      }
+      if (calc.folias_factor !== undefined) {
+        html += "<div class='info-row'><span class='info-label'>Folias Factor (M)</span><span class='info-value'>" + Number(calc.folias_factor).toFixed(3) + "</span></div>";
+      }
+    }
+    html += "</div>";
+  }
+
+  // ---- FAILURE MODE DOMINANCE (Build 2 + v1.1 structural path) ----
+  if (fmd) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Failure Mode Dominance</div>";
+    var fmdModeColor = fmd.governing_failure_mode === "STRUCTURAL_INSTABILITY" ? "#dc2626"
+      : fmd.governing_failure_mode === "CRACKING" ? "#a855f7"
+      : fmd.governing_failure_mode === "CORROSION" ? "#ea580c"
+      : fmd.governing_failure_mode === "COMPOUND" ? "#dc2626"
+      : "#6b7280";
+    var fmdLabel = (fmd.governing_failure_mode || "NONE").replace(/_/g, " ");
+    html += "<div class='banner' style='background:" + fmdModeColor + "'>GOVERNING: " + esc(fmdLabel) + "</div>";
+    if (fmd.governing_severity) {
+      html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(fmd.governing_severity) + "</span></div>";
+    }
+    if (fmd.governing_failure_pressure) {
+      html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(fmd.governing_failure_pressure) + " psi</span></div>";
+    }
+    if (fmd.governing_code_reference) {
+      html += "<div class='info-row'><span class='info-label'>Assessment Code</span><span class='info-value'>" + esc(fmd.governing_code_reference) + "</span></div>";
+    }
+    if (fmd.governing_basis) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;font-size:11px;'><strong>Basis:</strong> " + esc(fmd.governing_basis) + "</div>";
+    }
+
+    // Structural path (v1.1) - shown first when active because it overrides
+    var sp = fmd.structural_path;
+    if (sp && sp.active) {
+      html += "<div style='margin-top:10px;padding:10px 12px;background:#fef2f2;border:2px solid #fecaca;border-radius:6px;'>";
+      html += "<div style='font-size:11px;font-weight:700;color:#dc2626;margin-bottom:6px;'>STRUCTURAL INSTABILITY PATH (active)</div>";
+      if (sp.capacity_loss_state && sp.capacity_loss_state !== "none") {
+        html += "<div class='info-row'><span class='info-label'>Capacity State</span><span class='info-value' style='color:#dc2626;font-weight:700;'>" + esc((sp.capacity_loss_state || "").replace(/_/g, " ")) + "</span></div>";
+      }
+      if (sp.indicators) {
+        var inds = [];
+        if (sp.indicators.tilt) inds.push("TILT/LEAN");
+        if (sp.indicators.settlement) inds.push("SETTLEMENT");
+        if (sp.indicators.buckling) inds.push("BUCKLING");
+        if (sp.indicators.deformation) inds.push("DEFORMATION");
+        if (inds.length > 0) {
+          html += "<div class='info-row'><span class='info-label'>Indicators</span><span class='info-value'>" + esc(inds.join(", ")) + "</span></div>";
+        }
+      }
+      if (sp.assessment_method && sp.assessment_method !== "none") {
+        html += "<div class='info-row'><span class='info-label'>Assessment</span><span class='info-value'>" + esc(sp.assessment_method) + "</span></div>";
+      }
+      if (sp.mechanisms && sp.mechanisms.length > 0) {
+        html += "<div class='info-row'><span class='info-label'>Mechanisms</span><span class='info-value'>" + esc(sp.mechanisms.join(", ")) + "</span></div>";
+      }
+      html += "</div>";
+    }
+
+    // Corrosion path
+    var cp = fmd.corrosion_path;
+    if (cp && cp.active) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#ea580c;margin-bottom:4px;'>CORROSION PATH (active)</div>";
+      if (cp.severity && cp.severity !== "none") html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(cp.severity) + "</span></div>";
+      if (cp.failure_pressure) html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(cp.failure_pressure) + " psi (" + esc(cp.failure_pressure_source || "") + ")</span></div>";
+      if (cp.wall_loss_percent > 0) html += "<div class='info-row'><span class='info-label'>Wall Loss</span><span class='info-value'>" + Number(cp.wall_loss_percent).toFixed(1) + "%</span></div>";
+      if (cp.mechanisms && cp.mechanisms.length > 0) html += "<div class='info-row'><span class='info-label'>Mechanisms</span><span class='info-value'>" + esc(cp.mechanisms.join(", ")) + "</span></div>";
+      html += "</div>";
+    }
+
+    // Cracking path
+    var ckp = fmd.cracking_path;
+    if (ckp && ckp.active) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#faf5ff;border:1px solid #e9d5ff;border-radius:6px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#a855f7;margin-bottom:4px;'>CRACKING PATH (active)</div>";
+      if (ckp.severity && ckp.severity !== "none") html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(ckp.severity) + "</span></div>";
+      if (ckp.brittle_fracture_risk) html += "<div class='gap-item'>BRITTLE FRACTURE RISK - sudden failure with no leak-before-break warning</div>";
+      if (ckp.mechanisms && ckp.mechanisms.length > 0) html += "<div class='info-row'><span class='info-label'>Mechanisms</span><span class='info-value'>" + esc(ckp.mechanisms.join(", ")) + "</span></div>";
+      html += "</div>";
+    }
+
+    // Mechanism interaction
+    if (fmd.interaction_flag) {
+      html += "<div style='margin-top:10px;padding:10px 12px;background:#fef2f2;border-left:3px solid #dc2626;border-radius:4px;'>";
+      html += "<div style='font-size:11px;font-weight:700;color:#dc2626;margin-bottom:4px;'>MECHANISM INTERACTION: " + esc(fmd.interaction_type || "PARALLEL") + "</div>";
+      html += "<div style='font-size:11px;color:#991b1b;line-height:1.5;'>" + esc(fmd.interaction_detail || "") + "</div>";
+      html += "</div>";
+    }
+    html += "</div>";
+  }
+
+  // ---- DISPOSITION PATHWAY (Build 2) ----
+  if (dpr) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Disposition Pathway</div>";
+    var dispColor = dpr.disposition === "IMMEDIATE_ACTION" ? "#dc2626"
+      : dpr.disposition === "HOLD_FOR_DATA" ? "#ea580c"
+      : dpr.disposition === "ENGINEERING_ASSESSMENT" ? "#a855f7"
+      : dpr.disposition === "MONITOR" ? "#2563eb"
+      : dpr.disposition === "CONTINUE_SERVICE" ? "#16a34a"
+      : "#6b7280";
+    html += "<div class='banner' style='background:" + dispColor + "'>" + esc((dpr.disposition || "").replace(/_/g, " ")) + "</div>";
+    if (dpr.urgency) {
+      html += "<div class='info-row'><span class='info-label'>Urgency</span><span class='info-value' style='color:" + dispColor + ";font-weight:700;'>" + esc(dpr.urgency) + "</span></div>";
+    }
+    if (dpr.interval) {
+      html += "<div class='info-row'><span class='info-label'>Re-Inspection Interval</span><span class='info-value'>" + esc(dpr.interval) + "</span></div>";
+    }
+    if (dpr.disposition_basis) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-radius:4px;border-left:3px solid " + dispColor + ";font-size:11px;'>" + esc(dpr.disposition_basis) + "</div>";
+    }
+    if (dpr.actions && dpr.actions.length > 0) {
+      html += "<div style='margin-top:10px;font-size:10px;font-weight:700;color:#374151;'>REQUIRED ACTIONS (" + dpr.actions.length + ")</div>";
+      for (var dai = 0; dai < dpr.actions.length; dai++) {
+        var act = dpr.actions[dai];
+        html += "<div class='recovery-item'>";
+        html += "<strong>#" + esc(act.priority || (dai + 1)) + " " + esc(act.action || "") + "</strong>";
+        if (act.timeframe) html += " <span style='color:#dc2626;font-size:10px;font-weight:700;'>[" + esc(act.timeframe) + "]</span>";
+        if (act.detail) html += "<br/><span style='font-size:10px;'>" + esc(act.detail) + "</span>";
+        if (act.who) html += "<br/><span style='font-size:10px;color:#6b7280;'>Who: " + esc(act.who) + "</span>";
+        html += "</div>";
+      }
+    }
+    if (dpr.temporary_controls && dpr.temporary_controls.length > 0) {
+      html += "<div style='margin-top:8px;font-size:10px;font-weight:700;color:#374151;'>TEMPORARY CONTROLS</div>";
+      for (var dci = 0; dci < dpr.temporary_controls.length; dci++) {
+        html += "<div style='padding:5px 10px;background:#fffbeb;border-left:3px solid #ea580c;border-radius:4px;margin-bottom:3px;font-size:10px;'>" + esc(dpr.temporary_controls[dci]) + "</div>";
+      }
+    }
+    if (dpr.escalation_triggers && dpr.escalation_triggers.length > 0) {
+      html += "<div style='margin-top:8px;font-size:10px;font-weight:700;color:#374151;'>ESCALATION TRIGGERS</div>";
+      for (var dei = 0; dei < dpr.escalation_triggers.length; dei++) {
+        html += "<div style='padding:5px 10px;background:#fef2f2;border-left:3px solid #dc2626;border-radius:4px;margin-bottom:3px;font-size:10px;'>" + esc(dpr.escalation_triggers[dei]) + "</div>";
+      }
+    }
+    html += "</div>";
+  }
+
+  // ---- FAILURE TIMELINE (Build 3) ----
+  if (ftr) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Failure Timeline (Remaining Life Projection)</div>";
+    var ftrColor = ftr.urgency === "EMERGENCY" || ftr.urgency === "CRITICAL" ? "#dc2626"
+      : ftr.urgency === "PRIORITY" ? "#ea580c"
+      : ftr.urgency === "ELEVATED" ? "#2563eb"
+      : "#16a34a";
+    if (ftr.governing_time_years !== null && ftr.governing_time_years !== undefined) {
+      var timeLabel = ftr.governing_time_years === 0 ? "EXPIRED"
+        : ftr.governing_time_years < 1 ? Number(ftr.governing_time_years * 12).toFixed(1) + " months"
+        : Number(ftr.governing_time_years).toFixed(1) + " years";
+      html += "<div class='banner' style='background:" + ftrColor + "'>GOVERNING REMAINING LIFE: " + esc(timeLabel) + "</div>";
+    }
+    if (ftr.governing_failure_mode) {
+      html += "<div class='info-row'><span class='info-label'>Governing Mode</span><span class='info-value'>" + esc(ftr.governing_failure_mode) + "</span></div>";
+    }
+    if (ftr.urgency) {
+      html += "<div class='info-row'><span class='info-label'>Urgency</span><span class='info-value' style='color:" + ftrColor + ";font-weight:700;'>" + esc(ftr.urgency) + "</span></div>";
+    }
+    if (ftr.recommended_inspection_interval_years !== null && ftr.recommended_inspection_interval_years !== undefined) {
+      var ivLabel = ftr.recommended_inspection_interval_years < 1 ? Number(ftr.recommended_inspection_interval_years * 12).toFixed(1) + " months" : Number(ftr.recommended_inspection_interval_years).toFixed(1) + " years";
+      html += "<div class='info-row'><span class='info-label'>Recommended Interval</span><span class='info-value'>" + esc(ivLabel) + "</span></div>";
+    }
+    if (ftr.governing_basis) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-left:3px solid " + ftrColor + ";border-radius:4px;font-size:11px;'>" + esc(ftr.governing_basis) + "</div>";
+    }
+    var ct = ftr.corrosion_timeline;
+    if (ct && ct.enabled) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#ea580c;margin-bottom:4px;'>CORROSION TIMELINE</div>";
+      if (ct.corrosion_rate_mpy > 0) html += "<div class='info-row'><span class='info-label'>Corrosion Rate</span><span class='info-value'>" + Number(ct.corrosion_rate_mpy).toFixed(1) + " mpy (" + esc(ct.method || "") + ")</span></div>";
+      if (ct.remaining_life_years !== null && ct.remaining_life_years !== undefined) html += "<div class='info-row'><span class='info-label'>Remaining Life</span><span class='info-value'>" + Number(ct.remaining_life_years).toFixed(1) + " years</span></div>";
+      if (ct.remaining_wall_mils > 0) html += "<div class='info-row'><span class='info-label'>Remaining Wall</span><span class='info-value'>" + esc(ct.remaining_wall_mils) + " mils</span></div>";
+      html += "</div>";
+    }
+    var kt = ftr.crack_timeline;
+    if (kt && kt.enabled) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#faf5ff;border:1px solid #e9d5ff;border-radius:6px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#a855f7;margin-bottom:4px;'>CRACK GROWTH (Paris Law)</div>";
+      if (kt.delta_K_ksi_sqrt_in > 0) html += "<div class='info-row'><span class='info-label'>Delta K</span><span class='info-value'>" + esc(kt.delta_K_ksi_sqrt_in) + " ksi&radic;in</span></div>";
+      if (kt.cycles_to_failure !== null && kt.cycles_to_failure !== undefined) html += "<div class='info-row'><span class='info-label'>Cycles to Failure</span><span class='info-value'>" + esc(kt.cycles_to_failure.toLocaleString ? kt.cycles_to_failure.toLocaleString() : kt.cycles_to_failure) + "</span></div>";
+      if (kt.time_to_failure_years !== null && kt.time_to_failure_years !== undefined) html += "<div class='info-row'><span class='info-label'>Time to Failure</span><span class='info-value'>" + Number(kt.time_to_failure_years).toFixed(1) + " years</span></div>";
+      html += "</div>";
+    }
+    html += "</div>";
+  }
+
+  // ---- PHOTO ANALYSIS (Build 3) ----
+  if (par && par.analysis) {
+    var pa = par.analysis;
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Photo Analysis (GPT-4o Vision)</div>";
+    if (par.image_quality) {
+      var pqColor = par.image_quality === "ASSESSABLE" ? "#16a34a" : par.image_quality === "MARGINAL" ? "#ea580c" : "#dc2626";
+      html += "<div class='info-row'><span class='info-label'>Image Quality</span><span class='info-value' style='color:" + pqColor + ";font-weight:700;'>" + esc(par.image_quality) + "</span></div>";
+    }
+    if (par.confidence) {
+      html += "<div class='info-row'><span class='info-label'>Vision Confidence</span><span class='info-value'>" + esc(par.confidence) + "</span></div>";
+    }
+    if (pa.asset_identification) {
+      html += "<div class='info-row'><span class='info-label'>Asset Identified</span><span class='info-value'>" + esc(pa.asset_identification) + "</span></div>";
+    }
+    if (pa.geometric_integrity && pa.geometric_integrity.toUpperCase().indexOf("PLUMB") !== 0 && pa.geometric_integrity.toUpperCase().indexOf("LEVEL") !== 0) {
+      html += "<div style='margin-top:6px;padding:8px 10px;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#dc2626;'>GEOMETRIC INTEGRITY</div>";
+      html += "<div style='font-size:11px;color:#991b1b;'>" + esc(pa.geometric_integrity) + "</div>";
+      if (pa.geometric_reference_used) html += "<div style='font-size:9px;color:#6b7280;font-style:italic;margin-top:2px;'>Reference: " + esc(pa.geometric_reference_used) + "</div>";
+      html += "</div>";
+    }
+    if (pa.material_degradation_severity && pa.material_degradation_severity !== "NONE") {
+      html += "<div class='info-row'><span class='info-label'>Material Degradation</span><span class='info-value'>" + esc(pa.material_degradation_severity) + (pa.material_degradation_pattern ? " (" + esc(pa.material_degradation_pattern) + ")" : "") + "</span></div>";
+      if (pa.material_degradation_locations && pa.material_degradation_locations.length > 0) {
+        html += "<div class='info-row'><span class='info-label'>Locations</span><span class='info-value'>" + esc(pa.material_degradation_locations.join(", ")) + "</span></div>";
+      }
+    }
+    if (pa.critical_interface_zone && pa.critical_interface_condition) {
+      html += "<div style='margin-top:6px;padding:8px 10px;background:#faf5ff;border-left:3px solid #a855f7;border-radius:4px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#a855f7;'>CRITICAL INTERFACE: " + esc(pa.critical_interface_zone) + "</div>";
+      html += "<div style='font-size:11px;color:#374151;'>" + esc(pa.critical_interface_condition) + "</div>";
+      html += "</div>";
+    }
+    if (pa.visible_damage && pa.visible_damage.length > 0) {
+      html += "<div style='margin-top:8px;font-size:10px;font-weight:700;color:#374151;'>VISIBLE DAMAGE</div>";
+      for (var pdi = 0; pdi < pa.visible_damage.length; pdi++) {
+        html += "<div class='gap-item'>" + esc(pa.visible_damage[pdi]) + "</div>";
+      }
+    }
+    if (par.critical_findings && par.critical_findings.length > 0) {
+      html += "<div style='margin-top:8px;padding:10px 12px;background:#fef2f2;border:2px solid #fecaca;border-radius:6px;'>";
+      html += "<div style='font-size:11px;font-weight:700;color:#dc2626;margin-bottom:4px;'>CRITICAL FINDINGS</div>";
+      for (var pcfi = 0; pcfi < par.critical_findings.length; pcfi++) {
+        html += "<div style='font-size:11px;color:#991b1b;padding:2px 0;'>" + esc(par.critical_findings[pcfi]) + "</div>";
+      }
+      html += "</div>";
+    }
+    if (par.transcript_addendum) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#f0fdf4;border-left:3px solid #16a34a;border-radius:4px;font-size:11px;font-style:italic;'>" + esc(par.transcript_addendum) + "</div>";
+    }
+    html += "</div>";
+  }
+
 
   // SUPERBRAIN FEATURES IN PDF
   if (sb && sb.synthesis) {
@@ -260,10 +592,13 @@ function generateInspectionReport(data: {
   html += "<div class='section'>";
   html += "<div class='section-title'>Consequence Reality</div>";
   html += "<div class='banner' style='background:" + tierColorVal + "'>" + esc(con.consequence_tier) + " CONSEQUENCE</div>";
-  html += "<div class='info-row'><span class='info-label'>Failure Mode</span><span class='info-value'>" + esc(con.failure_mode).replace(/_/g, " ") + "</span></div>";
+  html += "<div class='info-row'><span class='info-label'>Failure Mode</span><span class='info-value'>" + esc(displayFailureMode) + " <span style='color:#6b7280;font-size:9px;'>[" + esc(failureModeSource) + "]</span></span></div>";
   html += "<div class='info-row'><span class='info-label'>Human Impact</span><span class='info-value'>" + esc(con.human_impact) + "</span></div>";
   html += "<div class='info-row'><span class='info-label'>Damage State</span><span class='info-value'>" + esc(con.damage_state || "STABLE") + "</span></div>";
-  if (con.failure_physics) html += "<div style='margin-top:8px;padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;font-size:11px;'><strong>Failure Physics:</strong> " + esc(con.failure_physics) + "</div>";
+  if (con.failure_physics && failureModeSource === "decision-core") html += "<div style='margin-top:8px;padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;font-size:11px;'><strong>Failure Physics:</strong> " + esc(con.failure_physics) + "</div>";
+  if (failureModeSource === "FMD v1.1" && fmd && fmd.governing_basis) {
+    html += "<div style='margin-top:8px;padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;font-size:11px;'><strong>FMD Override Basis:</strong> " + esc(fmd.governing_basis) + "</div>";
+  }
   html += "</div>";
 
   // Decision
@@ -295,7 +630,7 @@ function generateInspectionReport(data: {
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
   html += "Generated by FORGED NDT Intelligence OS - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
-  html += "<br/>Engine: decision-core v2.5 + Superbrain v1.1 + Provenance v1.0 + Authority Lock v1.0 | Klein Bottle Architecture | " + (dc.klein_bottle_states || 6) + " states";
+  html += "<br/>Engine: decision-core v2.5 + Authority Lock v1.0 + Remaining Strength v1.0 + FMD v1.1 + Disposition Pathway v1.0 + Failure Timeline v1.0 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Klein Bottle Architecture | " + (dc.klein_bottle_states || 6) + " states";
   html += "</div>";
 
   html += "</body></html>";
@@ -1829,7 +2164,7 @@ export default function VoiceInspectionPage() {
         {dc && (
           <div style={{ marginBottom: "16px" }}>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative, superbrainResult: superbrainResult, provenanceResult: provenanceResult }); }} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: "#1e40af", border: "none", borderRadius: "6px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+              <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative, superbrainResult: superbrainResult, provenanceResult: provenanceResult, authorityLockResult: authorityLockResult, remainingStrengthResult: remainingStrengthResult, failureModeDominanceResult: failureModeDominanceResult, dispositionPathwayResult: dispositionPathwayResult, failureTimelineResult: failureTimelineResult }); }} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: "#1e40af", border: "none", borderRadius: "6px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
                 {"\uD83D\uDCC4"} Export PDF
               </button>
               {saveStatus === "saved" ? (
