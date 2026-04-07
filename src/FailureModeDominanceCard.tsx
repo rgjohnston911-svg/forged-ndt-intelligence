@@ -1,5 +1,6 @@
-// FAILURE MODE DOMINANCE CARD v1.0
+// FAILURE MODE DOMINANCE CARD v1.1
 // File: src/FailureModeDominanceCard.tsx
+// v1.1: Adds STRUCTURAL_INSTABILITY display (tilt, settlement, buckling, deformation)
 
 import React from "react";
 
@@ -11,15 +12,22 @@ function FailureModeDominanceCard(props: FailureModeDominanceCardProps) {
   if (!props.result) return null;
   var r = props.result;
 
-  var modeColor = r.governing_failure_mode === "CRACKING" ? "#a855f7"
+  var modeColor = r.governing_failure_mode === "STRUCTURAL_INSTABILITY" ? "#ef4444"
+    : r.governing_failure_mode === "CRACKING" ? "#a855f7"
     : r.governing_failure_mode === "CORROSION" ? "#f59e0b"
     : r.governing_failure_mode === "COMPOUND" ? "#ef4444"
     : "#64748b";
 
-  var modeIcon = r.governing_failure_mode === "CRACKING" ? "\u26A1"
+  var modeIcon = r.governing_failure_mode === "STRUCTURAL_INSTABILITY" ? "\u{1F3D7}\uFE0F"
+    : r.governing_failure_mode === "CRACKING" ? "\u26A1"
     : r.governing_failure_mode === "CORROSION" ? "\u{1F4A7}"
     : r.governing_failure_mode === "COMPOUND" ? "\u{1F6A8}"
     : "\u2754";
+
+  // Display label for long mode name
+  var modeLabel = r.governing_failure_mode === "STRUCTURAL_INSTABILITY"
+    ? "STRUCTURAL INSTABILITY"
+    : (r.governing_failure_mode || "NONE");
 
   var sevColor = r.governing_severity === "CRITICAL" ? "#ef4444"
     : r.governing_severity === "SEVERE" ? "#ef4444"
@@ -29,6 +37,7 @@ function FailureModeDominanceCard(props: FailureModeDominanceCardProps) {
 
   var cp = r.corrosion_path || {};
   var ck = r.cracking_path || {};
+  var sp = r.structural_path || {};
 
   return React.createElement("div", {
     style: { background: "#1a1a2e", border: "1px solid " + modeColor, borderRadius: "12px", padding: "20px", marginBottom: "16px", fontFamily: "'Inter', sans-serif" }
@@ -37,9 +46,9 @@ function FailureModeDominanceCard(props: FailureModeDominanceCardProps) {
     React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" } },
       React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "10px" } },
         React.createElement("span", { style: { fontSize: "20px" } }, modeIcon),
-        React.createElement("span", { style: { color: modeColor, fontSize: "14px", fontWeight: "700", letterSpacing: "0.05em", textTransform: "uppercase" as const } }, "GOVERNING: " + r.governing_failure_mode)
+        React.createElement("span", { style: { color: modeColor, fontSize: "14px", fontWeight: "700", letterSpacing: "0.05em", textTransform: "uppercase" as const } }, "GOVERNING: " + modeLabel)
       ),
-      React.createElement("span", { style: { color: "#64748b", fontSize: "11px", fontFamily: "monospace" } }, "ENGINE: failure-mode-dominance v1.0")
+      React.createElement("span", { style: { color: "#64748b", fontSize: "11px", fontFamily: "monospace" } }, "ENGINE: failure-mode-dominance v1.1")
     ),
 
     // Severity + Governing Pressure
@@ -61,6 +70,44 @@ function FailureModeDominanceCard(props: FailureModeDominanceCardProps) {
     // Governing basis
     React.createElement("div", { style: { padding: "10px 14px", background: "rgba(30, 41, 59, 0.5)", borderRadius: "8px", marginBottom: "16px", borderLeft: "3px solid " + modeColor } },
       React.createElement("div", { style: { color: "#94a3b8", fontSize: "12px", lineHeight: "1.5" } }, r.governing_basis)
+    ),
+
+    // BUILD 4 v1.1: Structural Instability Path (full width, above corrosion/cracking)
+    sp.active && React.createElement("div", { style: { padding: "14px", borderRadius: "8px", border: "2px solid rgba(239, 68, 68, 0.4)", background: "rgba(239, 68, 68, 0.06)", marginBottom: "16px" } },
+      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" } },
+        React.createElement("span", { style: { fontSize: "16px" } }, "\u{1F3D7}\uFE0F"),
+        React.createElement("span", { style: { color: "#ef4444", fontSize: "13px", fontWeight: "800", textTransform: "uppercase" as const, letterSpacing: "0.05em" } }, "STRUCTURAL INSTABILITY PATH"),
+        React.createElement("span", { style: { color: "#ef4444", fontSize: "10px", fontWeight: "700", padding: "3px 8px", borderRadius: "3px", background: "rgba(239, 68, 68, 0.15)", border: "1px solid rgba(239, 68, 68, 0.3)" } }, "ACTIVE")
+      ),
+      // Capacity loss state (the most important field)
+      sp.capacity_loss_state && sp.capacity_loss_state !== "none" && React.createElement("div", { style: { padding: "8px 12px", background: "rgba(239, 68, 68, 0.1)", borderRadius: "6px", marginBottom: "10px", border: "1px solid rgba(239, 68, 68, 0.2)" } },
+        React.createElement("div", { style: { color: "#ef4444", fontSize: "10px", fontWeight: "700", textTransform: "uppercase" as const, marginBottom: "3px" } }, "CAPACITY STATE"),
+        React.createElement("div", { style: { color: "#fca5a5", fontSize: "13px", fontWeight: "700", fontFamily: "monospace" } }, (sp.capacity_loss_state || "").replace(/_/g, " "))
+      ),
+      // Indicators row
+      sp.indicators && React.createElement("div", { style: { display: "flex", gap: "6px", flexWrap: "wrap" as const, marginBottom: "10px" } },
+        sp.indicators.tilt && React.createElement("span", { key: "ind-tilt", style: { fontSize: "11px", fontWeight: "700", padding: "4px 10px", borderRadius: "4px", background: "rgba(239, 68, 68, 0.15)", color: "#fca5a5", border: "1px solid rgba(239, 68, 68, 0.3)" } }, "\u{1F4D0} TILT / LEAN"),
+        sp.indicators.settlement && React.createElement("span", { key: "ind-set", style: { fontSize: "11px", fontWeight: "700", padding: "4px 10px", borderRadius: "4px", background: "rgba(239, 68, 68, 0.15)", color: "#fca5a5", border: "1px solid rgba(239, 68, 68, 0.3)" } }, "\u2B07\uFE0F SETTLEMENT"),
+        sp.indicators.buckling && React.createElement("span", { key: "ind-buc", style: { fontSize: "11px", fontWeight: "700", padding: "4px 10px", borderRadius: "4px", background: "rgba(239, 68, 68, 0.15)", color: "#fca5a5", border: "1px solid rgba(239, 68, 68, 0.3)" } }, "\u26A1 BUCKLING"),
+        sp.indicators.deformation && React.createElement("span", { key: "ind-def", style: { fontSize: "11px", fontWeight: "700", padding: "4px 10px", borderRadius: "4px", background: "rgba(239, 68, 68, 0.15)", color: "#fca5a5", border: "1px solid rgba(239, 68, 68, 0.3)" } }, "\u{1F500} DEFORMATION")
+      ),
+      // Severity + assessment method
+      React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 2fr", gap: "10px" } },
+        sp.severity && sp.severity !== "none" && React.createElement("div", { style: { padding: "8px", background: "rgba(30, 41, 59, 0.5)", borderRadius: "6px" } },
+          React.createElement("div", { style: { color: "#64748b", fontSize: "10px", fontWeight: "600", textTransform: "uppercase" as const, marginBottom: "3px" } }, "SEVERITY"),
+          React.createElement("div", { style: { color: sevColor, fontSize: "13px", fontWeight: "700" } }, sp.severity)
+        ),
+        sp.assessment_method && sp.assessment_method !== "none" && React.createElement("div", { style: { padding: "8px", background: "rgba(30, 41, 59, 0.5)", borderRadius: "6px" } },
+          React.createElement("div", { style: { color: "#64748b", fontSize: "10px", fontWeight: "600", textTransform: "uppercase" as const, marginBottom: "3px" } }, "ASSESSMENT METHOD"),
+          React.createElement("div", { style: { color: "#cbd5e1", fontSize: "12px", fontWeight: "600" } }, sp.assessment_method)
+        )
+      ),
+      // Mechanisms tags
+      sp.mechanisms && sp.mechanisms.length > 0 && React.createElement("div", { style: { display: "flex", gap: "4px", flexWrap: "wrap" as const, marginTop: "10px" } },
+        sp.mechanisms.map(function(m: string, i: number) {
+          return React.createElement("span", { key: "sm-" + i, style: { fontSize: "10px", padding: "2px 6px", borderRadius: "3px", background: "rgba(239, 68, 68, 0.15)", color: "#fca5a5" } }, m.replace(/_/g, " "));
+        })
+      )
     ),
 
     // Parallel Paths
@@ -117,7 +164,7 @@ function FailureModeDominanceCard(props: FailureModeDominanceCardProps) {
     React.createElement("details", { style: { marginTop: "8px" } },
       React.createElement("summary", { style: { color: "#64748b", fontSize: "12px", cursor: "pointer", userSelect: "none" as const } }, "Path Details"),
       React.createElement("div", { style: { marginTop: "8px", padding: "10px", background: "rgba(30, 41, 59, 0.5)", borderRadius: "6px" } },
-        (cp.notes || []).concat(ck.notes || []).map(function(note: string, i: number) {
+        (sp.notes || []).concat(cp.notes || []).concat(ck.notes || []).map(function(note: string, i: number) {
           return React.createElement("div", { key: "n-" + i, style: { color: "#94a3b8", fontSize: "11px", padding: "3px 0", borderBottom: "1px solid rgba(51, 65, 85, 0.3)" } }, "\u2022 " + note);
         })
       )
