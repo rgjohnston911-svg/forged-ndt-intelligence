@@ -1,3 +1,11 @@
+// DEPLOY162 — decision-core.ts v2.5.1
+// v2.5.1: Word-boundary matcher for asset resolver + hot hydrocarbon fix
+// DEPLOY162: hasWordBoundary() helper + applied to train/car/jacket/bridge/span/
+//   deck/pier/coal/brace/web/riser/rov. Prevents substring false positives:
+//   "train" matching "restraint", "car" matching "carbon", "jacket" matching
+//   "jacketing". Fixes Scenario 3 formal hot-hydrocarbon overhead line where
+//   structural lock was falsely firing and derailment label was appearing on
+//   a refinery line.
 // DEPLOY122 — decision-core.ts v2.5
 // v2.5: Evidence Provenance Integration
 // DEPLOY122: Accepts evidence_provenance from pipeline. Uses provenance trust weights
@@ -205,7 +213,7 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (hasWord(lt, "tension member") || hasWord(lt, "lower chord") || hasWord(lt, "bottom chord")) { tensile = true; loadPath = "primary"; }
   if (hasWord(lt, "floor beam") || hasWord(lt, "stringer")) { stressConc = true; stressConcLocs.push("beam_connection"); }
   if (hasWord(lt, "prior repair") || hasWord(lt, "repair") && hasWord(lt, "member")) { stressConc = true; stressConcLocs.push("prior_repair_zone"); residual = true; }
-  if (assetClass === "offshore_platform" || hasWord(lt, "jacket") || hasWord(lt, "platform") && hasWord(lt, "offshore")) {
+  if (assetClass === "offshore_platform" || hasWordBoundary(lt, "jacket") || hasWord(lt, "platform") && hasWord(lt, "offshore")) {
     tensile = true;
     if (!cyclic) { cyclic = true; cyclicSrc = "wave_current_cycling"; }
     loads.push("gravity_loading"); loads.push("wave_loading");
@@ -1007,7 +1015,7 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     basis.push("CONSEQUENCE: Fracture-critical member — single-member failure = collapse");
     if (humanImpact === "Low") humanImpact = "Fatality risk from structural collapse";
   }
-  if ((hasWord(lt, "train") || hasWord(lt, "railroad") || hasWord(lt, "locomotive")) && (hasWord(lt, "loaded") || hasWord(lt, "car") || hasWord(lt, "freight"))) {
+  if ((hasWordBoundary(lt, "train") || hasWord(lt, "railroad") || hasWord(lt, "locomotive")) && (hasWord(lt, "loaded") || hasWordBoundary(lt, "car") || hasWord(lt, "freight"))) {
     if (tier === "MEDIUM" || tier === "LOW") tier = "HIGH";
     basis.push("CONSEQUENCE: Loaded train — derailment risk");
     if (humanImpact === "Low") humanImpact = "Derailment fatality risk";
@@ -2194,11 +2202,13 @@ var handler: Handler = async function(event: HandlerEvent) {
     // A bridge is NEVER treated as piping. A structural girder is NEVER a vessel.
     // Structural lock fires when upstream classification is structural AND
     // transcript contains structural signals confirming the domain.
+    // DEPLOY162 v2.5.1: short-keyword signals now use hasWordBoundary to prevent
+    // substring false positives (train in restraint, car in carbon, etc.)
     // ============================================================================
     var isStructuralLocked = false;
     var isStructuralAsset = assetClass === "bridge" || assetClass === "rail_bridge" || assetClass === "bridge_steel" || assetClass === "bridge_concrete" || assetClass === "offshore_platform";
     if (!isHyperbaricLocked && isStructuralAsset) {
-      var structuralSignals = hasWord(lt_handler, "girder") || hasWord(lt_handler, "bridge") || hasWord(lt_handler, "span") || hasWord(lt_handler, "deck") || hasWord(lt_handler, "truss") || hasWord(lt_handler, "abutment") || hasWord(lt_handler, "pier") || hasWord(lt_handler, "train") || hasWord(lt_handler, "coal") || hasWord(lt_handler, "railroad") || hasWord(lt_handler, "railway") || hasWord(lt_handler, "traffic") || hasWord(lt_handler, "gusset") || hasWord(lt_handler, "brace") || hasWord(lt_handler, "stringer") || hasWord(lt_handler, "floor beam") || hasWord(lt_handler, "web") || hasWord(lt_handler, "lower chord") || hasWord(lt_handler, "upper chord") || hasWord(lt_handler, "diaphragm") || hasWord(lt_handler, "bearing pad") || hasWord(lt_handler, "jacket leg") || hasWord(lt_handler, "platform") || hasWord(lt_handler, "riser") || hasWord(lt_handler, "caisson") || hasWord(lt_handler, "boat landing") || hasWord(lt_handler, "splash zone");
+      var structuralSignals = hasWord(lt_handler, "girder") || hasWordBoundary(lt_handler, "bridge") || hasWordBoundary(lt_handler, "span") || hasWordBoundary(lt_handler, "deck") || hasWord(lt_handler, "truss") || hasWord(lt_handler, "abutment") || hasWordBoundary(lt_handler, "pier") || hasWordBoundary(lt_handler, "train") || hasWordBoundary(lt_handler, "coal") || hasWord(lt_handler, "railroad") || hasWord(lt_handler, "railway") || hasWord(lt_handler, "traffic") || hasWord(lt_handler, "gusset") || hasWordBoundary(lt_handler, "brace") || hasWord(lt_handler, "stringer") || hasWord(lt_handler, "floor beam") || hasWordBoundary(lt_handler, "web") || hasWord(lt_handler, "lower chord") || hasWord(lt_handler, "upper chord") || hasWord(lt_handler, "diaphragm") || hasWord(lt_handler, "bearing pad") || hasWord(lt_handler, "jacket leg") || hasWord(lt_handler, "platform") || hasWordBoundary(lt_handler, "riser") || hasWord(lt_handler, "caisson") || hasWord(lt_handler, "boat landing") || hasWord(lt_handler, "splash zone");
       if (structuralSignals) {
         isStructuralLocked = true;
       }
@@ -2223,17 +2233,18 @@ var handler: Handler = async function(event: HandlerEvent) {
     }
     // DEPLOY120: OFFSHORE PLATFORM DETECTION FROM UNKNOWN
     // Similar to bridge detection — count offshore signals and lock if >= 2
+    // DEPLOY162 v2.5.1: short-keyword signals (riser/jacket/rov) now use hasWordBoundary
     if (!isHyperbaricLocked && !isStructuralLocked && assetClass === "unknown") {
       var offshoreSignalCount = 0;
       if (hasWord(lt_handler, "offshore")) offshoreSignalCount++;
       if (hasWord(lt_handler, "platform")) offshoreSignalCount++;
       if (hasWord(lt_handler, "deepwater")) offshoreSignalCount++;
       if (hasWord(lt_handler, "subsea")) offshoreSignalCount++;
-      if (hasWord(lt_handler, "riser")) offshoreSignalCount++;
+      if (hasWordBoundary(lt_handler, "riser")) offshoreSignalCount++;
       if (hasWord(lt_handler, "caisson")) offshoreSignalCount++;
-      if (hasWord(lt_handler, "jacket")) offshoreSignalCount++;
+      if (hasWordBoundary(lt_handler, "jacket")) offshoreSignalCount++;
       if (hasWord(lt_handler, "splash zone")) offshoreSignalCount++;
-      if (hasWord(lt_handler, "rov")) offshoreSignalCount++;
+      if (hasWordBoundary(lt_handler, "rov")) offshoreSignalCount++;
       if (hasWord(lt_handler, "boat landing")) offshoreSignalCount++;
       if (hasWord(lt_handler, "water depth")) offshoreSignalCount++;
       if (hasWord(lt_handler, "production platform")) offshoreSignalCount++;
@@ -2378,7 +2389,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.5",
+          engine_version: "physics-first-decision-core-v2.5.1",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason } : { corrected: false },
