@@ -1,10 +1,88 @@
-// FAILURE MODE DOMINANCE ENGINE v1.1
+// FAILURE MODE DOMINANCE ENGINE v1.2
 // File: netlify/functions/failure-mode-dominance.js
 // NO TYPESCRIPT — PURE JAVASCRIPT
+// v1.2: DEFORMATION CONTEXT DISCRIMINATOR — fixes false structural instability
+//       promotion when "deformation" appears adjacent to local attachment features
+//       (pipe shoe, lug, bracket, gusset, repad, support attachment, etc.).
+//       Global indicators (buckling, bowing, sag, out-of-round, misalignment,
+//       permanent displacement, plastic hinge) still promote unconditionally.
+//       Bare "deformation" token in damage_mechanisms no longer classifies
+//       structural — requires "global_deformation" / "gross_deformation" or
+//       pairing with tilt/settlement/buckling.
 // v1.1: Adds STRUCTURAL_INSTABILITY as third failure mode path
 //       Detects tilt, lean, list, settlement, buckling, deformation, foundation_failure
 //       Structural instability outranks corrosion and cracking when present
 //       (because tilt/buckling/settlement = capacity already exceeded, post-failure indicators)
+
+// ============================================================================
+// v1.2 — DEFORMATION CONTEXT DISCRIMINATOR
+// ============================================================================
+// Returns true if transcript contains GLOBAL structural deformation evidence,
+// false if all deformation mentions are adjacent to local attachment features.
+function isGlobalDeformation(text) {
+  // Unambiguous global indicators — always promote to structural instability
+  var globalIndicators = [
+    "out of round", "out-of-round", "ovality", "ovalization",
+    "bowed", "bowing", "sagging", " sag ", " sag.",
+    "wrinkle", "wrinkling",
+    "misalignment", "misaligned", "out of alignment",
+    "permanent displacement", "excessive displacement", "gross displacement",
+    "load path failure", "load path loss", "loss of load path",
+    "gross deformation", "global deformation", "severe deformation",
+    "pipe displaced", "line displaced", "line moved", "member displaced",
+    "lost plumb", "out of plumb", "off vertical",
+    "collapsed", "collapse of", "partial collapse",
+    "plastic hinge", "yielded member", "yielded section",
+    "permanent set", "permanent strain"
+  ];
+  for (var i = 0; i < globalIndicators.length; i++) {
+    if (text.indexOf(globalIndicators[i]) >= 0) return true;
+  }
+
+  // Ambiguous deformation terms — require context check
+  var ambiguousTerms = ["deformation", "deformed", " bent ", " bent.", " bent,", "distorted"];
+
+  // Local attachment features — if ANY of these appear within ±60 chars of an
+  // ambiguous term, that mention is LOCAL and does not count as structural.
+  var localContextWords = [
+    "shoe", "lug", "clip", "bracket", "gusset", " pad ", " pad.", " pad,",
+    "saddle", "attachment", "repad", "re-pad", "reinforcement pad",
+    "stiffener", "support attachment", "shoe attachment", "lug attachment",
+    "anchor bolt", "flange bolt", "bolt hole", "nozzle repad",
+    "pipe shoe", "shoe support", "u-bolt", "hold down",
+    "clamp", "strap", "hanger", "hanger rod"
+  ];
+
+  for (var a = 0; a < ambiguousTerms.length; a++) {
+    var term = ambiguousTerms[a];
+    var searchFrom = 0;
+    var idx = text.indexOf(term, searchFrom);
+    while (idx >= 0) {
+      var start = Math.max(0, idx - 60);
+      var end = Math.min(text.length, idx + term.length + 60);
+      var context = text.substring(start, end);
+
+      var isLocal = false;
+      for (var c = 0; c < localContextWords.length; c++) {
+        if (context.indexOf(localContextWords[c]) >= 0) {
+          isLocal = true;
+          break;
+        }
+      }
+
+      if (!isLocal) {
+        // Found an ambiguous deformation mention NOT adjacent to local features
+        // This counts as global evidence
+        return true;
+      }
+
+      searchFrom = idx + term.length;
+      idx = text.indexOf(term, searchFrom);
+    }
+  }
+
+  return false;
+}
 
 var handler = async function(event) {
   "use strict";
@@ -40,7 +118,7 @@ var handler = async function(event) {
     var pipeOD = body.pipe_od || 0;
     var smys = body.smys || 0;
 
-    // BUILD 4 v1.1: Structural inputs
+    // BUILD 4 v1.1: Structural inputs (explicit body flags — caller intent, always honored)
     var hasTilt = body.has_tilt || body.has_lean || false;
     var hasSettlement = body.has_settlement || body.has_foundation_movement || false;
     var hasBuckling = body.has_buckling || false;
@@ -73,17 +151,22 @@ var handler = async function(event) {
                mech.indexOf("cui") >= 0 || mech.indexOf("metal_loss") >= 0) {
         corrosionMechanisms.push(mech);
       }
-      // Structural instability family (BUILD 4 v1.1)
+      // Structural instability family (BUILD 4 v1.1, tightened in v1.2)
+      // v1.2: bare "deformation" NO LONGER auto-classifies as structural.
+      //       Requires "global_deformation" / "gross_deformation" qualifier,
+      //       OR explicit structural terms (tilt, lean, buckling, settlement, etc.)
       else if (mech.indexOf("tilt") >= 0 || mech.indexOf("lean") >= 0 || mech.indexOf("list") >= 0 ||
                mech.indexOf("settlement") >= 0 || mech.indexOf("buckling") >= 0 ||
-               mech.indexOf("deformation") >= 0 || mech.indexOf("foundation") >= 0 ||
+               mech.indexOf("foundation") >= 0 ||
                mech.indexOf("instability") >= 0 || mech.indexOf("misalignment") >= 0 ||
                mech.indexOf("displacement") >= 0 || mech.indexOf("collapse") >= 0 ||
                mech.indexOf("section_loss") >= 0 || mech.indexOf("member_loss") >= 0 ||
-               mech.indexOf("subsidence") >= 0 || mech.indexOf("sinking") >= 0) {
+               mech.indexOf("subsidence") >= 0 || mech.indexOf("sinking") >= 0 ||
+               mech.indexOf("global_deformation") >= 0 || mech.indexOf("gross_deformation") >= 0 ||
+               mech.indexOf("plastic_hinge") >= 0) {
         structuralMechanisms.push(mech);
       }
-      // Other
+      // Other — bare "deformation" falls here in v1.2 unless paired above
       else {
         otherMechanisms.push(mech);
       }
@@ -107,13 +190,16 @@ var handler = async function(event) {
       hasSettlement = true;
       if (structuralMechanisms.indexOf("settlement") < 0) structuralMechanisms.push("settlement");
     }
-    if (transcript.indexOf("buckling") >= 0 || transcript.indexOf("buckled") >= 0 ||
-        transcript.indexOf("bowed") >= 0) {
+    if (transcript.indexOf("buckling") >= 0 || transcript.indexOf("buckled") >= 0) {
       hasBuckling = true;
       if (structuralMechanisms.indexOf("buckling") < 0) structuralMechanisms.push("buckling");
     }
-    if (transcript.indexOf("deformation") >= 0 || transcript.indexOf("deformed") >= 0 ||
-        transcript.indexOf("bent") >= 0 || transcript.indexOf("distorted") >= 0) {
+
+    // v1.2: DEFORMATION DISCRIMINATOR
+    // Use context-aware helper instead of naive substring match.
+    // Only promotes to structural instability if global evidence is present.
+    // Local attachment deformation (pipe shoe, lug, bracket, etc.) is NOT structural.
+    if (isGlobalDeformation(transcript)) {
       hasDeformation = true;
       if (structuralMechanisms.indexOf("deformation") < 0) structuralMechanisms.push("deformation");
     }
@@ -241,13 +327,10 @@ var handler = async function(event) {
       }
 
       // Estimate cracking failure pressure (simplified FAD approach)
-      // Without actual crack dimensions, we can only flag that corrosion MAOP is non-applicable
       if (corrosionPath.failure_pressure) {
-        // Cracking failure pressure is typically LOWER than corrosion failure pressure
-        // because cracks concentrate stress and can cause brittle fracture below yield
-        var crackReductionFactor = 0.60; // Conservative: cracks typically reduce capacity 40-60%
+        var crackReductionFactor = 0.60;
         if (crackingPath.brittle_fracture_risk) {
-          crackReductionFactor = 0.40; // Brittle fracture = even lower
+          crackReductionFactor = 0.40;
         }
         crackingPath.failure_pressure = Math.round(corrosionPath.failure_pressure * crackReductionFactor);
         crackingPath.failure_pressure_source = "ESTIMATED_FROM_CORROSION_MAOP";
@@ -261,9 +344,6 @@ var handler = async function(event) {
     // ====================================================================
     // EVALUATE STRUCTURAL INSTABILITY PATH (BUILD 4 v1.1)
     // ====================================================================
-    // Tilt, lean, settlement, buckling, deformation = capacity already exceeded
-    // These are POST-failure indicators of underlying capacity loss
-    // Structural instability outranks corrosion and cracking when present
 
     var structuralPath = {
       active: hasStructuralMode,
@@ -283,8 +363,6 @@ var handler = async function(event) {
     if (hasStructuralMode) {
       structuralPath.assessment_method = "Structural FFS / Engineering Assessment";
 
-      // Severity ladder: tilt + settlement + buckling = catastrophic capacity loss
-      // Even one of these represents capacity already exceeded
       var instabilityCount = 0;
       if (hasTilt) instabilityCount++;
       if (hasSettlement) instabilityCount++;
@@ -309,18 +387,16 @@ var handler = async function(event) {
         structuralPath.notes.push("Foundation settlement = support condition has changed. Load redistribution is occurring.");
       } else if (hasDeformation) {
         structuralPath.severity = "HIGH";
-        structuralPath.capacity_loss_state = "LOCAL_PLASTIC_DEFORMATION";
-        structuralPath.notes.push("Visible deformation = local yielding has occurred. Member may have residual capacity but at reduced margin.");
+        structuralPath.capacity_loss_state = "GLOBAL_PLASTIC_DEFORMATION";
+        structuralPath.notes.push("Global deformation indicators present - member has yielded beyond elastic range. Residual capacity uncertain.");
       } else if (structuralMechanisms.length > 0) {
         structuralPath.severity = "HIGH";
         structuralPath.capacity_loss_state = "STRUCTURAL_DISTRESS";
       }
 
-      // Mandatory reasoning paths for structural instability
       structuralPath.notes.push("Required reasoning: load path evaluation, support condition evaluation, member capacity loss check");
       structuralPath.notes.push("Required NDE: laser/total station tilt survey, photogrammetry, structural FFS per applicable code");
 
-      // Asset-class specific notes
       if (assetClass.indexOf("offshore") >= 0 || assetClass.indexOf("platform") >= 0 || assetClass.indexOf("jacket") >= 0) {
         structuralPath.notes.push("Offshore structure: ROV/diver inspection of submerged jacket, pile, and foundation system required");
       }
@@ -343,14 +419,10 @@ var handler = async function(event) {
     var interactionType = "none";
     var interactionDetail = "";
 
-    // BUILD 4 v1.1: Structural instability has top priority
-    // Tilt/buckling/settlement = capacity already exceeded (post-failure indicators)
-    // These outrank corrosion and cracking which are mechanisms (pre-failure indicators)
     if (hasStructuralMode) {
       governingMode = "STRUCTURAL_INSTABILITY";
       governingBasis = "Structural instability indicators (" + structuralMechanisms.join(", ") + ") represent capacity already exceeded - global geometry has deviated from designed position. This outranks corrosion/cracking mechanism analysis because the failure consequence has already manifested.";
 
-      // Detect what's driving the structural instability
       if (hasCorrosionMode && hasCrackingMode) {
         interactionFlag = true;
         interactionType = "COMPOUND_DRIVER";
@@ -369,10 +441,8 @@ var handler = async function(event) {
       }
     }
     else if (hasCorrosionMode && hasCrackingMode) {
-      // COMPOUND — both active
       interactionFlag = true;
 
-      // Check for specific dangerous interactions
       var hasMICAndHIC = corrosionMechanisms.some(function(m) { return m.indexOf("mic") >= 0; }) &&
                          crackingMechanisms.some(function(m) { return m.indexOf("hic") >= 0; });
       var hasCUIAndFatigue = corrosionMechanisms.some(function(m) { return m.indexOf("cui") >= 0; }) &&
@@ -394,7 +464,6 @@ var handler = async function(event) {
         interactionDetail = "Multiple failure modes active simultaneously. Each must be assessed independently.";
       }
 
-      // Compare failure pressures
       if (crackingPath.failure_pressure && corrosionPath.failure_pressure) {
         if (crackingPath.failure_pressure < corrosionPath.failure_pressure) {
           governingMode = "CRACKING";
@@ -446,7 +515,6 @@ var handler = async function(event) {
     } else if (governingMode === "COMPOUND") {
       governingCode = "API 579-1 Part 4/5 + Part 9 (Both Required)";
     } else if (governingMode === "STRUCTURAL_INSTABILITY") {
-      // BUILD 4 v1.1: Structural FFS code reference depends on asset class
       if (assetClass.indexOf("offshore") >= 0 || assetClass.indexOf("platform") >= 0 || assetClass.indexOf("jacket") >= 0) {
         governingCode = "API RP 2A / API RP 2SIM (Offshore Structural FFS)";
       } else if (assetClass.indexOf("tank") >= 0) {
@@ -485,7 +553,7 @@ var handler = async function(event) {
       },
       metadata: {
         engine: "failure-mode-dominance",
-        version: "1.1",
+        version: "1.2",
         timestamp: new Date().toISOString()
       }
     };
