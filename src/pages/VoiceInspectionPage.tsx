@@ -1,66 +1,53 @@
-// DEPLOY170.1 — src/pages/VoiceInspectionPage.tsx v16.6k
-// v16.6k: Two system-wide lifts, bundled into one frontend deploy.
+// DEPLOY170.3 — src/pages/VoiceInspectionPage.tsx v16.6l
+// v16.6l: PIPELINE REORDER + ENGINE BUNDLE PASSTHROUGH
 //
-// -------------------------------------------------------------------
-// LIFT 1: INPUT FORMAT UNIVERSALITY
-// -------------------------------------------------------------------
-// PROBLEM:
-// The frontend extraction layer was tuned for voice-dictation cadence
-// ("sixteen inch line, point two six two at the six o'clock"). It does
-// not catch paragraph-format technical documents using written cadence
-// ("nominal wall: 0.500 in", "0.262 in minimum"). Engineers, inspectors
-// copy-pasting from Word docs, and anyone using structured field reports
-// hit this gap immediately -- RSR and FTR go null even when the needed
-// numbers are sitting right there in the transcript.
+// CRITICAL ARCHITECTURAL FIX (discovered during DEPLOY170.2 planning):
+// The superbrain was running at pipeline step 5, BEFORE FMD (step 7) and
+// FTR (step 8). At the moment of synthesis, fmdResult/dpResult/ftResult
+// were all null because those engines had not run yet. The DEPLOY170.2
+// backend v1.2 constraint blocks (FMD governing mode override, ALR
+// contradiction matrix scope rule) could never fire because the data
+// they checked for did not exist at synthesis time.
 //
 // FIX:
-// Universal paragraph-format regex in both callRemainingStrength and
-// callFailureTimeline, running BEFORE the NPS inference block so
-// explicit values always win. Patterns match:
-//   - "nominal wall: X in" / "nominal wall X inch" / "nominal X in"
-//   - "X in minimum" / "X inch min" / "X in. min"
-//   - "minimum wall: X in" / "minimum thickness X inch"
-//   - "measured wall X in" / "measured thickness: X in"
-// Back-computes wall_loss_percent from nominal + measured when both
-// are present but percentage was not stated, completing the inference
-// matrix. Explicit bounds (0.05 in < value < 5 in) reject nonsense.
+// Move superbrain to the LAST pipeline step. Run order is now:
+//   0. Parser -> 1. Asset -> 2. Provenance -> 3. ALR+RSR -> 4. Decision Core
+//   -> 5. Hardening -> 6. FMD+DPR -> 7. FTR -> 8. Superbrain
 //
-// -------------------------------------------------------------------
-// LIFT 2: NULL-ENGINE TRANSPARENCY
-// -------------------------------------------------------------------
-// PROBLEM:
-// When RSR or FTR returned null (genuinely insufficient input data),
-// the PDF silently omitted the entire section. External reviewers read
-// silent omission as oversight or engine failure, not as graceful
-// degradation. The engineering credibility of the report suffers.
+// At superbrain call time, all six engines (ALR, RSR, FMD, DPR, FTR, plus
+// photo_analysis if available) are now populated. The fetch body passes
+// every available engine result to the backend as an engine bundle.
+// Backend v1.2 sees FMD and ALR, activates the constraint blocks, and
+// the narrative + contradiction matrix finally honor the deterministic
+// engine outputs.
 //
-// FIX:
-// When RSR is null, render an explicit "NOT RUN -- INPUT DATA
-// INSUFFICIENT" section in the same position where RSR would have
-// appeared. Show required inputs and what was missing. Same treatment
-// for FTR. Universal: fires on any scenario where the engine legitimately
-// could not run, not scenario-gated. Graceful degradation is now
-// visible instead of silent.
+// SCOPE:
+//   1. initialSteps array reordered -- Superbrain moved from index 5 to 8
+//   2. continuePipeline body -- hardening/FMD/FTR blocks renumbered to
+//      indices 5/6/7, superbrain block physically moved to end (index 8)
+//   3. dpResult and ftResult promoted to outer scope of continuePipeline
+//      so the moved superbrain block can access them
+//   4. Superbrain fetch body expanded to pass { decision_core, transcript,
+//      authority_lock, remaining_strength, failure_mode_dominance,
+//      disposition_pathway, failure_timeline } -- each field included
+//      only if the corresponding engine result is non-null
+//   5. Constraint metadata surfaced in the superbrain step detail when
+//      returned (FMD-lock, ALR-scope, narr-corrected, matrix-filtered)
+//   6. Version bump v16.6k -> v16.6l across header, subtitle, footer,
+//      HARDENING DIAGNOSTIC label, h1, inline diagnostic box
 //
-// -------------------------------------------------------------------
-// UNIVERSALITY DOCTRINE (reaffirmed)
-// -------------------------------------------------------------------
-// Both lifts operate on universal patterns:
-//   - Paragraph regex has zero asset-class keywords and zero scenario
-//     branching. Works on any technical document in any industry.
-//   - Null-engine transparency fires whenever the engine is null,
-//     regardless of asset class, consequence tier, or mechanism.
+// BACKEND COORDINATION:
+// Requires DEPLOY170.2 superbrain v1.2 deployed first. If backend is still
+// v1.1 when this frontend ships, the engine fields in the fetch body are
+// simply ignored by the backend and behavior is identical to v16.6k.
+// Safe to deploy in either order, but v1.2 backend must be live before
+// the constraint activation can be observed.
 //
-// CARRIES FORWARD FROM v16.6j (DEPLOY170):
-//   - NPS schedule table (ASME B36.10M, NPS 1/2"-24")
-//   - NPS -> nominal wall inference helper
-//   - RSR + FTR inference hooks (still fire only when !nominalWall)
-//   - Decision-core banner v2.5.4
-//
-// CARRIES FORWARD ALL PRIOR BEHAVIOR:
+// CARRIES FORWARD FROM v16.6k (DEPLOY170.1):
+//   - Paragraph-format numeric extraction (nominal wall, measured min)
+//   - RSR-null and FTR-null transparency rendering
+//   - NPS schedule inference (DEPLOY170)
 //   - DEPLOY166.2 ALR confidence NaN render hotfix
-//   - DEPLOY165 FTR v1.1 caller forwarding (age, wall loss %, FMD severity)
-//   - DEPLOY166 RSR banner guardrail
 //   - All prior patches
 //
 // NO TEMPLATE LITERALS -- STRING CONCATENATION ONLY
@@ -289,7 +276,7 @@ function generateInspectionReport(data: {
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>v16.6k | Engine: decision-core v2.5.4 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>v16.6l | Engine: decision-core v2.5.4 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.2 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -307,7 +294,7 @@ function generateInspectionReport(data: {
 
   // HARDENING DIAGNOSTIC
   html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
-  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6k)</div>";
+  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6l)</div>";
   html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time.</div>";
 
   var diagEngines = [
@@ -765,7 +752,7 @@ function generateInspectionReport(data: {
   html += "</div>";
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
-  html += "Generated by FORGED NDT Intelligence OS v16.6k - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
+  html += "Generated by FORGED NDT Intelligence OS v16.6l - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
   html += "</div>";
 
   html += "</body></html>";
@@ -1642,10 +1629,10 @@ export default function VoiceInspectionPage() {
       { label: "Evidence Provenance", status: "pending" },
       { label: "Authority Lock + Remaining Strength", status: "pending" },
       { label: "Physics-First Decision Core", status: "pending" },
-      { label: "Superbrain Synthesis", status: "pending" },
       { label: "Reality Hardening", status: "pending" },
       { label: "Failure Mode Dominance + Disposition Pathway", status: "pending" },
       { label: "Failure Timeline", status: "pending" },
+      { label: "Superbrain Synthesis", status: "pending" },
     ];
     var s = initialSteps.slice();
     setSteps(s); stepsRef.current = s;
@@ -1740,6 +1727,8 @@ export default function VoiceInspectionPage() {
     var errs = errorsRef.current.slice();
     var hardenRes: any = null;
     var fmdResult: any = null;
+    var dpResult: any = null;
+    var ftResult: any = null;
     var localAuthResult: any = null;
     var localStrengthResult: any = null;
     try {
@@ -1827,40 +1816,8 @@ export default function VoiceInspectionPage() {
       }
       setSteps(s.slice());
 
-      s = updateStep(5, { status: "running", detail: "GPT-4o constrained by decision-core..." }, s); setSteps(s.slice());
-      if (coreResult) {
-        try {
-          var sbRes = await fetch('/.netlify/functions/superbrain-synthesis', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ decision_core: coreResult, transcript: inputText })
-          });
-          if (sbRes.ok) {
-            var sbData = await sbRes.json();
-            setSuperbrainResult(sbData);
-            var featureCount = 0;
-            if (sbData.synthesis) {
-              if (sbData.synthesis.failure_narrative) featureCount++;
-              if (sbData.synthesis.contradiction_matrix) featureCount++;
-              if (sbData.synthesis.pre_inspection_briefing) featureCount++;
-              if (sbData.synthesis.procedure_forensics) featureCount++;
-              if (sbData.synthesis.inspector_action_card) featureCount++;
-            }
-            s = updateStep(5, { status: "done", detail: featureCount + " features synthesized" }, s);
-          } else {
-            var sbErrText = await sbRes.text();
-            setSuperbrainError('Status ' + sbRes.status);
-            s = updateStep(5, { status: "error", detail: "status " + sbRes.status }, s);
-            errs.push("superbrain-synthesis: " + sbErrText.substring(0, 200));
-          }
-        } catch (sbEx: any) {
-          setSuperbrainError(sbEx.message || String(sbEx));
-          s = updateStep(5, { status: "error", detail: sbEx.message }, s);
-          errs.push("superbrain-synthesis: " + sbEx.message);
-        }
-      } else { s = updateStep(5, { status: "error", detail: "no decision-core data" }, s); }
-      setSteps(s.slice());
-
-      s = updateStep(6, { status: "running", detail: "challenge + unknown state..." }, s); setSteps(s.slice());
+      // DEPLOY170.3: pipeline reorder -- Hardening runs first (step 5)
+      s = updateStep(5, { status: "running", detail: "challenge + unknown state..." }, s); setSteps(s.slice());
       if (coreResult) {
         try {
           setHardeningLoading(true);
@@ -1873,15 +1830,16 @@ export default function VoiceInspectionPage() {
           setHardeningResult(hardenRes);
           var rState = hardenRes?.unknownStateResult?.reality_state || "?";
           var tFacts = hardenRes?.trustedFacts?.length || 0;
-          s = updateStep(6, { status: "done", detail: rState + " | " + tFacts + " trusted facts" }, s);
+          s = updateStep(5, { status: "done", detail: rState + " | " + tFacts + " trusted facts" }, s);
         } catch (hErr: any) {
-          s = updateStep(6, { status: "error", detail: hErr.message }, s);
+          s = updateStep(5, { status: "error", detail: hErr.message }, s);
           errs.push("hardening: " + hErr.message);
         } finally { setHardeningLoading(false); }
-      } else { s = updateStep(6, { status: "error", detail: "no decision-core data" }, s); }
+      } else { s = updateStep(5, { status: "error", detail: "no decision-core data" }, s); }
       setSteps(s.slice());
 
-      s = updateStep(7, { status: "running", detail: "evaluating failure modes..." }, s); setSteps(s.slice());
+      // DEPLOY170.3: FMD + DPR runs second (step 6)
+      s = updateStep(6, { status: "running", detail: "evaluating failure modes..." }, s); setSteps(s.slice());
       try {
         fmdResult = await callFailureModeDominance(parsedResult, grammarBridgeResult, confirmedFlags, localAuthResult, localStrengthResult);
         if (fmdResult) {
@@ -1889,21 +1847,22 @@ export default function VoiceInspectionPage() {
           var govSev = fmdResult.governing_severity || "?";
           var fmdDetail = govMode + " | " + govSev;
           if (fmdResult.interaction_flag) fmdDetail = fmdDetail + " | INTERACTION";
-          var dpResult = await callDispositionPathway(fmdResult, localStrengthResult, hardenRes, coreResult);
+          dpResult = await callDispositionPathway(fmdResult, localStrengthResult, hardenRes, coreResult);
           if (dpResult) {
             fmdDetail = fmdDetail + " | " + dpResult.disposition;
-            s = updateStep(7, { status: "done", detail: fmdDetail }, s);
-          } else { s = updateStep(7, { status: "done", detail: fmdDetail + " | no disposition" }, s); }
-        } else { s = updateStep(7, { status: "done", detail: "no failure mode data" }, s); }
+            s = updateStep(6, { status: "done", detail: fmdDetail }, s);
+          } else { s = updateStep(6, { status: "done", detail: fmdDetail + " | no disposition" }, s); }
+        } else { s = updateStep(6, { status: "done", detail: "no failure mode data" }, s); }
       } catch (fmdErr: any) {
-        s = updateStep(7, { status: "error", detail: fmdErr.message }, s);
+        s = updateStep(6, { status: "error", detail: fmdErr.message }, s);
         errs.push("failure-mode-dominance: " + fmdErr.message);
       }
       setSteps(s.slice());
 
-      s = updateStep(8, { status: "running", detail: "projecting remaining life..." }, s); setSteps(s.slice());
+      // DEPLOY170.3: FTR runs third (step 7)
+      s = updateStep(7, { status: "running", detail: "projecting remaining life..." }, s); setSteps(s.slice());
       try {
-        var ftResult = await callFailureTimeline(parsedResult, grammarBridgeResult, confirmedFlags, localStrengthResult, fmdResult);
+        ftResult = await callFailureTimeline(parsedResult, grammarBridgeResult, confirmedFlags, localStrengthResult, fmdResult);
         if (ftResult) {
           var govTime = ftResult.governing_time_years;
           var govModeFt = ftResult.governing_failure_mode || "?";
@@ -1912,12 +1871,77 @@ export default function VoiceInspectionPage() {
             ftDetail = ftDetail + " | " + (govTime < 1 ? (govTime * 12).toFixed(1) + " mo" : govTime.toFixed(1) + " yr");
           }
           if (ftResult.urgency) ftDetail = ftDetail + " | " + ftResult.urgency;
-          s = updateStep(8, { status: "done", detail: ftDetail }, s);
-        } else { s = updateStep(8, { status: "done", detail: "no timeline data" }, s); }
+          s = updateStep(7, { status: "done", detail: ftDetail }, s);
+        } else { s = updateStep(7, { status: "done", detail: "no timeline data" }, s); }
       } catch (ftErr: any) {
-        s = updateStep(8, { status: "error", detail: ftErr.message }, s);
+        s = updateStep(7, { status: "error", detail: ftErr.message }, s);
         errs.push("failure-timeline: " + ftErr.message);
       }
+      setSteps(s.slice());
+
+      // DEPLOY170.3: Superbrain runs LAST (step 8) with full engine context.
+      // This is the architectural fix that unlocks DEPLOY170.2 backend
+      // constraints. Previously superbrain ran at step 5 with only
+      // decision_core + transcript, so FMD/DPR/FTR results were null at
+      // synthesis time and the FMD governing mode override block could
+      // never fire. With this reorder, superbrain now has full access to
+      // ALR, RSR, FMD, DPR, FTR at synthesis time and the backend v1.2
+      // constraint blocks activate correctly.
+      s = updateStep(8, { status: "running", detail: "GPT-4o constrained by decision-core + engines..." }, s); setSteps(s.slice());
+      if (coreResult) {
+        try {
+          var sbBody: any = {
+            decision_core: coreResult,
+            transcript: inputText
+          };
+          // DEPLOY170.3: pass all available engine results to superbrain.
+          // Backend v1.2 uses these to activate FMD governing mode override
+          // and ALR contradiction matrix scope rule. Null-safe: backend
+          // handles absent fields gracefully (behaves like v1.1 if none sent).
+          if (localAuthResult) sbBody.authority_lock = localAuthResult;
+          if (localStrengthResult) sbBody.remaining_strength = localStrengthResult;
+          if (fmdResult) sbBody.failure_mode_dominance = fmdResult;
+          if (dpResult) sbBody.disposition_pathway = dpResult;
+          if (ftResult) sbBody.failure_timeline = ftResult;
+          var sbRes = await fetch('/.netlify/functions/superbrain-synthesis', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sbBody)
+          });
+          if (sbRes.ok) {
+            var sbData = await sbRes.json();
+            setSuperbrainResult(sbData);
+            var featureCount = 0;
+            if (sbData.synthesis) {
+              if (sbData.synthesis.failure_narrative) featureCount++;
+              if (sbData.synthesis.contradiction_matrix) featureCount++;
+              if (sbData.synthesis.pre_inspection_briefing) featureCount++;
+              if (sbData.synthesis.procedure_forensics) featureCount++;
+              if (sbData.synthesis.inspector_action_card) featureCount++;
+            }
+            // DEPLOY170.3: surface constraint metadata in step detail if present
+            var sbDetail = featureCount + " features synthesized";
+            if (sbData.constraint_metadata) {
+              var cm = sbData.constraint_metadata;
+              var flags = [];
+              if (cm.fmd_override_applied) flags.push("FMD-lock");
+              if (cm.alr_scope_applied) flags.push("ALR-scope");
+              if (cm.narrative_corrected) flags.push("narr-corrected");
+              if (cm.matrix_filter_applied && cm.matrix_entries_removed && cm.matrix_entries_removed.length > 0) flags.push("matrix-filtered(" + cm.matrix_entries_removed.length + ")");
+              if (flags.length > 0) sbDetail = sbDetail + " | " + flags.join(", ");
+            }
+            s = updateStep(8, { status: "done", detail: sbDetail }, s);
+          } else {
+            var sbErrText = await sbRes.text();
+            setSuperbrainError('Status ' + sbRes.status);
+            s = updateStep(8, { status: "error", detail: "status " + sbRes.status }, s);
+            errs.push("superbrain-synthesis: " + sbErrText.substring(0, 200));
+          }
+        } catch (sbEx: any) {
+          setSuperbrainError(sbEx.message || String(sbEx));
+          s = updateStep(8, { status: "error", detail: sbEx.message }, s);
+          errs.push("superbrain-synthesis: " + sbEx.message);
+        }
+      } else { s = updateStep(8, { status: "error", detail: "no decision-core data" }, s); }
       setSteps(s.slice());
     } catch (e: any) { errs.push("Pipeline error: " + e.message); }
     setErrors(errs); setIsGenerating(false);
@@ -1953,8 +1977,8 @@ export default function VoiceInspectionPage() {
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6k</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY170.1: paragraph-format extraction + null-engine transparency (system-wide lifts).</p>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6l</h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY170.3: pipeline reorder + engine bundle passthrough to superbrain v1.2.</p>
       </div>
 
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
@@ -2181,7 +2205,7 @@ export default function VoiceInspectionPage() {
 
         {(authorityLockResult || remainingStrengthResult || failureModeDominanceResult || dispositionPathwayResult || failureTimelineResult) && (
           <div style={{ marginBottom: "16px", padding: "12px", border: "2px solid #000", borderRadius: "8px", backgroundColor: "#fffbe6" }}>
-            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6k inline diagnostic)</div>
+            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6l inline diagnostic)</div>
             <div style={{ fontSize: "11px", fontFamily: "monospace", lineHeight: "1.6" }}>
               <div>ALR: {authorityLockResult ? "PRESENT \u2014 status=" + (authorityLockResult.status || "?") + " | " + ((authorityLockResult.authority_chain || []).length) + " primary | trigger_b31g=" + String(!!authorityLockResult.trigger_b31g) : "null"}</div>
               <div>RSR: {remainingStrengthResult ? "PRESENT \u2014 tier=" + (remainingStrengthResult.data_quality || "?") + " | envelope=" + (remainingStrengthResult.safe_envelope || "?") + " | MAOP=" + (remainingStrengthResult.governing_maop || "?") + " | severity=" + (remainingStrengthResult.severity_tier || "?") : "null"}</div>
