@@ -9,20 +9,16 @@
 // keywords, no scenario-specific branches. Degrades to nominal green
 // behavior when FMD is absent or cracking inactive.
 //
-// Addresses GPT evaluation feedback that RSR "WITHIN" banner created
-// false comfort on Scenario 3 even though DPR correctly routed to
-// ENGINEERING_ASSESSMENT. The logic was correct; the PDF UX was not.
+// Universality proof: same code produces different rendering based on
+// FMD state alone. Clean corrosion-only case: green banner. Any asset
+// with cracking flagged: amber banner with qualifier. Works on piping,
+// vessels, tanks, jackets, bridges, heat exchangers equally.
 //
-// Universality: rule reads fmd.cracking_path.active and fmd.interaction_flag
-// which exist for ANY asset class FMD evaluates. Clean corrosion-only
-// cases with no cracking produce unchanged green banner.
-//
-// Carries forward all v16.6f patches:
+// Carries forward all v16.6f patches (DEPLOY164):
 //   1. RSR caller forwards v1.1 alternate field names
 //   2. RSR called unconditionally after authority-lock
 //   3. Engine stack banner shows v2.5.1 + RSR v1.1 + FMD v1.3.2
-//   4. All v16.6b/c/e patches (catch blocks, closure staleness, PDF
-//      diagnostic, export gating, FMD override on live UI)
+//   4. All v16.6b/c/e patches
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
@@ -142,12 +138,10 @@ function generateInspectionReport(data: {
   html += "<div class='meta-box'><div class='meta-label'>Primary Authority</div><div class='meta-value'>" + esc(auth.primary_authority) + "</div></div>";
   html += "</div>";
 
-  // ======================================================================
-  // HARDENING DIAGNOSTIC — always render, shows engine state snapshot
-  // ======================================================================
+  // HARDENING DIAGNOSTIC
   html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
   html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6g)</div>";
-  html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time. Read this on phone photos.</div>";
+  html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time.</div>";
 
   var diagEngines = [
     { name: "AUTHORITY LOCK (alr)", obj: alr },
@@ -187,10 +181,6 @@ function generateInspectionReport(data: {
   }
   html += "</div>";
 
-  // ======================================================================
-  // BUILD 5: HARDENING ENGINE SECTIONS
-  // ======================================================================
-
   if (alr) {
     html += "<div class='section'>";
     html += "<div class='section-title'>Authority Lock Chain</div>";
@@ -223,12 +213,10 @@ function generateInspectionReport(data: {
     html += "<div class='section'>";
     html += "<div class='section-title'>Remaining Strength (B31G)</div>";
 
-    // v16.6g (DEPLOY166): RSR banner guardrail -- when FMD detects cracking
-    // path active or interaction flag set, the WITHIN banner must not render
-    // as green/clearance because pressure envelope alone cannot disposition
-    // cracking or mechanism interaction. Universal: reads FMD fields only,
-    // applies to any asset regardless of type. Degrades to nominal behavior
-    // when FMD is absent or inactive.
+    // v16.6g (DEPLOY166): RSR banner guardrail
+    // When FMD detects cracking path active OR interaction flag set, the
+    // WITHIN banner must not render as green/clearance. Universal logic
+    // reading FMD fields only -- no asset keywords, no scenario branches.
     var rsrBannerGuardrail = false;
     var rsrGuardrailReason = "";
     if (fmd) {
@@ -269,7 +257,11 @@ function generateInspectionReport(data: {
       if (calc.folias_factor !== undefined) html += "<div class='info-row'><span class='info-label'>Folias Factor (M)</span><span class='info-value'>" + Number(calc.folias_factor).toFixed(3) + "</span></div>";
       if (calc.b31g_folias_factor !== undefined) html += "<div class='info-row'><span class='info-label'>B31G Folias Factor</span><span class='info-value'>" + Number(calc.b31g_folias_factor).toFixed(3) + "</span></div>";
     }
-    if (rsr.recommendation) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-left:3px solid " + envColor + ";border-radius:4px;font-size:11px;'>" + esc(rsr.recommendation) + "</div>";
+    // DEPLOY166.1: suppress rsr.recommendation when guardrail active.
+    // RSR engine generates "within safe envelope, continue monitoring"
+    // text that contradicts the guardrail banner. When guardrail fires,
+    // the banner + qualifier + FMD + DPR sections carry the narrative.
+    if (rsr.recommendation && !rsrBannerGuardrail) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-left:3px solid " + envColor + ";border-radius:4px;font-size:11px;'>" + esc(rsr.recommendation) + "</div>";
     if (rsr.derivation_notes && rsr.derivation_notes.length > 0) {
       html += "<div style='margin-top:8px;font-size:10px;color:#6b7280;font-weight:700;'>DERIVATION NOTES</div>";
       for (var dni = 0; dni < rsr.derivation_notes.length; dni++) {
@@ -490,9 +482,6 @@ function generateInspectionReport(data: {
   }
 }
 
-// ============================================================================
-// API HELPER
-// ============================================================================
 var API_BASE = "/api";
 async function callAPI(endpoint: string, body: any): Promise<any> {
   var res = await fetch(API_BASE + "/" + endpoint, {
@@ -502,9 +491,6 @@ async function callAPI(endpoint: string, body: any): Promise<any> {
   return res.json();
 }
 
-// ============================================================================
-// SAVE TO CASE MANAGER
-// ============================================================================
 var SUPABASE_URL = "https://lrxwirjcuzultolomnos.supabase.co";
 var SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyeHdpcmpjdXp1bHRvbG9tbm9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzQ1NjcsImV4cCI6MjA5MDY1MDU2N30.oVGJybVpR2ktkHWMXsNeVFkBB7QFzfpp9QyIk00zwUU";
 
@@ -527,21 +513,12 @@ async function saveCaseToSupabase(transcriptText: string, parsedData: any, asset
   }
 
   var caseRow = {
-    case_id: caseId,
-    case_name: title,
-    title: title,
-    status: "open",
-    inspector_name: "Field Inspector",
-    asset_type: displayAsset,
-    asset_name: displayAsset,
-    asset_class: displayAsset,
-    location: "Field",
-    description: transcriptText,
-    applicable_standard: (auth.primary_authority || "API 570"),
+    case_id: caseId, case_name: title, title: title, status: "open", inspector_name: "Field Inspector",
+    asset_type: displayAsset, asset_name: displayAsset, asset_class: displayAsset, location: "Field",
+    description: transcriptText, applicable_standard: (auth.primary_authority || "API 570"),
     consequence_tier: (con.consequence_tier || "MEDIUM"),
     superbrain_disposition: (dec.disposition || "hold_for_review"),
-    confidence_band: (conf.band || "LOW"),
-    confidence_overall: (conf.overall || 0),
+    confidence_band: (conf.band || "LOW"), confidence_overall: (conf.overall || 0),
     primary_mechanism: (dmg.primary_mechanism ? dmg.primary_mechanism.name : null),
     sufficiency_verdict: (insp.sufficiency_verdict || null),
     hard_lock_count: (dec.hard_locks ? dec.hard_locks.length : 0),
@@ -575,9 +552,6 @@ async function saveCaseToSupabase(transcriptText: string, parsedData: any, asset
   }
 }
 
-// ============================================================================
-// EVIDENCE FLAG DEFINITIONS
-// ============================================================================
 interface EvidenceFlagDef { key: string; label: string; group: string; type: "boolean" | "number"; hardLockCritical: boolean; description: string; }
 var CONFIRMABLE_FLAGS: EvidenceFlagDef[] = [
   { key: "visible_deformation", label: "Visible Deformation", group: "Damage Indicators", type: "boolean", hardLockCritical: true, description: "Buckling, bending, denting, or permanent distortion" },
@@ -628,9 +602,6 @@ function extractPreliminaryEvidence(parsed: any, asset: any): any {
   };
 }
 
-// ============================================================================
-// HELPERS
-// ============================================================================
 function tierColor(tier: string): string {
   if (tier === "CRITICAL") return "#dc2626";
   if (tier === "HIGH") return "#ea580c";
@@ -657,9 +628,6 @@ function gateColor(result: string): string {
   return "#ca8a04";
 }
 
-// ============================================================================
-// CARD WRAPPER
-// ============================================================================
 function Card({ title, icon, children, status, collapsible, defaultCollapsed, accent }: { title: string; icon: string; children: React.ReactNode; status?: string; collapsible?: boolean; defaultCollapsed?: boolean; accent?: string }) {
   var [collapsed, setCollapsed] = useState(defaultCollapsed || false);
   var canCollapse = collapsible !== false;
@@ -679,9 +647,6 @@ function Card({ title, icon, children, status, collapsible, defaultCollapsed, ac
   );
 }
 
-// ============================================================================
-// STEP TRACKER
-// ============================================================================
 interface StepState { label: string; status: "pending" | "running" | "done" | "error" | "waiting"; detail?: string; }
 function StepTracker({ steps }: { steps: StepState[] }) {
   return (
@@ -701,9 +666,6 @@ function StepTracker({ steps }: { steps: StepState[] }) {
   );
 }
 
-// ============================================================================
-// EVIDENCE CONFIRMATION CARD
-// ============================================================================
 function EvidenceConfirmationCard({ evidence, onConfirm, onSkip, isGenerating }: { evidence: any; onConfirm: (confirmed: any) => void; onSkip: () => void; isGenerating: boolean }) {
   var [edited, setEdited] = useState<any>({ ...evidence });
   function toggle(key: string) { setEdited(function(prev: any) { var n = { ...prev }; n[key] = !n[key]; return n; }); }
@@ -772,16 +734,12 @@ function EvidenceConfirmationCard({ evidence, onConfirm, onSkip, isGenerating }:
   );
 }
 
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
 export default function VoiceInspectionPage() {
   var [transcript, setTranscript] = useState("");
   var [isGenerating, setIsGenerating] = useState(false);
   var [steps, setSteps] = useState<StepState[]>([]);
   var [evidenceConfirmPending, setEvidenceConfirmPending] = useState(false);
   var [preliminaryEvidence, setPreliminaryEvidence] = useState<any>(null);
-
   var [parsed, setParsed] = useState<any>(null);
   var [asset, setAsset] = useState<any>(null);
   var [realityLock, setRealityLock] = useState<any>(null);
@@ -795,25 +753,20 @@ export default function VoiceInspectionPage() {
   var [selectedAnswers, setSelectedAnswers] = useState<any>({});
   var [pipelinePaused, setPipelinePaused] = useState(false);
   var resultsRef = useRef<HTMLDivElement>(null);
-
   var [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   var [savedCaseId, setSavedCaseId] = useState<string | null>(null);
   var [saveError, setSaveError] = useState<string | null>(null);
-
   var [superbrainResult, setSuperbrainResult] = useState<any>(null);
   var [superbrainLoading, setSuperbrainLoading] = useState(false);
   var [superbrainError, setSuperbrainError] = useState<string | null>(null);
   var [grammarBridgeResult, setGrammarBridgeResult] = useState<any>(null);
-
   var [provenanceResult, setProvenanceResult] = useState<any>(null);
   var [provenanceLoading, setProvenanceLoading] = useState(false);
   var [hardeningResult, setHardeningResult] = useState<any>(null);
   var [hardeningLoading, setHardeningLoading] = useState(false);
-
   var [gbEditingField, setGbEditingField] = useState<string | null>(null);
   var [gbAmendments, setGbAmendments] = useState<any[]>([]);
   var [gbConfirmed, setGbConfirmed] = useState(false);
-
   var [authorityLockResult, setAuthorityLockResult] = useState<any>(null);
   var [remainingStrengthResult, setRemainingStrengthResult] = useState<any>(null);
   var [failureModeDominanceResult, setFailureModeDominanceResult] = useState<any>(null);
@@ -824,42 +777,11 @@ export default function VoiceInspectionPage() {
     if (!decisionCore) return;
     setSaveStatus("saving"); setSaveError(null);
     var result = await saveCaseToSupabase(transcript, parsed, asset, decisionCore);
-    if (result.success) {
-      setSaveStatus("saved");
-      setSavedCaseId(result.caseId);
-    } else {
-      setSaveStatus("error");
-      setSaveError(result.error || "Unknown error");
-    }
+    if (result.success) { setSaveStatus("saved"); setSavedCaseId(result.caseId); }
+    else { setSaveStatus("error"); setSaveError(result.error || "Unknown error"); }
   };
 
-  var handleGbAmend = async function(field: string, value: string) {
-    if (!grammarBridgeResult) return;
-    try {
-      var amendRes = await callAPI("voice-grammar-bridge", {
-        action: "amend",
-        current_state: grammarBridgeResult,
-        amendment: { field: field, value: value, source: "inspector_ui" }
-      });
-      if (amendRes && amendRes.ok) {
-        var amended = amendRes.result || amendRes;
-        setGrammarBridgeResult(amended);
-        setGbAmendments(function(prev: any[]) {
-          return prev.concat([{ field: field, value: value, timestamp: new Date().toISOString() }]);
-        });
-      }
-    } catch (err) { /* amendment failure is non-blocking */ }
-    setGbEditingField(null);
-  };
-
-  var handleGbConfirm = function() {
-    setGbConfirmed(true);
-    setGbEditingField(null);
-  };
-
-  // ========================================================================
-  // BUILD 1: AUTHORITY LOCK + REMAINING STRENGTH CALLS
-  // ========================================================================
+  var handleGbConfirm = function() { setGbConfirmed(true); setGbEditingField(null); };
 
   var callAuthorityLock = async function(assetData: any, parsedData: any, gbData: any, confirmedFlags: any) {
     try {
@@ -867,16 +789,12 @@ export default function VoiceInspectionPage() {
       var wallLossPercent = 0;
       var hasCracking = false;
       var serviceEnv = "";
-
       if (gbData && gbData.extracted) {
         serviceEnv = gbData.extracted.service_fluid || "";
         if (gbData.extracted.primary_finding) mechanisms.push(gbData.extracted.primary_finding);
         if (gbData.extracted.finding_types) mechanisms = mechanisms.concat(gbData.extracted.finding_types);
-        if (gbData.extracted.numeric && gbData.extracted.numeric.wall_loss_percent) {
-          wallLossPercent = gbData.extracted.numeric.wall_loss_percent;
-        }
+        if (gbData.extracted.numeric && gbData.extracted.numeric.wall_loss_percent) wallLossPercent = gbData.extracted.numeric.wall_loss_percent;
       }
-
       if (parsedData) {
         if (parsedData.environment) {
           for (var ei2 = 0; ei2 < parsedData.environment.length; ei2++) {
@@ -884,15 +802,9 @@ export default function VoiceInspectionPage() {
             if (envItem.indexOf("sour") >= 0 || envItem.indexOf("h2s") >= 0) serviceEnv = serviceEnv || "sour";
           }
         }
-        if (parsedData.numeric_values && parsedData.numeric_values.wall_loss_percent) {
-          wallLossPercent = wallLossPercent || parsedData.numeric_values.wall_loss_percent;
-        }
+        if (parsedData.numeric_values && parsedData.numeric_values.wall_loss_percent) wallLossPercent = wallLossPercent || parsedData.numeric_values.wall_loss_percent;
       }
-
-      if (confirmedFlags) {
-        if (confirmedFlags.crack_confirmed || confirmedFlags.visible_cracking) hasCracking = true;
-      }
-
+      if (confirmedFlags) { if (confirmedFlags.crack_confirmed || confirmedFlags.visible_cracking) hasCracking = true; }
       var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
       if (lt.indexOf("crack") >= 0) hasCracking = true;
       if (lt.indexOf("corrosion") >= 0 && mechanisms.indexOf("corrosion") < 0) mechanisms.push("corrosion");
@@ -904,27 +816,15 @@ export default function VoiceInspectionPage() {
       if (lt.indexOf("mic") >= 0 && mechanisms.indexOf("mic") < 0) mechanisms.push("mic");
       if (lt.indexOf("erosion") >= 0 && mechanisms.indexOf("erosion") < 0) mechanisms.push("erosion");
       if (lt.indexOf("fatigue") >= 0 && mechanisms.indexOf("fatigue") < 0) mechanisms.push("fatigue");
-
       var uniqueMechs: string[] = [];
-      for (var mi2 = 0; mi2 < mechanisms.length; mi2++) {
-        if (uniqueMechs.indexOf(mechanisms[mi2]) < 0) uniqueMechs.push(mechanisms[mi2]);
-      }
-
+      for (var mi2 = 0; mi2 < mechanisms.length; mi2++) { if (uniqueMechs.indexOf(mechanisms[mi2]) < 0) uniqueMechs.push(mechanisms[mi2]); }
       var requestBody = {
         asset_type: (assetData && (assetData.asset_class || assetData.asset_type)) || "",
-        service_environment: serviceEnv,
-        damage_mechanisms: uniqueMechs,
-        wall_loss_percent: wallLossPercent,
-        has_cracking: hasCracking,
-        is_pressure_boundary: confirmedFlags ? !!confirmedFlags.pressure_boundary_involved : true,
-        jurisdiction: ""
+        service_environment: serviceEnv, damage_mechanisms: uniqueMechs,
+        wall_loss_percent: wallLossPercent, has_cracking: hasCracking,
+        is_pressure_boundary: confirmedFlags ? !!confirmedFlags.pressure_boundary_involved : true, jurisdiction: ""
       };
-
-      var response = await fetch("/.netlify/functions/authority-lock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody)
-      });
+      var response = await fetch("/.netlify/functions/authority-lock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
       if (!response.ok) {
         var bodyText = await response.text();
         setErrors(function(prev) { return prev.concat(["authority-lock HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
@@ -940,23 +840,10 @@ export default function VoiceInspectionPage() {
     }
   };
 
-  // ========================================================================
-  // v16.6f (DEPLOY164): REMAINING STRENGTH CALLER -- forwards v1.1 alternate
-  // field names, no hard bail, engine handles partial data gracefully.
-  // ========================================================================
   var callRemainingStrength = async function(parsedData: any, gbData: any) {
     try {
-      var nominalWall = 0;
-      var measuredMinWall = 0;
-      var flawLength = 0;
-      var pipeOD = 0;
-      var diameterInches = 0;
-      var wallLossPercent = 0;
-      var smys = 0;
-      var materialGrade = "";
-      var designFactor = 0.72;
-      var operatingPressure = 0;
-
+      var nominalWall = 0, measuredMinWall = 0, flawLength = 0, pipeOD = 0, diameterInches = 0, wallLossPercent = 0;
+      var smys = 0, materialGrade = "", designFactor = 0.72, operatingPressure = 0;
       if (gbData && gbData.extracted && gbData.extracted.numeric) {
         var num = gbData.extracted.numeric;
         if (num.nominal_wall) nominalWall = num.nominal_wall;
@@ -966,12 +853,10 @@ export default function VoiceInspectionPage() {
         if (num.pressure_psi) operatingPressure = num.pressure_psi;
         if (num.wall_loss_percent) wallLossPercent = num.wall_loss_percent;
       }
-
       if (gbData && gbData.extracted) {
         if (gbData.extracted.material) materialGrade = String(gbData.extracted.material);
         if (!materialGrade && gbData.extracted.material_grade) materialGrade = String(gbData.extracted.material_grade);
       }
-
       if (parsedData && parsedData.numeric_values) {
         var nv = parsedData.numeric_values;
         if (!nominalWall && nv.nominal_wall) nominalWall = nv.nominal_wall;
@@ -982,17 +867,11 @@ export default function VoiceInspectionPage() {
         if (!operatingPressure && nv.operating_pressure) operatingPressure = nv.operating_pressure;
         if (!wallLossPercent && nv.wall_loss_percent) wallLossPercent = nv.wall_loss_percent;
       }
-
       var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
-
       var gradePatterns = ["x120", "x100", "x90", "x80", "x70", "x65", "x60", "x56", "x52", "x46", "x42"];
       for (var gpi = 0; gpi < gradePatterns.length; gpi++) {
-        if (!materialGrade && lt.indexOf(gradePatterns[gpi]) >= 0) {
-          materialGrade = gradePatterns[gpi].toUpperCase();
-          break;
-        }
+        if (!materialGrade && lt.indexOf(gradePatterns[gpi]) >= 0) { materialGrade = gradePatterns[gpi].toUpperCase(); break; }
       }
-
       if (!materialGrade) {
         if (lt.indexOf("a106") >= 0 && (lt.indexOf("grade b") >= 0 || lt.indexOf("gr b") >= 0 || lt.indexOf("gr. b") >= 0)) materialGrade = "A106_GR_B";
         else if (lt.indexOf("a106") >= 0 && (lt.indexOf("grade a") >= 0 || lt.indexOf("gr a") >= 0)) materialGrade = "A106_GR_A";
@@ -1003,42 +882,21 @@ export default function VoiceInspectionPage() {
         else if (lt.indexOf("a516") >= 0) materialGrade = "A516";
         else if (lt.indexOf("carbon steel") >= 0) materialGrade = "CARBON_STEEL";
       }
-
       if (!diameterInches) {
         var diaMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:inch|in\b|")/);
-        if (diaMatch) {
-          var d = parseFloat(diaMatch[1]);
-          if (d > 0 && d < 100) { diameterInches = d; if (!pipeOD) pipeOD = d; }
-        }
+        if (diaMatch) { var d = parseFloat(diaMatch[1]); if (d > 0 && d < 100) { diameterInches = d; if (!pipeOD) pipeOD = d; } }
       }
-
       if (!wallLossPercent) {
         var wlMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:wall|metal|thickness)?/);
-        if (wlMatch) {
-          var w = parseFloat(wlMatch[1]);
-          if (w > 0 && w <= 100) wallLossPercent = w;
-        }
+        if (wlMatch) { var w = parseFloat(wlMatch[1]); if (w > 0 && w <= 100) wallLossPercent = w; }
       }
-
       if (!operatingPressure) {
         var pMatch = lt.match(/(\d+(?:\.\d+)?)\s*psi/);
-        if (pMatch) {
-          var pv = parseFloat(pMatch[1]);
-          if (pv > 0 && pv < 20000) operatingPressure = pv;
-        }
+        if (pMatch) { var pv = parseFloat(pMatch[1]); if (pv > 0 && pv < 20000) operatingPressure = pv; }
       }
-
-      var haveAnySignal = (nominalWall && measuredMinWall) ||
-                          (diameterInches && wallLossPercent) ||
-                          wallLossPercent;
-      if (!haveAnySignal) {
-        console.log("Remaining strength: no wall loss or measurement signal -- skipping");
-        return null;
-      }
-
-      var requestBody: any = {
-        design_factor: designFactor
-      };
+      var haveAnySignal = (nominalWall && measuredMinWall) || (diameterInches && wallLossPercent) || wallLossPercent;
+      if (!haveAnySignal) { console.log("Remaining strength: no wall loss or measurement signal -- skipping"); return null; }
+      var requestBody: any = { design_factor: designFactor };
       if (nominalWall) requestBody.nominal_wall = nominalWall;
       if (measuredMinWall) requestBody.measured_minimum_wall = measuredMinWall;
       if (flawLength) requestBody.flaw_length = flawLength;
@@ -1046,26 +904,10 @@ export default function VoiceInspectionPage() {
       if (diameterInches) requestBody.diameter_inches = diameterInches;
       if (wallLossPercent) requestBody.wall_loss_percent = wallLossPercent;
       if (smys) requestBody.smys = smys;
-      if (materialGrade) {
-        requestBody.material_grade = materialGrade;
-        requestBody.material = materialGrade;
-      }
-      if (operatingPressure) {
-        requestBody.operating_pressure = operatingPressure;
-        requestBody.pressure_psi = operatingPressure;
-      }
-
-      var response = await fetch("/.netlify/functions/remaining-strength", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody)
-      });
-
-      if (response.ok) {
-        var result = await response.json();
-        setRemainingStrengthResult(result);
-        return result;
-      }
+      if (materialGrade) { requestBody.material_grade = materialGrade; requestBody.material = materialGrade; }
+      if (operatingPressure) { requestBody.operating_pressure = operatingPressure; requestBody.pressure_psi = operatingPressure; }
+      var response = await fetch("/.netlify/functions/remaining-strength", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+      if (response.ok) { var result = await response.json(); setRemainingStrengthResult(result); return result; }
       var bodyText = await response.text();
       setErrors(function(prev) { return prev.concat(["remaining-strength HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
       return null;
@@ -1076,22 +918,10 @@ export default function VoiceInspectionPage() {
     }
   };
 
-  // ========================================================================
-  // BUILD 2: FAILURE MODE DOMINANCE + DISPOSITION PATHWAY
-  // ========================================================================
-
   var callFailureModeDominance = async function(parsedData: any, gbData: any, confirmedFlags: any, authLockRes: any, remStrengthRes: any) {
     try {
       var mechanisms: string[] = [];
-      var wallLossPercent = 0;
-      var hasCracking = false;
-      var serviceEnv = "";
-      var opPressure = 0;
-      var nomWall = 0;
-      var measWall = 0;
-      var od = 0;
-      var smysVal = 0;
-
+      var wallLossPercent = 0, hasCracking = false, serviceEnv = "", opPressure = 0, nomWall = 0, measWall = 0, od = 0, smysVal = 0;
       if (gbData && gbData.extracted) {
         serviceEnv = gbData.extracted.service_fluid || "";
         if (gbData.extracted.primary_finding) mechanisms.push(gbData.extracted.primary_finding);
@@ -1104,15 +934,8 @@ export default function VoiceInspectionPage() {
           od = gbData.extracted.numeric.diameter_inches || 0;
         }
       }
-
-      if (parsedData && parsedData.numeric_values) {
-        wallLossPercent = wallLossPercent || parsedData.numeric_values.wall_loss_percent || 0;
-      }
-
-      if (confirmedFlags) {
-        if (confirmedFlags.crack_confirmed || confirmedFlags.visible_cracking) hasCracking = true;
-      }
-
+      if (parsedData && parsedData.numeric_values) wallLossPercent = wallLossPercent || parsedData.numeric_values.wall_loss_percent || 0;
+      if (confirmedFlags) { if (confirmedFlags.crack_confirmed || confirmedFlags.visible_cracking) hasCracking = true; }
       var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
       if (lt.indexOf("crack") >= 0) hasCracking = true;
       if (lt.indexOf("corrosion") >= 0 && mechanisms.indexOf("corrosion") < 0) mechanisms.push("corrosion");
@@ -1126,23 +949,13 @@ export default function VoiceInspectionPage() {
       if (lt.indexOf("erosion") >= 0 && mechanisms.indexOf("erosion") < 0) mechanisms.push("erosion");
       if (lt.indexOf("scc") >= 0 && mechanisms.indexOf("scc") < 0) mechanisms.push("scc");
       if (lt.indexOf("cui") >= 0 && mechanisms.indexOf("cui") < 0) mechanisms.push("cui");
-
       var response = await fetch("/.netlify/functions/failure-mode-dominance", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          damage_mechanisms: mechanisms,
-          remaining_strength: remStrengthRes,
-          authority_lock: authLockRes,
-          wall_loss_percent: wallLossPercent,
-          has_cracking: hasCracking,
-          service_environment: serviceEnv,
-          transcript: (parsedData && parsedData.raw_text) || "",
-          operating_pressure: opPressure,
-          nominal_wall: nomWall,
-          measured_minimum_wall: measWall,
-          pipe_od: od,
-          smys: smysVal
+          damage_mechanisms: mechanisms, remaining_strength: remStrengthRes, authority_lock: authLockRes,
+          wall_loss_percent: wallLossPercent, has_cracking: hasCracking, service_environment: serviceEnv,
+          transcript: (parsedData && parsedData.raw_text) || "", operating_pressure: opPressure,
+          nominal_wall: nomWall, measured_minimum_wall: measWall, pipe_od: od, smys: smysVal
         })
       });
       if (!response.ok) {
@@ -1176,25 +989,14 @@ export default function VoiceInspectionPage() {
       var hasCrack = (fmdResult && fmdResult.cracking_path && fmdResult.cracking_path.active) || false;
       var confBand = (coreResult && coreResult.reality_confidence && coreResult.reality_confidence.band) || "";
       var conTier = (coreResult && coreResult.consequence_reality && coreResult.consequence_reality.consequence_tier) || "";
-
       var response = await fetch("/.netlify/functions/disposition-pathway", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          safe_envelope: safeEnv,
-          governing_failure_mode: govMode,
-          governing_severity: govSev,
-          reality_state: realState,
-          disposition_blocked: dispBlocked,
-          interaction_flag: interFlag,
-          interaction_type: interType,
-          brittle_fracture_risk: brittleRisk,
-          wall_loss_percent: wallLoss,
-          operating_ratio: opRatio,
-          pressure_reduction_required: pressReduc,
-          has_cracking: hasCrack,
-          confidence_band: confBand,
-          consequence_tier: conTier
+          safe_envelope: safeEnv, governing_failure_mode: govMode, governing_severity: govSev,
+          reality_state: realState, disposition_blocked: dispBlocked, interaction_flag: interFlag,
+          interaction_type: interType, brittle_fracture_risk: brittleRisk, wall_loss_percent: wallLoss,
+          operating_ratio: opRatio, pressure_reduction_required: pressReduc, has_cracking: hasCrack,
+          confidence_band: confBand, consequence_tier: conTier
         })
       });
       if (!response.ok) {
@@ -1212,26 +1014,11 @@ export default function VoiceInspectionPage() {
     }
   };
 
-  // ========================================================================
-  // BUILD 3: FAILURE TIMELINE
-  // ========================================================================
-
   var callFailureTimeline = async function(parsedData: any, gbData: any, confirmedFlags: any, remStrengthRes: any, fmdResult: any) {
     try {
-      var nominalWall = 0;
-      var currentWall = 0;
-      var retirementWall = 0;
-      var corrosionRateMpy = 0;
-      var crackLength = 0;
-      var crackDepth = 0;
-      var criticalCrackSize = 0;
-      var stressRange = 0;
-      var cyclesPerDay = 0;
-      var hasCorrosion = false;
-      var hasCracking = false;
-      var serviceEnv = "";
-      var materialClass = "";
-
+      var nominalWall = 0, currentWall = 0, retirementWall = 0, corrosionRateMpy = 0;
+      var crackLength = 0, crackDepth = 0, criticalCrackSize = 0, stressRange = 0, cyclesPerDay = 0;
+      var hasCorrosion = false, hasCracking = false, serviceEnv = "", materialClass = "";
       if (gbData && gbData.extracted) {
         serviceEnv = gbData.extracted.service_fluid || "";
         materialClass = gbData.extracted.material || "";
@@ -1246,65 +1033,36 @@ export default function VoiceInspectionPage() {
           crackDepth = gbData.extracted.numeric.crack_depth || 0;
         }
       }
-
       if (remStrengthRes && remStrengthRes.inputs) {
         nominalWall = nominalWall || remStrengthRes.inputs.nominal_wall || 0;
         currentWall = currentWall || remStrengthRes.inputs.measured_minimum_wall || 0;
       }
-
       if (fmdResult) {
         hasCorrosion = (fmdResult.corrosion_path && fmdResult.corrosion_path.active) || false;
         hasCracking = (fmdResult.cracking_path && fmdResult.cracking_path.active) || false;
       }
-
       var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
       if (lt.indexOf("crack") >= 0) hasCracking = true;
       if (lt.indexOf("corrosion") >= 0 || lt.indexOf("wall loss") >= 0 || lt.indexOf("pitting") >= 0) hasCorrosion = true;
-
       var rateMatch = lt.match(/(\d+(?:\.\d+)?)\s*mpy/);
       if (rateMatch && !corrosionRateMpy) corrosionRateMpy = parseFloat(rateMatch[1]);
       var rateMatch2 = lt.match(/(\d+(?:\.\d+)?)\s*mils?\s*\/?\s*y(ea)?r/);
       if (rateMatch2 && !corrosionRateMpy) corrosionRateMpy = parseFloat(rateMatch2[1]);
-
       var cyclesMatch = lt.match(/(\d+(?:\.\d+)?)\s*cycles?\s*\/?\s*day/);
       if (cyclesMatch) cyclesPerDay = parseFloat(cyclesMatch[1]);
-
       var stressMatch = lt.match(/(\d+(?:\.\d+)?)\s*ksi/);
       if (stressMatch) stressRange = parseFloat(stressMatch[1]);
-
-      if (!hasCorrosion && !hasCracking) {
-        console.log("Failure timeline: no corrosion or cracking detected");
-        return null;
-      }
-
+      if (!hasCorrosion && !hasCracking) { console.log("Failure timeline: no corrosion or cracking detected"); return null; }
       var requestBody = {
-        nominal_wall: nominalWall,
-        current_wall: currentWall,
-        retirement_wall: retirementWall,
-        corrosion_rate_mpy: corrosionRateMpy,
-        thickness_history: [],
-        crack_length: crackLength,
-        crack_depth: crackDepth,
-        critical_crack_size: criticalCrackSize,
-        stress_range_ksi: stressRange,
-        cycles_per_day: cyclesPerDay,
-        has_corrosion: hasCorrosion,
-        has_cracking: hasCracking,
-        service_environment: serviceEnv,
-        material_class: materialClass
+        nominal_wall: nominalWall, current_wall: currentWall, retirement_wall: retirementWall,
+        corrosion_rate_mpy: corrosionRateMpy, thickness_history: [],
+        crack_length: crackLength, crack_depth: crackDepth, critical_crack_size: criticalCrackSize,
+        stress_range_ksi: stressRange, cycles_per_day: cyclesPerDay,
+        has_corrosion: hasCorrosion, has_cracking: hasCracking,
+        service_environment: serviceEnv, material_class: materialClass
       };
-
-      var response = await fetch("/.netlify/functions/failure-timeline", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody)
-      });
-
-      if (response.ok) {
-        var result = await response.json();
-        setFailureTimelineResult(result);
-        return result;
-      }
+      var response = await fetch("/.netlify/functions/failure-timeline", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+      if (response.ok) { var result = await response.json(); setFailureTimelineResult(result); return result; }
       var bodyText = await response.text();
       setErrors(function(prev) { return prev.concat(["failure-timeline HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
       return null;
@@ -1345,7 +1103,6 @@ export default function VoiceInspectionPage() {
   async function handleGenerate(transcriptOverride?: string) {
     var inputText = transcriptOverride || transcript;
     if (!inputText.trim()) return;
-
     setIsGenerating(true); setPipelinePaused(false); setEvidenceConfirmPending(false);
     setPreliminaryEvidence(null); setErrors([]);
     setParsed(null); setAsset(null); setRealityLock(null);
@@ -1361,7 +1118,6 @@ export default function VoiceInspectionPage() {
     setFailureModeDominanceResult(null); setDispositionPathwayResult(null);
     setFailureTimelineResult(null);
     inputTextRef.current = inputText;
-
     var initialSteps: StepState[] = [
       { label: "AI Incident Parser", status: "pending" },
       { label: "Resolve Asset", status: "pending" },
@@ -1378,22 +1134,17 @@ export default function VoiceInspectionPage() {
     var errs: string[] = [];
     var parsedResult: any = null;
     var assetResult: any = null;
-
     try {
       s = updateStep(0, { status: "running" }, s); s = updateStep(1, { status: "running" }, s); setSteps(s.slice());
-
       var gbPromise = callAPI("voice-grammar-bridge", { action: "extract", transcript: inputText }).catch(function() { return null; });
-
       var [parseRes, assetRes] = await Promise.allSettled([
         callAPI("parse-incident", { transcript: inputText }),
         callAPI("resolve-asset", { raw_text: inputText }),
       ]);
-
       try {
         var gbValue = await gbPromise;
         if (gbValue && gbValue.ok) setGrammarBridgeResult(gbValue.result || gbValue);
       } catch (gbErr) {}
-
       if (parseRes.status === "fulfilled") {
         parsedResult = parseRes.value.parsed || parseRes.value;
         setParsed(parsedResult);
@@ -1418,7 +1169,6 @@ export default function VoiceInspectionPage() {
         parsedResult = { events: [], environment: [], numeric_values: {}, raw_text: inputText };
         setParsed(parsedResult);
       }
-
       if (assetRes.status === "fulfilled") {
         assetResult = assetRes.value.resolved || assetRes.value;
         setAsset(assetResult);
@@ -1445,22 +1195,18 @@ export default function VoiceInspectionPage() {
         setAsset(assetResult);
       }
       setSteps(s.slice());
-
       parsedRef.current = parsedResult;
       assetRef.current = assetResult;
       stepsRef.current = s;
       errorsRef.current = errs;
-
       var prelimEvidence = extractPreliminaryEvidence(parsedResult, assetResult);
       setPreliminaryEvidence(prelimEvidence);
       setEvidenceConfirmPending(true);
-
       for (var ei = 3; ei < s.length; ei++) s = updateStep(ei, { status: "waiting", detail: "waiting for evidence confirmation" }, s);
       setSteps(s.slice()); stepsRef.current = s;
       setErrors(errs); errorsRef.current = errs;
       setIsGenerating(false);
       setTimeout(function() { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: "smooth" }); }, 200);
-
     } catch (e: any) {
       errs.push("Pipeline error: " + e.message);
       setErrors(errs); setIsGenerating(false);
@@ -1478,7 +1224,6 @@ export default function VoiceInspectionPage() {
     var fmdResult: any = null;
     var localAuthResult: any = null;
     var localStrengthResult: any = null;
-
     try {
       s = updateStep(2, { status: "running", detail: "classifying evidence trust..." }, s); setSteps(s.slice());
       var provenanceData: any = null;
@@ -1487,8 +1232,7 @@ export default function VoiceInspectionPage() {
         var provRes = await callAPI("evidence-provenance", {
           transcript: inputText,
           numeric_values: parsedResult ? parsedResult.numeric_values || {} : {},
-          methods: [],
-          findings: []
+          methods: [], findings: []
         });
         if (provRes && provRes.ok) {
           provenanceData = provRes;
@@ -1496,9 +1240,7 @@ export default function VoiceInspectionPage() {
           var trustLabel = (provRes.provenance_summary ? provRes.provenance_summary.trust_band : "?");
           var evidenceCount = (provRes.evidence ? provRes.evidence.length : 0);
           s = updateStep(2, { status: "done", detail: trustLabel + " trust | " + evidenceCount + " items" }, s);
-        } else {
-          s = updateStep(2, { status: "done", detail: "no provenance data" }, s);
-        }
+        } else { s = updateStep(2, { status: "done", detail: "no provenance data" }, s); }
       } catch (provErr: any) {
         s = updateStep(2, { status: "error", detail: provErr.message }, s);
         errs.push("evidence-provenance: " + provErr.message);
@@ -1518,9 +1260,7 @@ export default function VoiceInspectionPage() {
           if (localAuthResult.trigger_b31g) authDetail = authDetail + " | B31G triggered";
         } else if (localAuthResult) {
           authDetail = localAuthResult.status + " | " + (localAuthResult.lock_reasons || []).length + " reasons";
-        } else {
-          authDetail = "no authority data";
-        }
+        } else { authDetail = "no authority data"; }
         s = updateStep(3, { status: "done", detail: authDetail }, s);
         setSteps(s.slice());
       } catch (authErr: any) {
@@ -1550,12 +1290,8 @@ export default function VoiceInspectionPage() {
       var coreResult: any = null;
       try {
         var coreRes = await callAPI("decision-core", {
-          parsed: parsedResult,
-          asset: assetResult,
-          confirmed_flags: confirmedFlags,
-          transcript: inputText,
-          reality_lock: realityLock,
-          evidence_provenance: provenanceData,
+          parsed: parsedResult, asset: assetResult, confirmed_flags: confirmedFlags,
+          transcript: inputText, reality_lock: realityLock, evidence_provenance: provenanceData,
           authority_lock: localAuthResult
         });
         coreResult = coreRes.decision_core || coreRes;
@@ -1577,8 +1313,7 @@ export default function VoiceInspectionPage() {
       if (coreResult) {
         try {
           var sbRes = await fetch('/.netlify/functions/superbrain-synthesis', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ decision_core: coreResult, transcript: inputText })
           });
           if (sbRes.ok) {
@@ -1604,9 +1339,7 @@ export default function VoiceInspectionPage() {
           s = updateStep(5, { status: "error", detail: sbEx.message }, s);
           errs.push("superbrain-synthesis: " + sbEx.message);
         }
-      } else {
-        s = updateStep(5, { status: "error", detail: "no decision-core data" }, s);
-      }
+      } else { s = updateStep(5, { status: "error", detail: "no decision-core data" }, s); }
       setSteps(s.slice());
 
       s = updateStep(6, { status: "running", detail: "challenge + unknown state..." }, s); setSteps(s.slice());
@@ -1614,18 +1347,10 @@ export default function VoiceInspectionPage() {
         try {
           setHardeningLoading(true);
           hardenRes = await runHardeningPipeline(
-            inputText,
-            parsedResult,
-            assetResult,
-            grammarBridgeResult,
-            provenanceData,
-            coreResult.damage_reality || null,
-            coreResult.inspection_reality || null,
-            coreResult.authority_reality || null,
-            coreResult.contradiction_engine || null,
-            coreResult.consequence_reality || null,
-            coreResult,
-            savedCaseId || undefined
+            inputText, parsedResult, assetResult, grammarBridgeResult, provenanceData,
+            coreResult.damage_reality || null, coreResult.inspection_reality || null,
+            coreResult.authority_reality || null, coreResult.contradiction_engine || null,
+            coreResult.consequence_reality || null, coreResult, savedCaseId || undefined
           );
           setHardeningResult(hardenRes);
           var rState = hardenRes?.unknownStateResult?.reality_state || "?";
@@ -1634,12 +1359,8 @@ export default function VoiceInspectionPage() {
         } catch (hErr: any) {
           s = updateStep(6, { status: "error", detail: hErr.message }, s);
           errs.push("hardening: " + hErr.message);
-        } finally {
-          setHardeningLoading(false);
-        }
-      } else {
-        s = updateStep(6, { status: "error", detail: "no decision-core data" }, s);
-      }
+        } finally { setHardeningLoading(false); }
+      } else { s = updateStep(6, { status: "error", detail: "no decision-core data" }, s); }
       setSteps(s.slice());
 
       s = updateStep(7, { status: "running", detail: "evaluating failure modes..." }, s); setSteps(s.slice());
@@ -1650,17 +1371,12 @@ export default function VoiceInspectionPage() {
           var govSev = fmdResult.governing_severity || "?";
           var fmdDetail = govMode + " | " + govSev;
           if (fmdResult.interaction_flag) fmdDetail = fmdDetail + " | INTERACTION";
-
           var dpResult = await callDispositionPathway(fmdResult, localStrengthResult, hardenRes, coreResult);
           if (dpResult) {
             fmdDetail = fmdDetail + " | " + dpResult.disposition;
             s = updateStep(7, { status: "done", detail: fmdDetail }, s);
-          } else {
-            s = updateStep(7, { status: "done", detail: fmdDetail + " | no disposition" }, s);
-          }
-        } else {
-          s = updateStep(7, { status: "done", detail: "no failure mode data" }, s);
-        }
+          } else { s = updateStep(7, { status: "done", detail: fmdDetail + " | no disposition" }, s); }
+        } else { s = updateStep(7, { status: "done", detail: "no failure mode data" }, s); }
       } catch (fmdErr: any) {
         s = updateStep(7, { status: "error", detail: fmdErr.message }, s);
         errs.push("failure-mode-dominance: " + fmdErr.message);
@@ -1679,17 +1395,13 @@ export default function VoiceInspectionPage() {
           }
           if (ftResult.urgency) ftDetail = ftDetail + " | " + ftResult.urgency;
           s = updateStep(8, { status: "done", detail: ftDetail }, s);
-        } else {
-          s = updateStep(8, { status: "done", detail: "no timeline data" }, s);
-        }
+        } else { s = updateStep(8, { status: "done", detail: "no timeline data" }, s); }
       } catch (ftErr: any) {
         s = updateStep(8, { status: "error", detail: ftErr.message }, s);
         errs.push("failure-timeline: " + ftErr.message);
       }
       setSteps(s.slice());
-
     } catch (e: any) { errs.push("Pipeline error: " + e.message); }
-
     setErrors(errs); setIsGenerating(false);
     setTimeout(function() { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: "smooth" }); }, 200);
   }
@@ -1724,7 +1436,7 @@ export default function VoiceInspectionPage() {
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
         <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6g</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY166: RSR banner guardrail. Pressure envelope banner recolors when FMD detects cracking or interaction.</p>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY166: RSR banner guardrail. When FMD detects cracking or interaction, pressure envelope no longer renders as clearance.</p>
       </div>
 
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
