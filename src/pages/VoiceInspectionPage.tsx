@@ -1,56 +1,32 @@
-// DEPLOY164 — src/pages/VoiceInspectionPage.tsx v16.6f
-// v16.6f: RSR CALLER FIX (DEPLOY164) + BANNER BUMP (DEPLOY163 folded in).
+// DEPLOY166 — src/pages/VoiceInspectionPage.tsx v16.6g
+// v16.6g: RSR BANNER GUARDRAIL (DEPLOY166).
 //
-// TWO FIXES IN THIS BUILD:
+// Universal PDF rendering fix. When FMD detects cracking path active OR
+// interaction flag set, the RSR "WITHIN SAFE ENVELOPE" banner no longer
+// renders as green/clearance. It renders as amber with qualifier text
+// because pressure envelope alone cannot disposition cracking or
+// mechanism interaction. Logic reads FMD fields only -- no asset type
+// keywords, no scenario-specific branches. Degrades to nominal green
+// behavior when FMD is absent or cracking inactive.
 //
-// 1. BANNER COSMETIC (was DEPLOY163):
-//    - PDF header bumped: decision-core v2.5 -> v2.5.1
-//                         Remaining Strength v1.0 -> v1.1
-//                         FMD v1.1 -> v1.3.2
-//    - failureModeSource label: "FMD v1.1" -> "FMD v1.3.2" (PDF + live UI)
+// Addresses GPT evaluation feedback that RSR "WITHIN" banner created
+// false comfort on Scenario 3 even though DPR correctly routed to
+// ENGINEERING_ASSESSMENT. The logic was correct; the PDF UX was not.
 //
-// 2. RSR CALLER FORWARDING (DEPLOY164):
-//    The remaining-strength engine has been at v1.1 since DEPLOY160 with
-//    full NPS STD schedule lookup + SMYS material lookup + partial-data
-//    derivation path. The caller was still written for v1.0, which meant:
-//      (a) RSR was gated behind authority-lock.trigger_b31g -- never fired
-//          for piping+corrosion scenarios where auth-lock didn't set it
-//      (b) callRemainingStrength hard-bailed when nominal_wall or
-//          measured_min_wall were absent, throwing away all the partial
-//          data the v1.1 engine was designed to derive
-//      (c) v1.1 alternate field names (diameter_inches, wall_loss_percent,
-//          pressure_psi, material) were never forwarded
+// Universality: rule reads fmd.cracking_path.active and fmd.interaction_flag
+// which exist for ANY asset class FMD evaluates. Clean corrosion-only
+// cases with no cracking produce unchanged green banner.
 //
-//    Fixes:
-//      - callRemainingStrength rewritten to forward v1.1 alternate fields
-//        + pulls material grade from grammar bridge + parses ASTM patterns
-//        (A106 Gr B, A53, A333, A516) from raw_text + diameter + wall loss
-//        regex fallback
-//      - Hard bail removed. Engine v1.1 handles partial data gracefully.
-//        Caller only skips if there is no wall loss signal whatsoever.
-//      - RSR called UNCONDITIONALLY after authority-lock in continuePipeline
-//        (no more trigger_b31g gate)
-//
-//    Expected on Scenario 3 (16" A106 Gr B, 420 psi, 42% wall loss):
-//      TIER B path: nominal_wall derived from NPS 16 STD = 0.375",
-//      pipe_od = 16, smys = 35000 (A106_GR_B lookup),
-//      measured_min_wall = 0.2175", infinite flaw length (conservative),
-//      B31G MAOP computed, safe envelope populated.
-//
-// Carries forward all v16.6b/c/e patches:
-//   1. callX catch blocks push to errors[]
-//   2. callX HTTP-non-OK paths push to errors[]
-//   3. continuePipeline closure-staleness fix (localAuthResult/localStrengthResult)
-//   4. PDF Hardening Diagnostic block
-//   5. Export PDF passes errors[] to generateInspectionReport
-//   6. Export PDF gated on isGenerating
-//   7. FMD failure-mode override applied to live UI Consequence card
-//   8. HardeningResultsPanel BYPASSED (inline yellow diagnostic retained)
+// Carries forward all v16.6f patches:
+//   1. RSR caller forwards v1.1 alternate field names
+//   2. RSR called unconditionally after authority-lock
+//   3. Engine stack banner shows v2.5.1 + RSR v1.1 + FMD v1.3.2
+//   4. All v16.6b/c/e patches (catch blocks, closure staleness, PDF
+//      diagnostic, export gating, FMD override on live UI)
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
 import { runHardeningPipeline } from "../utils/hardening-pipeline";
-// v16.6c: HardeningResultsPanel import removed — bypassed in JSX due to child card crash
 import PhotoAnalysisCard from "../PhotoAnalysisCard";
 
 function generateInspectionReport(data: {
@@ -150,7 +126,7 @@ function generateInspectionReport(data: {
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>v16.6f | Engine: decision-core v2.5.1 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.0 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>v16.6g | Engine: decision-core v2.5.1 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.0 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -170,7 +146,7 @@ function generateInspectionReport(data: {
   // HARDENING DIAGNOSTIC — always render, shows engine state snapshot
   // ======================================================================
   html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
-  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6f)</div>";
+  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6g)</div>";
   html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time. Read this on phone photos.</div>";
 
   var diagEngines = [
@@ -246,10 +222,41 @@ function generateInspectionReport(data: {
   if (rsr) {
     html += "<div class='section'>";
     html += "<div class='section-title'>Remaining Strength (B31G)</div>";
-    var envColor = rsr.safe_envelope === "WITHIN" ? "#16a34a" : rsr.safe_envelope === "MARGINAL" ? "#ea580c" : rsr.safe_envelope === "EXCEEDS" ? "#dc2626" : "#6b7280";
-    if (rsr.safe_envelope) {
-      html += "<div class='banner' style='background:" + envColor + "'>" + esc(rsr.safe_envelope) + " SAFE ENVELOPE</div>";
+
+    // v16.6g (DEPLOY166): RSR banner guardrail -- when FMD detects cracking
+    // path active or interaction flag set, the WITHIN banner must not render
+    // as green/clearance because pressure envelope alone cannot disposition
+    // cracking or mechanism interaction. Universal: reads FMD fields only,
+    // applies to any asset regardless of type. Degrades to nominal behavior
+    // when FMD is absent or inactive.
+    var rsrBannerGuardrail = false;
+    var rsrGuardrailReason = "";
+    if (fmd) {
+      if (fmd.cracking_path && fmd.cracking_path.active) {
+        rsrBannerGuardrail = true;
+        rsrGuardrailReason = "cracking path active";
+      } else if (fmd.interaction_flag) {
+        rsrBannerGuardrail = true;
+        rsrGuardrailReason = "mechanism interaction flag set";
+      }
     }
+    var envColor;
+    if (rsrBannerGuardrail && rsr.safe_envelope === "WITHIN") {
+      envColor = "#ca8a04";
+    } else {
+      envColor = rsr.safe_envelope === "WITHIN" ? "#16a34a" : rsr.safe_envelope === "MARGINAL" ? "#ea580c" : rsr.safe_envelope === "EXCEEDS" ? "#dc2626" : "#6b7280";
+    }
+    if (rsr.safe_envelope) {
+      var bannerText = esc(rsr.safe_envelope) + " SAFE ENVELOPE";
+      if (rsrBannerGuardrail && rsr.safe_envelope === "WITHIN") {
+        bannerText = "WITHIN PRESSURE ENVELOPE ONLY &mdash; NOT GOVERNING";
+      }
+      html += "<div class='banner' style='background:" + envColor + "'>" + bannerText + "</div>";
+      if (rsrBannerGuardrail) {
+        html += "<div style='font-size:10px;color:#92400e;font-style:italic;margin-bottom:8px;text-align:center;'>Pressure envelope cannot disposition this asset: " + esc(rsrGuardrailReason) + ". See FMD and DPR sections.</div>";
+      }
+    }
+
     if (rsr.data_quality) html += "<div class='info-row'><span class='info-label'>Data Quality Tier</span><span class='info-value'>" + esc(rsr.data_quality) + "</span></div>";
     if (rsr.governing_maop) html += "<div class='info-row'><span class='info-label'>Governing MAOP</span><span class='info-value'>" + esc(rsr.governing_maop) + " psi (" + esc(rsr.governing_method || "B31G") + ")</span></div>";
     if (rsr.operating_pressure) html += "<div class='info-row'><span class='info-label'>Operating Pressure</span><span class='info-value'>" + esc(rsr.operating_pressure) + " psi</span></div>";
@@ -469,7 +476,7 @@ function generateInspectionReport(data: {
   html += "</div>";
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
-  html += "Generated by FORGED NDT Intelligence OS v16.6f - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
+  html += "Generated by FORGED NDT Intelligence OS v16.6g - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
   html += "</div>";
 
   html += "</body></html>";
@@ -852,7 +859,6 @@ export default function VoiceInspectionPage() {
 
   // ========================================================================
   // BUILD 1: AUTHORITY LOCK + REMAINING STRENGTH CALLS
-  // v16.6b: catch blocks + HTTP-non-OK paths now surface errors via setErrors
   // ========================================================================
 
   var callAuthorityLock = async function(assetData: any, parsedData: any, gbData: any, confirmedFlags: any) {
@@ -935,15 +941,8 @@ export default function VoiceInspectionPage() {
   };
 
   // ========================================================================
-  // v16.6f (DEPLOY164): REMAINING STRENGTH CALLER REWRITE
-  // - Forwards v1.1 alternate field names (diameter_inches, wall_loss_percent,
-  //   pressure_psi, material) so the engine can use NPS STD schedule lookup
-  //   + SMYS material lookup + partial-data derivation path.
-  // - Pulls material grade from grammar bridge + parses ASTM patterns
-  //   (A106 Gr B, A53, A333, A516) from raw_text as backup.
-  // - Extracts diameter + wall loss from raw_text via regex as final fallback.
-  // - NO HARD BAIL. Engine v1.1 returns graceful empty/qualitative when
-  //   inputs are thin. Only skips call if there is zero wall loss signal.
+  // v16.6f (DEPLOY164): REMAINING STRENGTH CALLER -- forwards v1.1 alternate
+  // field names, no hard bail, engine handles partial data gracefully.
   // ========================================================================
   var callRemainingStrength = async function(parsedData: any, gbData: any) {
     try {
@@ -958,7 +957,6 @@ export default function VoiceInspectionPage() {
       var designFactor = 0.72;
       var operatingPressure = 0;
 
-      // Pull from grammar bridge numeric block
       if (gbData && gbData.extracted && gbData.extracted.numeric) {
         var num = gbData.extracted.numeric;
         if (num.nominal_wall) nominalWall = num.nominal_wall;
@@ -969,13 +967,11 @@ export default function VoiceInspectionPage() {
         if (num.wall_loss_percent) wallLossPercent = num.wall_loss_percent;
       }
 
-      // Pull material from grammar bridge
       if (gbData && gbData.extracted) {
         if (gbData.extracted.material) materialGrade = String(gbData.extracted.material);
         if (!materialGrade && gbData.extracted.material_grade) materialGrade = String(gbData.extracted.material_grade);
       }
 
-      // Pull from parsed.numeric_values
       if (parsedData && parsedData.numeric_values) {
         var nv = parsedData.numeric_values;
         if (!nominalWall && nv.nominal_wall) nominalWall = nv.nominal_wall;
@@ -989,7 +985,6 @@ export default function VoiceInspectionPage() {
 
       var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
 
-      // API 5L line pipe grade patterns
       var gradePatterns = ["x120", "x100", "x90", "x80", "x70", "x65", "x60", "x56", "x52", "x46", "x42"];
       for (var gpi = 0; gpi < gradePatterns.length; gpi++) {
         if (!materialGrade && lt.indexOf(gradePatterns[gpi]) >= 0) {
@@ -998,7 +993,6 @@ export default function VoiceInspectionPage() {
         }
       }
 
-      // ASTM carbon steel patterns (refinery/process piping)
       if (!materialGrade) {
         if (lt.indexOf("a106") >= 0 && (lt.indexOf("grade b") >= 0 || lt.indexOf("gr b") >= 0 || lt.indexOf("gr. b") >= 0)) materialGrade = "A106_GR_B";
         else if (lt.indexOf("a106") >= 0 && (lt.indexOf("grade a") >= 0 || lt.indexOf("gr a") >= 0)) materialGrade = "A106_GR_A";
@@ -1010,7 +1004,6 @@ export default function VoiceInspectionPage() {
         else if (lt.indexOf("carbon steel") >= 0) materialGrade = "CARBON_STEEL";
       }
 
-      // Diameter extraction from raw text (e.g. "16 inch", "16\"", "16-inch")
       if (!diameterInches) {
         var diaMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:inch|in\b|")/);
         if (diaMatch) {
@@ -1019,7 +1012,6 @@ export default function VoiceInspectionPage() {
         }
       }
 
-      // Wall loss extraction from raw text (e.g. "42% wall loss", "42 percent")
       if (!wallLossPercent) {
         var wlMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:wall|metal|thickness)?/);
         if (wlMatch) {
@@ -1028,7 +1020,6 @@ export default function VoiceInspectionPage() {
         }
       }
 
-      // Operating pressure extraction (e.g. "420 psi")
       if (!operatingPressure) {
         var pMatch = lt.match(/(\d+(?:\.\d+)?)\s*psi/);
         if (pMatch) {
@@ -1037,9 +1028,6 @@ export default function VoiceInspectionPage() {
         }
       }
 
-      // v16.6f: NO HARD BAIL. Engine v1.1 handles partial data via NPS
-      // schedule lookup + SMYS material lookup. Only skip if we have
-      // absolutely nothing useful.
       var haveAnySignal = (nominalWall && measuredMinWall) ||
                           (diameterInches && wallLossPercent) ||
                           wallLossPercent;
@@ -1488,12 +1476,10 @@ export default function VoiceInspectionPage() {
     var errs = errorsRef.current.slice();
     var hardenRes: any = null;
     var fmdResult: any = null;
-    // v16.6b: capture results from callX returns to avoid React state staleness
     var localAuthResult: any = null;
     var localStrengthResult: any = null;
 
     try {
-      // STEP 2: EVIDENCE PROVENANCE
       s = updateStep(2, { status: "running", detail: "classifying evidence trust..." }, s); setSteps(s.slice());
       var provenanceData: any = null;
       try {
@@ -1520,16 +1506,6 @@ export default function VoiceInspectionPage() {
       setProvenanceLoading(false);
       setSteps(s.slice());
 
-      // ====================================================================
-      // STEP 3: AUTHORITY LOCK + REMAINING STRENGTH
-      // v16.6f (DEPLOY164): RSR is now called UNCONDITIONALLY after
-      // authority-lock. The previous gate (localAuthResult.trigger_b31g)
-      // was orphaning RSR for piping+corrosion scenarios where
-      // authority-lock did not set the trigger flag. RSR engine v1.1
-      // handles partial data and returns graceful empty/qualitative tier
-      // when inputs are thin, so calling it is cheap and safe. The caller
-      // skips internally if there is no wall loss signal at all.
-      // ====================================================================
       s = updateStep(3, { status: "running", detail: "resolving governing authority..." }, s); setSteps(s.slice());
       var authDetail = "";
       try {
@@ -1553,7 +1529,6 @@ export default function VoiceInspectionPage() {
         setSteps(s.slice());
       }
 
-      // RSR call -- unconditional, runs regardless of authority-lock state
       try {
         localStrengthResult = await callRemainingStrength(parsedResult, grammarBridgeResult);
         if (localStrengthResult) {
@@ -1571,7 +1546,6 @@ export default function VoiceInspectionPage() {
         errs.push("remaining-strength (unconditional): " + (rsrErr && rsrErr.message ? rsrErr.message : String(rsrErr)));
       }
 
-      // STEP 4: DECISION CORE
       s = updateStep(4, { status: "running", detail: "6 Klein bottle states..." }, s); setSteps(s.slice());
       var coreResult: any = null;
       try {
@@ -1599,7 +1573,6 @@ export default function VoiceInspectionPage() {
       }
       setSteps(s.slice());
 
-      // STEP 5: SUPERBRAIN SYNTHESIS
       s = updateStep(5, { status: "running", detail: "GPT-4o constrained by decision-core..." }, s); setSteps(s.slice());
       if (coreResult) {
         try {
@@ -1636,7 +1609,6 @@ export default function VoiceInspectionPage() {
       }
       setSteps(s.slice());
 
-      // STEP 6: REALITY HARDENING
       s = updateStep(6, { status: "running", detail: "challenge + unknown state..." }, s); setSteps(s.slice());
       if (coreResult) {
         try {
@@ -1670,8 +1642,6 @@ export default function VoiceInspectionPage() {
       }
       setSteps(s.slice());
 
-      // STEP 7: FAILURE MODE DOMINANCE + DISPOSITION PATHWAY
-      // v16.6b: pass localAuthResult / localStrengthResult instead of stale React state
       s = updateStep(7, { status: "running", detail: "evaluating failure modes..." }, s); setSteps(s.slice());
       try {
         fmdResult = await callFailureModeDominance(parsedResult, grammarBridgeResult, confirmedFlags, localAuthResult, localStrengthResult);
@@ -1697,8 +1667,6 @@ export default function VoiceInspectionPage() {
       }
       setSteps(s.slice());
 
-      // STEP 8: FAILURE TIMELINE
-      // v16.6b: pass localStrengthResult instead of stale React state
       s = updateStep(8, { status: "running", detail: "projecting remaining life..." }, s); setSteps(s.slice());
       try {
         var ftResult = await callFailureTimeline(parsedResult, grammarBridgeResult, confirmedFlags, localStrengthResult, fmdResult);
@@ -1745,7 +1713,6 @@ export default function VoiceInspectionPage() {
   var dec = dc?.decision_reality;
   var syn = superbrainResult?.synthesis;
 
-  // v16.6f: live UI failure mode override (matches PDF behavior)
   var liveFailureMode = (con && con.failure_mode) || "unknown";
   var liveFailureModeSource = "decision-core";
   if (failureModeDominanceResult && failureModeDominanceResult.governing_failure_mode && failureModeDominanceResult.governing_failure_mode !== "NONE") {
@@ -1756,8 +1723,8 @@ export default function VoiceInspectionPage() {
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6f</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY164: RSR caller forwarding fix. RSR engine v1.1 now called unconditionally with v1.1 field forwarding.</p>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6g</h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY166: RSR banner guardrail. Pressure envelope banner recolors when FMD detects cracking or interaction.</p>
       </div>
 
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
@@ -1837,7 +1804,6 @@ export default function VoiceInspectionPage() {
         {dc && (
           <div style={{ marginBottom: "16px" }}>
             <div style={{ display: "flex", gap: "8px" }}>
-              {/* v16.6e: Export PDF disabled while pipeline is running to prevent capturing stale null FMD/DPR/FTR */}
               <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative, superbrainResult: superbrainResult, provenanceResult: provenanceResult, authorityLockResult: authorityLockResult, remainingStrengthResult: remainingStrengthResult, failureModeDominanceResult: failureModeDominanceResult, dispositionPathwayResult: dispositionPathwayResult, failureTimelineResult: failureTimelineResult, errors: errors }); }} disabled={isGenerating} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#1e40af", border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
                 {isGenerating ? "\u23F3 Pipeline Running..." : "\uD83D\uDCC4 Export PDF"}
               </button>
@@ -1893,7 +1859,6 @@ export default function VoiceInspectionPage() {
 
         {con && (
           <Card title={"Consequence: " + con.consequence_tier} icon={con.consequence_tier === "CRITICAL" ? "\uD83D\uDED1" : "\u2139\uFE0F"} collapsible={false}>
-            {/* v16.6f: apply FMD failure mode override (matches PDF) */}
             <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "8px", fontWeight: 800, fontSize: "18px", color: "#fff", backgroundColor: tierColor(con.consequence_tier), textAlign: "center" }}>
               {con.consequence_tier} CONSEQUENCE {"\u2014"} {liveFailureMode.toUpperCase()}
             </div>
@@ -1920,7 +1885,6 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* Superbrain features (compact, only when present) */}
         {syn && syn.failure_narrative && (
           <Card title="Failure Narrative" icon={"\uD83D\uDCD6"} accent="#2563eb">
             <div style={{ fontSize: "13px", lineHeight: "1.7", whiteSpace: "pre-wrap" }}>{syn.failure_narrative}</div>
@@ -1953,7 +1917,6 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* Decision Core Detail (collapsed by default) */}
         {phy && (
           <Card title="Physical Reality" icon={"\u269B\uFE0F"} defaultCollapsed={true}>
             <div style={{ fontSize: "13px", color: "#374151" }}>{phy.physics_summary}</div>
@@ -1986,10 +1949,9 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
-        {/* v16.6c: HardeningResultsPanel BYPASSED — child card was crashing on .confidence access. Inline diagnostic instead. */}
         {(authorityLockResult || remainingStrengthResult || failureModeDominanceResult || dispositionPathwayResult || failureTimelineResult) && (
           <div style={{ marginBottom: "16px", padding: "12px", border: "2px solid #000", borderRadius: "8px", backgroundColor: "#fffbe6" }}>
-            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6f inline diagnostic)</div>
+            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6g inline diagnostic)</div>
             <div style={{ fontSize: "11px", fontFamily: "monospace", lineHeight: "1.6" }}>
               <div>ALR: {authorityLockResult ? "PRESENT \u2014 status=" + (authorityLockResult.status || "?") + " | " + ((authorityLockResult.authority_chain || []).length) + " primary | trigger_b31g=" + String(!!authorityLockResult.trigger_b31g) : "null"}</div>
               <div>RSR: {remainingStrengthResult ? "PRESENT \u2014 tier=" + (remainingStrengthResult.data_quality || "?") + " | envelope=" + (remainingStrengthResult.safe_envelope || "?") + " | MAOP=" + (remainingStrengthResult.governing_maop || "?") + " | severity=" + (remainingStrengthResult.severity_tier || "?") : "null"}</div>
