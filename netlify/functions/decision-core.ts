@@ -1,3 +1,13 @@
+// DEPLOY168 — decision-core.ts v2.5.3
+// v2.5.3: Hot-fluid human impact routing
+// DEPLOY168: Universal thermal/flammable injury logic inside
+//   resolveConsequenceReality. Reads physics.thermal.operating_temp_f +
+//   physics.energy.stored_energy_significant + transcript flammable
+//   context. Upgrades human_impact from "Low" to thermal burn / flash fire
+//   language when a pressure-boundary thinning mechanism releases hot fluid.
+//   Fixes Scenario 3 Human Impact: Low on 640F hot hydrocarbon process
+//   line. Universal: no asset-class branches, degrades gracefully when
+//   temperature or fluid context absent.
 // DEPLOY167 — decision-core.ts v2.5.2
 // v2.5.2: Tiered asset correction penalty
 // DEPLOY167: assessAssetCorrectionStrength() helper distinguishes clean
@@ -1155,6 +1165,77 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     if (tier !== "CRITICAL") tier = "HIGH";
     basis.push("CONSEQUENCE: Underwater/subsea condition uncertain — critical zones uninspected");
   }
+  // ============================================================================
+  // DEPLOY168 v2.5.3: HOT FLUID HUMAN IMPACT ROUTING
+  // Universal thermal/flammable injury potential from physics state alone.
+  // No asset-class branches, no scenario keywords. Reads operating_temp_f +
+  // stored_energy_significant + primary mechanism type + transcript flammable
+  // context. Degrades gracefully when temperature or fluid context absent.
+  //
+  // Three severity bands based on physics:
+  //   - 400F+ with flammable context = flash fire / autoignition risk on release
+  //     (most hydrocarbons autoignite 400-800F; release at or near autoignition
+  //     creates fire risk regardless of external ignition source)
+  //   - 400F+ non-flammable = severe thermal burn (second-degree in <1 sec contact)
+  //   - 140-400F  = thermal scald/burn injury (OSHA thermal contact threshold ~140F)
+  //
+  // Only fires when the primary mechanism is a pressure-boundary thinning type
+  // (corrosion/pitting/erosion/cui) so "thermal burn on release" is actually in
+  // the failure mode. Doesn't fire for fatigue (different failure mode) or
+  // structural members without fluid inventory.
+  // ============================================================================
+  var opTempF = physics.thermal.operating_temp_f;
+  var hasStoredEnergy = physics.energy.stored_energy_significant;
+  var primaryIsBoundaryThinning = damage.primary && (
+    damage.primary.id.indexOf("corrosion") !== -1 ||
+    damage.primary.id.indexOf("pitting") !== -1 ||
+    damage.primary.id === "erosion" ||
+    damage.primary.id === "cui" ||
+    damage.primary.id === "co2_corrosion"
+  );
+  var flammableContext = hasWord(lt, "hydrocarbon") ||
+    hasWord(lt, "crude") ||
+    hasWord(lt, "naphtha") ||
+    hasWord(lt, "diesel") ||
+    hasWord(lt, "gasoline") ||
+    hasWord(lt, "kerosene") ||
+    hasWord(lt, "lpg") ||
+    hasWord(lt, "propane") ||
+    hasWord(lt, "butane") ||
+    hasWord(lt, "ngl") ||
+    hasWord(lt, "ethylene") ||
+    hasWord(lt, "methane") ||
+    hasWord(lt, "flammable") ||
+    hasWord(lt, "combustible") ||
+    hasWord(lt, "process fluid") ||
+    (physics.chemical.environment_agents && physics.chemical.environment_agents.indexOf("naphthenic_acid") !== -1);
+
+  if (opTempF !== null && opTempF >= 140 && hasStoredEnergy && primaryIsBoundaryThinning) {
+    if (tier === "MEDIUM" || tier === "LOW") tier = "HIGH";
+
+    if (opTempF >= 400 && flammableContext) {
+      basis.push("PHYSICS: Hot hydrocarbon release at " + opTempF + "F with pressure boundary thinning mechanism — thermal burn + flash fire/autoignition risk on release (fluid at or above hydrocarbon autoignition threshold)");
+      if (humanImpact === "Low" || humanImpact === "Operational disruption") {
+        humanImpact = "Serious injury/fatality from thermal burns + flash fire on release";
+      }
+      if (envImpact === "Negligible") envImpact = "Hydrocarbon release with fire risk";
+      if (failMode === "equipment_degradation") failMode = "hot_hydrocarbon_release";
+    } else if (opTempF >= 400) {
+      basis.push("PHYSICS: High-temperature fluid release at " + opTempF + "F with pressure boundary thinning mechanism — severe thermal burn risk (fluid well above thermal injury threshold)");
+      if (humanImpact === "Low" || humanImpact === "Operational disruption") {
+        humanImpact = "Serious thermal burn injury from high-temperature release";
+      }
+      if (failMode === "equipment_degradation") failMode = "hot_fluid_release";
+    } else {
+      // 140-400F band
+      basis.push("PHYSICS: Heated fluid release at " + opTempF + "F with pressure boundary thinning mechanism — thermal burn/scald risk (above OSHA thermal contact threshold of 140F)");
+      if (humanImpact === "Low" || humanImpact === "Operational disruption") {
+        humanImpact = "Thermal burn injury from heated fluid release";
+      }
+      if (failMode === "equipment_degradation") failMode = "heated_fluid_release";
+    }
+  }
+
   if (basis.length === 0) basis.push("Standard asset — default MEDIUM");
 
   var isRoutine = hasWord(lt, "routine") || hasWord(lt, "general condition") || hasWord(lt, "condition assessment") || hasWord(lt, "general inspection") || hasWord(lt, "periodic");
@@ -2516,7 +2597,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.5.2",
+          engine_version: "physics-first-decision-core-v2.5.3",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
