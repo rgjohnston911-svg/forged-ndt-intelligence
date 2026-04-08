@@ -1,3 +1,8 @@
+// DEPLOY155 — voice-grammar-bridge.ts v1.2
+// v1.2: CRASH FIX — preGateRiskCheck was referencing `lt` which was out of scope.
+//        Caused ReferenceError 500s whenever temperature_f in [25,350] (CUI gate)
+//        or diameter_inches <= 2 (vibration gate). Sour amine service hit this
+//        every run. Fix: pass `lt` into preGateRiskCheck as second arg.
 // DEPLOY124 — voice-grammar-bridge.ts v1.1
 // v1.1: Expanded keywords, clock positions, orientation, better numeric parsing
 // DEPLOY116 — voice-grammar-bridge.ts v1.0
@@ -406,9 +411,11 @@ function generatePrompts(missing: string[]): any[] {
 
 // ============================================================================
 // RISK PRE-GATE — flags dangerous combinations before full analysis
+// v1.2: now takes `lt` (lowercased transcript) as second arg — was crashing
+//       on references to `lt` from caller scope in v1.1 CUI + vibration gates
 // ============================================================================
 
-function preGateRiskCheck(extracted: any): any[] {
+function preGateRiskCheck(extracted: any, lt: string): any[] {
   var flags: any[] = [];
 
   // Crack + no crack-specific NDE
@@ -458,7 +465,7 @@ function preGateRiskCheck(extracted: any): any[] {
     });
   }
 
-  // CUI risk — insulation + temperature range (v1.1)
+  // CUI risk — insulation + temperature range (v1.1, fixed in v1.2)
   var hasCUI = false;
   for (var cui = 0; cui < extracted.finding_types.length; cui++) {
     if (extracted.finding_types[cui] === "cui") hasCUI = true;
@@ -474,7 +481,7 @@ function preGateRiskCheck(extracted: any): any[] {
     }
   }
 
-  // Vibration + small bore (v1.1)
+  // Vibration + small bore (v1.1, fixed in v1.2)
   if (extracted.numeric.diameter_inches && extracted.numeric.diameter_inches <= 2) {
     var hasVibration = lt.indexOf("vibrat") !== -1 || lt.indexOf("shaking") !== -1 || lt.indexOf("chattering") !== -1;
     if (hasVibration) {
@@ -562,8 +569,8 @@ function extractFromTranscript(transcript: string): any {
   // Generate readback
   var readback = generateReadback(extracted);
 
-  // Risk pre-gate
-  var riskFlags = preGateRiskCheck(extracted);
+  // Risk pre-gate (v1.2: now receives `lt`)
+  var riskFlags = preGateRiskCheck(extracted, lt);
 
   // Prompts for missing fields
   var prompts = generatePrompts(missing);
@@ -676,7 +683,7 @@ var handler = async function(event: any): Promise<any> {
         statusCode: 200, headers: headers,
         body: JSON.stringify({
           ok: true,
-          grammar_bridge_version: "1.1",
+          grammar_bridge_version: "1.2",
           action: "extract",
           result: result
         })
@@ -696,7 +703,7 @@ var handler = async function(event: any): Promise<any> {
         statusCode: 200, headers: headers,
         body: JSON.stringify({
           ok: true,
-          grammar_bridge_version: "1.1",
+          grammar_bridge_version: "1.2",
           action: "amend",
           result: amended
         })
@@ -710,7 +717,7 @@ var handler = async function(event: any): Promise<any> {
         statusCode: 200, headers: headers,
         body: JSON.stringify({
           ok: true,
-          grammar_bridge_version: "1.1",
+          grammar_bridge_version: "1.2",
           action: "readback",
           readback: readback
         })
