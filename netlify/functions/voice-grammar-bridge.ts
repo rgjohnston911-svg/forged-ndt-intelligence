@@ -1,32 +1,87 @@
-// DEPLOY155 — voice-grammar-bridge.ts v1.2
-// v1.2: CRASH FIX — preGateRiskCheck was referencing `lt` which was out of scope.
-//        Caused ReferenceError 500s whenever temperature_f in [25,350] (CUI gate)
-//        or diameter_inches <= 2 (vibration gate). Sour amine service hit this
-//        every run. Fix: pass `lt` into preGateRiskCheck as second arg.
-// DEPLOY124 — voice-grammar-bridge.ts v1.1
-// v1.1: Expanded keywords, clock positions, orientation, better numeric parsing
-// DEPLOY116 — voice-grammar-bridge.ts v1.0
-// Voice → Grammar Bridge — Structured Field Capture
-// Extracts structured fields deterministically from natural speech
-// Identifies missing required fields and generates prompts
-// Produces readback summary for inspector confirmation
-// Supports amendment trails for audit
+// DEPLOY159 — voice-grammar-bridge.ts v1.2.1
+// v1.2.1: ASSET RESOLVER HOTFIX — three surgical fixes addressing three
+//         consecutive catastrophic misclassifications (SWS1/SWS2 -> pressure_vessel
+//         when transcript said "piping B31.3"; Scenario 3 -> offshore_platform
+//         via "jacket" matching inside "jacketing").
+//
+//         Fix 1: DESIGN CODE OVERRIDE — extractDesignCodes() scans transcript
+//                for explicit code citations (B31.3, Section VIII, API 570,
+//                API 650, AASHTO, API RP 2A, etc.) and resolveAssetFromDesignCode()
+//                maps them to asset_type. This runs BEFORE keyword matching and
+//                short-circuits it when an explicit code is present. Piping
+//                beats pressure vessel when both codes present (SWS pattern).
+//                Exposes extracted design_codes[] to downstream for Authority Lock.
+//
+//         Fix 2: ASSET_KEYWORDS REORDERED LONGEST-FIRST — the extractField()
+//                loop breaks on first match within each category, so shortest
+//                keywords were winning and blocking longer specific phrases.
+//                Each category now lists most-specific phrases first.
+//                Adds "overhead process line", "process piping", "process line",
+//                "pipe support" to piping so Scenario 3 resolves correctly without
+//                needing an explicit design code.
+//
+//         Fix 3: DANGEROUS SHORT KEYWORDS REMOVED —
+//                  "ast" (tank)             collided with "ASTM" material specs
+//                  "jacket" (offshore)      collided with "insulation jacketing"
+//                Replaced with longer forms: "aboveground storage tank",
+//                "jacket leg", "platform jacket".
+//
+//         Also adds asset_resolution_source field ("design_code_override" vs
+//                "keyword_match") so downstream can trust asset_class more
+//                when source = design_code_override.
+//
+// DEPLOY155 — v1.2: CRASH FIX on preGateRiskCheck (`lt` out of scope).
+// DEPLOY124 — v1.1: Expanded keywords, clock positions, orientation, numerics.
+// DEPLOY116 — v1.0: Initial grammar bridge.
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 // ============================================================================
 // FIELD DEFINITIONS — what a complete inspection record needs
 // ============================================================================
 
+// v1.2.1: ASSET_KEYWORDS ordered LONGEST-FIRST within each category.
+// Dangerous short substrings ("ast", "jacket") removed or replaced.
 var ASSET_KEYWORDS: any = {
-  "piping": ["pipe", "piping", "line", "header", "dead leg", "reducer", "elbow", "tee fitting"],
-  "pressure_vessel": ["vessel", "drum", "reactor", "exchanger", "autoclave", "column", "tower", "separator"],
-  "pipeline": ["pipeline", "right of way", "pigging", "burial", "pig launcher"],
-  "tank": ["storage tank", "aboveground tank", "aboveground storage", "ast", "tank bottom", "tank shell"],
-  "bridge": ["bridge", "girder", "span", "deck", "truss", "abutment", "pier"],
-  "rail_bridge": ["railroad", "railway", "rail bridge", "train", "coal train", "rail"],
-  "offshore_platform": ["offshore", "platform", "jacket", "riser", "caisson", "subsea", "splash zone"],
-  "boiler": ["boiler", "steam drum", "superheater", "economizer", "deaerator"],
-  "heat_exchanger": ["exchanger", "heat exchanger", "shell side", "tube side", "tube bundle", "u-tube", "floating head"]
+  "piping": [
+    "overhead process line", "hydrocarbon process line", "refinery process line",
+    "welded branch connection", "branch connection",
+    "process piping", "process line", "hydrocarbon line", "refinery line",
+    "pipe support", "pipe header", "tee fitting",
+    "dead leg", "dead-leg", "piping", "header", "reducer",
+    "long radius elbow", "elbow", "pipe", "line"
+  ],
+  "pressure_vessel": [
+    "pressure vessel", "separator drum", "reactor vessel", "process reactor",
+    "autoclave", "reactor", "exchanger", "separator",
+    "vessel", "drum", "column", "tower"
+  ],
+  "pipeline": [
+    "cross country pipeline", "transmission pipeline", "gas pipeline", "oil pipeline",
+    "pig launcher", "right of way", "pipeline", "pigging", "burial"
+  ],
+  "tank": [
+    "atmospheric storage tank", "aboveground storage tank", "aboveground storage",
+    "storage tank", "aboveground tank", "tank bottom", "tank shell", "tank roof"
+  ],
+  "bridge": [
+    "highway bridge", "road bridge", "abutment",
+    "girder", "truss", "bridge", "deck", "span", "pier"
+  ],
+  "rail_bridge": [
+    "railroad bridge", "railway bridge", "rail bridge", "coal train",
+    "railroad", "railway", "train", "rail"
+  ],
+  "offshore_platform": [
+    "offshore platform", "platform jacket", "jacket leg", "subsea riser",
+    "splash zone", "offshore", "platform", "caisson", "subsea", "riser"
+  ],
+  "boiler": [
+    "boiler drum", "steam drum", "superheater", "economizer", "deaerator", "boiler"
+  ],
+  "heat_exchanger": [
+    "heat exchanger", "tube bundle", "shell side", "tube side", "floating head",
+    "u-tube"
+  ]
 };
 
 var MATERIAL_KEYWORDS: any = {
@@ -124,11 +179,6 @@ var LOCATION_KEYWORDS: any = {
   "head": ["head", "dished head", "elliptical head", "hemispherical head"]
 };
 
-
-// ============================================================================
-// ORIENTATION + WELD CONFIGURATION — v1.1
-// ============================================================================
-
 var ORIENTATION_KEYWORDS: any = {
   "horizontal": ["horizontal", "horizontal run", "level", "flat run"],
   "vertical": ["vertical", "vertical run", "riser", "downcomer", "drop"],
@@ -146,7 +196,117 @@ var WELD_CONFIG_KEYWORDS: any = {
 };
 
 // ============================================================================
-// NUMERIC EXTRACTION — pulls measurements from natural speech
+// v1.2.1 HELPERS — word-boundary matching + design code extraction/resolution
+// ============================================================================
+
+function isWordCharGB(ch: string): boolean {
+  if (!ch) return false;
+  var c = ch.charCodeAt(0);
+  if (c >= 48 && c <= 57) return true;   // 0-9
+  if (c >= 65 && c <= 90) return true;   // A-Z
+  if (c >= 97 && c <= 122) return true;  // a-z
+  if (c === 95) return true;             // _
+  return false;
+}
+
+function hasWordBoundaryMatchGB(text: string, keyword: string): boolean {
+  if (!text || !keyword) return false;
+  var searchFrom = 0;
+  var idx = text.indexOf(keyword, searchFrom);
+  while (idx >= 0) {
+    var before = idx === 0 ? "" : text.charAt(idx - 1);
+    var afterIdx = idx + keyword.length;
+    var after = afterIdx >= text.length ? "" : text.charAt(afterIdx);
+    var beforeOK = (before === "") || !isWordCharGB(before);
+    var afterOK = (after === "") || !isWordCharGB(after);
+    if (beforeOK && afterOK) return true;
+    searchFrom = idx + 1;
+    idx = text.indexOf(keyword, searchFrom);
+  }
+  return false;
+}
+
+// v1.2.1: Extract explicit design code citations from transcript.
+// Returns an array of normalized code identifiers.
+function extractDesignCodes(lt: string): string[] {
+  var codes: string[] = [];
+
+  // ASME B31.x piping/pipeline codes
+  if (lt.indexOf("b31.3") !== -1 || lt.indexOf("b31 3") !== -1 ||
+      lt.indexOf("process piping code") !== -1) codes.push("ASME_B31.3");
+  if (lt.indexOf("b31.1") !== -1 || lt.indexOf("b31 1") !== -1 ||
+      lt.indexOf("power piping") !== -1) codes.push("ASME_B31.1");
+  if (lt.indexOf("b31.4") !== -1 || lt.indexOf("b31 4") !== -1 ||
+      lt.indexOf("liquid pipeline code") !== -1) codes.push("ASME_B31.4");
+  if (lt.indexOf("b31.8") !== -1 || lt.indexOf("b31 8") !== -1 ||
+      lt.indexOf("gas pipeline code") !== -1) codes.push("ASME_B31.8");
+
+  // ASME Section VIII (pressure vessels)
+  if (lt.indexOf("section viii") !== -1 || lt.indexOf("section 8") !== -1 ||
+      lt.indexOf("asme viii") !== -1 || lt.indexOf("asme 8") !== -1) {
+    codes.push("ASME_Section_VIII");
+  }
+
+  // API inspection codes
+  if (hasWordBoundaryMatchGB(lt, "api 570") || hasWordBoundaryMatchGB(lt, "api570")) codes.push("API_570");
+  if (hasWordBoundaryMatchGB(lt, "api 574") || hasWordBoundaryMatchGB(lt, "api574")) codes.push("API_574");
+  if (hasWordBoundaryMatchGB(lt, "api 510") || hasWordBoundaryMatchGB(lt, "api510")) codes.push("API_510");
+  if (hasWordBoundaryMatchGB(lt, "api 653") || hasWordBoundaryMatchGB(lt, "api653")) codes.push("API_653");
+  if (hasWordBoundaryMatchGB(lt, "api 650") || hasWordBoundaryMatchGB(lt, "api650")) codes.push("API_650");
+  if (hasWordBoundaryMatchGB(lt, "api 579") || hasWordBoundaryMatchGB(lt, "api579")) codes.push("API_579-1");
+
+  // Bridge codes
+  if (lt.indexOf("aashto") !== -1) codes.push("AASHTO");
+
+  // Offshore codes
+  if (lt.indexOf("api rp 2a") !== -1 || lt.indexOf("api rp2a") !== -1 ||
+      lt.indexOf("api-rp-2a") !== -1) codes.push("API_RP_2A");
+  if (lt.indexOf("api rp 2sim") !== -1 || lt.indexOf("api rp2sim") !== -1) codes.push("API_RP_2SIM");
+
+  // NACE sour service
+  if (lt.indexOf("mr0175") !== -1 || lt.indexOf("mr 0175") !== -1) codes.push("NACE_MR0175");
+  if (lt.indexOf("mr0103") !== -1 || lt.indexOf("mr 0103") !== -1) codes.push("NACE_MR0103");
+
+  return codes;
+}
+
+// v1.2.1: Resolve asset_type from extracted design codes.
+// Precedence: piping beats pressure_vessel when both present (SWS pattern —
+// scenarios commonly cite Section VIII for the connected vessel AND B31.3 for
+// the line being inspected; the line is the target asset).
+function resolveAssetFromDesignCode(codes: string[]): string | null {
+  var has = function(c: string): boolean {
+    for (var i = 0; i < codes.length; i++) if (codes[i] === c) return true;
+    return false;
+  };
+
+  var hasB31Piping = has("ASME_B31.3") || has("ASME_B31.1");
+  var hasB31Pipeline = has("ASME_B31.4") || has("ASME_B31.8");
+  var hasAPIPiping = has("API_570") || has("API_574");
+  var hasTank = has("API_650") || has("API_653");
+  var hasOffshore = has("API_RP_2A") || has("API_RP_2SIM");
+  var hasBridge = has("AASHTO");
+  var hasVessel = has("ASME_Section_VIII") || has("API_510");
+
+  // Unambiguous categories first
+  if (hasOffshore) return "offshore_platform";
+  if (hasBridge) return "bridge";
+  if (hasTank) return "tank";
+
+  // Piping beats vessel when both present — the asset under inspection
+  // is almost always the line, not the connected vessel, when both codes
+  // appear in the same transcript.
+  if (hasB31Piping || hasAPIPiping) return "piping";
+  if (hasB31Pipeline) return "pipeline";
+
+  // Vessel only if no piping code present
+  if (hasVessel) return "pressure_vessel";
+
+  return null;
+}
+
+// ============================================================================
+// NUMERIC EXTRACTION — pulls measurements from natural speech (unchanged)
 // ============================================================================
 
 function extractNumericValues(transcript: string): any {
@@ -166,12 +326,10 @@ function extractNumericValues(transcript: string): any {
 
   var t = transcript;
 
-  // Diameter
   var diaMatch = /(\d+)[\s-]*(?:inch|in\b|")\s*(?:diameter|dia|pipe|line|carbon|alloy|stainless)/i.exec(t);
   if (!diaMatch) diaMatch = /(\d+)[\s-]*(?:inch|in\b|")\s/i.exec(t);
   if (diaMatch) result.diameter_inches = parseFloat(diaMatch[1]);
 
-  // Wall loss percentage
   var wlMatch = /(\d+)[\s]*(?:percent|%)\s*(?:wall\s*loss|metal\s*loss|thinning|down|loss|gone|reduced)/i.exec(t);
   if (wlMatch) result.wall_loss_percent = parseFloat(wlMatch[1]);
   if (!wlMatch) {
@@ -179,7 +337,6 @@ function extractNumericValues(transcript: string): any {
     if (rangeMatch) result.wall_loss_percent = parseFloat(rangeMatch[2]);
   }
 
-  // Temperature
   var tempFMatch = /(\d+)\s*(?:degrees?\s*f|fahrenheit|°f)/i.exec(t);
   if (tempFMatch) result.temperature_f = parseFloat(tempFMatch[1]);
   var tempCMatch = /(\d+)\s*(?:degrees?\s*c|celsius|°c)/i.exec(t);
@@ -189,21 +346,17 @@ function extractNumericValues(transcript: string): any {
     if (tempPlain) result.temperature_f = parseFloat(tempPlain[1]);
   }
 
-  // Pressure
   var psiMatch = /(\d+)\s*(?:psi|psig)/i.exec(t);
   if (psiMatch) result.pressure_psi = parseFloat(psiMatch[1]);
   var barMatch = /(\d+)\s*(?:bar\b|barg)/i.exec(t);
   if (barMatch) result.pressure_bar = parseFloat(barMatch[1]);
 
-  // Service years
   var yearsMatch = /(\d+)\s*(?:years?\s*(?:in\s*service|old|of\s*service|service))/i.exec(t);
   if (yearsMatch) result.service_years = parseFloat(yearsMatch[1]);
 
-  // Last inspection
   var inspMatch = /(?:last\s*inspected|previous\s*inspection|last\s*inspection)\s*(\d+)\s*years?\s*ago/i.exec(t);
   if (inspMatch) result.years_since_inspection = parseFloat(inspMatch[1]);
 
-  // Length/size of finding
   var lenMatch = /(\d+(?:\.\d+)?)\s*(?:millimeters?|mm)\s*(?:long|length|crack|indication)/i.exec(t);
   if (lenMatch) result.length = { value: parseFloat(lenMatch[1]), unit: "mm" };
   if (!lenMatch) {
@@ -211,12 +364,9 @@ function extractNumericValues(transcript: string): any {
     if (lenInMatch) result.length = { value: parseFloat(lenInMatch[1]), unit: "inches" };
   }
 
-  // Depth
   var depthMatch = /(\d+(?:\.\d+)?)\s*(?:millimeters?|mm)\s*(?:deep|depth)/i.exec(t);
   if (depthMatch) result.depth = { value: parseFloat(depthMatch[1]), unit: "mm" };
 
-
-  // Nominal vs actual thickness comparison (v1.1)
   var nomActMatch = /(\d+\.?\d*)\s*(?:inch|in\.?|mm)\s*(?:versus|vs\.?|compared\s*to|against)\s*(\d+\.?\d*)\s*(?:inch|in\.?|mm)?\s*(?:nominal|original|design)?/i.exec(t);
   if (nomActMatch) {
     result.actual_thickness = parseFloat(nomActMatch[1]);
@@ -236,19 +386,16 @@ function extractNumericValues(transcript: string): any {
     }
   }
 
-  // Range expressions ("35 to 40 percent", "35-40%")
   if (!result.wall_loss_percent) {
     var rangeMatch2 = /(\d+)\s*(?:to|-)\s*(\d+)\s*(?:percent|%)\s*(?:wall\s*loss|loss|down|gone|thinning)/i.exec(t);
     if (rangeMatch2) result.wall_loss_percent = parseFloat(rangeMatch2[2]);
   }
 
-  // Approximate values ("about 200 psi", "roughly 300 degrees")
   var approxPsi = /(?:about|roughly|approximately|around|~)\s*(\d+)\s*(?:psi|psig)/i.exec(t);
   if (approxPsi && !result.pressure_psi) result.pressure_psi = parseFloat(approxPsi[1]);
   var approxTemp = /(?:about|roughly|approximately|around|~)\s*(\d+)\s*(?:degrees?\s*f|fahrenheit)/i.exec(t);
   if (approxTemp && !result.temperature_f) result.temperature_f = parseFloat(approxTemp[1]);
 
-  // Crack dimensions ("4 inches long, 3mm deep")
   var crackLenIn = /(\d+(?:\.\d+)?)\s*(?:inches?|in\.?)\s*(?:long|in\s*length)/i.exec(t);
   if (crackLenIn && !result.length) result.length = { value: parseFloat(crackLenIn[1]), unit: "inches" };
   var crackDepthMm = /(\d+(?:\.\d+)?)\s*(?:mm|millimeters?)\s*(?:deep|in\s*depth)/i.exec(t);
@@ -258,7 +405,7 @@ function extractNumericValues(transcript: string): any {
 }
 
 // ============================================================================
-// KEYWORD FIELD EXTRACTOR — deterministic field extraction from transcript
+// KEYWORD FIELD EXTRACTOR (unchanged)
 // ============================================================================
 
 function hasWordNotNegatedGB(text: string, word: string): boolean {
@@ -297,7 +444,6 @@ function extractField(lt: string, keywordMap: any, useNegation?: boolean): any {
     }
   }
 
-  // Deduplicate
   var unique: string[] = [];
   for (var ui = 0; ui < allMatches.length; ui++) {
     var found = false;
@@ -309,7 +455,7 @@ function extractField(lt: string, keywordMap: any, useNegation?: boolean): any {
 }
 
 // ============================================================================
-// REQUIRED FIELDS BY ASSET TYPE
+// REQUIRED FIELDS BY ASSET TYPE (unchanged)
 // ============================================================================
 
 function getRequiredFields(assetType: string): string[] {
@@ -334,7 +480,7 @@ function getRequiredFields(assetType: string): string[] {
 }
 
 // ============================================================================
-// READBACK GENERATOR — human-readable summary for confirmation
+// READBACK GENERATOR (unchanged)
 // ============================================================================
 
 function generateReadback(extracted: any): string {
@@ -379,7 +525,7 @@ function generateReadback(extracted: any): string {
 }
 
 // ============================================================================
-// PROMPT GENERATOR — generates prompts for missing required fields
+// PROMPT GENERATOR (unchanged)
 // ============================================================================
 
 var FIELD_PROMPTS: any = {
@@ -410,15 +556,12 @@ function generatePrompts(missing: string[]): any[] {
 }
 
 // ============================================================================
-// RISK PRE-GATE — flags dangerous combinations before full analysis
-// v1.2: now takes `lt` (lowercased transcript) as second arg — was crashing
-//       on references to `lt` from caller scope in v1.1 CUI + vibration gates
+// RISK PRE-GATE (v1.2 crash fix retained)
 // ============================================================================
 
 function preGateRiskCheck(extracted: any, lt: string): any[] {
   var flags: any[] = [];
 
-  // Crack + no crack-specific NDE
   var hasCrack = false;
   for (var ci = 0; ci < extracted.finding_types.length; ci++) {
     if (extracted.finding_types[ci] === "crack") hasCrack = true;
@@ -438,7 +581,6 @@ function preGateRiskCheck(extracted: any, lt: string): any[] {
     }
   }
 
-  // High wall loss without engineering review trigger
   if (extracted.numeric.wall_loss_percent && extracted.numeric.wall_loss_percent >= 30) {
     flags.push({
       type: "severity_alert",
@@ -447,7 +589,6 @@ function preGateRiskCheck(extracted: any, lt: string): any[] {
     });
   }
 
-  // Suspected cracking in H2S/amine service
   if (hasCrack && (extracted.service_fluid === "h2s" || extracted.service_fluid === "amine" || extracted.service_fluid === "hydrogen")) {
     flags.push({
       type: "mechanism_alert",
@@ -456,7 +597,6 @@ function preGateRiskCheck(extracted: any, lt: string): any[] {
     });
   }
 
-  // Missing prior inspection data with significant findings
   if (extracted.finding_types.length > 0 && !extracted.numeric.years_since_inspection && !extracted.numeric.service_years) {
     flags.push({
       type: "data_gap",
@@ -465,7 +605,6 @@ function preGateRiskCheck(extracted: any, lt: string): any[] {
     });
   }
 
-  // CUI risk — insulation + temperature range (v1.1, fixed in v1.2)
   var hasCUI = false;
   for (var cui = 0; cui < extracted.finding_types.length; cui++) {
     if (extracted.finding_types[cui] === "cui") hasCUI = true;
@@ -481,7 +620,6 @@ function preGateRiskCheck(extracted: any, lt: string): any[] {
     }
   }
 
-  // Vibration + small bore (v1.1, fixed in v1.2)
   if (extracted.numeric.diameter_inches && extracted.numeric.diameter_inches <= 2) {
     var hasVibration = lt.indexOf("vibrat") !== -1 || lt.indexOf("shaking") !== -1 || lt.indexOf("chattering") !== -1;
     if (hasVibration) {
@@ -497,13 +635,17 @@ function preGateRiskCheck(extracted: any, lt: string): any[] {
 }
 
 // ============================================================================
-// MAIN EXTRACTION ENGINE
+// MAIN EXTRACTION ENGINE (v1.2.1 — adds design code override)
 // ============================================================================
 
 function extractFromTranscript(transcript: string): any {
   var lt = transcript.toLowerCase();
 
-  // Extract all fields
+  // v1.2.1: Extract explicit design codes FIRST
+  var designCodes = extractDesignCodes(lt);
+  var designCodeAsset = resolveAssetFromDesignCode(designCodes);
+
+  // Keyword-based extraction (still runs; used as fallback and to populate candidates)
   var assetResult = extractField(lt, ASSET_KEYWORDS);
   var materialResult = extractField(lt, MATERIAL_KEYWORDS);
   var methodResult = extractField(lt, NDE_METHOD_KEYWORDS);
@@ -515,9 +657,22 @@ function extractFromTranscript(transcript: string): any {
   var orientResult = extractField(lt, ORIENTATION_KEYWORDS);
   var weldConfigResult = extractField(lt, WELD_CONFIG_KEYWORDS);
 
-  var extracted = {
-    asset_type: assetResult.primary,
+  // v1.2.1: Design code override beats keyword-based asset resolution.
+  // If an explicit code was cited, trust it.
+  var finalAssetType: string | null = assetResult.primary;
+  var assetResolutionSource = "keyword_match";
+  if (designCodeAsset) {
+    finalAssetType = designCodeAsset;
+    assetResolutionSource = "design_code_override";
+  } else if (!finalAssetType) {
+    assetResolutionSource = "none";
+  }
+
+  var extracted: any = {
+    asset_type: finalAssetType,
     asset_candidates: assetResult.all,
+    asset_resolution_source: assetResolutionSource,
+    design_codes: designCodes,
     material: materialResult.primary,
     material_candidates: materialResult.all,
     nde_methods: methodResult.all,
@@ -533,7 +688,6 @@ function extractFromTranscript(transcript: string): any {
     numeric: numeric
   };
 
-  // Determine missing required fields
   var required = getRequiredFields(extracted.asset_type || "unknown");
   var missing: string[] = [];
 
@@ -561,18 +715,12 @@ function extractFromTranscript(transcript: string): any {
     }
   }
 
-  // Calculate extraction confidence
   var totalFields = required.length;
   var extractedCount = totalFields - missing.length;
   var confidence = totalFields > 0 ? Math.round((extractedCount / totalFields) * 100) / 100 : 0;
 
-  // Generate readback
   var readback = generateReadback(extracted);
-
-  // Risk pre-gate (v1.2: now receives `lt`)
   var riskFlags = preGateRiskCheck(extracted, lt);
-
-  // Prompts for missing fields
   var prompts = generatePrompts(missing);
 
   return {
@@ -588,7 +736,7 @@ function extractFromTranscript(transcript: string): any {
 }
 
 // ============================================================================
-// AMENDMENT HANDLER — processes field updates from inspector responses
+// AMENDMENT HANDLER (unchanged)
 // ============================================================================
 
 function applyAmendment(currentState: any, amendment: any): any {
@@ -602,7 +750,6 @@ function applyAmendment(currentState: any, amendment: any): any {
     timestamp: new Date().toISOString()
   });
 
-  // Apply the update
   var updated = JSON.parse(JSON.stringify(currentState));
   if (amendment.field === "asset_type") updated.extracted.asset_type = amendment.value;
   else if (amendment.field === "material") updated.extracted.material = amendment.value;
@@ -630,7 +777,6 @@ function applyAmendment(currentState: any, amendment: any): any {
     if (!updated.extracted.primary_location) updated.extracted.primary_location = amendment.value;
   }
 
-  // Remove from missing
   var newMissing: string[] = [];
   for (var mi = 0; mi < updated.missing_required.length; mi++) {
     if (updated.missing_required[mi] !== amendment.field) {
@@ -640,10 +786,8 @@ function applyAmendment(currentState: any, amendment: any): any {
   updated.missing_required = newMissing;
   updated.amendment_trail = trail;
 
-  // Regenerate readback
   updated.readback = generateReadback(updated.extracted);
 
-  // Recalculate completeness
   var totalFields = updated.field_count.total_required;
   updated.field_count.extracted = totalFields - newMissing.length;
   updated.field_count.missing = newMissing.length;
@@ -653,7 +797,7 @@ function applyAmendment(currentState: any, amendment: any): any {
 }
 
 // ============================================================================
-// NETLIFY HANDLER
+// NETLIFY HANDLER (v1.2.1 — version string bumped)
 // ============================================================================
 
 var handler = async function(event: any): Promise<any> {
@@ -672,7 +816,6 @@ var handler = async function(event: any): Promise<any> {
     var action = body.action || "extract";
 
     if (action === "extract") {
-      // Primary extraction from raw transcript
       var transcript = body.transcript || "";
       if (!transcript) {
         return { statusCode: 400, headers: headers, body: JSON.stringify({ error: "transcript is required" }) };
@@ -683,14 +826,13 @@ var handler = async function(event: any): Promise<any> {
         statusCode: 200, headers: headers,
         body: JSON.stringify({
           ok: true,
-          grammar_bridge_version: "1.2",
+          grammar_bridge_version: "1.2.1",
           action: "extract",
           result: result
         })
       };
 
     } else if (action === "amend") {
-      // Apply an amendment to existing extraction state
       var currentState = body.current_state || {};
       var amendment = body.amendment || {};
 
@@ -703,23 +845,22 @@ var handler = async function(event: any): Promise<any> {
         statusCode: 200, headers: headers,
         body: JSON.stringify({
           ok: true,
-          grammar_bridge_version: "1.2",
+          grammar_bridge_version: "1.2.1",
           action: "amend",
           result: amended
         })
       };
 
     } else if (action === "readback") {
-      // Generate readback from existing extraction
-      var extracted = body.extracted || {};
-      var readback = generateReadback(extracted);
+      var extractedR = body.extracted || {};
+      var readbackR = generateReadback(extractedR);
       return {
         statusCode: 200, headers: headers,
         body: JSON.stringify({
           ok: true,
-          grammar_bridge_version: "1.2",
+          grammar_bridge_version: "1.2.1",
           action: "readback",
-          readback: readback
+          readback: readbackR
         })
       };
 
