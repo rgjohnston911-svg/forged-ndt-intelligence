@@ -1,26 +1,51 @@
-// DEPLOY154 — src/pages/VoiceInspectionPage.tsx v16.6e
-// v16.6e: Export PDF button now gated on isGenerating. Previously the button
-// rendered as soon as decision-core finished (step 4 of 9), so clicking early
-// captured null FMD/DPR/FTR/Superbrain in the React closure even though those
-// engines completed successfully a few seconds later. Confirmed by exporting
-// twice on the same run — first export = NULL, second export = PRESENT.
+// DEPLOY164 — src/pages/VoiceInspectionPage.tsx v16.6f
+// v16.6f: RSR CALLER FIX (DEPLOY164) + BANNER BUMP (DEPLOY163 folded in).
 //
-// Also bumps "v16.6b DIAGNOSTIC" header literals to "v16.6e" in 4 places, and
-// applies the FMD failure-mode override to the live UI Consequence card so it
-// matches the PDF behavior (was still showing "PRESSURE BOUNDARY FAILURE" in
-// the live UI even when FMD said CORROSION).
+// TWO FIXES IN THIS BUILD:
 //
-// HardeningResultsPanel bypass from v16.6c is RETAINED — inline yellow
-// diagnostic block stays. Restoring HardeningResultsPanel is a separate
-// decision and risks reintroducing the .confidence crash if v1.4 isn't on
-// the live build (DEPLOY153 evidence is mixed).
+// 1. BANNER COSMETIC (was DEPLOY163):
+//    - PDF header bumped: decision-core v2.5 -> v2.5.1
+//                         Remaining Strength v1.0 -> v1.1
+//                         FMD v1.1 -> v1.3.2
+//    - failureModeSource label: "FMD v1.1" -> "FMD v1.3.2" (PDF + live UI)
 //
-// Carries forward all v16.6b/c patches:
+// 2. RSR CALLER FORWARDING (DEPLOY164):
+//    The remaining-strength engine has been at v1.1 since DEPLOY160 with
+//    full NPS STD schedule lookup + SMYS material lookup + partial-data
+//    derivation path. The caller was still written for v1.0, which meant:
+//      (a) RSR was gated behind authority-lock.trigger_b31g -- never fired
+//          for piping+corrosion scenarios where auth-lock didn't set it
+//      (b) callRemainingStrength hard-bailed when nominal_wall or
+//          measured_min_wall were absent, throwing away all the partial
+//          data the v1.1 engine was designed to derive
+//      (c) v1.1 alternate field names (diameter_inches, wall_loss_percent,
+//          pressure_psi, material) were never forwarded
+//
+//    Fixes:
+//      - callRemainingStrength rewritten to forward v1.1 alternate fields
+//        + pulls material grade from grammar bridge + parses ASTM patterns
+//        (A106 Gr B, A53, A333, A516) from raw_text + diameter + wall loss
+//        regex fallback
+//      - Hard bail removed. Engine v1.1 handles partial data gracefully.
+//        Caller only skips if there is no wall loss signal whatsoever.
+//      - RSR called UNCONDITIONALLY after authority-lock in continuePipeline
+//        (no more trigger_b31g gate)
+//
+//    Expected on Scenario 3 (16" A106 Gr B, 420 psi, 42% wall loss):
+//      TIER B path: nominal_wall derived from NPS 16 STD = 0.375",
+//      pipe_od = 16, smys = 35000 (A106_GR_B lookup),
+//      measured_min_wall = 0.2175", infinite flaw length (conservative),
+//      B31G MAOP computed, safe envelope populated.
+//
+// Carries forward all v16.6b/c/e patches:
 //   1. callX catch blocks push to errors[]
 //   2. callX HTTP-non-OK paths push to errors[]
 //   3. continuePipeline closure-staleness fix (localAuthResult/localStrengthResult)
 //   4. PDF Hardening Diagnostic block
 //   5. Export PDF passes errors[] to generateInspectionReport
+//   6. Export PDF gated on isGenerating
+//   7. FMD failure-mode override applied to live UI Consequence card
+//   8. HardeningResultsPanel BYPASSED (inline yellow diagnostic retained)
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
@@ -68,7 +93,7 @@ function generateInspectionReport(data: {
   var failureModeSource = "decision-core";
   if (fmd && fmd.governing_failure_mode && fmd.governing_failure_mode !== "NONE") {
     displayFailureMode = fmd.governing_failure_mode.toLowerCase().replace(/_/g, " ");
-    failureModeSource = "FMD v1.1";
+    failureModeSource = "FMD v1.3.2";
   }
 
   var now = new Date();
@@ -125,7 +150,7 @@ function generateInspectionReport(data: {
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>v16.6e | Engine: decision-core v2.5 + Authority Lock v1.0 + Remaining Strength v1.0 + FMD v1.1 + Disposition Pathway v1.0 + Failure Timeline v1.0 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>v16.6f | Engine: decision-core v2.5.1 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.0 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -145,7 +170,7 @@ function generateInspectionReport(data: {
   // HARDENING DIAGNOSTIC — always render, shows engine state snapshot
   // ======================================================================
   html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
-  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6e)</div>";
+  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6f)</div>";
   html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time. Read this on phone photos.</div>";
 
   var diagEngines = [
@@ -221,18 +246,28 @@ function generateInspectionReport(data: {
   if (rsr) {
     html += "<div class='section'>";
     html += "<div class='section-title'>Remaining Strength (B31G)</div>";
-    var envColor = rsr.safe_envelope === "WITHIN" ? "#16a34a" : rsr.safe_envelope === "MARGINAL" ? "#ea580c" : "#dc2626";
+    var envColor = rsr.safe_envelope === "WITHIN" ? "#16a34a" : rsr.safe_envelope === "MARGINAL" ? "#ea580c" : rsr.safe_envelope === "EXCEEDS" ? "#dc2626" : "#6b7280";
     if (rsr.safe_envelope) {
       html += "<div class='banner' style='background:" + envColor + "'>" + esc(rsr.safe_envelope) + " SAFE ENVELOPE</div>";
     }
+    if (rsr.data_quality) html += "<div class='info-row'><span class='info-label'>Data Quality Tier</span><span class='info-value'>" + esc(rsr.data_quality) + "</span></div>";
     if (rsr.governing_maop) html += "<div class='info-row'><span class='info-label'>Governing MAOP</span><span class='info-value'>" + esc(rsr.governing_maop) + " psi (" + esc(rsr.governing_method || "B31G") + ")</span></div>";
     if (rsr.operating_pressure) html += "<div class='info-row'><span class='info-label'>Operating Pressure</span><span class='info-value'>" + esc(rsr.operating_pressure) + " psi</span></div>";
     if (rsr.operating_ratio) html += "<div class='info-row'><span class='info-label'>Operating Ratio</span><span class='info-value'>" + Math.round(rsr.operating_ratio * 100) + "%</span></div>";
+    if (rsr.severity_tier && rsr.severity_tier !== "UNKNOWN") html += "<div class='info-row'><span class='info-label'>Severity Tier</span><span class='info-value'>" + esc(rsr.severity_tier) + "</span></div>";
     if (rsr.pressure_reduction_required && rsr.pressure_reduction_required > 0) html += "<div class='gap-item'>Pressure reduction required: " + esc(rsr.pressure_reduction_required) + " psi</div>";
     if (rsr.calculations) {
       var calc = rsr.calculations;
       if (calc.wall_loss_percent !== undefined) html += "<div class='info-row'><span class='info-label'>Wall Loss</span><span class='info-value'>" + Number(calc.wall_loss_percent).toFixed(1) + "%</span></div>";
       if (calc.folias_factor !== undefined) html += "<div class='info-row'><span class='info-label'>Folias Factor (M)</span><span class='info-value'>" + Number(calc.folias_factor).toFixed(3) + "</span></div>";
+      if (calc.b31g_folias_factor !== undefined) html += "<div class='info-row'><span class='info-label'>B31G Folias Factor</span><span class='info-value'>" + Number(calc.b31g_folias_factor).toFixed(3) + "</span></div>";
+    }
+    if (rsr.recommendation) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-left:3px solid " + envColor + ";border-radius:4px;font-size:11px;'>" + esc(rsr.recommendation) + "</div>";
+    if (rsr.derivation_notes && rsr.derivation_notes.length > 0) {
+      html += "<div style='margin-top:8px;font-size:10px;color:#6b7280;font-weight:700;'>DERIVATION NOTES</div>";
+      for (var dni = 0; dni < rsr.derivation_notes.length; dni++) {
+        html += "<div style='font-size:10px;color:#6b7280;padding:2px 0;'>- " + esc(rsr.derivation_notes[dni]) + "</div>";
+      }
     }
     html += "</div>";
   }
@@ -434,7 +469,7 @@ function generateInspectionReport(data: {
   html += "</div>";
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
-  html += "Generated by FORGED NDT Intelligence OS v16.6e - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
+  html += "Generated by FORGED NDT Intelligence OS v16.6f - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
   html += "</div>";
 
   html += "</body></html>";
@@ -513,7 +548,7 @@ async function saveCaseToSupabase(transcriptText: string, parsedData: any, asset
     sb_confidence: (conf.overall || 0),
     sb_mechanism: (dmg.primary_mechanism ? dmg.primary_mechanism.name : null),
     sb_sufficiency: (insp.sufficiency_verdict || null),
-    sb_engine_version: (dcResult.engine_version || "v2.5"),
+    sb_engine_version: (dcResult.engine_version || "v2.5.1"),
     sb_last_eval: now.toISOString()
   };
 
@@ -886,7 +921,6 @@ export default function VoiceInspectionPage() {
       });
       if (!response.ok) {
         var bodyText = await response.text();
-        // v16.6b: surface HTTP errors
         setErrors(function(prev) { return prev.concat(["authority-lock HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
         return null;
       }
@@ -895,74 +929,143 @@ export default function VoiceInspectionPage() {
       return result;
     } catch (err: any) {
       console.error("Authority lock error:", err);
-      // v16.6b: surface caught throw
       setErrors(function(prev) { return prev.concat(["authority-lock THREW: " + (err && err.message ? err.message : String(err))]); });
       return null;
     }
   };
 
+  // ========================================================================
+  // v16.6f (DEPLOY164): REMAINING STRENGTH CALLER REWRITE
+  // - Forwards v1.1 alternate field names (diameter_inches, wall_loss_percent,
+  //   pressure_psi, material) so the engine can use NPS STD schedule lookup
+  //   + SMYS material lookup + partial-data derivation path.
+  // - Pulls material grade from grammar bridge + parses ASTM patterns
+  //   (A106 Gr B, A53, A333, A516) from raw_text as backup.
+  // - Extracts diameter + wall loss from raw_text via regex as final fallback.
+  // - NO HARD BAIL. Engine v1.1 returns graceful empty/qualitative when
+  //   inputs are thin. Only skips call if there is zero wall loss signal.
+  // ========================================================================
   var callRemainingStrength = async function(parsedData: any, gbData: any) {
     try {
       var nominalWall = 0;
       var measuredMinWall = 0;
       var flawLength = 0;
       var pipeOD = 0;
+      var diameterInches = 0;
+      var wallLossPercent = 0;
       var smys = 0;
       var materialGrade = "";
       var designFactor = 0.72;
       var operatingPressure = 0;
 
+      // Pull from grammar bridge numeric block
       if (gbData && gbData.extracted && gbData.extracted.numeric) {
         var num = gbData.extracted.numeric;
         if (num.nominal_wall) nominalWall = num.nominal_wall;
         if (num.measured_wall || num.minimum_wall) measuredMinWall = num.measured_wall || num.minimum_wall;
         if (num.flaw_length || num.defect_length) flawLength = num.flaw_length || num.defect_length;
-        if (num.diameter_inches) pipeOD = num.diameter_inches;
+        if (num.diameter_inches) { pipeOD = num.diameter_inches; diameterInches = num.diameter_inches; }
         if (num.pressure_psi) operatingPressure = num.pressure_psi;
-        if (num.wall_loss_percent && nominalWall && !measuredMinWall) {
-          measuredMinWall = nominalWall * (1 - num.wall_loss_percent / 100);
-        }
+        if (num.wall_loss_percent) wallLossPercent = num.wall_loss_percent;
       }
 
+      // Pull material from grammar bridge
+      if (gbData && gbData.extracted) {
+        if (gbData.extracted.material) materialGrade = String(gbData.extracted.material);
+        if (!materialGrade && gbData.extracted.material_grade) materialGrade = String(gbData.extracted.material_grade);
+      }
+
+      // Pull from parsed.numeric_values
       if (parsedData && parsedData.numeric_values) {
         var nv = parsedData.numeric_values;
         if (!nominalWall && nv.nominal_wall) nominalWall = nv.nominal_wall;
         if (!measuredMinWall && nv.measured_wall) measuredMinWall = nv.measured_wall;
         if (!flawLength && nv.flaw_length) flawLength = nv.flaw_length;
-        if (!pipeOD && nv.pipe_od) pipeOD = nv.pipe_od;
+        if (!pipeOD && nv.pipe_od) { pipeOD = nv.pipe_od; diameterInches = nv.pipe_od; }
+        if (!diameterInches && nv.diameter_inches) { diameterInches = nv.diameter_inches; if (!pipeOD) pipeOD = nv.diameter_inches; }
         if (!operatingPressure && nv.operating_pressure) operatingPressure = nv.operating_pressure;
-        if (nv.wall_loss_percent && nominalWall && !measuredMinWall) {
-          measuredMinWall = nominalWall * (1 - nv.wall_loss_percent / 100);
-        }
+        if (!wallLossPercent && nv.wall_loss_percent) wallLossPercent = nv.wall_loss_percent;
       }
 
       var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
+
+      // API 5L line pipe grade patterns
       var gradePatterns = ["x120", "x100", "x90", "x80", "x70", "x65", "x60", "x56", "x52", "x46", "x42"];
       for (var gpi = 0; gpi < gradePatterns.length; gpi++) {
-        if (lt.indexOf(gradePatterns[gpi]) >= 0) {
+        if (!materialGrade && lt.indexOf(gradePatterns[gpi]) >= 0) {
           materialGrade = gradePatterns[gpi].toUpperCase();
           break;
         }
       }
 
-      if (!nominalWall || !measuredMinWall) {
-        console.log("Remaining strength: insufficient measurement data");
+      // ASTM carbon steel patterns (refinery/process piping)
+      if (!materialGrade) {
+        if (lt.indexOf("a106") >= 0 && (lt.indexOf("grade b") >= 0 || lt.indexOf("gr b") >= 0 || lt.indexOf("gr. b") >= 0)) materialGrade = "A106_GR_B";
+        else if (lt.indexOf("a106") >= 0 && (lt.indexOf("grade a") >= 0 || lt.indexOf("gr a") >= 0)) materialGrade = "A106_GR_A";
+        else if (lt.indexOf("a106") >= 0 && (lt.indexOf("grade c") >= 0 || lt.indexOf("gr c") >= 0)) materialGrade = "A106_GR_C";
+        else if (lt.indexOf("a106") >= 0) materialGrade = "A106";
+        else if (lt.indexOf("a53") >= 0) materialGrade = "A53";
+        else if (lt.indexOf("a333") >= 0) materialGrade = "A333";
+        else if (lt.indexOf("a516") >= 0) materialGrade = "A516";
+        else if (lt.indexOf("carbon steel") >= 0) materialGrade = "CARBON_STEEL";
+      }
+
+      // Diameter extraction from raw text (e.g. "16 inch", "16\"", "16-inch")
+      if (!diameterInches) {
+        var diaMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:inch|in\b|")/);
+        if (diaMatch) {
+          var d = parseFloat(diaMatch[1]);
+          if (d > 0 && d < 100) { diameterInches = d; if (!pipeOD) pipeOD = d; }
+        }
+      }
+
+      // Wall loss extraction from raw text (e.g. "42% wall loss", "42 percent")
+      if (!wallLossPercent) {
+        var wlMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:wall|metal|thickness)?/);
+        if (wlMatch) {
+          var w = parseFloat(wlMatch[1]);
+          if (w > 0 && w <= 100) wallLossPercent = w;
+        }
+      }
+
+      // Operating pressure extraction (e.g. "420 psi")
+      if (!operatingPressure) {
+        var pMatch = lt.match(/(\d+(?:\.\d+)?)\s*psi/);
+        if (pMatch) {
+          var pv = parseFloat(pMatch[1]);
+          if (pv > 0 && pv < 20000) operatingPressure = pv;
+        }
+      }
+
+      // v16.6f: NO HARD BAIL. Engine v1.1 handles partial data via NPS
+      // schedule lookup + SMYS material lookup. Only skip if we have
+      // absolutely nothing useful.
+      var haveAnySignal = (nominalWall && measuredMinWall) ||
+                          (diameterInches && wallLossPercent) ||
+                          wallLossPercent;
+      if (!haveAnySignal) {
+        console.log("Remaining strength: no wall loss or measurement signal -- skipping");
         return null;
       }
 
-      if (!flawLength) flawLength = 1.0;
-      if (!pipeOD) pipeOD = 24.0;
-
-      var requestBody = {
-        nominal_wall: nominalWall,
-        measured_minimum_wall: measuredMinWall,
-        flaw_length: flawLength,
-        pipe_od: pipeOD,
-        smys: smys,
-        material_grade: materialGrade,
-        design_factor: designFactor,
-        operating_pressure: operatingPressure
+      var requestBody: any = {
+        design_factor: designFactor
       };
+      if (nominalWall) requestBody.nominal_wall = nominalWall;
+      if (measuredMinWall) requestBody.measured_minimum_wall = measuredMinWall;
+      if (flawLength) requestBody.flaw_length = flawLength;
+      if (pipeOD) requestBody.pipe_od = pipeOD;
+      if (diameterInches) requestBody.diameter_inches = diameterInches;
+      if (wallLossPercent) requestBody.wall_loss_percent = wallLossPercent;
+      if (smys) requestBody.smys = smys;
+      if (materialGrade) {
+        requestBody.material_grade = materialGrade;
+        requestBody.material = materialGrade;
+      }
+      if (operatingPressure) {
+        requestBody.operating_pressure = operatingPressure;
+        requestBody.pressure_psi = operatingPressure;
+      }
 
       var response = await fetch("/.netlify/functions/remaining-strength", {
         method: "POST",
@@ -975,13 +1078,11 @@ export default function VoiceInspectionPage() {
         setRemainingStrengthResult(result);
         return result;
       }
-      // v16.6b: surface HTTP errors
       var bodyText = await response.text();
       setErrors(function(prev) { return prev.concat(["remaining-strength HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
       return null;
     } catch (err: any) {
       console.error("Remaining strength error:", err);
-      // v16.6b: surface caught throw
       setErrors(function(prev) { return prev.concat(["remaining-strength THREW: " + (err && err.message ? err.message : String(err))]); });
       return null;
     }
@@ -989,7 +1090,6 @@ export default function VoiceInspectionPage() {
 
   // ========================================================================
   // BUILD 2: FAILURE MODE DOMINANCE + DISPOSITION PATHWAY
-  // v16.6b: catch blocks + HTTP-non-OK paths now surface errors via setErrors
   // ========================================================================
 
   var callFailureModeDominance = async function(parsedData: any, gbData: any, confirmedFlags: any, authLockRes: any, remStrengthRes: any) {
@@ -1059,7 +1159,6 @@ export default function VoiceInspectionPage() {
       });
       if (!response.ok) {
         var bodyText = await response.text();
-        // v16.6b: surface HTTP errors
         setErrors(function(prev) { return prev.concat(["failure-mode-dominance HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
         return null;
       }
@@ -1068,7 +1167,6 @@ export default function VoiceInspectionPage() {
       return result;
     } catch (err: any) {
       console.error("Failure mode dominance error:", err);
-      // v16.6b: surface caught throw
       setErrors(function(prev) { return prev.concat(["failure-mode-dominance THREW: " + (err && err.message ? err.message : String(err))]); });
       return null;
     }
@@ -1113,7 +1211,6 @@ export default function VoiceInspectionPage() {
       });
       if (!response.ok) {
         var bodyText = await response.text();
-        // v16.6b: surface HTTP errors
         setErrors(function(prev) { return prev.concat(["disposition-pathway HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
         return null;
       }
@@ -1122,7 +1219,6 @@ export default function VoiceInspectionPage() {
       return result;
     } catch (err: any) {
       console.error("Disposition pathway error:", err);
-      // v16.6b: surface caught throw
       setErrors(function(prev) { return prev.concat(["disposition-pathway THREW: " + (err && err.message ? err.message : String(err))]); });
       return null;
     }
@@ -1130,7 +1226,6 @@ export default function VoiceInspectionPage() {
 
   // ========================================================================
   // BUILD 3: FAILURE TIMELINE
-  // v16.6b: catch blocks + HTTP-non-OK paths now surface errors via setErrors
   // ========================================================================
 
   var callFailureTimeline = async function(parsedData: any, gbData: any, confirmedFlags: any, remStrengthRes: any, fmdResult: any) {
@@ -1222,13 +1317,11 @@ export default function VoiceInspectionPage() {
         setFailureTimelineResult(result);
         return result;
       }
-      // v16.6b: surface HTTP errors
       var bodyText = await response.text();
       setErrors(function(prev) { return prev.concat(["failure-timeline HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
       return null;
     } catch (err: any) {
       console.error("Failure timeline error:", err);
-      // v16.6b: surface caught throw
       setErrors(function(prev) { return prev.concat(["failure-timeline THREW: " + (err && err.message ? err.message : String(err))]); });
       return null;
     }
@@ -1427,37 +1520,56 @@ export default function VoiceInspectionPage() {
       setProvenanceLoading(false);
       setSteps(s.slice());
 
+      // ====================================================================
       // STEP 3: AUTHORITY LOCK + REMAINING STRENGTH
+      // v16.6f (DEPLOY164): RSR is now called UNCONDITIONALLY after
+      // authority-lock. The previous gate (localAuthResult.trigger_b31g)
+      // was orphaning RSR for piping+corrosion scenarios where
+      // authority-lock did not set the trigger flag. RSR engine v1.1
+      // handles partial data and returns graceful empty/qualitative tier
+      // when inputs are thin, so calling it is cheap and safe. The caller
+      // skips internally if there is no wall loss signal at all.
+      // ====================================================================
       s = updateStep(3, { status: "running", detail: "resolving governing authority..." }, s); setSteps(s.slice());
+      var authDetail = "";
       try {
-        // v16.6b: capture into local var
         localAuthResult = await callAuthorityLock(assetResult, parsedResult, grammarBridgeResult, confirmedFlags);
         if (localAuthResult && localAuthResult.status === "LOCKED") {
           var codeCount = (localAuthResult.authority_chain || []).length;
           var suppCount = (localAuthResult.supplemental_codes || []).length;
-          var authDetail = "LOCKED | " + codeCount + " primary";
+          authDetail = "LOCKED | " + codeCount + " primary";
           if (suppCount > 0) authDetail = authDetail + " + " + suppCount + " supp";
           if (localAuthResult.trigger_b31g) authDetail = authDetail + " | B31G triggered";
-          s = updateStep(3, { status: "done", detail: authDetail }, s);
-
-          if (localAuthResult.trigger_b31g) {
-            // v16.6b: capture into local var
-            localStrengthResult = await callRemainingStrength(parsedResult, grammarBridgeResult);
-            if (localStrengthResult) {
-              authDetail = authDetail + " | MAOP: " + localStrengthResult.governing_maop + " psi";
-              s = updateStep(3, { status: "done", detail: authDetail }, s);
-            }
-          }
         } else if (localAuthResult) {
-          s = updateStep(3, { status: "done", detail: localAuthResult.status + " | " + (localAuthResult.lock_reasons || []).length + " reasons" }, s);
+          authDetail = localAuthResult.status + " | " + (localAuthResult.lock_reasons || []).length + " reasons";
         } else {
-          s = updateStep(3, { status: "done", detail: "no authority data" }, s);
+          authDetail = "no authority data";
         }
+        s = updateStep(3, { status: "done", detail: authDetail }, s);
+        setSteps(s.slice());
       } catch (authErr: any) {
         s = updateStep(3, { status: "error", detail: authErr.message }, s);
         errs.push("authority-lock: " + authErr.message);
+        setSteps(s.slice());
       }
-      setSteps(s.slice());
+
+      // RSR call -- unconditional, runs regardless of authority-lock state
+      try {
+        localStrengthResult = await callRemainingStrength(parsedResult, grammarBridgeResult);
+        if (localStrengthResult) {
+          var rsrDetail = "RSR: " + (localStrengthResult.data_quality || "?");
+          if (localStrengthResult.governing_maop) {
+            rsrDetail = rsrDetail + " | MAOP " + localStrengthResult.governing_maop + " psi";
+            if (localStrengthResult.safe_envelope) rsrDetail = rsrDetail + " | " + localStrengthResult.safe_envelope;
+          } else if (localStrengthResult.severity_tier && localStrengthResult.severity_tier !== "UNKNOWN") {
+            rsrDetail = rsrDetail + " | " + localStrengthResult.severity_tier;
+          }
+          s = updateStep(3, { status: "done", detail: authDetail + " || " + rsrDetail }, s);
+          setSteps(s.slice());
+        }
+      } catch (rsrErr: any) {
+        errs.push("remaining-strength (unconditional): " + (rsrErr && rsrErr.message ? rsrErr.message : String(rsrErr)));
+      }
 
       // STEP 4: DECISION CORE
       s = updateStep(4, { status: "running", detail: "6 Klein bottle states..." }, s); setSteps(s.slice());
@@ -1633,19 +1745,19 @@ export default function VoiceInspectionPage() {
   var dec = dc?.decision_reality;
   var syn = superbrainResult?.synthesis;
 
-  // v16.6e: live UI failure mode override (matches PDF behavior)
+  // v16.6f: live UI failure mode override (matches PDF behavior)
   var liveFailureMode = (con && con.failure_mode) || "unknown";
   var liveFailureModeSource = "decision-core";
   if (failureModeDominanceResult && failureModeDominanceResult.governing_failure_mode && failureModeDominanceResult.governing_failure_mode !== "NONE") {
     liveFailureMode = failureModeDominanceResult.governing_failure_mode.toLowerCase().replace(/_/g, " ");
-    liveFailureModeSource = "FMD v1.1";
+    liveFailureModeSource = "FMD v1.3.2";
   }
 
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6e</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Describe the inspection scenario. Diagnostic build surfaces silent failures + closure-staleness fix.</p>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6f</h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY164: RSR caller forwarding fix. RSR engine v1.1 now called unconditionally with v1.1 field forwarding.</p>
       </div>
 
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
@@ -1781,7 +1893,7 @@ export default function VoiceInspectionPage() {
 
         {con && (
           <Card title={"Consequence: " + con.consequence_tier} icon={con.consequence_tier === "CRITICAL" ? "\uD83D\uDED1" : "\u2139\uFE0F"} collapsible={false}>
-            {/* v16.6e: apply FMD failure mode override (matches PDF) */}
+            {/* v16.6f: apply FMD failure mode override (matches PDF) */}
             <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "8px", fontWeight: 800, fontSize: "18px", color: "#fff", backgroundColor: tierColor(con.consequence_tier), textAlign: "center" }}>
               {con.consequence_tier} CONSEQUENCE {"\u2014"} {liveFailureMode.toUpperCase()}
             </div>
@@ -1877,10 +1989,10 @@ export default function VoiceInspectionPage() {
         {/* v16.6c: HardeningResultsPanel BYPASSED — child card was crashing on .confidence access. Inline diagnostic instead. */}
         {(authorityLockResult || remainingStrengthResult || failureModeDominanceResult || dispositionPathwayResult || failureTimelineResult) && (
           <div style={{ marginBottom: "16px", padding: "12px", border: "2px solid #000", borderRadius: "8px", backgroundColor: "#fffbe6" }}>
-            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6e inline diagnostic)</div>
+            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6f inline diagnostic)</div>
             <div style={{ fontSize: "11px", fontFamily: "monospace", lineHeight: "1.6" }}>
               <div>ALR: {authorityLockResult ? "PRESENT \u2014 status=" + (authorityLockResult.status || "?") + " | " + ((authorityLockResult.authority_chain || []).length) + " primary | trigger_b31g=" + String(!!authorityLockResult.trigger_b31g) : "null"}</div>
-              <div>RSR: {remainingStrengthResult ? "PRESENT \u2014 envelope=" + (remainingStrengthResult.safe_envelope || "?") + " | MAOP=" + (remainingStrengthResult.governing_maop || "?") : "null"}</div>
+              <div>RSR: {remainingStrengthResult ? "PRESENT \u2014 tier=" + (remainingStrengthResult.data_quality || "?") + " | envelope=" + (remainingStrengthResult.safe_envelope || "?") + " | MAOP=" + (remainingStrengthResult.governing_maop || "?") + " | severity=" + (remainingStrengthResult.severity_tier || "?") : "null"}</div>
               <div>FMD: {failureModeDominanceResult ? "PRESENT \u2014 governing=" + (failureModeDominanceResult.governing_failure_mode || "?") + " | severity=" + (failureModeDominanceResult.governing_severity || "?") : "null"}</div>
               <div>DPR: {dispositionPathwayResult ? "PRESENT \u2014 disposition=" + (dispositionPathwayResult.disposition || "?") + " | urgency=" + (dispositionPathwayResult.urgency || "?") : "null"}</div>
               <div>FTR: {failureTimelineResult ? "PRESENT \u2014 mode=" + (failureTimelineResult.governing_failure_mode || "?") + " | urgency=" + (failureTimelineResult.urgency || "?") : "null"}</div>
