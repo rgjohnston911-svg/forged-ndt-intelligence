@@ -1,26 +1,28 @@
-// FAILURE MODE DOMINANCE ENGINE v1.2
+// FAILURE MODE DOMINANCE ENGINE v1.3
 // File: netlify/functions/failure-mode-dominance.js
-// NO TYPESCRIPT — PURE JAVASCRIPT
-// v1.2: DEFORMATION CONTEXT DISCRIMINATOR — fixes false structural instability
-//       promotion when "deformation" appears adjacent to local attachment features
-//       (pipe shoe, lug, bracket, gusset, repad, support attachment, etc.).
-//       Global indicators (buckling, bowing, sag, out-of-round, misalignment,
-//       permanent displacement, plastic hinge) still promote unconditionally.
-//       Bare "deformation" token in damage_mechanisms no longer classifies
-//       structural — requires "global_deformation" / "gross_deformation" or
-//       pairing with tilt/settlement/buckling.
-// v1.1: Adds STRUCTURAL_INSTABILITY as third failure mode path
-//       Detects tilt, lean, list, settlement, buckling, deformation, foundation_failure
-//       Structural instability outranks corrosion and cracking when present
-//       (because tilt/buckling/settlement = capacity already exceeded, post-failure indicators)
+// NO TYPESCRIPT -- PURE JAVASCRIPT
+//
+// v1.3: CONFIRMATION-STATE GATE on brittle_fracture_risk.
+//       Bare presence of "hic" / "ssc" / "scc" / "crack" in a mechanism list
+//       or transcript is NO LONGER sufficient to trigger brittle fracture risk
+//       or govern as CRACKING. Engine now scans ±80 chars around each cracking
+//       keyword to infer confirmation state:
+//         "observed"           -- WFMT/PAUT hit, confirmed, detected, found
+//         "screening_required" -- potential, possible, susceptible, known DM list
+//         "ruled_out"          -- no cracks, none found, negative result
+//       brittle_fracture_risk fires only on "observed" OR when caller explicitly
+//       passes body.cracking_confirmed = true.
+//       When cracking is screening_required only and corrosion is active,
+//       governing mode = CORROSION and a screening_gate is emitted so disposition
+//       cannot finalize until crack-specific NDE is performed.
+//
+// v1.2: Deformation context discriminator (unchanged).
+// v1.1: STRUCTURAL_INSTABILITY third path (unchanged).
 
 // ============================================================================
-// v1.2 — DEFORMATION CONTEXT DISCRIMINATOR
+// v1.2 HELPER -- DEFORMATION CONTEXT DISCRIMINATOR (unchanged)
 // ============================================================================
-// Returns true if transcript contains GLOBAL structural deformation evidence,
-// false if all deformation mentions are adjacent to local attachment features.
 function isGlobalDeformation(text) {
-  // Unambiguous global indicators — always promote to structural instability
   var globalIndicators = [
     "out of round", "out-of-round", "ovality", "ovalization",
     "bowed", "bowing", "sagging", " sag ", " sag.",
@@ -38,12 +40,7 @@ function isGlobalDeformation(text) {
   for (var i = 0; i < globalIndicators.length; i++) {
     if (text.indexOf(globalIndicators[i]) >= 0) return true;
   }
-
-  // Ambiguous deformation terms — require context check
   var ambiguousTerms = ["deformation", "deformed", " bent ", " bent.", " bent,", "distorted"];
-
-  // Local attachment features — if ANY of these appear within ±60 chars of an
-  // ambiguous term, that mention is LOCAL and does not count as structural.
   var localContextWords = [
     "shoe", "lug", "clip", "bracket", "gusset", " pad ", " pad.", " pad,",
     "saddle", "attachment", "repad", "re-pad", "reinforcement pad",
@@ -52,7 +49,6 @@ function isGlobalDeformation(text) {
     "pipe shoe", "shoe support", "u-bolt", "hold down",
     "clamp", "strap", "hanger", "hanger rod"
   ];
-
   for (var a = 0; a < ambiguousTerms.length; a++) {
     var term = ambiguousTerms[a];
     var searchFrom = 0;
@@ -61,7 +57,6 @@ function isGlobalDeformation(text) {
       var start = Math.max(0, idx - 60);
       var end = Math.min(text.length, idx + term.length + 60);
       var context = text.substring(start, end);
-
       var isLocal = false;
       for (var c = 0; c < localContextWords.length; c++) {
         if (context.indexOf(localContextWords[c]) >= 0) {
@@ -69,19 +64,105 @@ function isGlobalDeformation(text) {
           break;
         }
       }
-
-      if (!isLocal) {
-        // Found an ambiguous deformation mention NOT adjacent to local features
-        // This counts as global evidence
-        return true;
-      }
-
+      if (!isLocal) return true;
       searchFrom = idx + term.length;
       idx = text.indexOf(term, searchFrom);
     }
   }
-
   return false;
+}
+
+// ============================================================================
+// v1.3 HELPER -- CRACK CONFIRMATION STATE INFERENCE
+// ============================================================================
+// For each occurrence of a cracking keyword in the transcript, scan ±80 chars
+// of surrounding context and classify the mention as:
+//   "observed"           -- strong evidence of confirmed finding
+//   "ruled_out"          -- negative result from inspection
+//   "screening_required" -- listed as mechanism class, no inspection evidence
+// Returns the STRONGEST confirmation found across all occurrences.
+// Precedence: observed > ruled_out > screening_required > none
+function inferCrackConfirmationState(text, keyword) {
+  var observedIndicators = [
+    "observed", "confirmed", "detected", "crack found", "cracks found",
+    "crack indication", "cracks indication", "linear indication",
+    "crack-like indication", "cracklike indication",
+    "wfmt hit", "wfmt indication", "wfmt positive", "wfmt found",
+    "mt indication", "pt indication", "mt positive", "pt positive",
+    "paut showed", "paut detected", "paut indication", "paut crack",
+    "tofd showed", "tofd detected", "tofd indication",
+    "crack measured", "crack sized", "crack dimensions",
+    "visible crack", "visible cracking", "crack present",
+    "crack verified", "cracking verified", "cracking confirmed",
+    "hardness exceeded", "hardness above nace", "exceeds mr0175",
+    "fractured", "fracture surface"
+  ];
+
+  var ruledOutIndicators = [
+    "no crack", "no cracks", "no cracking", "cracks ruled out",
+    "no indication", "no indications", "no linear indication",
+    "wfmt clean", "wfmt negative", "wfmt clear",
+    "mt clean", "pt clean", "mt negative", "pt negative",
+    "paut clean", "paut negative", "tofd clean", "tofd negative",
+    "cleared", "not detected", "none found", "none observed",
+    "ruled out"
+  ];
+
+  var screeningIndicators = [
+    "potential", "possible", "possibility", "susceptible", "susceptibility",
+    "known damage mechanism", "known damage mechanisms",
+    "damage mechanism context", "damage mechanisms:",
+    "screening", "may occur", "risk of", "can occur", "could occur",
+    "candidate mechanism", "candidate mechanisms",
+    "typical for", "typical of", "expected mechanism",
+    "plausible", "suspect", "suspected"
+  ];
+
+  var state = "none";
+  var searchFrom = 0;
+  var idx = text.indexOf(keyword, searchFrom);
+
+  while (idx >= 0) {
+    var start = Math.max(0, idx - 80);
+    var end = Math.min(text.length, idx + keyword.length + 80);
+    var context = text.substring(start, end);
+
+    // Check ruled_out FIRST so "no cracks found" doesn't match "found"
+    var foundRuledOut = false;
+    for (var r = 0; r < ruledOutIndicators.length; r++) {
+      if (context.indexOf(ruledOutIndicators[r]) >= 0) { foundRuledOut = true; break; }
+    }
+
+    if (foundRuledOut) {
+      if (state === "none" || state === "screening_required") state = "ruled_out";
+    } else {
+      var foundObserved = false;
+      for (var o = 0; o < observedIndicators.length; o++) {
+        if (context.indexOf(observedIndicators[o]) >= 0) { foundObserved = true; break; }
+      }
+      if (foundObserved) {
+        state = "observed"; // strongest -- short-circuit later
+      } else {
+        var foundScreening = false;
+        for (var s = 0; s < screeningIndicators.length; s++) {
+          if (context.indexOf(screeningIndicators[s]) >= 0) { foundScreening = true; break; }
+        }
+        if (foundScreening) {
+          if (state === "none") state = "screening_required";
+        }
+      }
+    }
+
+    searchFrom = idx + keyword.length;
+    idx = text.indexOf(keyword, searchFrom);
+  }
+
+  // If the keyword appears but no context indicators at all -> default conservative
+  if (state === "none" && text.indexOf(keyword) >= 0) {
+    state = "screening_required";
+  }
+
+  return state;
 }
 
 var handler = async function(event) {
@@ -110,6 +191,7 @@ var handler = async function(event) {
     var authorityLock = body.authority_lock || null;
     var wallLossPercent = body.wall_loss_percent || 0;
     var hasCracking = body.has_cracking || false;
+    var crackingConfirmed = body.cracking_confirmed || false; // v1.3 caller override
     var serviceEnvironment = (body.service_environment || "").toLowerCase().trim();
     var transcript = (body.transcript || "").toLowerCase();
     var operatingPressure = body.operating_pressure || 0;
@@ -118,7 +200,6 @@ var handler = async function(event) {
     var pipeOD = body.pipe_od || 0;
     var smys = body.smys || 0;
 
-    // BUILD 4 v1.1: Structural inputs (explicit body flags — caller intent, always honored)
     var hasTilt = body.has_tilt || body.has_lean || false;
     var hasSettlement = body.has_settlement || body.has_foundation_movement || false;
     var hasBuckling = body.has_buckling || false;
@@ -135,7 +216,6 @@ var handler = async function(event) {
     var otherMechanisms = [];
 
     mechanisms.forEach(function(mech) {
-      // Cracking family
       if (mech.indexOf("crack") >= 0 || mech.indexOf("scc") >= 0 || mech.indexOf("ssc") >= 0 ||
           mech.indexOf("sscc") >= 0 || mech.indexOf("hic") >= 0 || mech.indexOf("sohic") >= 0 ||
           mech.indexOf("fatigue") >= 0 || mech === "hydrogen_induced_cracking" ||
@@ -143,7 +223,6 @@ var handler = async function(event) {
           mech.indexOf("cwb") >= 0 || mech.indexOf("hydrogen_embrittlement") >= 0) {
         crackingMechanisms.push(mech);
       }
-      // Corrosion family
       else if (mech.indexOf("corrosion") >= 0 || mech.indexOf("wall_loss") >= 0 ||
                mech.indexOf("pitting") >= 0 || mech.indexOf("erosion") >= 0 ||
                mech.indexOf("mic") >= 0 || mech.indexOf("co2") >= 0 ||
@@ -151,10 +230,6 @@ var handler = async function(event) {
                mech.indexOf("cui") >= 0 || mech.indexOf("metal_loss") >= 0) {
         corrosionMechanisms.push(mech);
       }
-      // Structural instability family (BUILD 4 v1.1, tightened in v1.2)
-      // v1.2: bare "deformation" NO LONGER auto-classifies as structural.
-      //       Requires "global_deformation" / "gross_deformation" qualifier,
-      //       OR explicit structural terms (tilt, lean, buckling, settlement, etc.)
       else if (mech.indexOf("tilt") >= 0 || mech.indexOf("lean") >= 0 || mech.indexOf("list") >= 0 ||
                mech.indexOf("settlement") >= 0 || mech.indexOf("buckling") >= 0 ||
                mech.indexOf("foundation") >= 0 ||
@@ -166,19 +241,18 @@ var handler = async function(event) {
                mech.indexOf("plastic_hinge") >= 0) {
         structuralMechanisms.push(mech);
       }
-      // Other — bare "deformation" falls here in v1.2 unless paired above
       else {
         otherMechanisms.push(mech);
       }
     });
 
-    // Also check transcript for cracking keywords
+    // Transcript cracking keyword scan (presence only; confirmation inferred below)
     if (transcript.indexOf("crack") >= 0 || transcript.indexOf("scc") >= 0 ||
         transcript.indexOf("hic") >= 0 || transcript.indexOf("sohic") >= 0) {
       hasCracking = true;
     }
 
-    // BUILD 4 v1.1: Check transcript for structural instability keywords
+    // Structural transcript scan (unchanged from v1.2)
     if (transcript.indexOf("tilt") >= 0 || transcript.indexOf("leaning") >= 0 ||
         transcript.indexOf("listing") >= 0 || transcript.indexOf("not plumb") >= 0 ||
         transcript.indexOf("out of plumb") >= 0 || transcript.indexOf("off vertical") >= 0) {
@@ -194,11 +268,6 @@ var handler = async function(event) {
       hasBuckling = true;
       if (structuralMechanisms.indexOf("buckling") < 0) structuralMechanisms.push("buckling");
     }
-
-    // v1.2: DEFORMATION DISCRIMINATOR
-    // Use context-aware helper instead of naive substring match.
-    // Only promotes to structural instability if global evidence is present.
-    // Local attachment deformation (pipe shoe, lug, bracket, etc.) is NOT structural.
     if (isGlobalDeformation(transcript)) {
       hasDeformation = true;
       if (structuralMechanisms.indexOf("deformation") < 0) structuralMechanisms.push("deformation");
@@ -208,12 +277,83 @@ var handler = async function(event) {
       crackingMechanisms.push("cracking_unspecified");
     }
 
+    // ====================================================================
+    // v1.3 -- INFER CRACK CONFIRMATION STATES
+    // ====================================================================
+    // For each cracking keyword that appears, determine observed vs screening.
+    // Caller override: if body.cracking_confirmed=true, all cracking is observed.
+
+    var crackConfirmationStates = {
+      hic:    { present: false, state: "none" },
+      sohic:  { present: false, state: "none" },
+      ssc:    { present: false, state: "none" },
+      sscc:   { present: false, state: "none" },
+      scc:    { present: false, state: "none" },
+      fatigue:{ present: false, state: "none" },
+      generic:{ present: false, state: "none" }
+    };
+
+    var hasHIC_token = crackingMechanisms.some(function(m) { return m.indexOf("hic") >= 0 || m.indexOf("sohic") >= 0; }) || transcript.indexOf("hic") >= 0;
+    var hasSSC_token = crackingMechanisms.some(function(m) { return m.indexOf("ssc") >= 0 || m.indexOf("sscc") >= 0 || m.indexOf("sulfide") >= 0; }) || transcript.indexOf("ssc") >= 0 || transcript.indexOf("sulfide stress") >= 0;
+    var hasSCC_token = crackingMechanisms.some(function(m) { return m.indexOf("scc") >= 0 || m.indexOf("stress_corrosion") >= 0; }) || transcript.indexOf("stress corrosion") >= 0;
+    var hasFatigue_token = crackingMechanisms.some(function(m) { return m.indexOf("fatigue") >= 0; }) || transcript.indexOf("fatigue") >= 0;
+    var hasGenericCrack_token = transcript.indexOf("crack") >= 0;
+
+    if (hasHIC_token) {
+      crackConfirmationStates.hic.present = true;
+      crackConfirmationStates.hic.state = crackingConfirmed ? "observed" : inferCrackConfirmationState(transcript, "hic");
+    }
+    if (hasSSC_token) {
+      crackConfirmationStates.ssc.present = true;
+      crackConfirmationStates.ssc.state = crackingConfirmed ? "observed" : inferCrackConfirmationState(transcript, "ssc");
+      if (crackConfirmationStates.ssc.state === "none") {
+        crackConfirmationStates.ssc.state = inferCrackConfirmationState(transcript, "sulfide stress");
+      }
+    }
+    if (hasSCC_token) {
+      crackConfirmationStates.scc.present = true;
+      crackConfirmationStates.scc.state = crackingConfirmed ? "observed" : inferCrackConfirmationState(transcript, "stress corrosion");
+    }
+    if (hasFatigue_token) {
+      crackConfirmationStates.fatigue.present = true;
+      crackConfirmationStates.fatigue.state = crackingConfirmed ? "observed" : inferCrackConfirmationState(transcript, "fatigue");
+    }
+    if (hasGenericCrack_token) {
+      crackConfirmationStates.generic.present = true;
+      crackConfirmationStates.generic.state = crackingConfirmed ? "observed" : inferCrackConfirmationState(transcript, "crack");
+    }
+
+    // Aggregate: is ANY cracking mechanism OBSERVED?
+    var anyCrackObserved = false;
+    var anyCrackScreeningOnly = false;
+    var screeningMechanisms = [];
+    var observedMechanisms = [];
+    var ruledOutMechanisms = [];
+
+    var stateKeys = ["hic", "ssc", "scc", "fatigue", "generic"];
+    for (var k = 0; k < stateKeys.length; k++) {
+      var key = stateKeys[k];
+      var entry = crackConfirmationStates[key];
+      if (!entry.present) continue;
+      if (entry.state === "observed") {
+        anyCrackObserved = true;
+        observedMechanisms.push(key);
+      } else if (entry.state === "screening_required") {
+        anyCrackScreeningOnly = true;
+        screeningMechanisms.push(key);
+      } else if (entry.state === "ruled_out") {
+        ruledOutMechanisms.push(key);
+      }
+    }
+
     var hasCorrosionMode = corrosionMechanisms.length > 0 || wallLossPercent > 0;
-    var hasCrackingMode = crackingMechanisms.length > 0 || hasCracking;
+    var hasCrackingMode_observed = anyCrackObserved; // v1.3: only observed counts as active cracking mode
+    var hasCrackingMode_screeningOnly = anyCrackScreeningOnly && !anyCrackObserved;
+    var hasCrackingMode_anyPresence = crackingMechanisms.length > 0 || hasCracking;
     var hasStructuralMode = structuralMechanisms.length > 0 || hasTilt || hasSettlement || hasBuckling || hasDeformation;
 
     // ====================================================================
-    // EVALUATE CORROSION FAILURE PATH
+    // CORROSION PATH (unchanged from v1.2)
     // ====================================================================
 
     var corrosionPath = {
@@ -228,13 +368,11 @@ var handler = async function(event) {
     };
 
     if (hasCorrosionMode) {
-      // Use B31G MAOP if available from remaining-strength engine
       if (remainingStrength && remainingStrength.governing_maop) {
         corrosionPath.failure_pressure = remainingStrength.governing_maop;
         corrosionPath.failure_pressure_source = "B31G_CALCULATED";
         corrosionPath.assessment_method = remainingStrength.governing_method || "B31G";
       }
-      // Estimate from wall loss if no B31G data
       else if (wallLossPercent > 0 && nominalWall > 0 && pipeOD > 0 && smys > 0) {
         var remainingWall = nominalWall * (1 - wallLossPercent / 100);
         var estimatedMAOP = (2 * smys * remainingWall * 0.72) / pipeOD;
@@ -244,7 +382,6 @@ var handler = async function(event) {
         corrosionPath.notes.push("No B31G data available - using simplified Barlow estimate");
       }
 
-      // Severity classification
       if (wallLossPercent > 80) {
         corrosionPath.severity = "CRITICAL";
         corrosionPath.notes.push("Wall loss > 80% - imminent failure risk");
@@ -259,9 +396,13 @@ var handler = async function(event) {
         corrosionPath.notes.push("Wall loss > 20% - monitoring and trending required");
       } else if (wallLossPercent > 0) {
         corrosionPath.severity = "LOW";
+      } else if (corrosionMechanisms.length > 0) {
+        // v1.3: corrosion present but no quantified wall loss -> HIGH default
+        // (wet H2S / sour / chlorides in mechanism list = high until quantified)
+        corrosionPath.severity = "HIGH";
+        corrosionPath.notes.push("Corrosion mechanism(s) identified but wall loss not quantified - assume HIGH severity until measured");
       }
 
-      // MIC flag
       var hasMIC = corrosionMechanisms.some(function(m) { return m.indexOf("mic") >= 0; });
       if (hasMIC) {
         corrosionPath.notes.push("MIC detected - corrosion rate predictions from chemical models may be non-conservative (MIC can accelerate 10x)");
@@ -269,65 +410,84 @@ var handler = async function(event) {
     }
 
     // ====================================================================
-    // EVALUATE CRACKING FAILURE PATH
+    // CRACKING PATH (v1.3 -- confirmation-state gated)
     // ====================================================================
 
     var crackingPath = {
-      active: hasCrackingMode,
+      active: hasCrackingMode_observed || hasCrackingMode_screeningOnly,
+      confirmation_state: "none",
       mechanisms: crackingMechanisms,
+      observed_mechanisms: observedMechanisms,
+      screening_mechanisms: screeningMechanisms,
+      ruled_out_mechanisms: ruledOutMechanisms,
       failure_pressure: null,
       failure_pressure_source: "none",
       severity: "none",
       assessment_method: "none",
       brittle_fracture_risk: false,
+      screening_required: false,
       notes: []
     };
 
-    if (hasCrackingMode) {
+    if (hasCrackingMode_observed || hasCrackingMode_screeningOnly) {
       crackingPath.assessment_method = "API_579_Part_9";
 
-      // Sour service cracking = elevated severity always
       var isSour = serviceEnvironment.indexOf("sour") >= 0 || serviceEnvironment.indexOf("h2s") >= 0 ||
                    transcript.indexOf("sour") >= 0 || transcript.indexOf("h2s") >= 0;
 
-      var hasSSC = crackingMechanisms.some(function(m) { return m.indexOf("ssc") >= 0 || m.indexOf("sscc") >= 0 || m.indexOf("sulfide") >= 0; });
-      var hasHIC = crackingMechanisms.some(function(m) { return m.indexOf("hic") >= 0 || m.indexOf("sohic") >= 0; });
-      var hasFatigue = crackingMechanisms.some(function(m) { return m.indexOf("fatigue") >= 0; });
-      var hasSCC = crackingMechanisms.some(function(m) { return m.indexOf("scc") >= 0 || m.indexOf("stress_corrosion") >= 0; });
+      // v1.3: route on confirmation state
+      if (hasCrackingMode_observed) {
+        crackingPath.confirmation_state = "observed";
 
-      // SSC = always critical (sudden brittle fracture)
-      if (hasSSC) {
-        crackingPath.severity = "CRITICAL";
-        crackingPath.brittle_fracture_risk = true;
-        crackingPath.notes.push("SSC produces sudden brittle fracture with NO leak-before-break behavior");
-        crackingPath.notes.push("Material hardness verification against NACE MR0175 limits is mandatory");
+        // SSC observed = always CRITICAL (sudden brittle fracture)
+        if (crackConfirmationStates.ssc.state === "observed") {
+          crackingPath.severity = "CRITICAL";
+          crackingPath.brittle_fracture_risk = true;
+          crackingPath.notes.push("SSC CONFIRMED - produces sudden brittle fracture with NO leak-before-break behavior");
+          crackingPath.notes.push("Material hardness verification against NACE MR0175/MR0103 limits is mandatory");
+        }
+        // HIC/SOHIC observed in sour = HIGH + brittle fracture risk
+        else if (crackConfirmationStates.hic.state === "observed" && isSour) {
+          crackingPath.severity = "HIGH";
+          crackingPath.brittle_fracture_risk = true;
+          crackingPath.notes.push("HIC/SOHIC CONFIRMED in sour service - stepwise cracking can produce sudden failure");
+          crackingPath.notes.push("WFMT or PAUT with C-scan required to characterize crack morphology and depth");
+        }
+        // SCC observed
+        else if (crackConfirmationStates.scc.state === "observed") {
+          crackingPath.severity = "HIGH";
+          crackingPath.notes.push("SCC CONFIRMED - identify driving environment + stress + material susceptibility triad");
+        }
+        // Fatigue observed
+        else if (crackConfirmationStates.fatigue.state === "observed") {
+          crackingPath.severity = "MODERATE";
+          crackingPath.notes.push("Fatigue cracking CONFIRMED - Paris Law crack growth, requires cycle count and stress range data");
+          crackingPath.notes.push("TOFD or PAUT required for crack sizing at stress concentrations");
+        }
+        // Generic observed cracking
+        else {
+          crackingPath.severity = "HIGH";
+          crackingPath.notes.push("Cracking CONFIRMED but mechanism not fully characterized - assume high severity until typed");
+        }
       }
-      // HIC/SOHIC in sour = high to critical
-      else if (hasHIC && isSour) {
-        crackingPath.severity = "HIGH";
-        crackingPath.brittle_fracture_risk = true;
-        crackingPath.notes.push("HIC/SOHIC in sour service - stepwise cracking can produce sudden failure");
-        crackingPath.notes.push("WFMT or PAUT with C-scan required to characterize crack morphology");
-      }
-      // SCC = high
-      else if (hasSCC) {
-        crackingPath.severity = "HIGH";
-        crackingPath.notes.push("SCC requires identification of driving environment + stress + material susceptibility triad");
-      }
-      // Fatigue = depends on cycle count
-      else if (hasFatigue) {
+      else if (hasCrackingMode_screeningOnly) {
+        // v1.3 KEY CHANGE: screening-only = NOT brittle fracture risk yet
+        crackingPath.confirmation_state = "screening_required";
+        crackingPath.screening_required = true;
+        crackingPath.brittle_fracture_risk = false;
         crackingPath.severity = "MODERATE";
-        crackingPath.notes.push("Fatigue crack growth governed by Paris Law - requires cycle count and stress range data");
-        crackingPath.notes.push("TOFD or PAUT required for crack sizing at stress concentrations");
-      }
-      // Generic cracking
-      else {
-        crackingPath.severity = "HIGH";
-        crackingPath.notes.push("Cracking mechanism not fully characterized - assume high severity until confirmed");
+
+        var screeningList = screeningMechanisms.join(", ").toUpperCase();
+        crackingPath.notes.push("CRACKING MECHANISM(S) LISTED AS SCREENING CANDIDATES: " + screeningList);
+        crackingPath.notes.push("NO CRACKING OBSERVED OR MEASURED - these mechanisms appear as potential/possible/known-DM entries only");
+        crackingPath.notes.push("Crack-specific NDE (WFMT + PAUT or TOFD) REQUIRED to confirm or rule out before disposition can finalize");
+        if (isSour) {
+          crackingPath.notes.push("Sour service: hardness testing of base metal + HAZ per NACE MR0175/MR0103 required as part of screening");
+        }
       }
 
-      // Estimate cracking failure pressure (simplified FAD approach)
-      if (corrosionPath.failure_pressure) {
+      // Failure pressure estimation (only when observed)
+      if (hasCrackingMode_observed && corrosionPath.failure_pressure) {
         var crackReductionFactor = 0.60;
         if (crackingPath.brittle_fracture_risk) {
           crackReductionFactor = 0.40;
@@ -335,14 +495,16 @@ var handler = async function(event) {
         crackingPath.failure_pressure = Math.round(corrosionPath.failure_pressure * crackReductionFactor);
         crackingPath.failure_pressure_source = "ESTIMATED_FROM_CORROSION_MAOP";
         crackingPath.notes.push("Crack failure pressure estimated (no crack dimensions provided). Actual API 579-1 Part 9 assessment required.");
-      } else {
+      } else if (hasCrackingMode_observed) {
         crackingPath.failure_pressure_source = "NOT_CALCULABLE";
         crackingPath.notes.push("Cannot calculate cracking failure pressure without crack dimensions and material toughness data");
+      } else {
+        crackingPath.failure_pressure_source = "NOT_APPLICABLE_SCREENING_ONLY";
       }
     }
 
     // ====================================================================
-    // EVALUATE STRUCTURAL INSTABILITY PATH (BUILD 4 v1.1)
+    // STRUCTURAL PATH (unchanged from v1.2)
     // ====================================================================
 
     var structuralPath = {
@@ -362,12 +524,6 @@ var handler = async function(event) {
 
     if (hasStructuralMode) {
       structuralPath.assessment_method = "Structural FFS / Engineering Assessment";
-
-      var instabilityCount = 0;
-      if (hasTilt) instabilityCount++;
-      if (hasSettlement) instabilityCount++;
-      if (hasBuckling) instabilityCount++;
-      if (hasDeformation) instabilityCount++;
 
       if (hasTilt && hasSettlement) {
         structuralPath.severity = "CRITICAL";
@@ -409,7 +565,7 @@ var handler = async function(event) {
     }
 
     // ====================================================================
-    // DETERMINE GOVERNING FAILURE MODE
+    // DETERMINE GOVERNING FAILURE MODE (v1.3 -- screening-aware)
     // ====================================================================
 
     var governingMode = "NONE";
@@ -418,84 +574,119 @@ var handler = async function(event) {
     var interactionFlag = false;
     var interactionType = "none";
     var interactionDetail = "";
+    var screeningGate = null; // v1.3
 
     if (hasStructuralMode) {
       governingMode = "STRUCTURAL_INSTABILITY";
       governingBasis = "Structural instability indicators (" + structuralMechanisms.join(", ") + ") represent capacity already exceeded - global geometry has deviated from designed position. This outranks corrosion/cracking mechanism analysis because the failure consequence has already manifested.";
 
-      if (hasCorrosionMode && hasCrackingMode) {
+      if (hasCorrosionMode && hasCrackingMode_observed) {
         interactionFlag = true;
         interactionType = "COMPOUND_DRIVER";
-        interactionDetail = "Structural instability with both corrosion and cracking active. Section loss from corrosion combined with crack propagation has driven the asset past its capacity envelope. All three failure paths must be assessed.";
+        interactionDetail = "Structural instability with both corrosion and confirmed cracking active. All three failure paths must be assessed.";
       } else if (hasCorrosionMode) {
         interactionFlag = true;
         interactionType = "SYNERGY";
-        interactionDetail = "Structural instability driven by corrosion-induced section loss. Material degradation in load-bearing members has reduced cross-sectional area below capacity requirements, causing geometric deviation. This is a progressive failure scenario.";
-      } else if (hasCrackingMode) {
+        interactionDetail = "Structural instability driven by corrosion-induced section loss.";
+      } else if (hasCrackingMode_observed) {
         interactionFlag = true;
         interactionType = "CASCADE";
-        interactionDetail = "Structural instability with active cracking. Crack propagation has reduced section integrity to the point of geometric distress. Brittle fracture risk is elevated.";
+        interactionDetail = "Structural instability with confirmed cracking. Brittle fracture risk is elevated.";
       } else {
         interactionType = "STRUCTURAL_PRIMARY";
-        interactionDetail = "Structural instability without identified mechanism driver. Possible causes: foundation/pile failure, design loading exceeded, undocumented impact event, or degradation mechanism not yet characterized.";
+        interactionDetail = "Structural instability without identified mechanism driver.";
       }
     }
-    else if (hasCorrosionMode && hasCrackingMode) {
+    // v1.3: CONFIRMED cracking AND corrosion both active
+    else if (hasCorrosionMode && hasCrackingMode_observed) {
       interactionFlag = true;
 
       var hasMICAndHIC = corrosionMechanisms.some(function(m) { return m.indexOf("mic") >= 0; }) &&
-                         crackingMechanisms.some(function(m) { return m.indexOf("hic") >= 0; });
+                         observedMechanisms.indexOf("hic") >= 0;
       var hasCUIAndFatigue = corrosionMechanisms.some(function(m) { return m.indexOf("cui") >= 0; }) &&
-                             crackingMechanisms.some(function(m) { return m.indexOf("fatigue") >= 0; });
+                             observedMechanisms.indexOf("fatigue") >= 0;
       var hasErosionAndSCC = corrosionMechanisms.some(function(m) { return m.indexOf("erosion") >= 0; }) &&
-                             crackingMechanisms.some(function(m) { return m.indexOf("scc") >= 0; });
+                             observedMechanisms.indexOf("scc") >= 0;
 
       if (hasMICAndHIC) {
         interactionType = "SYNERGY";
-        interactionDetail = "MIC + HIC: microbiological activity generates hydrogen that feeds HIC. Corrosion rate models are non-conservative.";
+        interactionDetail = "MIC + confirmed HIC: microbiological activity generates hydrogen that feeds HIC. Corrosion rate models are non-conservative.";
       } else if (hasCUIAndFatigue) {
         interactionType = "CASCADE";
-        interactionDetail = "CUI + Fatigue: hidden wall loss under insulation reduces section, accelerating fatigue crack initiation.";
+        interactionDetail = "CUI + confirmed fatigue: hidden wall loss under insulation reduces section, accelerating fatigue crack initiation.";
       } else if (hasErosionAndSCC) {
         interactionType = "SYNERGY";
-        interactionDetail = "Erosion + SCC: erosion removes protective films, exposing fresh metal to corrosive environment.";
+        interactionDetail = "Erosion + confirmed SCC: erosion removes protective films, exposing fresh metal to corrosive environment.";
       } else {
         interactionType = "PARALLEL";
-        interactionDetail = "Multiple failure modes active simultaneously. Each must be assessed independently.";
+        interactionDetail = "Multiple confirmed failure modes active simultaneously. Each must be assessed independently.";
       }
 
       if (crackingPath.failure_pressure && corrosionPath.failure_pressure) {
         if (crackingPath.failure_pressure < corrosionPath.failure_pressure) {
           governingMode = "CRACKING";
           governingPressure = crackingPath.failure_pressure;
-          governingBasis = "Cracking failure pressure (" + crackingPath.failure_pressure + " psi) < corrosion failure pressure (" + corrosionPath.failure_pressure + " psi)";
+          governingBasis = "Confirmed cracking failure pressure (" + crackingPath.failure_pressure + " psi) < corrosion failure pressure (" + corrosionPath.failure_pressure + " psi)";
         } else {
           governingMode = "CORROSION";
           governingPressure = corrosionPath.failure_pressure;
-          governingBasis = "Corrosion failure pressure (" + corrosionPath.failure_pressure + " psi) <= cracking failure pressure (" + crackingPath.failure_pressure + " psi)";
+          governingBasis = "Corrosion failure pressure (" + corrosionPath.failure_pressure + " psi) <= confirmed cracking failure pressure (" + crackingPath.failure_pressure + " psi)";
         }
       } else if (crackingPath.brittle_fracture_risk) {
         governingMode = "CRACKING";
         governingPressure = crackingPath.failure_pressure;
-        governingBasis = "Brittle fracture risk from cracking overrides corrosion assessment - crack failure is sudden and catastrophic";
+        governingBasis = "Confirmed brittle fracture risk (observed SSC or HIC in sour service) overrides corrosion assessment - crack failure is sudden and catastrophic";
       } else {
         governingMode = "COMPOUND";
-        governingBasis = "Both failure modes active but insufficient data to determine governing mode. Both must be assessed.";
+        governingBasis = "Both confirmed failure modes active but insufficient pressure data to rank. Both must be assessed.";
       }
-    } else if (hasCrackingMode) {
+    }
+    // v1.3 KEY CHANGE: corrosion active + cracking SCREENING ONLY -> govern on corrosion
+    else if (hasCorrosionMode && hasCrackingMode_screeningOnly) {
+      governingMode = "CORROSION";
+      governingPressure = corrosionPath.failure_pressure;
+      governingBasis = "Corrosion is the confirmed mechanism (" + corrosionMechanisms.join(", ") + "). Cracking mechanisms (" + screeningMechanisms.join(", ").toUpperCase() + ") are listed as screening candidates only - no observation or measurement evidence. Govern on confirmed mechanism; screening gate emitted for cracking.";
+      interactionFlag = true;
+      interactionType = "CORROSION_CONFIRMED_CRACKING_SCREENING";
+      interactionDetail = "Confirmed corrosion with unconfirmed cracking mechanism candidates. Disposition cannot finalize until cracking screening NDE is performed.";
+      screeningGate = {
+        required: true,
+        reason: "Cracking mechanism(s) listed but not confirmed. WFMT + PAUT/TOFD required before final disposition.",
+        mechanisms: screeningMechanisms,
+        required_nde: ["WFMT on weld toes and HAZ", "PAUT or TOFD on body of line for HIC/SOHIC screening", "Hardness testing base metal + HAZ per NACE MR0175/MR0103"],
+        blocks_finalization: true
+      };
+    }
+    // Only observed cracking
+    else if (hasCrackingMode_observed) {
       governingMode = "CRACKING";
       governingPressure = crackingPath.failure_pressure;
-      governingBasis = "Cracking is the sole active failure mode";
-    } else if (hasCorrosionMode) {
+      governingBasis = "Confirmed cracking is the sole active failure mode";
+    }
+    // Only corrosion
+    else if (hasCorrosionMode) {
       governingMode = "CORROSION";
       governingPressure = corrosionPath.failure_pressure;
       governingBasis = "Corrosion/metal loss is the sole active failure mode";
-    } else {
+    }
+    // Only screening-level cracking, no corrosion
+    else if (hasCrackingMode_screeningOnly) {
+      governingMode = "SCREENING_REQUIRED";
+      governingBasis = "Only unconfirmed cracking mechanism candidates present (" + screeningMechanisms.join(", ").toUpperCase() + "). No confirmed failure mode. Crack-specific NDE required before governing mode can be determined.";
+      screeningGate = {
+        required: true,
+        reason: "No confirmed mechanism; cracking candidates listed only.",
+        mechanisms: screeningMechanisms,
+        required_nde: ["WFMT on weld toes and HAZ", "PAUT or TOFD for crack screening", "Hardness testing per NACE MR0175/MR0103 if sour"],
+        blocks_finalization: true
+      };
+    }
+    else {
       governingMode = "NONE";
       governingBasis = "No active failure modes identified from available data";
     }
 
-    // Severity = max across all three paths
+    // Severity (unchanged logic)
     var severityRank = { "CRITICAL": 5, "SEVERE": 4, "HIGH": 3, "MODERATE": 2, "LOW": 1, "none": 0 };
     var corSev = severityRank[corrosionPath.severity] || 0;
     var craSev = severityRank[crackingPath.severity] || 0;
@@ -506,7 +697,7 @@ var handler = async function(event) {
     else if (maxSev === corSev && maxSev > 0) governingSeverity = corrosionPath.severity;
     else if (maxSev === craSev && maxSev > 0) governingSeverity = crackingPath.severity;
 
-    // Governing code reference
+    // Governing code reference (v1.3: adds screening-aware selection)
     var governingCode = "API 579-1/ASME FFS-1";
     if (governingMode === "CORROSION") {
       governingCode = "API 579-1 Part 4/5 (Metal Loss)";
@@ -514,6 +705,8 @@ var handler = async function(event) {
       governingCode = "API 579-1 Part 9 (Crack-Like Flaws)";
     } else if (governingMode === "COMPOUND") {
       governingCode = "API 579-1 Part 4/5 + Part 9 (Both Required)";
+    } else if (governingMode === "SCREENING_REQUIRED") {
+      governingCode = "API 579-1 Part 9 screening NDE required before governing code can be locked";
     } else if (governingMode === "STRUCTURAL_INSTABILITY") {
       if (assetClass.indexOf("offshore") >= 0 || assetClass.indexOf("platform") >= 0 || assetClass.indexOf("jacket") >= 0) {
         governingCode = "API RP 2A / API RP 2SIM (Offshore Structural FFS)";
@@ -541,6 +734,8 @@ var handler = async function(event) {
       interaction_flag: interactionFlag,
       interaction_type: interactionType,
       interaction_detail: interactionDetail,
+      screening_gate: screeningGate,
+      crack_confirmation_states: crackConfirmationStates,
       corrosion_path: corrosionPath,
       cracking_path: crackingPath,
       structural_path: structuralPath,
@@ -553,7 +748,7 @@ var handler = async function(event) {
       },
       metadata: {
         engine: "failure-mode-dominance",
-        version: "1.2",
+        version: "1.3",
         timestamp: new Date().toISOString()
       }
     };
