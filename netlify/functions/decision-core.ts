@@ -78,6 +78,20 @@ function hasWord(text: string, word: string): boolean { return text.indexOf(word
 function roundN(n: number, d: number): number { var f = Math.pow(10, d); return Math.round(n * f) / f; }
 
 // ============================================================================
+// v2.5.1: WORD-BOUNDARY MATCHER
+// hasWord() is plain substring search and produces false positives whenever
+// a short keyword is a substring of an unrelated word. Examples observed in
+// production: "train" inside "restraint", "car" inside "carbon", "jacket"
+// inside "jacketing". Use hasWordBoundary() for any keyword short enough to
+// be a substring of process terminology.
+// ============================================================================
+function hasWordBoundary(text: string, word: string): boolean {
+  var escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  var re = new RegExp("\\b" + escaped + "\\b", "i");
+  return re.test(text);
+}
+
+// ============================================================================
 // DEPLOY117: NEGATION-AWARE EVIDENCE DETECTION
 // "No cracks found" must NOT trigger visible_cracking = true.
 // Checks for negation words within 25 chars before the keyword.
