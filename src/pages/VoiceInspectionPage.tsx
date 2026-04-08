@@ -1,35 +1,18 @@
-// DEPLOY165 + ALR HOTFIX — src/pages/VoiceInspectionPage.tsx v16.6h
-// v16.6h bundles three changes:
+// DEPLOY166.2 MICRO-HOTFIX — src/pages/VoiceInspectionPage.tsx v16.6i
+// v16.6i: cosmetic hotfix on top of v16.6h.
 //
-// 1. DEPLOY165 (FTR v1.1 caller forwarding):
-//    - Extracts service_age_years from transcript via universal regex
-//      (matches "in operation for X years", "X-year-old", "operating for
-//      X years", "service life of X years", and similar)
-//    - Forwards service_age_years, wall_loss_percent, fmd_severity to
-//      failure-timeline v1.1 -- this unblocks the
-//      DERIVED_FROM_WALL_LOSS_AND_AGE corrosion rate derivation and
-//      activates the 6-state progression_state taxonomy
-//    - Adds progression_state + progression_state_basis rendering to
-//      the PDF Failure Timeline section
+// Single change: ALR confidence "NaN%" render fix. The v16.6h hotfix
+// read alr.confidence and coerced it via Number() * 100, which produces
+// NaN when the engine returns a string label ("HIGH") or undefined.
+// v16.6i adds defensive type handling: numeric 0-1 -> percent,
+// numeric >1 -> already percent, string -> render as-is, invalid -> skip.
 //
-// 2. ALR PDF HOTFIX (pre-existing v16.6f bug, not a DEPLOY166 regression):
-//    - Reads correct field names on the authority-lock return shape:
-//      alr.status (was alr.lock_state)
-//      alr.authority_chain (was alr.governing_authorities)
-//      alr.supplemental_codes (was alr.supplemental_authorities)
-//    - Defensive inner field extraction -- renders whatever shape the
-//      authority_chain[i] objects have (code/standard/name/id for
-//      identifier, title/description for label, role/purpose for
-//      annotation). Never crashes on missing fields.
-//
-// 3. Carries forward all v16.6g behavior:
-//    - RSR banner guardrail (DEPLOY166)
-//    - RSR caller forwarding (DEPLOY164)
-//    - All v16.6b/c/e patches
-//
-// Universality doctrine: all extraction and rendering reads universal
-// fields or taxonomies, no asset-type branches, degrades gracefully
-// when signals absent.
+// Carries forward all v16.6h behavior:
+//   - DEPLOY165 FTR v1.1 caller forwarding
+//   - ALR PDF field-name hotfix
+//   - DEPLOY166 RSR banner guardrail
+//   - DEPLOY164 RSR caller forwarding
+//   - All prior patches
 //
 // NO TEMPLATE LITERALS -- STRING CONCATENATION ONLY
 
@@ -134,7 +117,7 @@ function generateInspectionReport(data: {
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>v16.6h | Engine: decision-core v2.5.1 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>v16.6i | Engine: decision-core v2.5.1 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -152,7 +135,7 @@ function generateInspectionReport(data: {
 
   // HARDENING DIAGNOSTIC
   html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
-  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6h)</div>";
+  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6i)</div>";
   html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time.</div>";
 
   var diagEngines = [
@@ -205,8 +188,30 @@ function generateInspectionReport(data: {
       var lockColor = alr.status === "LOCKED" ? "#16a34a" : alr.status === "PARTIAL" ? "#ea580c" : "#dc2626";
       html += "<div class='banner' style='background:" + lockColor + "'>" + esc(alr.status) + " AUTHORITY LOCK</div>";
     }
-    if (alr.confidence !== undefined && alr.confidence !== null) {
-      html += "<div class='info-row'><span class='info-label'>Confidence</span><span class='info-value'>" + Math.round(Number(alr.confidence) * 100) + "%</span></div>";
+    if (alr.confidence !== undefined && alr.confidence !== null && alr.confidence !== "") {
+      // v16.6i DEPLOY166.2: defensive confidence rendering.
+      // Engine may return: number 0-1 (fraction), number 0-100 (percent already),
+      // or a string label (e.g. "HIGH"). Avoid NaN% display.
+      var confLabel = "";
+      if (typeof alr.confidence === "number" && !isNaN(alr.confidence)) {
+        if (alr.confidence >= 0 && alr.confidence <= 1) {
+          confLabel = Math.round(alr.confidence * 100) + "%";
+        } else if (alr.confidence > 1 && alr.confidence <= 100) {
+          confLabel = Math.round(alr.confidence) + "%";
+        } else {
+          confLabel = String(alr.confidence);
+        }
+      } else if (typeof alr.confidence === "string") {
+        confLabel = alr.confidence;
+      } else {
+        var coerced = Number(alr.confidence);
+        if (!isNaN(coerced)) {
+          confLabel = (coerced >= 0 && coerced <= 1) ? (Math.round(coerced * 100) + "%") : (Math.round(coerced) + "%");
+        }
+      }
+      if (confLabel) {
+        html += "<div class='info-row'><span class='info-label'>Confidence</span><span class='info-value'>" + esc(confLabel) + "</span></div>";
+      }
     }
     if (alr.authority_chain && alr.authority_chain.length > 0) {
       for (var ali = 0; ali < alr.authority_chain.length; ali++) {
@@ -564,7 +569,7 @@ function generateInspectionReport(data: {
   html += "</div>";
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
-  html += "Generated by FORGED NDT Intelligence OS v16.6h - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
+  html += "Generated by FORGED NDT Intelligence OS v16.6i - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
   html += "</div>";
 
   html += "</body></html>";
@@ -1594,8 +1599,8 @@ export default function VoiceInspectionPage() {
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6h</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY165: FTR v1.1 universal wall-loss projection + 6-state progression taxonomy + ALR PDF field-name hotfix.</p>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6i</h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY166.2: ALR confidence NaN render hotfix (cosmetic).</p>
       </div>
 
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
@@ -1822,7 +1827,7 @@ export default function VoiceInspectionPage() {
 
         {(authorityLockResult || remainingStrengthResult || failureModeDominanceResult || dispositionPathwayResult || failureTimelineResult) && (
           <div style={{ marginBottom: "16px", padding: "12px", border: "2px solid #000", borderRadius: "8px", backgroundColor: "#fffbe6" }}>
-            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6h inline diagnostic)</div>
+            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6i inline diagnostic)</div>
             <div style={{ fontSize: "11px", fontFamily: "monospace", lineHeight: "1.6" }}>
               <div>ALR: {authorityLockResult ? "PRESENT \u2014 status=" + (authorityLockResult.status || "?") + " | " + ((authorityLockResult.authority_chain || []).length) + " primary | trigger_b31g=" + String(!!authorityLockResult.trigger_b31g) : "null"}</div>
               <div>RSR: {remainingStrengthResult ? "PRESENT \u2014 tier=" + (remainingStrengthResult.data_quality || "?") + " | envelope=" + (remainingStrengthResult.safe_envelope || "?") + " | MAOP=" + (remainingStrengthResult.governing_maop || "?") + " | severity=" + (remainingStrengthResult.severity_tier || "?") : "null"}</div>
