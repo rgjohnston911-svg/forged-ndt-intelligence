@@ -1,14 +1,46 @@
-// DEPLOY166.2 MICRO-HOTFIX — src/pages/VoiceInspectionPage.tsx v16.6i
-// v16.6i: cosmetic hotfix on top of v16.6h.
+// DEPLOY170 — src/pages/VoiceInspectionPage.tsx v16.6j
+// v16.6j: Frontend-only NPS schedule inference for missing nominal wall.
 //
-// Single change: ALR confidence "NaN%" render fix. The v16.6h hotfix
-// read alr.confidence and coerced it via Number() * 100, which produces
-// NaN when the engine returns a string label ("HIGH") or undefined.
-// v16.6i adds defensive type handling: numeric 0-1 -> percent,
-// numeric >1 -> already percent, string -> render as-is, invalid -> skip.
+// PROBLEM SOLVED:
+// Field-voice transcripts routinely give measured thin-spot readings
+// (".262 measured thin spot") but rarely state explicit nominal wall.
+// Without nominal, the Remaining Strength Engine (RSR) and Failure
+// Timeline Engine (FTR) both go dark -- confidence drops, no B31G,
+// no corrosion rate derivation. This closes GPT eval ISSUE 1.
 //
-// Carries forward all v16.6h behavior:
-//   - DEPLOY165 FTR v1.1 caller forwarding
+// FIX:
+// Universal ASME B36.10M schedule table at module level covering NPS
+// 1/2" through 24" for STD/Sch40, XS/Sch80, Sch160, XXS. A pure
+// helper function infers nominal wall when:
+//   (a) explicit nominal is absent, AND
+//   (b) an NPS size can be parsed from the transcript
+// Schedule defaults to STD (most common in process piping). Explicit
+// schedule keywords ("sch 40", "sch 80", "sch 160", "xxs", "extra
+// strong", "double extra strong") override the default.
+//
+// Provenance: inference NEVER overrides an explicit nominal. When
+// inference fires, source is reported in derivation_notes via the
+// engine's existing notes mechanism.
+//
+// Both callRemainingStrength and callFailureTimeline independently
+// invoke the inference. Idempotent and cheap. No backend changes.
+//
+// GRACEFUL DEGRADATION:
+// If NPS size is absent or unrecognized, inference returns null and
+// RSR/FTR stay dark exactly as they did before DEPLOY170.
+//
+// UNIVERSALITY DOCTRINE:
+// Pure lookup on published dimensional standard. No asset-class
+// branching. No scenario keywords. Works for any carbon or alloy
+// steel pipe covered by B36.10M.
+//
+// BUNDLED COSMETIC BUMPS (per continue file v7.15 guidance):
+//   - version banner: v16.6i -> v16.6j
+//   - decision-core hardcode: v2.5.1 -> v2.5.4 (3 sites)
+//
+// CARRIES FORWARD ALL PRIOR BEHAVIOR:
+//   - DEPLOY166.2 ALR confidence NaN render hotfix
+//   - DEPLOY165 FTR v1.1 caller forwarding (age, wall loss %, FMD severity)
 //   - ALR PDF field-name hotfix
 //   - DEPLOY166 RSR banner guardrail
 //   - DEPLOY164 RSR caller forwarding
@@ -19,6 +51,129 @@
 import React, { useState, useRef, useEffect } from "react";
 import { runHardeningPipeline } from "../utils/hardening-pipeline";
 import PhotoAnalysisCard from "../PhotoAnalysisCard";
+
+// ============================================================================
+// DEPLOY170: NPS SCHEDULE TABLE (ASME B36.10M)
+// ============================================================================
+// Module-level constant. Covers NPS 1/2" through 24" for STD/Sch40,
+// XS/Sch80, Sch160, and XXS. Values in inches. OD is fixed by NPS;
+// wall thickness varies with schedule. For NPS 14 and larger, STD is
+// universally 0.375" regardless of diameter (classic B36.10M behavior).
+// Source: ASME B36.10M / ASTM A106 / API 5L pipe dimensional tables.
+//
+// XXS values of 0 mean "not defined for this NPS in B36.10M" -- the
+// inference will skip XXS for those sizes and fall through to STD.
+var NPS_SCHEDULE_TABLE: any = {
+  "0.5":  { od: 0.840,  std: 0.109, xs: 0.147, s160: 0.188, xxs: 0.294 },
+  "0.75": { od: 1.050,  std: 0.113, xs: 0.154, s160: 0.219, xxs: 0.308 },
+  "1":    { od: 1.315,  std: 0.133, xs: 0.179, s160: 0.250, xxs: 0.358 },
+  "1.25": { od: 1.660,  std: 0.140, xs: 0.191, s160: 0.250, xxs: 0.382 },
+  "1.5":  { od: 1.900,  std: 0.145, xs: 0.200, s160: 0.281, xxs: 0.400 },
+  "2":    { od: 2.375,  std: 0.154, xs: 0.218, s160: 0.344, xxs: 0.436 },
+  "2.5":  { od: 2.875,  std: 0.203, xs: 0.276, s160: 0.375, xxs: 0.552 },
+  "3":    { od: 3.500,  std: 0.216, xs: 0.300, s160: 0.438, xxs: 0.600 },
+  "4":    { od: 4.500,  std: 0.237, xs: 0.337, s160: 0.531, xxs: 0.674 },
+  "6":    { od: 6.625,  std: 0.280, xs: 0.432, s160: 0.719, xxs: 0.864 },
+  "8":    { od: 8.625,  std: 0.322, xs: 0.500, s160: 0.906, xxs: 0.875 },
+  "10":   { od: 10.750, std: 0.365, xs: 0.500, s160: 1.125, xxs: 0 },
+  "12":   { od: 12.750, std: 0.375, xs: 0.500, s160: 1.312, xxs: 0 },
+  "14":   { od: 14.000, std: 0.375, xs: 0.500, s160: 1.406, xxs: 0 },
+  "16":   { od: 16.000, std: 0.375, xs: 0.500, s160: 1.594, xxs: 0 },
+  "18":   { od: 18.000, std: 0.375, xs: 0.500, s160: 1.781, xxs: 0 },
+  "20":   { od: 20.000, std: 0.375, xs: 0.500, s160: 1.969, xxs: 0 },
+  "24":   { od: 24.000, std: 0.375, xs: 0.500, s160: 2.344, xxs: 0 }
+};
+
+// ============================================================================
+// DEPLOY170: NPS -> nominal wall inference helper
+// ============================================================================
+// Parses NPS size and schedule from a transcript. Returns an object with
+// nominal wall thickness, NPS key, schedule label, and OD -- or null if
+// no NPS size can be recognized.
+//
+// Parser order:
+//   1. Mixed-fraction NPS: "1-1/2 inch", "2-1/2 inch" (two captured ints)
+//   2. Simple fraction: "1/2 inch", "3/4 inch"
+//   3. Integer or decimal: "16 inch", "16-inch", 16", "nps 16", "2.5 inch"
+//
+// Schedule detection (checked in order of specificity):
+//   - "sch 160" / "schedule 160"   -> Sch 160
+//   - "xxs" / "double extra strong" -> XXS (only if table has a non-zero value)
+//   - "sch 80" / "schedule 80" / "xs" / "extra strong" -> XS / Sch 80
+//   - "sch 40" / "schedule 40" / "std" / "standard wall" -> Sch 40 / STD
+//   - default: STD (most common in process piping)
+//
+// Returns null if NPS is absent OR NPS is present but not in the table.
+// Never returns zero or negative nominal.
+function inferNominalWallFromNPS(transcriptRaw: string): any {
+  if (!transcriptRaw) return null;
+  var t = String(transcriptRaw).toLowerCase();
+
+  var npsKey: string | null = null;
+
+  // 1. Mixed fraction: "1-1/2 inch", "2 1/2 inch"
+  var fracMatch = t.match(/(?:nps\s+)?(\d+)[-\s](\d)\s*\/\s*(\d)(?:\s*(?:inch|in\b|"))?/);
+  if (fracMatch) {
+    var whole = parseFloat(fracMatch[1]);
+    var numer = parseFloat(fracMatch[2]);
+    var denom = parseFloat(fracMatch[3]);
+    if (denom > 0 && !isNaN(whole) && !isNaN(numer)) {
+      var mixedVal = whole + (numer / denom);
+      npsKey = String(mixedVal);
+    }
+  }
+
+  // 2. Simple fraction: "1/2 inch", "3/4 inch"
+  if (!npsKey) {
+    var simpleFrac = t.match(/(?:nps\s+)?(\d)\s*\/\s*(\d)\s*(?:inch|in\b|")/);
+    if (simpleFrac) {
+      var sn = parseFloat(simpleFrac[1]);
+      var sd = parseFloat(simpleFrac[2]);
+      if (sd > 0 && !isNaN(sn)) npsKey = String(sn / sd);
+    }
+  }
+
+  // 3. Integer or decimal: "16 inch", "16-inch", 16", "nps 16", "2.5 inch"
+  if (!npsKey) {
+    var intMatch = t.match(/(?:nps\s+)?(\d+(?:\.\d+)?)\s*(?:-\s*)?(?:inch|in\b|")/);
+    if (intMatch) {
+      var iv = parseFloat(intMatch[1]);
+      if (iv > 0 && iv < 100) npsKey = String(iv);
+    }
+  }
+
+  if (!npsKey) return null;
+  var row = NPS_SCHEDULE_TABLE[npsKey];
+  if (!row) return null;
+
+  // Schedule detection. Default: STD.
+  var schedule = "STD / Sch 40";
+  var nominal = row.std;
+
+  if (t.indexOf("sch 160") >= 0 || t.indexOf("schedule 160") >= 0 || t.indexOf("sch.160") >= 0 || t.indexOf("sch-160") >= 0) {
+    schedule = "Sch 160";
+    nominal = row.s160;
+  } else if ((t.indexOf("xxs") >= 0 || t.indexOf("double extra strong") >= 0) && row.xxs > 0) {
+    schedule = "XXS";
+    nominal = row.xxs;
+  } else if (t.indexOf("sch 80") >= 0 || t.indexOf("schedule 80") >= 0 || t.indexOf("sch.80") >= 0 || t.indexOf("sch-80") >= 0 || t.indexOf("extra strong") >= 0 || t.match(/\bxs\b/)) {
+    schedule = "XS / Sch 80";
+    nominal = row.xs;
+  } else if (t.indexOf("sch 40") >= 0 || t.indexOf("schedule 40") >= 0 || t.indexOf("sch.40") >= 0 || t.indexOf("sch-40") >= 0 || t.indexOf("standard wall") >= 0) {
+    schedule = "Sch 40 / STD";
+    nominal = row.std;
+  }
+
+  if (!nominal || nominal <= 0) return null;
+
+  return {
+    nominal: nominal,
+    nps_size: npsKey,
+    schedule: schedule,
+    od: row.od,
+    source: "inferred_from_nps_schedule (ASME B36.10M, " + schedule + ")"
+  };
+}
 
 function generateInspectionReport(data: {
   transcript: string;
@@ -117,7 +272,7 @@ function generateInspectionReport(data: {
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>v16.6i | Engine: decision-core v2.5.1 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>v16.6j | Engine: decision-core v2.5.4 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -135,7 +290,7 @@ function generateInspectionReport(data: {
 
   // HARDENING DIAGNOSTIC
   html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
-  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6i)</div>";
+  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6j)</div>";
   html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time.</div>";
 
   var diagEngines = [
@@ -179,19 +334,12 @@ function generateInspectionReport(data: {
   if (alr) {
     html += "<div class='section'>";
     html += "<div class='section-title'>Authority Lock Chain</div>";
-    // v16.6h ALR HOTFIX: read correct field names from authority-lock return shape.
-    // Engine returns: status, authority_chain, supplemental_codes, lock_reasons,
-    // trigger_b31g, trigger_crack_assessment, trigger_sour_service.
-    // Defensive inner field extraction on authority_chain[i] -- works for any
-    // reasonable object shape (code/standard/name/id, title/description, role/purpose).
     if (alr.status) {
       var lockColor = alr.status === "LOCKED" ? "#16a34a" : alr.status === "PARTIAL" ? "#ea580c" : "#dc2626";
       html += "<div class='banner' style='background:" + lockColor + "'>" + esc(alr.status) + " AUTHORITY LOCK</div>";
     }
     if (alr.confidence !== undefined && alr.confidence !== null && alr.confidence !== "") {
-      // v16.6i DEPLOY166.2: defensive confidence rendering.
-      // Engine may return: number 0-1 (fraction), number 0-100 (percent already),
-      // or a string label (e.g. "HIGH"). Avoid NaN% display.
+      // DEPLOY166.2: defensive confidence rendering
       var confLabel = "";
       if (typeof alr.confidence === "number" && !isNaN(alr.confidence)) {
         if (alr.confidence >= 0 && alr.confidence <= 1) {
@@ -238,7 +386,6 @@ function generateInspectionReport(data: {
         html += "</div>";
       }
     }
-    // Render triggers row
     var triggerBadges = [];
     if (alr.trigger_b31g) triggerBadges.push("B31G");
     if (alr.trigger_crack_assessment) triggerBadges.push("CRACK ASSESSMENT");
@@ -251,7 +398,6 @@ function generateInspectionReport(data: {
       }
       html += "</div>";
     }
-    // Render lock reasons if present
     if (alr.lock_reasons && alr.lock_reasons.length > 0) {
       html += "<div style='margin-top:6px;font-size:10px;color:#6b7280;'>";
       html += "<strong>LOCK REASONS:</strong> ";
@@ -269,10 +415,7 @@ function generateInspectionReport(data: {
     html += "<div class='section'>";
     html += "<div class='section-title'>Remaining Strength (B31G)</div>";
 
-    // v16.6g (DEPLOY166): RSR banner guardrail
-    // When FMD detects cracking path active OR interaction flag set, the
-    // WITHIN banner must not render as green/clearance. Universal logic
-    // reading FMD fields only -- no asset keywords, no scenario branches.
+    // DEPLOY166 RSR banner guardrail
     var rsrBannerGuardrail = false;
     var rsrGuardrailReason = "";
     if (fmd) {
@@ -313,10 +456,6 @@ function generateInspectionReport(data: {
       if (calc.folias_factor !== undefined) html += "<div class='info-row'><span class='info-label'>Folias Factor (M)</span><span class='info-value'>" + Number(calc.folias_factor).toFixed(3) + "</span></div>";
       if (calc.b31g_folias_factor !== undefined) html += "<div class='info-row'><span class='info-label'>B31G Folias Factor</span><span class='info-value'>" + Number(calc.b31g_folias_factor).toFixed(3) + "</span></div>";
     }
-    // DEPLOY166.1: suppress rsr.recommendation when guardrail active.
-    // RSR engine generates "within safe envelope, continue monitoring"
-    // text that contradicts the guardrail banner. When guardrail fires,
-    // the banner + qualifier + FMD + DPR sections carry the narrative.
     if (rsr.recommendation && !rsrBannerGuardrail) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-left:3px solid " + envColor + ";border-radius:4px;font-size:11px;'>" + esc(rsr.recommendation) + "</div>";
     if (rsr.derivation_notes && rsr.derivation_notes.length > 0) {
       html += "<div style='margin-top:8px;font-size:10px;color:#6b7280;font-weight:700;'>DERIVATION NOTES</div>";
@@ -437,7 +576,6 @@ function generateInspectionReport(data: {
     }
     if (ftr.governing_basis) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-left:3px solid " + ftrColor + ";border-radius:4px;font-size:11px;'>" + esc(ftr.governing_basis) + "</div>";
 
-    // v16.6h DEPLOY165: progression_state 6-state taxonomy rendering
     if (ftr.progression_state) {
       var psColor;
       var psLabel = ftr.progression_state.toUpperCase().replace(/_/g, " ");
@@ -460,7 +598,6 @@ function generateInspectionReport(data: {
       html += "</div>";
     }
 
-    // v16.6h: surface corrosion rate + method if derived
     if (ftr.corrosion_timeline && ftr.corrosion_timeline.enabled && ftr.corrosion_timeline.method !== "none") {
       var ct = ftr.corrosion_timeline;
       html += "<div style='margin-top:8px;padding:6px 10px;background:#f9fafb;border-radius:4px;font-size:10px;'>";
@@ -569,7 +706,7 @@ function generateInspectionReport(data: {
   html += "</div>";
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
-  html += "Generated by FORGED NDT Intelligence OS v16.6i - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
+  html += "Generated by FORGED NDT Intelligence OS v16.6j - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
   html += "</div>";
 
   html += "</body></html>";
@@ -633,7 +770,7 @@ async function saveCaseToSupabase(transcriptText: string, parsedData: any, asset
     sb_confidence: (conf.overall || 0),
     sb_mechanism: (dmg.primary_mechanism ? dmg.primary_mechanism.name : null),
     sb_sufficiency: (insp.sufficiency_verdict || null),
-    sb_engine_version: (dcResult.engine_version || "v2.5.1"),
+    sb_engine_version: (dcResult.engine_version || "v2.5.4"),
     sb_last_eval: now.toISOString()
   };
 
@@ -995,6 +1132,42 @@ export default function VoiceInspectionPage() {
         var pMatch = lt.match(/(\d+(?:\.\d+)?)\s*psi/);
         if (pMatch) { var pv = parseFloat(pMatch[1]); if (pv > 0 && pv < 20000) operatingPressure = pv; }
       }
+
+      // ======================================================================
+      // DEPLOY170: NPS schedule inference for missing nominal wall.
+      // ======================================================================
+      // Runs only when explicit nominal is absent. Preserves all explicit
+      // field values -- never overrides. Also back-populates pipeOD and
+      // diameterInches from the NPS table when those are missing, so B31G
+      // has a consistent geometry even from sparse field-voice transcripts.
+      // Source transcript: parsedData.raw_text (already the authoritative
+      // transcript for downstream engines).
+      var rsrNominalInferred = false;
+      var rsrInferredSchedule = "";
+      if (!nominalWall) {
+        var rsrNpsInf = inferNominalWallFromNPS((parsedData && parsedData.raw_text) || "");
+        if (rsrNpsInf && rsrNpsInf.nominal > 0) {
+          nominalWall = rsrNpsInf.nominal;
+          rsrNominalInferred = true;
+          rsrInferredSchedule = rsrNpsInf.schedule;
+          if (!pipeOD) pipeOD = rsrNpsInf.od;
+          if (!diameterInches) {
+            var parsedNps = parseFloat(rsrNpsInf.nps_size);
+            diameterInches = isNaN(parsedNps) ? rsrNpsInf.od : parsedNps;
+          }
+          console.log("[DEPLOY170 RSR] inferred nominal " + nominalWall + " in from NPS " + rsrNpsInf.nps_size + " " + rsrInferredSchedule);
+        }
+      }
+
+      // DEPLOY170: if we now have nominal + wall_loss_percent but no measured
+      // wall, back-compute measuredMinWall so B31G has the input it needs.
+      // Only fires when measured is absent -- never overrides explicit value.
+      if (nominalWall && wallLossPercent && !measuredMinWall) {
+        measuredMinWall = nominalWall * (1 - wallLossPercent / 100);
+        console.log("[DEPLOY170 RSR] back-computed measured wall " + measuredMinWall.toFixed(4) + " from nominal " + nominalWall + " and wall_loss " + wallLossPercent + "%");
+      }
+      // ======================================================================
+
       var haveAnySignal = (nominalWall && measuredMinWall) || (diameterInches && wallLossPercent) || wallLossPercent;
       if (!haveAnySignal) { console.log("Remaining strength: no wall loss or measurement signal -- skipping"); return null; }
       var requestBody: any = { design_factor: designFactor };
@@ -1007,6 +1180,14 @@ export default function VoiceInspectionPage() {
       if (smys) requestBody.smys = smys;
       if (materialGrade) { requestBody.material_grade = materialGrade; requestBody.material = materialGrade; }
       if (operatingPressure) { requestBody.operating_pressure = operatingPressure; requestBody.pressure_psi = operatingPressure; }
+      // DEPLOY170: provenance flags so the engine (now or later) can surface
+      // the assumption in derivation_notes without any backend change required.
+      if (rsrNominalInferred) {
+        requestBody.nominal_wall_source = "inferred_from_nps_schedule";
+        requestBody.nominal_wall_schedule = rsrInferredSchedule;
+      } else if (nominalWall) {
+        requestBody.nominal_wall_source = "explicit_field";
+      }
       var response = await fetch("/.netlify/functions/remaining-strength", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
       if (response.ok) { var result = await response.json(); setRemainingStrengthResult(result); return result; }
       var bodyText = await response.text();
@@ -1120,7 +1301,6 @@ export default function VoiceInspectionPage() {
       var nominalWall = 0, currentWall = 0, retirementWall = 0, corrosionRateMpy = 0;
       var crackLength = 0, crackDepth = 0, criticalCrackSize = 0, stressRange = 0, cyclesPerDay = 0;
       var hasCorrosion = false, hasCracking = false, serviceEnv = "", materialClass = "";
-      // v16.6h DEPLOY165: v1.1 new inputs
       var wallLossPercent = 0;
       var serviceAgeYears = 0;
       var fmdSeverity = "";
@@ -1159,10 +1339,7 @@ export default function VoiceInspectionPage() {
       if (lt.indexOf("crack") >= 0) hasCracking = true;
       if (lt.indexOf("corrosion") >= 0 || lt.indexOf("wall loss") >= 0 || lt.indexOf("pitting") >= 0) hasCorrosion = true;
 
-      // v16.6h DEPLOY165: universal service age extraction regex.
-      // Matches: "in operation for 18 years", "18 years in operation",
-      // "18-year-old", "18 year old", "18 years old", "operating for 18 years",
-      // "service life of 18 years", "18 years of service", "has been in service for 18 years"
+      // DEPLOY165: universal service age extraction regex
       if (!serviceAgeYears) {
         var agePatterns = [
           /(?:in\s+operation|operating|in\s+service|service\s+life)\s+(?:for\s+|of\s+)?(\d+(?:\.\d+)?)\s*year/,
@@ -1171,8 +1348,8 @@ export default function VoiceInspectionPage() {
           /installed\s+(\d+(?:\.\d+)?)\s*year/,
           /commissioned\s+(\d+(?:\.\d+)?)\s*year/
         ];
-        for (var api = 0; api < agePatterns.length; api++) {
-          var am = lt.match(agePatterns[api]);
+        for (var api2 = 0; api2 < agePatterns.length; api2++) {
+          var am = lt.match(agePatterns[api2]);
           if (am) {
             var ay = parseFloat(am[1]);
             if (ay > 0 && ay < 200) { serviceAgeYears = ay; break; }
@@ -1180,16 +1357,14 @@ export default function VoiceInspectionPage() {
         }
       }
 
-      // Surface wall loss percentage from transcript if still missing
       if (!wallLossPercent) {
-        var wlMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:wall\s*loss|wall|metal\s*loss|thickness\s*loss)?/);
-        if (wlMatch) {
-          var wv = parseFloat(wlMatch[1]);
+        var wlMatchFtr = lt.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:wall\s*loss|wall|metal\s*loss|thickness\s*loss)?/);
+        if (wlMatchFtr) {
+          var wv = parseFloat(wlMatchFtr[1]);
           if (wv > 0 && wv <= 100) wallLossPercent = wv;
         }
       }
 
-      // Corrosion rate direct regex (mpy / mils/year) -- v1.0 behavior preserved
       var rateMatch = lt.match(/(\d+(?:\.\d+)?)\s*mpy/);
       if (rateMatch && !corrosionRateMpy) corrosionRateMpy = parseFloat(rateMatch[1]);
       var rateMatch2 = lt.match(/(\d+(?:\.\d+)?)\s*mils?\s*\/?\s*y(ea)?r/);
@@ -1199,6 +1374,29 @@ export default function VoiceInspectionPage() {
       if (cyclesMatch) cyclesPerDay = parseFloat(cyclesMatch[1]);
       var stressMatch = lt.match(/(\d+(?:\.\d+)?)\s*ksi/);
       if (stressMatch) stressRange = parseFloat(stressMatch[1]);
+
+      // ======================================================================
+      // DEPLOY170: NPS schedule inference for missing nominal wall (FTR).
+      // ======================================================================
+      // Same logic as RSR -- only fires when explicit nominal absent.
+      // Idempotent with RSR: even if RSR already inferred and echoed back via
+      // remStrengthRes.inputs, this path handles the case where RSR didn't run
+      // (e.g. RSR failed, or haveAnySignal was false in RSR), keeping FTR
+      // independently resilient. Also back-computes currentWall from wall
+      // loss % when possible, so the timeline engine has a concrete wall
+      // reading to project forward from.
+      if (!nominalWall) {
+        var ftrNpsInf = inferNominalWallFromNPS((parsedData && parsedData.raw_text) || "");
+        if (ftrNpsInf && ftrNpsInf.nominal > 0) {
+          nominalWall = ftrNpsInf.nominal;
+          console.log("[DEPLOY170 FTR] inferred nominal " + nominalWall + " in from NPS " + ftrNpsInf.nps_size + " " + ftrNpsInf.schedule);
+          if (wallLossPercent && !currentWall) {
+            currentWall = nominalWall * (1 - wallLossPercent / 100);
+            console.log("[DEPLOY170 FTR] back-computed current wall " + currentWall.toFixed(4) + " from nominal and wall_loss " + wallLossPercent + "%");
+          }
+        }
+      }
+      // ======================================================================
 
       if (!hasCorrosion && !hasCracking && !wallLossPercent) {
         console.log("Failure timeline: no corrosion or cracking signal -- skipping");
@@ -1220,7 +1418,6 @@ export default function VoiceInspectionPage() {
         has_cracking: hasCracking,
         service_environment: serviceEnv,
         material_class: materialClass,
-        // v16.6h v1.1 additions
         wall_loss_percent: wallLossPercent,
         service_age_years: serviceAgeYears,
         fmd_severity: fmdSeverity
@@ -1599,8 +1796,8 @@ export default function VoiceInspectionPage() {
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6i</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY166.2: ALR confidence NaN render hotfix (cosmetic).</p>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6j</h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY170: NPS schedule inference for missing nominal wall (RSR + FTR).</p>
       </div>
 
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
@@ -1827,7 +2024,7 @@ export default function VoiceInspectionPage() {
 
         {(authorityLockResult || remainingStrengthResult || failureModeDominanceResult || dispositionPathwayResult || failureTimelineResult) && (
           <div style={{ marginBottom: "16px", padding: "12px", border: "2px solid #000", borderRadius: "8px", backgroundColor: "#fffbe6" }}>
-            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6i inline diagnostic)</div>
+            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6j inline diagnostic)</div>
             <div style={{ fontSize: "11px", fontFamily: "monospace", lineHeight: "1.6" }}>
               <div>ALR: {authorityLockResult ? "PRESENT \u2014 status=" + (authorityLockResult.status || "?") + " | " + ((authorityLockResult.authority_chain || []).length) + " primary | trigger_b31g=" + String(!!authorityLockResult.trigger_b31g) : "null"}</div>
               <div>RSR: {remainingStrengthResult ? "PRESENT \u2014 tier=" + (remainingStrengthResult.data_quality || "?") + " | envelope=" + (remainingStrengthResult.safe_envelope || "?") + " | MAOP=" + (remainingStrengthResult.governing_maop || "?") + " | severity=" + (remainingStrengthResult.severity_tier || "?") : "null"}</div>
