@@ -1,6 +1,17 @@
-// FAILURE MODE DOMINANCE ENGINE v1.3
+// FAILURE MODE DOMINANCE ENGINE v1.3.1
 // File: netlify/functions/failure-mode-dominance.js
 // NO TYPESCRIPT -- PURE JAVASCRIPT
+//
+// v1.3.1 HOTFIX: WORD-BOUNDARY GUARDS on structural keyword scans.
+//        Naive indexOf() was matching "cleaning" -> "leaning",
+//        "blistering" -> "listing"/"list", producing false STRUCTURAL_INSTABILITY
+//        promotions on scenarios with no actual tilt/lean/settlement evidence.
+//        Adds hasWordBoundaryMatch() helper and applies it to:
+//          - transcript scans for tilt/lean/list/settlement/buckling
+//          - mechanism classifier's structural branch (tilt/lean/list tokens)
+//        Zero behavior change on scenarios with real structural evidence.
+//        Kills the "cleaning the weld area" -> CRITICAL STRUCTURAL INSTABILITY
+//        cascade on the SWS scenario 2 run.
 //
 // v1.3: CONFIRMATION-STATE GATE on brittle_fracture_risk.
 //       Bare presence of "hic" / "ssc" / "scc" / "crack" in a mechanism list
@@ -69,6 +80,44 @@ function isGlobalDeformation(text) {
       idx = text.indexOf(term, searchFrom);
     }
   }
+  return false;
+}
+
+// ============================================================================
+// v1.3.1 HELPER -- WORD-BOUNDARY MATCH
+// ============================================================================
+// Returns true if keyword appears in text with word boundaries on both sides
+// (non-word char before, non-word char after, or start/end of string).
+// A "word char" is [a-z0-9_]. This kills the "cleaning" -> "leaning" and
+// "blistering" -> "listing"/"list" false positives without requiring regex.
+function hasWordBoundaryMatch(text, keyword) {
+  if (!text || !keyword) return false;
+  var searchFrom = 0;
+  var idx = text.indexOf(keyword, searchFrom);
+  while (idx >= 0) {
+    var before = idx === 0 ? "" : text.charAt(idx - 1);
+    var afterIdx = idx + keyword.length;
+    var after = afterIdx >= text.length ? "" : text.charAt(afterIdx);
+    var beforeOK = (before === "") || !isWordChar(before);
+    var afterOK = (after === "") || !isWordChar(after);
+    if (beforeOK && afterOK) return true;
+    searchFrom = idx + 1;
+    idx = text.indexOf(keyword, searchFrom);
+  }
+  return false;
+}
+
+function isWordChar(ch) {
+  if (!ch) return false;
+  var c = ch.charCodeAt(0);
+  // 0-9
+  if (c >= 48 && c <= 57) return true;
+  // A-Z
+  if (c >= 65 && c <= 90) return true;
+  // a-z
+  if (c >= 97 && c <= 122) return true;
+  // underscore
+  if (c === 95) return true;
   return false;
 }
 
@@ -216,6 +265,10 @@ var handler = async function(event) {
     var otherMechanisms = [];
 
     mechanisms.forEach(function(mech) {
+      // v1.3.1: normalize underscores to spaces so word-boundary helper works
+      // on snake_case mechanism tokens (e.g. "tilt_severe" -> "tilt severe")
+      var mechNorm = mech.replace(/_/g, " ");
+
       if (mech.indexOf("crack") >= 0 || mech.indexOf("scc") >= 0 || mech.indexOf("ssc") >= 0 ||
           mech.indexOf("sscc") >= 0 || mech.indexOf("hic") >= 0 || mech.indexOf("sohic") >= 0 ||
           mech.indexOf("fatigue") >= 0 || mech === "hydrogen_induced_cracking" ||
@@ -227,10 +280,17 @@ var handler = async function(event) {
                mech.indexOf("pitting") >= 0 || mech.indexOf("erosion") >= 0 ||
                mech.indexOf("mic") >= 0 || mech.indexOf("co2") >= 0 ||
                mech.indexOf("thinning") >= 0 || mech.indexOf("galvanic") >= 0 ||
-               mech.indexOf("cui") >= 0 || mech.indexOf("metal_loss") >= 0) {
+               mech.indexOf("cui") >= 0 || mech.indexOf("metal_loss") >= 0 ||
+               mech.indexOf("blister") >= 0) {
+        // v1.3.1: "blister" -> corrosion family (was falling into structural via "list" substring)
         corrosionMechanisms.push(mech);
       }
-      else if (mech.indexOf("tilt") >= 0 || mech.indexOf("lean") >= 0 || mech.indexOf("list") >= 0 ||
+      // Structural instability family -- v1.3.1 uses word-boundary matching
+      // on the short ambiguous keywords (tilt/lean/list) to prevent substring
+      // collisions like "blistering" -> "listing" / "list".
+      else if (hasWordBoundaryMatch(mechNorm, "tilt") ||
+               hasWordBoundaryMatch(mechNorm, "lean") ||
+               hasWordBoundaryMatch(mechNorm, "list") ||
                mech.indexOf("settlement") >= 0 || mech.indexOf("buckling") >= 0 ||
                mech.indexOf("foundation") >= 0 ||
                mech.indexOf("instability") >= 0 || mech.indexOf("misalignment") >= 0 ||
@@ -252,19 +312,28 @@ var handler = async function(event) {
       hasCracking = true;
     }
 
-    // Structural transcript scan (unchanged from v1.2)
-    if (transcript.indexOf("tilt") >= 0 || transcript.indexOf("leaning") >= 0 ||
-        transcript.indexOf("listing") >= 0 || transcript.indexOf("not plumb") >= 0 ||
-        transcript.indexOf("out of plumb") >= 0 || transcript.indexOf("off vertical") >= 0) {
+    // Structural transcript scan -- v1.3.1 uses word-boundary matching to
+    // prevent "cleaning" -> "leaning", "blistering" -> "listing" false positives.
+    if (hasWordBoundaryMatch(transcript, "tilt") ||
+        hasWordBoundaryMatch(transcript, "tilted") ||
+        hasWordBoundaryMatch(transcript, "tilting") ||
+        hasWordBoundaryMatch(transcript, "leaning") ||
+        hasWordBoundaryMatch(transcript, "listing") ||
+        hasWordBoundaryMatch(transcript, "not plumb") ||
+        hasWordBoundaryMatch(transcript, "out of plumb") ||
+        hasWordBoundaryMatch(transcript, "off vertical")) {
       hasTilt = true;
       if (structuralMechanisms.indexOf("tilt") < 0) structuralMechanisms.push("tilt");
     }
-    if (transcript.indexOf("settlement") >= 0 || transcript.indexOf("settling") >= 0 ||
-        transcript.indexOf("foundation movement") >= 0 || transcript.indexOf("subsidence") >= 0) {
+    if (hasWordBoundaryMatch(transcript, "settlement") ||
+        hasWordBoundaryMatch(transcript, "settling") ||
+        hasWordBoundaryMatch(transcript, "foundation movement") ||
+        hasWordBoundaryMatch(transcript, "subsidence")) {
       hasSettlement = true;
       if (structuralMechanisms.indexOf("settlement") < 0) structuralMechanisms.push("settlement");
     }
-    if (transcript.indexOf("buckling") >= 0 || transcript.indexOf("buckled") >= 0) {
+    if (hasWordBoundaryMatch(transcript, "buckling") ||
+        hasWordBoundaryMatch(transcript, "buckled")) {
       hasBuckling = true;
       if (structuralMechanisms.indexOf("buckling") < 0) structuralMechanisms.push("buckling");
     }
@@ -748,7 +817,7 @@ var handler = async function(event) {
       },
       metadata: {
         engine: "failure-mode-dominance",
-        version: "1.3",
+        version: "1.3.1",
         timestamp: new Date().toISOString()
       }
     };
