@@ -1,25 +1,37 @@
-// DEPLOY166 — src/pages/VoiceInspectionPage.tsx v16.6g
-// v16.6g: RSR BANNER GUARDRAIL (DEPLOY166).
+// DEPLOY165 + ALR HOTFIX — src/pages/VoiceInspectionPage.tsx v16.6h
+// v16.6h bundles three changes:
 //
-// Universal PDF rendering fix. When FMD detects cracking path active OR
-// interaction flag set, the RSR "WITHIN SAFE ENVELOPE" banner no longer
-// renders as green/clearance. It renders as amber with qualifier text
-// because pressure envelope alone cannot disposition cracking or
-// mechanism interaction. Logic reads FMD fields only -- no asset type
-// keywords, no scenario-specific branches. Degrades to nominal green
-// behavior when FMD is absent or cracking inactive.
+// 1. DEPLOY165 (FTR v1.1 caller forwarding):
+//    - Extracts service_age_years from transcript via universal regex
+//      (matches "in operation for X years", "X-year-old", "operating for
+//      X years", "service life of X years", and similar)
+//    - Forwards service_age_years, wall_loss_percent, fmd_severity to
+//      failure-timeline v1.1 -- this unblocks the
+//      DERIVED_FROM_WALL_LOSS_AND_AGE corrosion rate derivation and
+//      activates the 6-state progression_state taxonomy
+//    - Adds progression_state + progression_state_basis rendering to
+//      the PDF Failure Timeline section
 //
-// Universality proof: same code produces different rendering based on
-// FMD state alone. Clean corrosion-only case: green banner. Any asset
-// with cracking flagged: amber banner with qualifier. Works on piping,
-// vessels, tanks, jackets, bridges, heat exchangers equally.
+// 2. ALR PDF HOTFIX (pre-existing v16.6f bug, not a DEPLOY166 regression):
+//    - Reads correct field names on the authority-lock return shape:
+//      alr.status (was alr.lock_state)
+//      alr.authority_chain (was alr.governing_authorities)
+//      alr.supplemental_codes (was alr.supplemental_authorities)
+//    - Defensive inner field extraction -- renders whatever shape the
+//      authority_chain[i] objects have (code/standard/name/id for
+//      identifier, title/description for label, role/purpose for
+//      annotation). Never crashes on missing fields.
 //
-// Carries forward all v16.6f patches (DEPLOY164):
-//   1. RSR caller forwards v1.1 alternate field names
-//   2. RSR called unconditionally after authority-lock
-//   3. Engine stack banner shows v2.5.1 + RSR v1.1 + FMD v1.3.2
-//   4. All v16.6b/c/e patches
-// NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
+// 3. Carries forward all v16.6g behavior:
+//    - RSR banner guardrail (DEPLOY166)
+//    - RSR caller forwarding (DEPLOY164)
+//    - All v16.6b/c/e patches
+//
+// Universality doctrine: all extraction and rendering reads universal
+// fields or taxonomies, no asset-type branches, degrades gracefully
+// when signals absent.
+//
+// NO TEMPLATE LITERALS -- STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
 import { runHardeningPipeline } from "../utils/hardening-pipeline";
@@ -122,7 +134,7 @@ function generateInspectionReport(data: {
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>v16.6g | Engine: decision-core v2.5.1 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.0 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>v16.6h | Engine: decision-core v2.5.1 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -140,7 +152,7 @@ function generateInspectionReport(data: {
 
   // HARDENING DIAGNOSTIC
   html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
-  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6g)</div>";
+  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6h)</div>";
   html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time.</div>";
 
   var diagEngines = [
@@ -184,27 +196,66 @@ function generateInspectionReport(data: {
   if (alr) {
     html += "<div class='section'>";
     html += "<div class='section-title'>Authority Lock Chain</div>";
-    if (alr.lock_state) {
-      var lockColor = alr.lock_state === "LOCKED" ? "#16a34a" : alr.lock_state === "PARTIAL" ? "#ea580c" : "#dc2626";
-      html += "<div class='banner' style='background:" + lockColor + "'>" + esc(alr.lock_state) + " AUTHORITY LOCK</div>";
+    // v16.6h ALR HOTFIX: read correct field names from authority-lock return shape.
+    // Engine returns: status, authority_chain, supplemental_codes, lock_reasons,
+    // trigger_b31g, trigger_crack_assessment, trigger_sour_service.
+    // Defensive inner field extraction on authority_chain[i] -- works for any
+    // reasonable object shape (code/standard/name/id, title/description, role/purpose).
+    if (alr.status) {
+      var lockColor = alr.status === "LOCKED" ? "#16a34a" : alr.status === "PARTIAL" ? "#ea580c" : "#dc2626";
+      html += "<div class='banner' style='background:" + lockColor + "'>" + esc(alr.status) + " AUTHORITY LOCK</div>";
     }
-    if (alr.governing_authorities && alr.governing_authorities.length > 0) {
-      for (var ali = 0; ali < alr.governing_authorities.length; ali++) {
-        var ga = alr.governing_authorities[ali];
-        html += "<div class='sb-item'><strong>" + esc(ga.code || ga.standard || "code") + "</strong>";
-        if (ga.title) html += " - " + esc(ga.title);
-        if (ga.role) html += " <span style='color:#6b7280;font-size:10px;'>[" + esc(ga.role) + "]</span>";
+    if (alr.confidence !== undefined && alr.confidence !== null) {
+      html += "<div class='info-row'><span class='info-label'>Confidence</span><span class='info-value'>" + Math.round(Number(alr.confidence) * 100) + "%</span></div>";
+    }
+    if (alr.authority_chain && alr.authority_chain.length > 0) {
+      for (var ali = 0; ali < alr.authority_chain.length; ali++) {
+        var ga = alr.authority_chain[ali] || {};
+        var gaId = ga.code || ga.standard || ga.name || ga.id || ga.title || "authority";
+        var gaLabel = ga.title || ga.description || ga.full_name || "";
+        var gaRole = ga.role || ga.purpose || ga.applicability || "";
+        html += "<div class='sb-item'><strong>" + esc(gaId) + "</strong>";
+        if (gaLabel && gaLabel !== gaId) html += " - " + esc(gaLabel);
+        if (gaRole) html += " <span style='color:#6b7280;font-size:10px;'>[" + esc(gaRole) + "]</span>";
         html += "</div>";
       }
     }
-    if (alr.supplemental_authorities && alr.supplemental_authorities.length > 0) {
+    if (alr.supplemental_codes && alr.supplemental_codes.length > 0) {
       html += "<div style='margin-top:6px;font-size:10px;font-weight:700;color:#6b7280;'>SUPPLEMENTAL</div>";
-      for (var asi = 0; asi < alr.supplemental_authorities.length; asi++) {
-        var sa = alr.supplemental_authorities[asi];
-        html += "<div class='sb-item' style='border-left-color:#ea580c;'><strong>" + esc(sa.code || sa.standard || "code") + "</strong>";
-        if (sa.title) html += " - " + esc(sa.title);
+      for (var asi = 0; asi < alr.supplemental_codes.length; asi++) {
+        var sa = alr.supplemental_codes[asi] || {};
+        var saId = sa.code || sa.standard || sa.name || sa.id || sa.title || "code";
+        var saLabel = sa.title || sa.description || sa.full_name || "";
+        var saRole = sa.role || sa.purpose || sa.applicability || "";
+        html += "<div class='sb-item' style='border-left-color:#ea580c;'><strong>" + esc(saId) + "</strong>";
+        if (saLabel && saLabel !== saId) html += " - " + esc(saLabel);
+        if (saRole) html += " <span style='color:#6b7280;font-size:10px;'>[" + esc(saRole) + "]</span>";
         html += "</div>";
       }
+    }
+    // Render triggers row
+    var triggerBadges = [];
+    if (alr.trigger_b31g) triggerBadges.push("B31G");
+    if (alr.trigger_crack_assessment) triggerBadges.push("CRACK ASSESSMENT");
+    if (alr.trigger_sour_service) triggerBadges.push("SOUR SERVICE");
+    if (triggerBadges.length > 0) {
+      html += "<div style='margin-top:8px;padding:6px 10px;background:#eff6ff;border-radius:4px;font-size:10px;'>";
+      html += "<strong style='color:#1e40af;'>TRIGGERS:</strong> ";
+      for (var tbi = 0; tbi < triggerBadges.length; tbi++) {
+        html += "<span style='display:inline-block;padding:1px 6px;margin-right:4px;background:#dbeafe;border-radius:3px;font-weight:700;color:#1e40af;'>" + esc(triggerBadges[tbi]) + "</span>";
+      }
+      html += "</div>";
+    }
+    // Render lock reasons if present
+    if (alr.lock_reasons && alr.lock_reasons.length > 0) {
+      html += "<div style='margin-top:6px;font-size:10px;color:#6b7280;'>";
+      html += "<strong>LOCK REASONS:</strong> ";
+      for (var lri = 0; lri < alr.lock_reasons.length; lri++) {
+        var lr = alr.lock_reasons[lri];
+        var lrText = (typeof lr === "string") ? lr : (lr && (lr.reason || lr.description || JSON.stringify(lr)));
+        html += "<div style='padding:2px 0;'>- " + esc(lrText) + "</div>";
+      }
+      html += "</div>";
     }
     html += "</div>";
   }
@@ -376,7 +427,52 @@ function generateInspectionReport(data: {
     }
     if (ftr.governing_failure_mode) html += "<div class='info-row'><span class='info-label'>Governing Mode</span><span class='info-value'>" + esc(ftr.governing_failure_mode) + "</span></div>";
     if (ftr.urgency) html += "<div class='info-row'><span class='info-label'>Urgency</span><span class='info-value' style='color:" + ftrColor + ";font-weight:700;'>" + esc(ftr.urgency) + "</span></div>";
+    if (ftr.recommended_inspection_interval_years !== null && ftr.recommended_inspection_interval_years !== undefined) {
+      html += "<div class='info-row'><span class='info-label'>Next Inspection (max)</span><span class='info-value'>" + Number(ftr.recommended_inspection_interval_years).toFixed(2) + " years</span></div>";
+    }
     if (ftr.governing_basis) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-left:3px solid " + ftrColor + ";border-radius:4px;font-size:11px;'>" + esc(ftr.governing_basis) + "</div>";
+
+    // v16.6h DEPLOY165: progression_state 6-state taxonomy rendering
+    if (ftr.progression_state) {
+      var psColor;
+      var psLabel = ftr.progression_state.toUpperCase().replace(/_/g, " ");
+      switch (ftr.progression_state) {
+        case "unstable_critical": psColor = "#dc2626"; break;
+        case "accelerating":      psColor = "#ea580c"; break;
+        case "active_likely":     psColor = "#ca8a04"; break;
+        case "active_possible":   psColor = "#2563eb"; break;
+        case "stable_known":      psColor = "#16a34a"; break;
+        case "dormant_possible":  psColor = "#6b7280"; break;
+        case "insufficient_data": psColor = "#9ca3af"; break;
+        default:                  psColor = "#6b7280";
+      }
+      html += "<div style='margin-top:10px;padding:8px 12px;background:#fff;border:2px solid " + psColor + ";border-radius:6px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:3px;'>Progression State</div>";
+      html += "<div style='font-size:13px;font-weight:800;color:" + psColor + ";'>" + esc(psLabel) + "</div>";
+      if (ftr.progression_state_basis) {
+        html += "<div style='font-size:10px;color:#374151;margin-top:3px;font-style:italic;'>" + esc(ftr.progression_state_basis) + "</div>";
+      }
+      html += "</div>";
+    }
+
+    // v16.6h: surface corrosion rate + method if derived
+    if (ftr.corrosion_timeline && ftr.corrosion_timeline.enabled && ftr.corrosion_timeline.method !== "none") {
+      var ct = ftr.corrosion_timeline;
+      html += "<div style='margin-top:8px;padding:6px 10px;background:#f9fafb;border-radius:4px;font-size:10px;'>";
+      html += "<strong style='color:#374151;'>CORROSION TIMELINE:</strong> ";
+      if (ct.corrosion_rate_mpy) html += Number(ct.corrosion_rate_mpy).toFixed(2) + " mpy";
+      if (ct.method) html += " <span style='color:#6b7280;'>[" + esc(ct.method) + "]</span>";
+      if (ct.confidence && ct.confidence !== "none") html += " <span style='color:#6b7280;'>(" + esc(ct.confidence) + ")</span>";
+      if (ct.remaining_life_years !== null && ct.remaining_life_years !== undefined) {
+        html += " &mdash; remaining life " + Number(ct.remaining_life_years).toFixed(1) + " yr to " + Number(ct.retirement_wall || 0).toFixed(4) + " in retirement";
+      }
+      if (ct.notes && ct.notes.length > 0) {
+        for (var cni = 0; cni < ct.notes.length; cni++) {
+          html += "<div style='font-size:9px;color:#6b7280;padding:1px 0;'>- " + esc(ct.notes[cni]) + "</div>";
+        }
+      }
+      html += "</div>";
+    }
     html += "</div>";
   }
 
@@ -468,7 +564,7 @@ function generateInspectionReport(data: {
   html += "</div>";
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
-  html += "Generated by FORGED NDT Intelligence OS v16.6g - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
+  html += "Generated by FORGED NDT Intelligence OS v16.6h - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
   html += "</div>";
 
   html += "</body></html>";
@@ -1019,47 +1115,110 @@ export default function VoiceInspectionPage() {
       var nominalWall = 0, currentWall = 0, retirementWall = 0, corrosionRateMpy = 0;
       var crackLength = 0, crackDepth = 0, criticalCrackSize = 0, stressRange = 0, cyclesPerDay = 0;
       var hasCorrosion = false, hasCracking = false, serviceEnv = "", materialClass = "";
+      // v16.6h DEPLOY165: v1.1 new inputs
+      var wallLossPercent = 0;
+      var serviceAgeYears = 0;
+      var fmdSeverity = "";
+
       if (gbData && gbData.extracted) {
         serviceEnv = gbData.extracted.service_fluid || "";
         materialClass = gbData.extracted.material || "";
         if (gbData.extracted.numeric) {
           nominalWall = gbData.extracted.numeric.nominal_wall || 0;
           currentWall = gbData.extracted.numeric.measured_wall || gbData.extracted.numeric.minimum_wall || 0;
-          if (gbData.extracted.numeric.wall_loss_percent && nominalWall && !currentWall) {
-            currentWall = nominalWall * (1 - gbData.extracted.numeric.wall_loss_percent / 100);
+          if (gbData.extracted.numeric.wall_loss_percent) {
+            wallLossPercent = gbData.extracted.numeric.wall_loss_percent;
+            if (nominalWall && !currentWall) {
+              currentWall = nominalWall * (1 - wallLossPercent / 100);
+            }
           }
           corrosionRateMpy = gbData.extracted.numeric.corrosion_rate_mpy || 0;
           crackLength = gbData.extracted.numeric.crack_length || 0;
           crackDepth = gbData.extracted.numeric.crack_depth || 0;
+          if (gbData.extracted.numeric.service_age_years) serviceAgeYears = gbData.extracted.numeric.service_age_years;
         }
       }
       if (remStrengthRes && remStrengthRes.inputs) {
         nominalWall = nominalWall || remStrengthRes.inputs.nominal_wall || 0;
         currentWall = currentWall || remStrengthRes.inputs.measured_minimum_wall || 0;
       }
+      if (remStrengthRes && remStrengthRes.calculations && !wallLossPercent) {
+        wallLossPercent = remStrengthRes.calculations.wall_loss_percent || 0;
+      }
       if (fmdResult) {
         hasCorrosion = (fmdResult.corrosion_path && fmdResult.corrosion_path.active) || false;
         hasCracking = (fmdResult.cracking_path && fmdResult.cracking_path.active) || false;
+        fmdSeverity = fmdResult.governing_severity || "";
       }
       var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
       if (lt.indexOf("crack") >= 0) hasCracking = true;
       if (lt.indexOf("corrosion") >= 0 || lt.indexOf("wall loss") >= 0 || lt.indexOf("pitting") >= 0) hasCorrosion = true;
+
+      // v16.6h DEPLOY165: universal service age extraction regex.
+      // Matches: "in operation for 18 years", "18 years in operation",
+      // "18-year-old", "18 year old", "18 years old", "operating for 18 years",
+      // "service life of 18 years", "18 years of service", "has been in service for 18 years"
+      if (!serviceAgeYears) {
+        var agePatterns = [
+          /(?:in\s+operation|operating|in\s+service|service\s+life)\s+(?:for\s+|of\s+)?(\d+(?:\.\d+)?)\s*year/,
+          /(\d+(?:\.\d+)?)\s*(?:-\s*)?year[s]?\s*(?:old|of\s+service|in\s+service|in\s+operation)/,
+          /(\d+(?:\.\d+)?)\s*year[s]?\s+since\s+(?:install|commission|startup)/,
+          /installed\s+(\d+(?:\.\d+)?)\s*year/,
+          /commissioned\s+(\d+(?:\.\d+)?)\s*year/
+        ];
+        for (var api = 0; api < agePatterns.length; api++) {
+          var am = lt.match(agePatterns[api]);
+          if (am) {
+            var ay = parseFloat(am[1]);
+            if (ay > 0 && ay < 200) { serviceAgeYears = ay; break; }
+          }
+        }
+      }
+
+      // Surface wall loss percentage from transcript if still missing
+      if (!wallLossPercent) {
+        var wlMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:wall\s*loss|wall|metal\s*loss|thickness\s*loss)?/);
+        if (wlMatch) {
+          var wv = parseFloat(wlMatch[1]);
+          if (wv > 0 && wv <= 100) wallLossPercent = wv;
+        }
+      }
+
+      // Corrosion rate direct regex (mpy / mils/year) -- v1.0 behavior preserved
       var rateMatch = lt.match(/(\d+(?:\.\d+)?)\s*mpy/);
       if (rateMatch && !corrosionRateMpy) corrosionRateMpy = parseFloat(rateMatch[1]);
       var rateMatch2 = lt.match(/(\d+(?:\.\d+)?)\s*mils?\s*\/?\s*y(ea)?r/);
       if (rateMatch2 && !corrosionRateMpy) corrosionRateMpy = parseFloat(rateMatch2[1]);
+
       var cyclesMatch = lt.match(/(\d+(?:\.\d+)?)\s*cycles?\s*\/?\s*day/);
       if (cyclesMatch) cyclesPerDay = parseFloat(cyclesMatch[1]);
       var stressMatch = lt.match(/(\d+(?:\.\d+)?)\s*ksi/);
       if (stressMatch) stressRange = parseFloat(stressMatch[1]);
-      if (!hasCorrosion && !hasCracking) { console.log("Failure timeline: no corrosion or cracking detected"); return null; }
+
+      if (!hasCorrosion && !hasCracking && !wallLossPercent) {
+        console.log("Failure timeline: no corrosion or cracking signal -- skipping");
+        return null;
+      }
       var requestBody = {
-        nominal_wall: nominalWall, current_wall: currentWall, retirement_wall: retirementWall,
-        corrosion_rate_mpy: corrosionRateMpy, thickness_history: [],
-        crack_length: crackLength, crack_depth: crackDepth, critical_crack_size: criticalCrackSize,
-        stress_range_ksi: stressRange, cycles_per_day: cyclesPerDay,
-        has_corrosion: hasCorrosion, has_cracking: hasCracking,
-        service_environment: serviceEnv, material_class: materialClass
+        nominal_wall: nominalWall,
+        current_wall: currentWall,
+        measured_minimum_wall: currentWall,
+        retirement_wall: retirementWall,
+        corrosion_rate_mpy: corrosionRateMpy,
+        thickness_history: [],
+        crack_length: crackLength,
+        crack_depth: crackDepth,
+        critical_crack_size: criticalCrackSize,
+        stress_range_ksi: stressRange,
+        cycles_per_day: cyclesPerDay,
+        has_corrosion: hasCorrosion,
+        has_cracking: hasCracking,
+        service_environment: serviceEnv,
+        material_class: materialClass,
+        // v16.6h v1.1 additions
+        wall_loss_percent: wallLossPercent,
+        service_age_years: serviceAgeYears,
+        fmd_severity: fmdSeverity
       };
       var response = await fetch("/.netlify/functions/failure-timeline", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
       if (response.ok) { var result = await response.json(); setFailureTimelineResult(result); return result; }
@@ -1435,8 +1594,8 @@ export default function VoiceInspectionPage() {
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6g</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY166: RSR banner guardrail. When FMD detects cracking or interaction, pressure envelope no longer renders as clearance.</p>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6h</h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY165: FTR v1.1 universal wall-loss projection + 6-state progression taxonomy + ALR PDF field-name hotfix.</p>
       </div>
 
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
@@ -1663,13 +1822,13 @@ export default function VoiceInspectionPage() {
 
         {(authorityLockResult || remainingStrengthResult || failureModeDominanceResult || dispositionPathwayResult || failureTimelineResult) && (
           <div style={{ marginBottom: "16px", padding: "12px", border: "2px solid #000", borderRadius: "8px", backgroundColor: "#fffbe6" }}>
-            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6g inline diagnostic)</div>
+            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6h inline diagnostic)</div>
             <div style={{ fontSize: "11px", fontFamily: "monospace", lineHeight: "1.6" }}>
               <div>ALR: {authorityLockResult ? "PRESENT \u2014 status=" + (authorityLockResult.status || "?") + " | " + ((authorityLockResult.authority_chain || []).length) + " primary | trigger_b31g=" + String(!!authorityLockResult.trigger_b31g) : "null"}</div>
               <div>RSR: {remainingStrengthResult ? "PRESENT \u2014 tier=" + (remainingStrengthResult.data_quality || "?") + " | envelope=" + (remainingStrengthResult.safe_envelope || "?") + " | MAOP=" + (remainingStrengthResult.governing_maop || "?") + " | severity=" + (remainingStrengthResult.severity_tier || "?") : "null"}</div>
               <div>FMD: {failureModeDominanceResult ? "PRESENT \u2014 governing=" + (failureModeDominanceResult.governing_failure_mode || "?") + " | severity=" + (failureModeDominanceResult.governing_severity || "?") : "null"}</div>
               <div>DPR: {dispositionPathwayResult ? "PRESENT \u2014 disposition=" + (dispositionPathwayResult.disposition || "?") + " | urgency=" + (dispositionPathwayResult.urgency || "?") : "null"}</div>
-              <div>FTR: {failureTimelineResult ? "PRESENT \u2014 mode=" + (failureTimelineResult.governing_failure_mode || "?") + " | urgency=" + (failureTimelineResult.urgency || "?") : "null"}</div>
+              <div>FTR: {failureTimelineResult ? "PRESENT \u2014 mode=" + (failureTimelineResult.governing_failure_mode || "?") + " | urgency=" + (failureTimelineResult.urgency || "?") + " | progression=" + (failureTimelineResult.progression_state || "?") + " | life=" + (failureTimelineResult.governing_time_years !== null && failureTimelineResult.governing_time_years !== undefined ? Number(failureTimelineResult.governing_time_years).toFixed(1) + "yr" : "?") : "null"}</div>
             </div>
           </div>
         )}
