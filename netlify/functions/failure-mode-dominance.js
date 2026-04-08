@@ -1,6 +1,31 @@
-// FAILURE MODE DOMINANCE ENGINE v1.3.1
+// FAILURE MODE DOMINANCE ENGINE v1.3.2
 // File: netlify/functions/failure-mode-dominance.js
 // NO TYPESCRIPT -- PURE JAVASCRIPT
+//
+// v1.3.2 HOTFIX: MISALIGNMENT CONTEXT DISCRIMINATOR
+//        "misalignment" / "misaligned" / "out of alignment" were in the
+//        unconditional globalIndicators list in v1.3.1 (inherited from v1.2),
+//        so any mention of local fitup misalignment at a branch reinforcement
+//        or nozzle connection triggered false STRUCTURAL_INSTABILITY promotion
+//        with GLOBAL_PLASTIC_DEFORMATION capacity state.
+//
+//        Scenario that exposed this: "Slight misalignment visible at a nearby
+//        branch reinforcement area" -- local piping fitup concern, NOT global
+//        structural instability. Engine was governing STRUCTURAL_INSTABILITY
+//        on a 16-inch hot hydrocarbon overhead line that had no global
+//        deformation evidence whatsoever.
+//
+//        Fix: move misalignment terms into ambiguousTerms so they go through
+//        the ±60 char context window check against localContextWords. Also
+//        add "distortion" to ambiguousTerms (was missing; "distorted" was
+//        there but "distortion" wasn't) and add piping-specific local context
+//        words: "branch reinforcement", "branch connection", "fitup",
+//        "fit up", "fit-up", "nozzle connection".
+//
+//        Regression tested: tank scenario with REAL "out of plumb" + "out of
+//        round" + "differential settlement" still correctly triggers
+//        STRUCTURAL_INSTABILITY. Scenario 3 misalignment-at-branch no longer
+//        triggers. Zero behavior change on real structural distress cases.
 //
 // v1.3.1 HOTFIX: WORD-BOUNDARY GUARDS on structural keyword scans.
 //        Naive indexOf() was matching "cleaning" -> "leaning",
@@ -38,7 +63,6 @@ function isGlobalDeformation(text) {
     "out of round", "out-of-round", "ovality", "ovalization",
     "bowed", "bowing", "sagging", " sag ", " sag.",
     "wrinkle", "wrinkling",
-    "misalignment", "misaligned", "out of alignment",
     "permanent displacement", "excessive displacement", "gross displacement",
     "load path failure", "load path loss", "loss of load path",
     "gross deformation", "global deformation", "severe deformation",
@@ -51,14 +75,21 @@ function isGlobalDeformation(text) {
   for (var i = 0; i < globalIndicators.length; i++) {
     if (text.indexOf(globalIndicators[i]) >= 0) return true;
   }
-  var ambiguousTerms = ["deformation", "deformed", " bent ", " bent.", " bent,", "distorted"];
+  // v1.3.2: misalignment/misaligned/out of alignment/distortion moved here
+  // so they go through the ±60 char context check before triggering structural.
+  var ambiguousTerms = ["deformation", "deformed", " bent ", " bent.", " bent,",
+                        "distorted", "distortion",
+                        "misalignment", "misaligned", "out of alignment"];
   var localContextWords = [
     "shoe", "lug", "clip", "bracket", "gusset", " pad ", " pad.", " pad,",
     "saddle", "attachment", "repad", "re-pad", "reinforcement pad",
     "stiffener", "support attachment", "shoe attachment", "lug attachment",
     "anchor bolt", "flange bolt", "bolt hole", "nozzle repad",
     "pipe shoe", "shoe support", "u-bolt", "hold down",
-    "clamp", "strap", "hanger", "hanger rod"
+    "clamp", "strap", "hanger", "hanger rod",
+    // v1.3.2: piping-specific local contexts for misalignment/distortion
+    "branch reinforcement", "branch connection", "nozzle connection",
+    "fitup", "fit up", "fit-up", "fabrication fit"
   ];
   for (var a = 0; a < ambiguousTerms.length; a++) {
     var term = ambiguousTerms[a];
@@ -817,7 +848,7 @@ var handler = async function(event) {
       },
       metadata: {
         engine: "failure-mode-dominance",
-        version: "1.3.1",
+        version: "1.3.2",
         timestamp: new Date().toISOString()
       }
     };
