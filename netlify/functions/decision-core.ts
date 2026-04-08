@@ -1,3 +1,12 @@
+// DEPLOY169 — decision-core.ts v2.5.4
+// v2.5.4: Same-family asset normalization no-op
+// DEPLOY169: isSameAssetFamily() helper suppresses the DEPLOY167 tiered
+//   penalty when upstream classifier returns a semantic synonym of the
+//   canonical asset class (e.g. "process_piping" -> "piping" is a
+//   normalization, not a correction). Silently discards the assetCorrected
+//   flag for same-family cases so no warning, no penalty, no clutter in
+//   the contradiction flags. Only true cross-family corrections (e.g.
+//   "offshore_platform" -> "piping") still go through the tiered assessment.
 // DEPLOY168 — decision-core.ts v2.5.3
 // v2.5.3: Hot-fluid human impact routing
 // DEPLOY168: Universal thermal/flammable injury logic inside
@@ -261,6 +270,38 @@ function assessAssetCorrectionStrength(lt: string, correctedClass: string, origi
   else if (signalCount === 2) strength = "MODERATE";
 
   return { strength: strength, signals: signals, signal_count: signalCount, corrected_class: correctedClass, original_class: originalClass };
+}
+
+// ============================================================================
+// v2.5.4 DEPLOY169: SAME-FAMILY ASSET NORMALIZATION DETECTOR
+// Some upstream classifiers return class names that are semantic synonyms of
+// the canonical asset class (e.g. "process_piping" vs "piping", "vessel" vs
+// "pressure_vessel", "rail_bridge" vs "bridge"). These are NORMALIZATIONS,
+// not corrections, and should not trigger DEPLOY167's tiered penalty or
+// produce an "Input ambiguity detected" warning. Only true cross-family
+// corrections (e.g. "offshore_platform" -> "piping") should go through
+// the tiered assessment. Universal: families table is declarative and
+// extensible. Unrecognized class pairs default to "different family" so
+// they still get the correction assessment.
+// ============================================================================
+function isSameAssetFamily(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  var FAMILIES: string[][] = [
+    ["piping", "process_piping", "pipeline", "piping_system", "process_pipe", "pipe"],
+    ["pressure_vessel", "vessel", "pressure_vessel_asme", "pv", "asme_viii_vessel"],
+    ["tank", "storage_tank", "atmospheric_tank", "api_650_tank", "api_653_tank", "ast"],
+    ["bridge", "rail_bridge", "bridge_steel", "bridge_concrete", "railroad_bridge", "railway_bridge", "highway_bridge", "truss_bridge"],
+    ["offshore_platform", "platform", "jacket", "fixed_platform", "offshore_structure", "production_platform", "drilling_platform"],
+    ["heat_exchanger", "exchanger", "shell_and_tube", "hx", "shell_tube_exchanger"],
+    ["boiler", "steam_boiler", "fired_boiler", "package_boiler"],
+    ["rail", "railcar", "rolling_stock", "rail_vehicle"]
+  ];
+  for (var fi = 0; fi < FAMILIES.length; fi++) {
+    var fam = FAMILIES[fi];
+    if (fam.indexOf(a) !== -1 && fam.indexOf(b) !== -1) return true;
+  }
+  return false;
 }
 
 // ============================================================================
@@ -2517,16 +2558,24 @@ var handler: Handler = async function(event: HandlerEvent) {
     var contradictions = detectContradictions(physics, damage, consequence, authority, inspection, transcript, evidenceProvenance);
 
     // ============================================================================
-    // DEPLOY117 + v2.5.2 DEPLOY167: TIERED CONFIDENCE PENALTY FOR ASSET CORRECTION
+    // DEPLOY117 + v2.5.2 DEPLOY167 + v2.5.4 DEPLOY169: TIERED CONFIDENCE PENALTY
     // DEPLOY117 applied a flat 0.05 penalty + WARNING to every correction.
     // DEPLOY167 distinguishes clean recovery from genuine ambiguity by assessing
-    // the strength of supporting evidence for the corrected class. Strong
-    // multi-signal corrections are clean recoveries and carry NO penalty --
-    // the system successfully inferred the correct class despite upstream error.
-    // Legacy behavior (0.05 + WARNING) preserved for WEAK (0-1 signal) corrections.
+    // the strength of supporting evidence for the corrected class.
+    // DEPLOY169 suppresses the penalty entirely when the correction is a
+    // same-family normalization (e.g. "process_piping" -> "piping" is a
+    // naming variance, not a real classification recovery).
     // ============================================================================
     var totalPenalty = contradictions.penalty;
     var correctionAssessment: any = null;
+
+    // DEPLOY169: Silently discard same-family normalizations. Upstream
+    // classifiers sometimes return semantic synonyms of the canonical class.
+    // These are not corrections and should not be flagged as ambiguity.
+    if (assetCorrected && isSameAssetFamily(asset.asset_class || "unknown", assetClass)) {
+      assetCorrected = false;
+    }
+
     if (assetCorrected) {
       correctionAssessment = assessAssetCorrectionStrength(lt_handler, assetClass, asset.asset_class || "unknown");
       if (correctionAssessment.strength === "STRONG") {
@@ -2597,7 +2646,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.5.3",
+          engine_version: "physics-first-decision-core-v2.5.4",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
