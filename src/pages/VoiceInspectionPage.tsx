@@ -1,49 +1,66 @@
-// DEPLOY170 — src/pages/VoiceInspectionPage.tsx v16.6j
-// v16.6j: Frontend-only NPS schedule inference for missing nominal wall.
+// DEPLOY170.1 — src/pages/VoiceInspectionPage.tsx v16.6k
+// v16.6k: Two system-wide lifts, bundled into one frontend deploy.
 //
-// PROBLEM SOLVED:
-// Field-voice transcripts routinely give measured thin-spot readings
-// (".262 measured thin spot") but rarely state explicit nominal wall.
-// Without nominal, the Remaining Strength Engine (RSR) and Failure
-// Timeline Engine (FTR) both go dark -- confidence drops, no B31G,
-// no corrosion rate derivation. This closes GPT eval ISSUE 1.
+// -------------------------------------------------------------------
+// LIFT 1: INPUT FORMAT UNIVERSALITY
+// -------------------------------------------------------------------
+// PROBLEM:
+// The frontend extraction layer was tuned for voice-dictation cadence
+// ("sixteen inch line, point two six two at the six o'clock"). It does
+// not catch paragraph-format technical documents using written cadence
+// ("nominal wall: 0.500 in", "0.262 in minimum"). Engineers, inspectors
+// copy-pasting from Word docs, and anyone using structured field reports
+// hit this gap immediately -- RSR and FTR go null even when the needed
+// numbers are sitting right there in the transcript.
 //
 // FIX:
-// Universal ASME B36.10M schedule table at module level covering NPS
-// 1/2" through 24" for STD/Sch40, XS/Sch80, Sch160, XXS. A pure
-// helper function infers nominal wall when:
-//   (a) explicit nominal is absent, AND
-//   (b) an NPS size can be parsed from the transcript
-// Schedule defaults to STD (most common in process piping). Explicit
-// schedule keywords ("sch 40", "sch 80", "sch 160", "xxs", "extra
-// strong", "double extra strong") override the default.
+// Universal paragraph-format regex in both callRemainingStrength and
+// callFailureTimeline, running BEFORE the NPS inference block so
+// explicit values always win. Patterns match:
+//   - "nominal wall: X in" / "nominal wall X inch" / "nominal X in"
+//   - "X in minimum" / "X inch min" / "X in. min"
+//   - "minimum wall: X in" / "minimum thickness X inch"
+//   - "measured wall X in" / "measured thickness: X in"
+// Back-computes wall_loss_percent from nominal + measured when both
+// are present but percentage was not stated, completing the inference
+// matrix. Explicit bounds (0.05 in < value < 5 in) reject nonsense.
 //
-// Provenance: inference NEVER overrides an explicit nominal. When
-// inference fires, source is reported in derivation_notes via the
-// engine's existing notes mechanism.
+// -------------------------------------------------------------------
+// LIFT 2: NULL-ENGINE TRANSPARENCY
+// -------------------------------------------------------------------
+// PROBLEM:
+// When RSR or FTR returned null (genuinely insufficient input data),
+// the PDF silently omitted the entire section. External reviewers read
+// silent omission as oversight or engine failure, not as graceful
+// degradation. The engineering credibility of the report suffers.
 //
-// Both callRemainingStrength and callFailureTimeline independently
-// invoke the inference. Idempotent and cheap. No backend changes.
+// FIX:
+// When RSR is null, render an explicit "NOT RUN -- INPUT DATA
+// INSUFFICIENT" section in the same position where RSR would have
+// appeared. Show required inputs and what was missing. Same treatment
+// for FTR. Universal: fires on any scenario where the engine legitimately
+// could not run, not scenario-gated. Graceful degradation is now
+// visible instead of silent.
 //
-// GRACEFUL DEGRADATION:
-// If NPS size is absent or unrecognized, inference returns null and
-// RSR/FTR stay dark exactly as they did before DEPLOY170.
+// -------------------------------------------------------------------
+// UNIVERSALITY DOCTRINE (reaffirmed)
+// -------------------------------------------------------------------
+// Both lifts operate on universal patterns:
+//   - Paragraph regex has zero asset-class keywords and zero scenario
+//     branching. Works on any technical document in any industry.
+//   - Null-engine transparency fires whenever the engine is null,
+//     regardless of asset class, consequence tier, or mechanism.
 //
-// UNIVERSALITY DOCTRINE:
-// Pure lookup on published dimensional standard. No asset-class
-// branching. No scenario keywords. Works for any carbon or alloy
-// steel pipe covered by B36.10M.
-//
-// BUNDLED COSMETIC BUMPS (per continue file v7.15 guidance):
-//   - version banner: v16.6i -> v16.6j
-//   - decision-core hardcode: v2.5.1 -> v2.5.4 (3 sites)
+// CARRIES FORWARD FROM v16.6j (DEPLOY170):
+//   - NPS schedule table (ASME B36.10M, NPS 1/2"-24")
+//   - NPS -> nominal wall inference helper
+//   - RSR + FTR inference hooks (still fire only when !nominalWall)
+//   - Decision-core banner v2.5.4
 //
 // CARRIES FORWARD ALL PRIOR BEHAVIOR:
 //   - DEPLOY166.2 ALR confidence NaN render hotfix
 //   - DEPLOY165 FTR v1.1 caller forwarding (age, wall loss %, FMD severity)
-//   - ALR PDF field-name hotfix
 //   - DEPLOY166 RSR banner guardrail
-//   - DEPLOY164 RSR caller forwarding
 //   - All prior patches
 //
 // NO TEMPLATE LITERALS -- STRING CONCATENATION ONLY
@@ -272,7 +289,7 @@ function generateInspectionReport(data: {
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>v16.6j | Engine: decision-core v2.5.4 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>v16.6k | Engine: decision-core v2.5.4 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.1 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -290,7 +307,7 @@ function generateInspectionReport(data: {
 
   // HARDENING DIAGNOSTIC
   html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
-  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6j)</div>";
+  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6k)</div>";
   html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time.</div>";
 
   var diagEngines = [
@@ -466,6 +483,29 @@ function generateInspectionReport(data: {
     html += "</div>";
   }
 
+  // ========================================================================
+  // DEPLOY170.1: RSR-NULL TRANSPARENCY RENDERING
+  // ========================================================================
+  // When RSR returned null (input data genuinely insufficient), render an
+  // explicit "NOT RUN" section instead of silently omitting. Universal:
+  // fires whenever rsr is null, regardless of asset class or scenario.
+  // Graceful degradation is now visible, not silent.
+  if (!rsr) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Remaining Strength (B31G)</div>";
+    html += "<div class='banner' style='background:#6b7280'>NOT RUN &mdash; INPUT DATA INSUFFICIENT</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:10px 12px;background:#f9fafb;border-radius:4px;border-left:3px solid #6b7280;margin-bottom:10px;'>";
+    html += "The ASME B31G / Modified B31G metal-loss screen was not executed because the transcript did not contain sufficient thickness measurement data. This is graceful degradation, not an engine failure. Provide the inputs below and re-run to obtain a remaining strength assessment.";
+    html += "</div>";
+    html += "<div style='font-size:10px;color:#6b7280;font-weight:700;text-transform:uppercase;margin-bottom:4px;'>Required Inputs</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:3px 14px;'>&bull; <strong>Nominal wall thickness</strong> &mdash; e.g. \"nominal wall: 0.500 in\", an explicit NPS size (16 inch, sch 40), or a stated schedule</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:3px 14px;'>&bull; <strong>Measured minimum wall</strong> OR <strong>wall loss percentage</strong> &mdash; e.g. \"0.262 in minimum\" or \"42% wall loss\"</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:3px 14px;'>&bull; <strong>Pipe diameter</strong> &mdash; NPS size or outside diameter in inches</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:3px 14px;'>&bull; <strong>Operating pressure</strong> &mdash; recommended, not strictly required for screen</div>";
+    html += "<div style='font-size:10px;color:#92400e;font-style:italic;margin-top:10px;padding:8px 10px;background:#fffbe6;border-left:3px solid #ca8a04;border-radius:3px;'>Downstream engines (Failure Mode Dominance, Failure Timeline, Disposition Pathway) may still run on available data and produce a conservative disposition without B31G support.</div>";
+    html += "</div>";
+  }
+
   if (fmd) {
     html += "<div class='section'>";
     html += "<div class='section-title'>Failure Mode Dominance</div>";
@@ -618,6 +658,25 @@ function generateInspectionReport(data: {
     html += "</div>";
   }
 
+  // ========================================================================
+  // DEPLOY170.1: FTR-NULL TRANSPARENCY RENDERING
+  // ========================================================================
+  // Same pattern as RSR-null: when FTR returned null, explain what's
+  // missing instead of silent omission. Universal graceful degradation.
+  if (!ftr) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Failure Timeline</div>";
+    html += "<div class='banner' style='background:#6b7280'>NOT RUN &mdash; INPUT DATA INSUFFICIENT</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:10px 12px;background:#f9fafb;border-radius:4px;border-left:3px solid #6b7280;margin-bottom:10px;'>";
+    html += "The failure timeline projection was not executed because the transcript did not contain sufficient data to quantify a progression rate for any active mechanism. This is graceful degradation, not an engine failure.";
+    html += "</div>";
+    html += "<div style='font-size:10px;color:#6b7280;font-weight:700;text-transform:uppercase;margin-bottom:4px;'>Required Inputs (at least one pathway)</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:3px 14px;margin-bottom:6px;'><strong>Corrosion pathway:</strong> nominal wall + measured wall (or wall loss %) + service age, OR explicit corrosion rate (e.g. \"8.75 mpy\"), OR thickness history</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:3px 14px;'><strong>Cracking pathway:</strong> crack length + depth + critical flaw size, OR stress range (ksi) + cycles per day</div>";
+    html += "<div style='font-size:10px;color:#92400e;font-style:italic;margin-top:10px;padding:8px 10px;background:#fffbe6;border-left:3px solid #ca8a04;border-radius:3px;'>Disposition may still be issued conservatively by the Disposition Pathway engine based on severity and mechanism confirmation, but no quantified remaining-life projection will appear.</div>";
+    html += "</div>";
+  }
+
   if (par && par.analysis) {
     var pa = par.analysis;
     html += "<div class='section'>";
@@ -706,7 +765,7 @@ function generateInspectionReport(data: {
   html += "</div>";
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
-  html += "Generated by FORGED NDT Intelligence OS v16.6j - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
+  html += "Generated by FORGED NDT Intelligence OS v16.6k - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
   html += "</div>";
 
   html += "</body></html>";
@@ -1134,6 +1193,58 @@ export default function VoiceInspectionPage() {
       }
 
       // ======================================================================
+      // DEPLOY170.1: PARAGRAPH-FORMAT NUMERIC EXTRACTION (RSR)
+      // ======================================================================
+      // Universal regex for written-cadence technical documents. Runs BEFORE
+      // NPS inference so explicit transcript values always win over table
+      // defaults. Bounds 0.05 in < value < 5 in reject nonsense readings.
+      // No asset-class branching, no scenario keywords.
+
+      // "nominal wall: 0.500 in" / "nominal wall 0.500 inch" / "nominal 0.5 in"
+      if (!nominalWall) {
+        var rsrNmMatch = lt.match(/nominal\s+(?:wall\s+)?(?:thickness\s*)?[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (rsrNmMatch) {
+          var rsrNmv = parseFloat(rsrNmMatch[1]);
+          if (rsrNmv > 0.05 && rsrNmv < 5) nominalWall = rsrNmv;
+        }
+      }
+
+      // "0.262 in minimum" / "0.262 inch min" / "0.262\" minimum"
+      if (!measuredMinWall) {
+        var rsrMmMatch = lt.match(/([0-9]*\.?[0-9]+)\s*(?:in|inch|")\s*min(?:imum)?\b/);
+        if (rsrMmMatch) {
+          var rsrMmv = parseFloat(rsrMmMatch[1]);
+          if (rsrMmv > 0.05 && rsrMmv < 5) measuredMinWall = rsrMmv;
+        }
+      }
+
+      // "minimum wall: 0.262 in" / "minimum thickness 0.262 inch" (alt form)
+      if (!measuredMinWall) {
+        var rsrMmMatch2 = lt.match(/min(?:imum)?\s+(?:wall|thickness)[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (rsrMmMatch2) {
+          var rsrMmv2 = parseFloat(rsrMmMatch2[1]);
+          if (rsrMmv2 > 0.05 && rsrMmv2 < 5) measuredMinWall = rsrMmv2;
+        }
+      }
+
+      // "measured wall 0.262 in" / "measured thickness: 0.262" (alt form)
+      if (!measuredMinWall) {
+        var rsrMmMatch3 = lt.match(/measured\s+(?:wall|thickness|minimum)[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (rsrMmMatch3) {
+          var rsrMmv3 = parseFloat(rsrMmMatch3[1]);
+          if (rsrMmv3 > 0.05 && rsrMmv3 < 5) measuredMinWall = rsrMmv3;
+        }
+      }
+
+      // Back-compute wall_loss_percent when nominal + measured present but
+      // percentage was not stated. Completes the inference matrix.
+      if (nominalWall && measuredMinWall && !wallLossPercent) {
+        wallLossPercent = ((nominalWall - measuredMinWall) / nominalWall) * 100;
+        console.log("[DEPLOY170.1 RSR] back-computed wall_loss " + wallLossPercent.toFixed(1) + "% from nominal " + nominalWall + " and measured " + measuredMinWall);
+      }
+      // ======================================================================
+
+      // ======================================================================
       // DEPLOY170: NPS schedule inference for missing nominal wall.
       // ======================================================================
       // Runs only when explicit nominal is absent. Preserves all explicit
@@ -1374,6 +1485,52 @@ export default function VoiceInspectionPage() {
       if (cyclesMatch) cyclesPerDay = parseFloat(cyclesMatch[1]);
       var stressMatch = lt.match(/(\d+(?:\.\d+)?)\s*ksi/);
       if (stressMatch) stressRange = parseFloat(stressMatch[1]);
+
+      // ======================================================================
+      // DEPLOY170.1: PARAGRAPH-FORMAT NUMERIC EXTRACTION (FTR)
+      // ======================================================================
+      // Same universal patterns as RSR, except FTR uses currentWall (not
+      // measuredMinWall). Runs before NPS inference so explicit values win.
+      // Bounds 0.05 in < value < 5 in. No asset-class or scenario branching.
+
+      if (!nominalWall) {
+        var ftrNmMatch = lt.match(/nominal\s+(?:wall\s+)?(?:thickness\s*)?[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (ftrNmMatch) {
+          var ftrNmv = parseFloat(ftrNmMatch[1]);
+          if (ftrNmv > 0.05 && ftrNmv < 5) nominalWall = ftrNmv;
+        }
+      }
+
+      if (!currentWall) {
+        var ftrMmMatch = lt.match(/([0-9]*\.?[0-9]+)\s*(?:in|inch|")\s*min(?:imum)?\b/);
+        if (ftrMmMatch) {
+          var ftrMmv = parseFloat(ftrMmMatch[1]);
+          if (ftrMmv > 0.05 && ftrMmv < 5) currentWall = ftrMmv;
+        }
+      }
+
+      if (!currentWall) {
+        var ftrMmMatch2 = lt.match(/min(?:imum)?\s+(?:wall|thickness)[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (ftrMmMatch2) {
+          var ftrMmv2 = parseFloat(ftrMmMatch2[1]);
+          if (ftrMmv2 > 0.05 && ftrMmv2 < 5) currentWall = ftrMmv2;
+        }
+      }
+
+      if (!currentWall) {
+        var ftrMmMatch3 = lt.match(/measured\s+(?:wall|thickness|minimum)[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (ftrMmMatch3) {
+          var ftrMmv3 = parseFloat(ftrMmMatch3[1]);
+          if (ftrMmv3 > 0.05 && ftrMmv3 < 5) currentWall = ftrMmv3;
+        }
+      }
+
+      // Back-compute wall_loss_percent from nominal + current wall when missing
+      if (nominalWall && currentWall && !wallLossPercent) {
+        wallLossPercent = ((nominalWall - currentWall) / nominalWall) * 100;
+        console.log("[DEPLOY170.1 FTR] back-computed wall_loss " + wallLossPercent.toFixed(1) + "% from nominal " + nominalWall + " and current " + currentWall);
+      }
+      // ======================================================================
 
       // ======================================================================
       // DEPLOY170: NPS schedule inference for missing nominal wall (FTR).
@@ -1796,8 +1953,8 @@ export default function VoiceInspectionPage() {
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6j</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY170: NPS schedule inference for missing nominal wall (RSR + FTR).</p>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6k</h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY170.1: paragraph-format extraction + null-engine transparency (system-wide lifts).</p>
       </div>
 
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
@@ -2024,7 +2181,7 @@ export default function VoiceInspectionPage() {
 
         {(authorityLockResult || remainingStrengthResult || failureModeDominanceResult || dispositionPathwayResult || failureTimelineResult) && (
           <div style={{ marginBottom: "16px", padding: "12px", border: "2px solid #000", borderRadius: "8px", backgroundColor: "#fffbe6" }}>
-            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6j inline diagnostic)</div>
+            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6k inline diagnostic)</div>
             <div style={{ fontSize: "11px", fontFamily: "monospace", lineHeight: "1.6" }}>
               <div>ALR: {authorityLockResult ? "PRESENT \u2014 status=" + (authorityLockResult.status || "?") + " | " + ((authorityLockResult.authority_chain || []).length) + " primary | trigger_b31g=" + String(!!authorityLockResult.trigger_b31g) : "null"}</div>
               <div>RSR: {remainingStrengthResult ? "PRESENT \u2014 tier=" + (remainingStrengthResult.data_quality || "?") + " | envelope=" + (remainingStrengthResult.safe_envelope || "?") + " | MAOP=" + (remainingStrengthResult.governing_maop || "?") + " | severity=" + (remainingStrengthResult.severity_tier || "?") : "null"}</div>
