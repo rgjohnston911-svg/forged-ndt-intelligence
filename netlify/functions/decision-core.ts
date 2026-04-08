@@ -1,3 +1,12 @@
+// DEPLOY167 — decision-core.ts v2.5.2
+// v2.5.2: Tiered asset correction penalty
+// DEPLOY167: assessAssetCorrectionStrength() helper distinguishes clean
+//   recovery (3+ class-specific signals in transcript) from genuine
+//   ambiguity (0-1 signals). STRONG corrections carry NO confidence penalty
+//   -- the decision-core successfully inferred the correct class despite
+//   upstream error and should be rewarded, not punished. MODERATE gets
+//   0.02. WEAK (legacy DEPLOY117 behavior) gets 0.05 + WARNING. Unblocks
+//   Scenario 3 confidence drop on clean piping recoveries.
 // DEPLOY162 — decision-core.ts v2.5.1
 // v2.5.1: Word-boundary matcher for asset resolver + hot hydrocarbon fix
 // DEPLOY162: hasWordBoundary() helper + applied to train/car/jacket/bridge/span/
@@ -140,6 +149,109 @@ function hasWordNotNegated(text: string, word: string): boolean {
   return false; // All occurrences were negated
 }
 function clamp(n: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, n)); }
+
+// ============================================================================
+// v2.5.2 DEPLOY167: ASSET CORRECTION STRENGTH ASSESSMENT
+// Distinguishes clean recovery (strong multi-signal evidence for the corrected
+// class) from genuine ambiguity (weak single-signal correction). Clean
+// recoveries carry NO confidence penalty -- the decision-core successfully
+// inferred the correct class despite upstream error, which should be rewarded,
+// not punished. Universal: signal lists are class-specific but scoring is
+// identical for all asset types. Degrades gracefully on unknown classes.
+// STRONG   = 3+ class-specific signals -> no penalty, no warning
+// MODERATE = 2 class-specific signals -> 0.02 penalty, informational note
+// WEAK     = 0-1 signals                -> 0.05 penalty + warning (legacy DEPLOY117)
+// ============================================================================
+function assessAssetCorrectionStrength(lt: string, correctedClass: string, originalClass: string): any {
+  var signals: string[] = [];
+
+  if (correctedClass === "piping" || correctedClass === "pipeline") {
+    if (hasWord(lt, "process line")) signals.push("process line");
+    if (hasWord(lt, "piping system")) signals.push("piping system");
+    if (hasWord(lt, "overhead line") || hasWord(lt, "overhead piping") || hasWord(lt, "overhead process")) signals.push("overhead line");
+    if (hasWord(lt, "a106") || hasWord(lt, "a 106")) signals.push("ASTM A106");
+    if (hasWord(lt, "a53") || hasWord(lt, "a 53")) signals.push("ASTM A53");
+    if (hasWord(lt, "a333") || hasWord(lt, "a 333")) signals.push("ASTM A333");
+    if (hasWord(lt, "a312") || hasWord(lt, "a 312")) signals.push("ASTM A312");
+    if (hasWord(lt, "nps ") || hasWord(lt, "nominal pipe size")) signals.push("NPS designation");
+    if (hasWord(lt, "schedule 40") || hasWord(lt, "schedule 80") || hasWord(lt, "sch 40") || hasWord(lt, "sch 80") || hasWord(lt, "sch. 40") || hasWord(lt, "sch. 80") || hasWord(lt, "std wall") || hasWord(lt, "xs wall")) signals.push("pipe schedule");
+    if (hasWord(lt, "dead leg")) signals.push("dead leg");
+    if (hasWord(lt, "spring can") || hasWord(lt, "spring hanger")) signals.push("spring support");
+    if (hasWord(lt, "long-radius elbow") || hasWord(lt, "long radius elbow") || hasWord(lt, "lr elbow")) signals.push("long-radius elbow");
+    if (hasWord(lt, "branch connection") || hasWord(lt, "welded branch")) signals.push("branch connection");
+    if (hasWord(lt, "pipe support")) signals.push("pipe support");
+    if (/\d+[\s-]*inch\s+(pipe|line)/.test(lt)) signals.push("sized pipe/line");
+  }
+
+  if (correctedClass === "pressure_vessel") {
+    if (hasWord(lt, "pressure vessel")) signals.push("pressure vessel");
+    if (hasWord(lt, "shell and tube") || hasWord(lt, "shell-and-tube")) signals.push("shell and tube");
+    if (hasWord(lt, "tube bundle")) signals.push("tube bundle");
+    if (hasWord(lt, "u-tube") || hasWord(lt, "u tube")) signals.push("u-tube");
+    if (hasWord(lt, "floating head")) signals.push("floating head");
+    if (hasWord(lt, "hydrocracker") || hasWord(lt, "hydrotreater")) signals.push("hydroprocessing reactor");
+    if (hasWord(lt, "reactor vessel")) signals.push("reactor vessel");
+    if (hasWord(lt, "knockout drum") || hasWord(lt, "ko drum")) signals.push("knockout drum");
+    if (hasWord(lt, "flash drum")) signals.push("flash drum");
+    if (hasWord(lt, "surge drum")) signals.push("surge drum");
+    if (hasWord(lt, "asme section viii") || hasWord(lt, "section viii")) signals.push("ASME VIII");
+    if (hasWord(lt, "tangent line") || hasWord(lt, "tan-tan")) signals.push("tangent line");
+    if (hasWord(lt, "head to shell") || hasWord(lt, "head-to-shell")) signals.push("head to shell junction");
+    if (hasWord(lt, "man-way") || hasWord(lt, "manway")) signals.push("manway");
+    if (hasWord(lt, "decompression chamber") || hasWord(lt, "hyperbaric")) signals.push("hyperbaric vessel");
+  }
+
+  if (correctedClass === "tank" || correctedClass === "storage_tank") {
+    if (hasWord(lt, "storage tank")) signals.push("storage tank");
+    if (hasWord(lt, "aboveground tank") || hasWord(lt, "aboveground storage")) signals.push("aboveground storage tank");
+    if (hasWord(lt, "api 650") || hasWord(lt, "api-650")) signals.push("API 650");
+    if (hasWord(lt, "api 653") || hasWord(lt, "api-653")) signals.push("API 653");
+    if (hasWord(lt, "floating roof")) signals.push("floating roof");
+    if (hasWord(lt, "fixed roof") || hasWord(lt, "cone roof") || hasWord(lt, "dome roof")) signals.push("fixed roof");
+    if (hasWord(lt, "tank farm")) signals.push("tank farm");
+    if (hasWord(lt, "rim seal")) signals.push("rim seal");
+    if (hasWord(lt, "wind girder")) signals.push("wind girder");
+    if (hasWord(lt, "tank shell")) signals.push("tank shell");
+    if (hasWord(lt, "tank bottom") || hasWord(lt, "floor plate")) signals.push("tank bottom");
+  }
+
+  if (correctedClass === "bridge" || correctedClass === "rail_bridge" || correctedClass === "bridge_steel" || correctedClass === "bridge_concrete") {
+    if (hasWordBoundary(lt, "bridge")) signals.push("bridge");
+    if (hasWord(lt, "girder")) signals.push("girder");
+    if (hasWord(lt, "truss")) signals.push("truss");
+    if (hasWord(lt, "abutment")) signals.push("abutment");
+    if (hasWordBoundary(lt, "pier")) signals.push("pier");
+    if (hasWordBoundary(lt, "deck")) signals.push("bridge deck");
+    if (hasWord(lt, "stringer")) signals.push("stringer");
+    if (hasWord(lt, "floor beam")) signals.push("floor beam");
+    if (hasWord(lt, "gusset")) signals.push("gusset");
+    if (hasWord(lt, "aashto")) signals.push("AASHTO");
+    if (hasWord(lt, "nbis")) signals.push("NBIS");
+    if (hasWord(lt, "fracture critical") || hasWord(lt, "fracture-critical")) signals.push("fracture-critical member");
+  }
+
+  if (correctedClass === "offshore_platform") {
+    if (hasWord(lt, "offshore platform")) signals.push("offshore platform");
+    if (hasWordBoundary(lt, "jacket")) signals.push("jacket");
+    if (hasWord(lt, "jacket leg")) signals.push("jacket leg");
+    if (hasWord(lt, "topside")) signals.push("topside");
+    if (hasWord(lt, "splash zone")) signals.push("splash zone");
+    if (hasWordBoundary(lt, "riser")) signals.push("riser");
+    if (hasWord(lt, "caisson")) signals.push("caisson");
+    if (hasWord(lt, "boat landing")) signals.push("boat landing");
+    if (hasWord(lt, "subsea")) signals.push("subsea");
+    if (hasWord(lt, "api rp 2a") || hasWord(lt, "rp 2a")) signals.push("API RP 2A");
+    if (hasWord(lt, "production platform")) signals.push("production platform");
+    if (hasWord(lt, "fpso")) signals.push("FPSO");
+  }
+
+  var signalCount = signals.length;
+  var strength = "WEAK";
+  if (signalCount >= 3) strength = "STRONG";
+  else if (signalCount === 2) strength = "MODERATE";
+
+  return { strength: strength, signals: signals, signal_count: signalCount, corrected_class: correctedClass, original_class: originalClass };
+}
 
 // ============================================================================
 // STATE 1: PHYSICAL REALITY ENGINE
@@ -334,6 +446,7 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (hasEvent("corros") || hasEvent("rust") || hasEvent("oxide") || hasEvent("scale")) { corrosive = true; if (agents.indexOf("parsed_corrosion") === -1) agents.push("parsed_corrosion"); }
   if (hasEvent("flood") || hasEvent("water") || hasEvent("river") || hasEvent("rain") || hasEvent("weather") || hasEvent("atmospheric")) { corrosive = true; if (agents.indexOf("environmental_exposure") === -1) agents.push("environmental_exposure"); }
   if (hasEvent("marine") || hasEvent("salt") || hasEvent("seawater") || hasEvent("offshore")) { if (!negMarine) { chlorides = true; corrosive = true; if (agents.indexOf("chlorides") === -1) agents.push("chlorides"); } }
+
 
   // ==========================================================================
   // INDUSTRIAL CONTEXT INTELLIGENCE LAYER — v2.3
@@ -2323,13 +2436,27 @@ var handler: Handler = async function(event: HandlerEvent) {
     var contradictions = detectContradictions(physics, damage, consequence, authority, inspection, transcript, evidenceProvenance);
 
     // ============================================================================
-    // DEPLOY117: CONFIDENCE PENALTY FOR ASSET CORRECTION
-    // If the system had to override GPT's classification, input was ambiguous.
+    // DEPLOY117 + v2.5.2 DEPLOY167: TIERED CONFIDENCE PENALTY FOR ASSET CORRECTION
+    // DEPLOY117 applied a flat 0.05 penalty + WARNING to every correction.
+    // DEPLOY167 distinguishes clean recovery from genuine ambiguity by assessing
+    // the strength of supporting evidence for the corrected class. Strong
+    // multi-signal corrections are clean recoveries and carry NO penalty --
+    // the system successfully inferred the correct class despite upstream error.
+    // Legacy behavior (0.05 + WARNING) preserved for WEAK (0-1 signal) corrections.
     // ============================================================================
     var totalPenalty = contradictions.penalty;
+    var correctionAssessment: any = null;
     if (assetCorrected) {
-      totalPenalty += 0.05;
-      contradictions.flags.push("WARNING: Asset classification corrected from " + (asset.asset_class || "unknown") + " to " + assetClass + ". Input ambiguity detected.");
+      correctionAssessment = assessAssetCorrectionStrength(lt_handler, assetClass, asset.asset_class || "unknown");
+      if (correctionAssessment.strength === "STRONG") {
+        contradictions.flags.push("NOTE: Asset classification corrected from " + (asset.asset_class || "unknown") + " to " + assetClass + " (clean recovery, " + correctionAssessment.signal_count + " strong supporting signals: " + correctionAssessment.signals.slice(0, 4).join(", ") + ").");
+      } else if (correctionAssessment.strength === "MODERATE") {
+        totalPenalty += 0.02;
+        contradictions.flags.push("NOTE: Asset classification corrected from " + (asset.asset_class || "unknown") + " to " + assetClass + " (moderate supporting evidence: " + correctionAssessment.signals.join(", ") + ").");
+      } else {
+        totalPenalty += 0.05;
+        contradictions.flags.push("WARNING: Asset classification corrected from " + (asset.asset_class || "unknown") + " to " + assetClass + ". Input ambiguity detected.");
+      }
     }
 
     var confidence = computeRealityConfidence(
@@ -2389,10 +2516,10 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.5.1",
+          engine_version: "physics-first-decision-core-v2.5.2",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
-          asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason } : { corrected: false },
+          asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
           physical_reality: {
             stress: physics.stress, thermal: physics.thermal, chemical: physics.chemical,
             energy: physics.energy, time: physics.time,
