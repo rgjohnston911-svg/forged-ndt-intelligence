@@ -1,3 +1,25 @@
+// DEPLOY170 — decision-core.ts v2.5.5
+// v2.5.5: Supported domain gate + field-language override guard
+// DEPLOY170 FIX 1: The FIELD LANGUAGE PIPING OVERRIDE block (v2.3) had no
+//   guard on the starting asset class. It would silently force ANY non-piping
+//   class (aircraft, satellite, rocket_test_article, pharma, spacecraft) to
+//   piping when the transcript contained common industrial words like "psi",
+//   "inch", "support", "flow", "weld", or "insulation". This produced clean-
+//   looking reports that were catastrophically wrong (spacecraft classified
+//   as piping with API 570 authority and thermal burn consequence; aircraft
+//   same path). DEPLOY170 adds startingClassSupported guard so the field-
+//   language promotion only fires when the starting class is already in the
+//   refinery/structural family or explicitly "unknown". Unsupported domains
+//   now fall through to the new domain refusal gate below.
+// DEPLOY170 FIX 2: New SUPPORTED_DOMAINS terminal gate after all correction
+//   cascades. If assetClass is not in the supported set, the engine returns
+//   DOMAIN_NOT_SUPPORTED immediately — no physics pipeline, no force-fit,
+//   no report. This is an explicit scope refusal, not a system failure.
+//   Supported: piping, pipeline, pressure_vessel, tank, storage_tank, bridge,
+//   rail_bridge, bridge_steel, bridge_concrete, offshore_platform,
+//   heat_exchanger, boiler, unknown. Explicitly unsupported: aircraft,
+//   spacecraft, rocket_test_article, satellite, rail (rolling stock),
+//   marine_hull, nuclear_reactor_core, pharma_bioprocess, and all others.
 // DEPLOY169 — decision-core.ts v2.5.4
 // v2.5.4: Same-family asset normalization no-op
 // DEPLOY169: isSameAssetFamily() helper suppresses the DEPLOY167 tiered
@@ -510,27 +532,23 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   var contextInferred: string[] = [];
 
   // HYDROCRACKING / HYDROTREATING → H2S + hydrogen service
-  // Field slang: "the cracker", "H2 unit", "high pressure loop", "recycle gas"
   if (hasWord(lt, "hydrocrack") || hasWord(lt, "hydrotreater") || hasWord(lt, "hydrotreating") || hasWord(lt, "hydroprocessing") || hasWord(lt, "hydrodesulfur") || hasWord(lt, "the cracker") || hasWord(lt, "high pressure loop") || hasWord(lt, "recycle gas") || hasWord(lt, "h2 unit") || hasWord(lt, "hp separator") || hasWord(lt, "lp separator") || hasWord(lt, "reactor effluent")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("hydrocracking/hydrotreating → H2S inferred"); }
     if (!hydrogen) { hydrogen = true; if (agents.indexOf("hydrogen") === -1) agents.push("hydrogen"); contextInferred.push("hydrocracking/hydrotreating → hydrogen inferred"); }
   }
 
   // CATALYTIC REFORMING → hydrogen service
-  // Field slang: "the reformer", "CCR", "regen section"
   if (hasWord(lt, "catalytic reform") || hasWord(lt, "platformer") || hasWord(lt, "reformer unit") || hasWord(lt, "naphtha reform") || hasWord(lt, "ccr unit") || hasWord(lt, "the reformer") || hasWord(lt, "regen section") || hasWord(lt, "reformate")) {
     if (!hydrogen) { hydrogen = true; if (agents.indexOf("hydrogen") === -1) agents.push("hydrogen"); contextInferred.push("catalytic reformer → hydrogen inferred"); }
   }
 
   // AMINE UNIT → H2S + amine (caustic-like) environment
-  // Field slang: "the scrubber", "gas sweetener", "sweetening unit", "acid gas scrubber"
   if (hasWord(lt, "amine unit") || hasWord(lt, "amine service") || hasWord(lt, "amine system") || hasWord(lt, "amine contactor") || hasWord(lt, "amine regenerat") || hasWord(lt, "amine absorber") || hasWord(lt, "amine stripper") || hasWord(lt, "mdea") || hasWord(lt, "dea unit") || hasWord(lt, "mea unit") || hasWord(lt, "gas sweeten") || hasWord(lt, "acid gas scrubber") || hasWord(lt, "the scrubber") || hasWord(lt, "lean amine") || hasWord(lt, "rich amine")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("amine unit → H2S inferred (acid gas service)"); }
     if (!caustic) { caustic = true; corrosive = true; if (agents.indexOf("caustic") === -1) agents.push("caustic"); contextInferred.push("amine unit → amine/caustic environment inferred"); }
   }
 
   // CRUDE UNIT / DISTILLATION → H2S + naphthenic acid potential
-  // Field slang: "the tower", "the column", "CDU", "VDU", "pipe still", "crude side"
   if (hasWord(lt, "crude unit") || hasWord(lt, "crude distill") || hasWord(lt, "atmospheric distill") || hasWord(lt, "vacuum distill") || hasWord(lt, "crude tower") || hasWord(lt, "atmospheric tower") || hasWord(lt, "vacuum tower") || hasWord(lt, "pipe still") || hasWord(lt, "cdu") || hasWord(lt, "vdu") || hasWord(lt, "crude column") || hasWord(lt, "overhead system") || hasWord(lt, "crude side")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("crude unit → H2S inferred"); }
     corrosive = true;
@@ -538,19 +556,16 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // FCC / FLUID CATALYTIC CRACKING → H2S
-  // Field slang: "the cat", "cat unit", "the FCC", "riser reactor"
   if (hasWord(lt, "fluid catalytic") || hasWord(lt, "cat cracker") || hasWord(lt, "fccu") || hasWord(lt, "the cat") || hasWord(lt, "cat unit") || hasWord(lt, "riser reactor") || hasWord(lt, "regenerator") && (hasWord(lt, "cat") || hasWord(lt, "fcc"))) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("FCC unit → H2S inferred"); }
   }
 
   // SULFUR RECOVERY / CLAUS → concentrated H2S
-  // Field slang: "the SRU", "the Claus", "sulfur block", "tail gas unit", "TGTU"
   if (hasWord(lt, "sulfur recovery") || hasWord(lt, "claus unit") || hasWord(lt, "claus reactor") || hasWord(lt, "tail gas") || hasWord(lt, "sulfur plant") || hasWord(lt, "the sru") || hasWord(lt, "sulfur block") || hasWord(lt, "tgtu")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("sulfur recovery → concentrated H2S inferred"); }
   }
 
   // DELAYED COKER → H2S + hydrogen + thermal cycling
-  // Field slang: "the coker", "the drum", "coke cutting", "decoking"
   if (hasWord(lt, "delayed coker") || hasWord(lt, "coker drum") || hasWord(lt, "coke drum") || hasWord(lt, "the coker") || hasWord(lt, "coke cutting") || hasWord(lt, "decoking") || hasWord(lt, "coke heater")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("coker → H2S inferred"); }
     if (!hydrogen) { hydrogen = true; if (agents.indexOf("hydrogen") === -1) agents.push("hydrogen"); contextInferred.push("coker → hydrogen inferred"); }
@@ -558,13 +573,11 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // SOUR WATER / SOUR GAS / ACID GAS → H2S
-  // Field slang: "sour drum", "KO drum", "knockout drum", "sour stripper", "the SWS"
   if (hasWord(lt, "sour water") || hasWord(lt, "sour gas") || hasWord(lt, "acid gas") || hasWord(lt, "sour service") || hasWord(lt, "sour drum") || hasWord(lt, "knockout drum") || hasWord(lt, "ko drum") || hasWord(lt, "sour stripper") || hasWord(lt, "the sws")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("sour/acid gas service → H2S inferred"); }
   }
 
   // HYDROGEN UNIT / HYDROGEN PLANT → hydrogen environment
-  // Field slang: "H2 plant", "steam reformer", "SMR", "hydrogen loop", "H2 recycle"
   if (hasWord(lt, "hydrogen plant") || hasWord(lt, "hydrogen unit") || hasWord(lt, "hydrogen makeup") || hasWord(lt, "h2 makeup") || hasWord(lt, "hydrogen compressor") || hasWord(lt, "hydrogen header") || hasWord(lt, "h2 plant") || hasWord(lt, "steam reform") || hasWord(lt, "smr unit") || hasWord(lt, "hydrogen loop") || hasWord(lt, "h2 recycle") || hasWord(lt, "psa unit") || hasWord(lt, "pressure swing adsorption")) {
     if (!hydrogen) { hydrogen = true; if (agents.indexOf("hydrogen") === -1) agents.push("hydrogen"); contextInferred.push("hydrogen unit → hydrogen environment inferred"); }
   }
@@ -575,7 +588,6 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // CAUSTIC SERVICE (explicit process)
-  // Field slang: "caustic tree", "caustic treating", "the caustic"
   if (hasWord(lt, "caustic wash") || hasWord(lt, "caustic injection") || hasWord(lt, "naoh injection") || hasWord(lt, "caustic tower") || hasWord(lt, "caustic scrubber") || hasWord(lt, "spent caustic") || hasWord(lt, "caustic tree") || hasWord(lt, "caustic treating") || hasWord(lt, "the caustic") || hasWord(lt, "caustic drum")) {
     if (!caustic) { caustic = true; corrosive = true; if (agents.indexOf("caustic") === -1) agents.push("caustic"); contextInferred.push("caustic service → caustic environment inferred"); }
   }
@@ -587,14 +599,12 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // COOLING WATER → chlorides + microbiological
-  // Field slang: "circ water", "CW system", "the cooling", "basin water"
   if (hasWord(lt, "cooling water") || hasWord(lt, "cooling tower") || hasWord(lt, "cw system") || hasWord(lt, "condenser water") || hasWord(lt, "circ water") || hasWord(lt, "the cooling") || hasWord(lt, "basin water") || hasWord(lt, "fin fan") || hasWord(lt, "air cooler") && hasWord(lt, "water")) {
     corrosive = true;
     if (!chlorides && !negChloride) { chlorides = true; if (agents.indexOf("chlorides") === -1) agents.push("chlorides"); contextInferred.push("cooling water → chloride potential inferred"); }
   }
 
   // FLARE SYSTEM → H2S + thermal cycling
-  // Field slang: "the flare", "LP flare", "HP flare", "flare KO drum"
   if (hasWord(lt, "flare header") || hasWord(lt, "flare stack") || hasWord(lt, "flare system") || hasWord(lt, "flare line") || hasWord(lt, "flare tip") || hasWord(lt, "the flare") || hasWord(lt, "lp flare") || hasWord(lt, "hp flare") || hasWord(lt, "flare ko drum") || hasWord(lt, "flare knockout")) {
     if (!h2s && !negH2s) { h2s = true; corrosive = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("flare system → H2S potential inferred"); }
     if (!thermalCyc) { thermalCyc = true; contextInferred.push("flare system → thermal cycling inferred (intermittent flaring)"); }
@@ -613,28 +623,24 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // FIRED HEATER / FURNACE → thermal cycling + creep potential
-  // Field slang: "the heater", "fire side", "radiant section", "convection section", "tube went soft"
   if (hasWord(lt, "fired heater") || hasWord(lt, "process heater") || hasWord(lt, "the heater") || hasWord(lt, "fire side") || hasWord(lt, "radiant section") || hasWord(lt, "convection section") || hasWord(lt, "tube went soft") || hasWord(lt, "furnace tube") || hasWord(lt, "heater tube") || hasWord(lt, "radiant tube") || hasWord(lt, "convection tube")) {
     if (!thermalCyc) { thermalCyc = true; contextInferred.push("fired heater → thermal cycling inferred (startup/shutdown cycles)"); }
     contextInferred.push("fired heater/furnace → elevated temperature service, creep potential");
   }
 
   // DEAD LEG → stagnant corrosion risk
-  // Field slang: "dead leg", "dead end", "no flow", "stagnant line"
   if (hasWord(lt, "dead leg") || hasWord(lt, "dead end") && (hasWord(lt, "pipe") || hasWord(lt, "line")) || hasWord(lt, "no flow") || hasWord(lt, "stagnant line") || hasWord(lt, "stagnant") && hasWord(lt, "piping")) {
     corrosive = true;
     if (agents.indexOf("stagnant_corrosion") === -1) { agents.push("stagnant_corrosion"); contextInferred.push("dead leg → stagnant/trapped fluid corrosion risk"); }
   }
 
   // HEAT EXCHANGER → context depends on shell/tube side
-  // Field slang: "the exchanger", "shell side", "tube side", "tube bundle"
   if (hasWord(lt, "exchanger") || hasWord(lt, "shell side") || hasWord(lt, "tube side") || hasWord(lt, "tube bundle") || hasWord(lt, "u-tube") || hasWord(lt, "floating head")) {
     corrosive = true;
     if (agents.indexOf("exchanger_service") === -1) { agents.push("exchanger_service"); contextInferred.push("heat exchanger → multi-fluid service, corrosion potential on both sides"); }
   }
 
   // RAIN LINE ATTACK / OVERHEAD CORROSION
-  // Field slang: "rain line", "overhead", "top of line", "dew point corrosion"
   if (hasWord(lt, "rain line") || hasWord(lt, "overhead corros") || hasWord(lt, "top of line") || hasWord(lt, "dew point") || hasWord(lt, "overhead system") || hasWord(lt, "overhead line")) {
     corrosive = true;
     if (!h2s && !negH2s) { h2s = true; if (agents.indexOf("H2S") === -1) agents.push("H2S"); contextInferred.push("overhead/rain line → H2S + HCl condensation zone inferred"); }
@@ -642,14 +648,12 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // FIELD LEAK / SEEPAGE LANGUAGE → flag corrosion + consequence
-  // Field slang: "sweating", "weeping", "bleeding", "dripping", "leaker"
   if (hasWord(lt, "sweating") || hasWord(lt, "weeping") || hasWord(lt, "seeping") || hasWord(lt, "leaker") || hasWord(lt, "dripping") || hasWord(lt, "active leak")) {
     corrosive = true;
     if (agents.indexOf("active_leak_indicator") === -1) { agents.push("active_leak_indicator"); contextInferred.push("field leak language detected → active corrosion/degradation likely"); }
   }
 
   // POLYTHIONIC ACID CRACKING CONTEXT
-  // Field slang: "polythionic", "PTA cracking", "sensitized stainless"
   if (hasWord(lt, "polythionic") || (hasWord(lt, "sensitized") && hasWord(lt, "stainless")) || hasWord(lt, "pta crack")) {
     corrosive = true;
     if (agents.indexOf("polythionic_acid") === -1) { agents.push("polythionic_acid"); contextInferred.push("polythionic acid cracking context → shutdown/turnaround risk for sensitized stainless"); }
@@ -835,10 +839,6 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
 
   // ============================================================================
   // EVIDENCE HIERARCHY — DEPLOY115
-  // Distinguishes OBSERVED (measured by NDE) from SUSPECTED (reported concern).
-  // Measured wall loss from UT/thickness gauging is the strongest thinning evidence.
-  // "Cracking suspected" is NOT the same as "crack confirmed by NDE".
-  // Field inspectors use slang: "thinned out", "35% down", "eating itself up"
   // ============================================================================
   var wallLossReported = hasWord(lt, "wall loss") || hasWord(lt, "metal loss") || hasWord(lt, "thinning") || hasWord(lt, "wall thinning") || hasWord(lt, "thickness loss") || hasWord(lt, "thinned") || hasWord(lt, "thinned out") || hasWord(lt, "corroded") || hasWord(lt, "pitted") || hasWord(lt, "washed out") || hasWord(lt, "eating") || hasWord(lt, "reduced thickness") || hasWord(lt, "reduced wall") || hasWord(lt, "paper thin") || /\d+\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript) || /\d+\.?\d*\s*(?:inch|in\.?|mm)\s*(?:versus|vs\.?|compared\s*to|from|against)\s*\d+\.?\d*/i.test(transcript) || (/(?:nominal|original|design|minimum)\s*(?:of\s*)?\d+\.?\d*/i.test(transcript) && /(?:shows|reads?|measured|found|actual)\s*\d+\.?\d*/i.test(transcript)) || (/\d+\.?\d*\s*(?:inch|in\.?|mm)/.test(transcript) && hasWord(lt, "nominal") && hasWord(lt, "versus"));
   var wallLossQuantified = wallLossReported && (/\d+\s*(?:percent|%)\s*(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss|down|loss|gone|reduced)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning|thickness\s*loss)\s*(?:of\s*)?\d+/i.test(transcript) || /\d+[-\u2013\u2014]?\d*\s*(?:percent|%)\s*(?:down|loss|gone|reduced)/i.test(transcript) || /(?:wall\s*loss|metal\s*loss|thinning)[^.]{0,30}\d+\s*(?:percent|%)/i.test(transcript) || /\d+\s*(?:percent|%)[^.]{0,30}(?:wall\s*loss|metal\s*loss|thinning)/i.test(transcript) || /\d+\.?\d*\s*(?:inch|in\.?|mm)\s*(?:versus|vs\.?|compared\s*to|from|against)\s*\d+\.?\d*/i.test(transcript));
@@ -902,10 +902,6 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
       if (s.cyclic_loading) score += 0.10;
       if (s.stress_concentration_present) score += 0.08;
       if (s.cyclic_loading && s.stress_concentration_present) score += 0.07;
-      // DEPLOY121: IMPLIED-ONLY FATIGUE PENALTY
-      // When fatigue prerequisites are ONLY from piping defaults (auto-cyclic + implied welds)
-      // and transcript has zero explicit fatigue indicators, the +0.25 bonus is unearned.
-      // Penalize so corrosion/erosion evidence can outrank implied fatigue.
       var cyclicIsImpliedOnly = s.cyclic_source === "operational_pressure_cycling_implied";
       var stressConcIsImpliedOnly = true;
       for (var sci = 0; sci < s.stress_concentration_locations.length; sci++) {
@@ -929,13 +925,6 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
       if (hasWord(lt, "rust") || hasWord(lt, "stain")) score += 0.05;
     }
 
-    // ============================================================================
-    // DEPLOY115: EVIDENCE HIERARCHY — OBSERVED vs SUSPECTED
-    // Measured NDE findings outrank reported suspicions.
-    // Wall loss found by UT = OBSERVED. "Cracking suspected" = UNCONFIRMED CONCERN.
-    // ============================================================================
-
-    // BOOST: Corrosion/thinning mechanisms when wall loss is MEASURED
     var isCorrosionMech = md.id === "general_corrosion" || md.id === "pitting" || md.id === "co2_corrosion" || md.id === "cui" || md.id === "erosion";
     if (isCorrosionMech && wallLossReported) {
       score += 0.15;
@@ -949,43 +938,28 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
         score += 0.05;
         evFor.push("wall loss measured by NDE method");
       }
-      // REMOVE the cyclic penalty when wall loss is the observed reality —
-      // implied cyclic loading on piping should not suppress the observed finding
       if (s.cyclic_loading && s.stress_concentration_present) {
-        score += 0.10; // restore the -0.10 penalty applied above
+        score += 0.10;
       }
     }
 
-    // REDUCE: Crack/fatigue mechanisms when cracking is only SUSPECTED, not confirmed
     var isCrackMech = md.id.indexOf("fatigue") !== -1 || md.id.indexOf("scc") !== -1 || md.id.indexOf("ssc") !== -1 || md.id.indexOf("hic") !== -1;
     if (isCrackMech && crackingSuspectedOnly) {
-      // "Cracking suspected" is weaker than "crack confirmed by NDE".
-      // But how much to penalize depends on the mechanism type:
-      //   - Fatigue: "suspected cracking" is weak evidence — fatigue needs crack morphology confirmation
-      //   - Environmental cracking (SCC/SSC/HIC): "suspected" in a matching environment is meaningful
       var isEnvCracking = md.id.indexOf("scc") !== -1 || md.id.indexOf("ssc") !== -1 || md.id.indexOf("hic") !== -1;
       if (isEnvCracking) {
-        // Gentler penalty — suspected cracking in the right environment is valid concern
         score -= 0.05;
         evAg.push("cracking suspected but not confirmed by crack-specific NDE method");
       } else {
-        // Full penalty for fatigue — "suspected cracking" is very weak fatigue evidence
         score -= 0.15;
         evAg.push("cracking suspected but not confirmed by crack-specific NDE method — weak fatigue evidence");
       }
-      // If wall loss IS measured, crack mechanism should not outrank the observed finding
       if (wallLossMeasuredByNDE || wallLossQuantified) {
         score -= 0.05;
         evAg.push("measured wall loss is stronger observed evidence than suspected cracking");
       }
     }
 
-    // ============================================================================
     // DEPLOY117: ACTIVE NEGATION SUPPRESSION
-    // If the inspector explicitly ruled out a finding type, actively reduce
-    // the corresponding mechanism score. "No crack found" should suppress
-    // cracking mechanisms, not just prevent boosting.
-    // ============================================================================
     var crackNegated = hasWord(lt, "crack") && !hasWordNotNegated(lt, "crack");
     var corrosionNegated = (hasWord(lt, "corros") && !hasWordNotNegated(lt, "corros")) || (hasWord(lt, "rust") && !hasWordNotNegated(lt, "rust"));
     var deformNegated = (hasWord(lt, "deform") && !hasWordNotNegated(lt, "deform")) || (hasWord(lt, "dent") && !hasWordNotNegated(lt, "dent")) || (hasWord(lt, "buckl") && !hasWordNotNegated(lt, "buckl"));
@@ -1003,14 +977,7 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
       evAg.push("deformation explicitly ruled out or negated in transcript");
     }
 
-
-    // ============================================================================
     // DEPLOY122: EVIDENCE PROVENANCE TRUST WEIGHTING
-    // When provenance data is available, adjust mechanism score based on whether
-    // the supporting evidence is MEASURED (high trust) vs INFERRED (low trust).
-    // This is additive to existing evidence hierarchy — provenance provides
-    // systematic trust grading across ALL evidence, not just wall-loss vs crack.
-    // ============================================================================
     if (provenance && provenance.evidence && provenance.evidence.length > 0) {
       var mechKeywords = md.name.toLowerCase().split(/[\s\/()]+/);
       var relevantProvenance: any[] = [];
@@ -1049,9 +1016,7 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
   }
   validated.sort(function(a, b) { if (b.reality_score !== a.reality_score) return b.reality_score - a.reality_score; if (a.observation_basis !== b.observation_basis) return a.observation_basis ? -1 : 1; return 0; });
 
-  // ============================================================================
   // MECHANISM UNCERTAINTY PRESERVATION — DEPLOY106 PATCH 1
-  // ============================================================================
   if (physics.chemical.h2s_present) {
     var hydrogenUnresolved = false;
     for (var hci = 0; hci < validated.length; hci++) {
@@ -1075,9 +1040,7 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
     }
   }
 
-  // ============================================================================
   // DEPLOY109 FIX 3: CREEP TIME-AT-TEMPERATURE QUALIFICATION
-  // ============================================================================
   if (physics.thermal.fire_exposure) {
     for (var cti = 0; cti < validated.length; cti++) {
       if (validated[cti].id === "creep") {
@@ -1206,25 +1169,8 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     if (tier !== "CRITICAL") tier = "HIGH";
     basis.push("CONSEQUENCE: Underwater/subsea condition uncertain — critical zones uninspected");
   }
-  // ============================================================================
+
   // DEPLOY168 v2.5.3: HOT FLUID HUMAN IMPACT ROUTING
-  // Universal thermal/flammable injury potential from physics state alone.
-  // No asset-class branches, no scenario keywords. Reads operating_temp_f +
-  // stored_energy_significant + primary mechanism type + transcript flammable
-  // context. Degrades gracefully when temperature or fluid context absent.
-  //
-  // Three severity bands based on physics:
-  //   - 400F+ with flammable context = flash fire / autoignition risk on release
-  //     (most hydrocarbons autoignite 400-800F; release at or near autoignition
-  //     creates fire risk regardless of external ignition source)
-  //   - 400F+ non-flammable = severe thermal burn (second-degree in <1 sec contact)
-  //   - 140-400F  = thermal scald/burn injury (OSHA thermal contact threshold ~140F)
-  //
-  // Only fires when the primary mechanism is a pressure-boundary thinning type
-  // (corrosion/pitting/erosion/cui) so "thermal burn on release" is actually in
-  // the failure mode. Doesn't fire for fatigue (different failure mode) or
-  // structural members without fluid inventory.
-  // ============================================================================
   var opTempF = physics.thermal.operating_temp_f;
   var hasStoredEnergy = physics.energy.stored_energy_significant;
   var primaryIsBoundaryThinning = damage.primary && (
@@ -1268,7 +1214,6 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
       }
       if (failMode === "equipment_degradation") failMode = "hot_fluid_release";
     } else {
-      // 140-400F band
       basis.push("PHYSICS: Heated fluid release at " + opTempF + "F with pressure boundary thinning mechanism — thermal burn/scald risk (above OSHA thermal contact threshold of 140F)");
       if (humanImpact === "Low" || humanImpact === "Operational disruption") {
         humanImpact = "Thermal burn injury from heated fluid release";
@@ -1305,13 +1250,6 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
 
   if (damage.primary) {
     var pm = damage.primary.id;
-    // ============================================================================
-    // DEPLOY115: DOMAIN-AWARE FAILURE PHYSICS NARRATIVES
-    // Structural assets (bridges, offshore) use structural failure language.
-    // Pressure systems (piping, vessels) use pressure failure language.
-    // A bridge does not have hoop stress or pinhole leaks.
-    // ============================================================================
-
     if (pm.indexOf("fatigue") !== -1) {
       if (isStructuralAssetType) {
         failPhysics = "Fatigue crack propagation at stress concentrations under cyclic loading (traffic, wind, operational). Crack grows incrementally per cycle until remaining section cannot sustain applied loads. Failure mode: member fracture, connection failure, or load path disruption.";
@@ -1335,13 +1273,6 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   if (!failPhysics) failPhysics = "Damage progression reduces integrity below safe operating threshold.";
 
   if (physics.stress.cyclic_loading && physics.stress.stress_concentration_present && physics.energy.stored_energy_significant && !isStructuralAssetType) {
-    // ============================================================================
-    // DEPLOY115: EVIDENCE-ANCHORED PHYSICS OVERRIDE
-    // Previously this override replaced ANY wall-thinning narrative with fatigue/Paris Law
-    // whenever piping had implied cyclic+stress_conc+stored_energy (which is ALL piping).
-    // Now: only override when primary mechanism is NOT a corrosion/thinning type.
-    // If the primary observed evidence is wall loss, the narrative stays wall-loss-first.
-    // ============================================================================
     var pmIsCorrosionType = damage.primary && (damage.primary.id.indexOf("corrosion") !== -1 || damage.primary.id.indexOf("pitting") !== -1 || damage.primary.id === "co2_corrosion" || damage.primary.id === "cui" || damage.primary.id === "erosion");
     if (!pmIsCorrosionType && (failPhysics.indexOf("wall thinning") !== -1 || failPhysics.indexOf("Damage progression") !== -1)) {
       failPhysics = "Cyclic pressure loading drives fatigue crack initiation at stress concentrations (weld toes, nozzles, geometric transitions). Crack propagates per Paris Law until critical size is reached. Failure mode: pressure boundary breach via crack-through (leak-before-break if ductile, catastrophic burst if insufficient toughness). Corrosion may accelerate initiation but crack propagation is the dominant failure path.";
@@ -1549,10 +1480,6 @@ function resolveAuthorityReality(assetClass: string, transcript: string, consequ
   var lt = transcript.toLowerCase();
   var matched: any = null;
 
-  // AUTHORITY MATCHING — v2.3 FIX
-  // Step 1: Find entries where BOTH asset class AND keywords match (most specific)
-  // Step 2: If no keyword+class match, use the most generic class match (last in array)
-  // This prevents PVHO-1 from matching generic pressure vessels
   var keywordClassMatch: any = null;
   var genericClassMatch: any = null;
 
@@ -1563,7 +1490,6 @@ function resolveAuthorityReality(assetClass: string, transcript: string, consequ
       if (assetClass === entry.ac[asi]) { classMatches = true; break; }
     }
     if (classMatches) {
-      // Check if any keywords also match
       var kwMatches = false;
       for (var ki = 0; ki < entry.kw.length; ki++) {
         if (hasWord(lt, entry.kw[ki])) { kwMatches = true; break; }
@@ -1571,15 +1497,12 @@ function resolveAuthorityReality(assetClass: string, transcript: string, consequ
       if (kwMatches && !keywordClassMatch) {
         keywordClassMatch = entry;
       }
-      // Always update generic — last class match wins (most generic entries are later)
       genericClassMatch = entry;
     }
   }
 
-  // Prefer keyword+class match, fall back to generic class match
   matched = keywordClassMatch || genericClassMatch;
 
-  // If no class match at all, try pure keyword match
   if (!matched) {
     for (var ri = 0; ri < AUTHORITY_MAP.length; ri++) {
       var r = AUTHORITY_MAP[ri];
@@ -2004,13 +1927,6 @@ function detectContradictions(physics: any, damage: any, consequence: any, autho
   var flags: string[] = []; var penalty = 0;
   var lt = (transcript || "").toLowerCase();
 
-  // ============================================================================
-  // DEPLOY115: EXPANDED CONTRADICTION ENGINE
-  // Detects physics/damage/inspection conflicts that demand resolution.
-  // An elite system surfaces uncertainty — it doesn't hide it.
-  // ============================================================================
-
-  // --- PHYSICS-MECHANISM CONTRADICTIONS ---
   for (var vi = 0; vi < damage.validated.length; vi++) {
     var m = damage.validated[vi];
     if (m.id.indexOf("fatigue") !== -1 && !physics.stress.cyclic_loading) { flags.push("CONTRADICTION: Fatigue validated but no cyclic loading"); penalty += 0.15; }
@@ -2018,7 +1934,6 @@ function detectContradictions(physics: any, damage: any, consequence: any, autho
     if (m.id.indexOf("creep") !== -1 && !physics.thermal.creep_range) { flags.push("CONTRADICTION: Creep validated but not in creep range"); penalty += 0.15; }
   }
 
-  // --- COMPETING MECHANISM CONFLICTS ---
   var hasThinning = false; var hasCracking = false; var hasSCC = false;
   var thinningScore = 0; var crackingScore = 0;
   for (var ci = 0; ci < damage.validated.length; ci++) {
@@ -2038,7 +1953,6 @@ function detectContradictions(physics: any, damage: any, consequence: any, autho
     penalty += 0.08;
   }
 
-  // --- ENVIRONMENT IMPLIES MECHANISM BUT EVIDENCE DOESN'T CONFIRM ---
   if (physics.chemical.h2s_present && !hasSCC) {
     flags.push("CONFLICT: H2S environment detected but no environmental cracking (SSC/HIC/SCC) validated. Absence of evidence is not evidence of absence — crack-specific NDE required to rule out.");
     penalty += 0.06;
@@ -2052,7 +1966,6 @@ function detectContradictions(physics: any, damage: any, consequence: any, autho
     }
   }
 
-  // --- METHOD-MECHANISM GAPS ---
   if (hasCracking || hasSCC) {
     var hasCrackMethod = false;
     if (inspection.proposed_methods) {
@@ -2067,7 +1980,6 @@ function detectContradictions(physics: any, damage: any, consequence: any, autho
     }
   }
 
-  // --- AMBIGUOUS NDE QUALITY SIGNALS (from transcript) ---
   var ambiguitySignals: string[] = [];
   if (lt.indexOf("jumpy") !== -1) ambiguitySignals.push("jumpy UT signal");
   if (lt.indexOf("messy") !== -1) ambiguitySignals.push("messy coupling/signal");
@@ -2086,7 +1998,6 @@ function detectContradictions(physics: any, damage: any, consequence: any, autho
     penalty += 0.03;
   }
 
-  // --- ASSET CLASSIFICATION + CONSEQUENCE CONFLICTS ---
   if (consequence.consequence_tier === "CRITICAL" && inspection.sufficiency_verdict !== "BLOCKED" && inspection.proposed_methods.length < 2) {
     flags.push("WARNING: CRITICAL consequence with <2 methods"); penalty += 0.05;
   }
@@ -2094,7 +2005,6 @@ function detectContradictions(physics: any, damage: any, consequence: any, autho
     flags.push("WARNING: Code gaps on " + consequence.consequence_tier + " asset"); penalty += 0.08;
   }
 
-  // --- INSPECTION INTERVAL ADEQUACY ---
   if (physics.time.time_since_inspection_years && physics.time.time_since_inspection_years >= 5) {
     if (hasThinning && thinningScore >= 0.5) {
       flags.push("WARNING: " + physics.time.time_since_inspection_years + " years since last inspection with active thinning mechanism. Growth rate and interval adequacy should be evaluated — damage may have accelerated since prior clean inspection.");
@@ -2102,13 +2012,11 @@ function detectContradictions(physics: any, damage: any, consequence: any, autho
     }
   }
 
-  // --- HIGH DAMAGE + LOW METHOD CONFIDENCE ---
   if (damage.damage_confidence >= 0.6 && inspection.inspection_confidence < 0.6) {
     flags.push("CONFLICT: Damage confidence (" + roundN(damage.damage_confidence, 2) + ") exceeds inspection confidence (" + roundN(inspection.inspection_confidence, 2) + "). Methods may not be adequate to characterize the identified damage mechanisms.");
     penalty += 0.06;
   }
 
-  // --- MULTIPLE UNVERIFIED MECHANISMS ON HIGH CONSEQUENCE ---
   var unverifiedCount = 0;
   for (var uvi = 0; uvi < damage.validated.length; uvi++) {
     if (damage.validated[uvi].reality_state === "unverified" || damage.validated[uvi].reality_state === "possible") unverifiedCount++;
@@ -2118,10 +2026,7 @@ function detectContradictions(physics: any, damage: any, consequence: any, autho
     penalty += 0.05;
   }
 
-
   // DEPLOY122: PROVENANCE TRUST PENALTY
-  // If the overall evidence base is weak (mostly inferred/unverified),
-  // add a confidence penalty.
   if (provenance && provenance.provenance_summary) {
     var trustBand = provenance.provenance_summary.trust_band;
     if (trustBand === "VERY_LOW") {
@@ -2187,12 +2092,6 @@ function resolveDecisionReality(physics: any, damage: any, consequence: any, aut
       required_action: "Collect evidence for " + consequence.consequence_tier + " tier" });
     if (!blocked) { blocked = true; blockGate = "evidence_sufficiency"; }
   } else {
-    // ============================================================================
-    // DEPLOY117: MECHANISM-AWARE EVIDENCE SUFFICIENCY
-    // Evidence may be sufficient for the primary mechanism but insufficient
-    // for competing mechanisms. "Evidence sufficient" only applies to what
-    // has been confirmed — suspected mechanisms need their own assessment.
-    // ============================================================================
     var evidenceNotes: string[] = [];
     var evidenceResult = "PASS";
     if (damage.primary && damage.primary.observation_basis) {
@@ -2201,7 +2100,6 @@ function resolveDecisionReality(physics: any, damage: any, consequence: any, aut
       evidenceNotes.push("Evidence limited for " + damage.primary.name + " (inferred, not directly observed)");
       evidenceResult = "WARNING";
     }
-    // Check for competing mechanisms without observation basis
     var unobservedCompetitors: string[] = [];
     for (var esi = 0; esi < damage.validated.length; esi++) {
       var esm = damage.validated[esi];
@@ -2433,12 +2331,6 @@ var handler: Handler = async function(event: HandlerEvent) {
 
     // ============================================================================
     // DEPLOY115: STRUCTURAL DOMAIN LOCK
-    // Prevents piping/vessel/tank overrides when the asset is structural.
-    // A bridge is NEVER treated as piping. A structural girder is NEVER a vessel.
-    // Structural lock fires when upstream classification is structural AND
-    // transcript contains structural signals confirming the domain.
-    // DEPLOY162 v2.5.1: short-keyword signals now use hasWordBoundary to prevent
-    // substring false positives (train in restraint, car in carbon, etc.)
     // ============================================================================
     var isStructuralLocked = false;
     var isStructuralAsset = assetClass === "bridge" || assetClass === "rail_bridge" || assetClass === "bridge_steel" || assetClass === "bridge_concrete" || assetClass === "offshore_platform";
@@ -2448,8 +2340,6 @@ var handler: Handler = async function(event: HandlerEvent) {
         isStructuralLocked = true;
       }
     }
-    // Also lock structural if transcript has overwhelming structural evidence even if
-    // upstream classification was wrong (e.g. "unknown" but clearly a bridge)
     if (!isHyperbaricLocked && !isStructuralLocked && assetClass === "unknown") {
       var bridgeSignalCount = 0;
       if (hasWord(lt_handler, "girder")) bridgeSignalCount++;
@@ -2467,8 +2357,6 @@ var handler: Handler = async function(event: HandlerEvent) {
       }
     }
     // DEPLOY120: OFFSHORE PLATFORM DETECTION FROM UNKNOWN
-    // Similar to bridge detection — count offshore signals and lock if >= 2
-    // DEPLOY162 v2.5.1: short-keyword signals (riser/jacket/rov) now use hasWordBoundary
     if (!isHyperbaricLocked && !isStructuralLocked && assetClass === "unknown") {
       var offshoreSignalCount = 0;
       if (hasWord(lt_handler, "offshore")) offshoreSignalCount++;
@@ -2521,11 +2409,20 @@ var handler: Handler = async function(event: HandlerEvent) {
       }
     }
     // FIELD LANGUAGE PIPING OVERRIDE — v2.3
-    // Field inspectors say "line" not "piping". "amine line", "steam line", "process line"
-    // If transcript says "[process] line" + no vessel/tank/drum keywords → piping
-    // DEPLOY115: Structural lock prevents this from firing on bridges/structures
-    // DEPLOY115: "tee" check uses " tee" with leading space to prevent "steel" false positive
-    if (!isHyperbaricLocked && !isStructuralLocked && assetClass !== "piping" && assetClass !== "pipeline") {
+    // DEPLOY170 v2.5.5: Added startingClassSupported guard. Previously this
+    // block had no guard on asset.asset_class, so it would silently force
+    // ANY non-piping class (aircraft, satellite, rocket_test_article, etc.)
+    // to piping if the transcript contained common industrial words like
+    // "psi", "inch", "support", "flow". This was the root cause of every
+    // out-of-domain silent rewrite observed in testing. The guard restricts
+    // the field-language promotion to starting classes that are either
+    // already in the refinery/structural family or explicitly "unknown" —
+    // unsupported domains (aerospace, spacecraft, rail, marine_hull, etc.)
+    // now flow through to the domain refusal check below instead.
+    var startingClassForFieldOverride = asset.asset_class || "unknown";
+    var fieldOverrideAllowedFrom = ["unknown", "piping", "pipeline", "pressure_vessel", "tank", "storage_tank", "bridge_concrete", "heat_exchanger", "boiler"];
+    var startingClassSupported = fieldOverrideAllowedFrom.indexOf(startingClassForFieldOverride) !== -1;
+    if (!isHyperbaricLocked && !isStructuralLocked && startingClassSupported && assetClass !== "piping" && assetClass !== "pipeline") {
       var hasLineWord = hasWord(lt_handler, "line") || hasWord(lt_handler, "pipe") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || hasWord(lt_handler, "tubing");
       var hasProcessContext = hasWord(lt_handler, "amine") || hasWord(lt_handler, "steam") || hasWord(lt_handler, "process") || hasWord(lt_handler, "sour") || hasWord(lt_handler, "flare") || hasWord(lt_handler, "condensate") || hasWord(lt_handler, "caustic") || hasWord(lt_handler, "hydrogen") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || (lt_handler.indexOf(" tee ") !== -1 || lt_handler.indexOf(" tee,") !== -1 || lt_handler.indexOf(" tee.") !== -1 || lt_handler.indexOf("pipe tee") !== -1) || hasWord(lt_handler, "reducer") || hasWord(lt_handler, "dead leg") || hasWord(lt_handler, "hydro") || hasWord(lt_handler, "intrados") || hasWord(lt_handler, "downstream") || hasWord(lt_handler, "upstream") || hasWord(lt_handler, "propane") || hasWord(lt_handler, "lpg") || hasWord(lt_handler, "ngl") || hasWord(lt_handler, "butane") || hasWord(lt_handler, "ethylene") || hasWord(lt_handler, "carbon steel") || hasWord(lt_handler, "psi") || hasWord(lt_handler, "inch") || hasWord(lt_handler, "weld") || hasWord(lt_handler, "insulation") || hasWord(lt_handler, "support") || hasWord(lt_handler, "flow");
       var hasVesselEvidence = hasWord(lt_handler, "vessel") || hasWord(lt_handler, "drum") || hasWord(lt_handler, "tank") || hasWord(lt_handler, "shell side") || hasWord(lt_handler, "tube side") || hasWord(lt_handler, "head") && hasWord(lt_handler, "shell") || hasWord(lt_handler, "nozzle") && !hasWord(lt_handler, "pipe nozzle");
@@ -2540,13 +2437,79 @@ var handler: Handler = async function(event: HandlerEvent) {
       assetCorrected = true;
       assetCorrectionReason = "Transcript describes storage tank.";
     }
-    // DEPLOY115: Piping lock — if piping was established by field language evidence above,
-    // reactor/exchanger mentions (which the piping connects TO) should not override.
-    // "Hot hydro line coming off the reactor" = the LINE is the asset, not the reactor.
+    // DEPLOY115: Piping lock
     if (!isHyperbaricLocked && !isStructuralLocked && assetClass !== "piping" && assetClass !== "pipeline" && (hasWord(lt_handler, "pressure vessel") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "heat exchanger") || hasWord(lt_handler, "autoclave")) && assetClass !== "pressure_vessel") {
       assetClass = "pressure_vessel";
       assetCorrected = true;
       assetCorrectionReason = "Transcript describes pressure equipment. Overriding to pressure_vessel.";
+    }
+
+    // ============================================================================
+    // DEPLOY170 v2.5.5: SUPPORTED DOMAIN GATE
+    // After all correction cascades have run, if the asset is still classified
+    // into a domain that has no authority chain, no mechanism catalog, and no
+    // consequence model in this build, the engine MUST refuse rather than
+    // produce a report by force-fitting to the nearest refinery-native entry.
+    // Silent force-fit produces clean-looking reports that are catastrophically
+    // wrong (aircraft classified as piping with API 570; spacecraft classified
+    // as piping with thermal burn consequence; rail bridge with API 579 Part 9
+    // crack assessment). The honest refusal preserves platform credibility and
+    // makes the scope of the build explicit.
+    //
+    // Supported domains for this build:
+    //   piping, pipeline, pressure_vessel, tank, storage_tank, bridge,
+    //   rail_bridge, bridge_steel, bridge_concrete, offshore_platform,
+    //   heat_exchanger, boiler, unknown (falls through to keyword matching)
+    //
+    // Explicitly unsupported (return DOMAIN_NOT_SUPPORTED):
+    //   aircraft, spacecraft, rocket_test_article, satellite, rail (rolling
+    //   stock, not rail bridge), marine_hull, submarine, nuclear_reactor_core,
+    //   medical_device, pharma_bioprocess, and any class not in the supported
+    //   list above.
+    // ============================================================================
+    var SUPPORTED_DOMAINS = [
+      "piping", "pipeline",
+      "pressure_vessel",
+      "tank", "storage_tank",
+      "bridge", "rail_bridge", "bridge_steel", "bridge_concrete",
+      "offshore_platform",
+      "heat_exchanger",
+      "boiler",
+      "unknown"
+    ];
+    if (SUPPORTED_DOMAINS.indexOf(assetClass) === -1) {
+      var elapsedMsRefusal = Date.now() - startMs;
+      return {
+        statusCode: 200,
+        headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          decision_core: {
+            engine_version: "physics-first-decision-core-v2.5.5",
+            elapsed_ms: elapsedMsRefusal,
+            domain_not_supported: true,
+            asset_class_received: assetClass,
+            asset_class_original: asset.asset_class || "unknown",
+            supported_domains: SUPPORTED_DOMAINS,
+            refusal_reason: "Asset classified as '" + assetClass + "' is not in the supported domain set for this build. This asset class requires a domain-specific authority chain, mechanism catalog, and consequence model that are not present. No disposition, mechanism evaluation, or inspection plan is produced. This is an explicit scope refusal, not a system failure.",
+            physical_reality: null,
+            damage_reality: null,
+            consequence_reality: null,
+            authority_reality: null,
+            inspection_reality: null,
+            physics_computations: null,
+            reality_confidence: null,
+            decision_reality: {
+              disposition: "domain_not_supported",
+              disposition_basis: "Asset class '" + assetClass + "' outside supported domain set. Engine refused to produce a report rather than force-fit to a nearest-neighbor domain.",
+              gates: [{ gate: "domain_gate", result: "REFUSED", reason: "Unsupported asset class: " + assetClass, required_action: "Manual reviewer with domain expertise required, or reclassify asset to a supported domain if upstream classification was wrong." }],
+              guided_recovery: [],
+              phased_strategy: [],
+              hard_locks: [],
+              decision_trace: ["DOMAIN GATE REFUSED: asset_class=" + assetClass + " not in supported set"]
+            }
+          }
+        })
+      };
     }
 
     var physics = resolvePhysicalReality(transcript, events, numVals, confirmedFlags, assetClass);
@@ -2559,19 +2522,10 @@ var handler: Handler = async function(event: HandlerEvent) {
 
     // ============================================================================
     // DEPLOY117 + v2.5.2 DEPLOY167 + v2.5.4 DEPLOY169: TIERED CONFIDENCE PENALTY
-    // DEPLOY117 applied a flat 0.05 penalty + WARNING to every correction.
-    // DEPLOY167 distinguishes clean recovery from genuine ambiguity by assessing
-    // the strength of supporting evidence for the corrected class.
-    // DEPLOY169 suppresses the penalty entirely when the correction is a
-    // same-family normalization (e.g. "process_piping" -> "piping" is a
-    // naming variance, not a real classification recovery).
     // ============================================================================
     var totalPenalty = contradictions.penalty;
     var correctionAssessment: any = null;
 
-    // DEPLOY169: Silently discard same-family normalizations. Upstream
-    // classifiers sometimes return semantic synonyms of the canonical class.
-    // These are not corrections and should not be flagged as ambiguity.
     if (assetCorrected && isSameAssetFamily(asset.asset_class || "unknown", assetClass)) {
       assetCorrected = false;
     }
@@ -2596,8 +2550,6 @@ var handler: Handler = async function(event: HandlerEvent) {
 
     // ============================================================================
     // DEPLOY117: COUNTERFACTUAL CHALLENGE
-    // Before final output, ask: what would need to be true for the leading
-    // mechanism to be wrong? What one measurement resolves it fastest?
     // ============================================================================
     var counterfactual: any = null;
     if (damage.primary) {
@@ -2606,7 +2558,6 @@ var handler: Handler = async function(event: HandlerEvent) {
       var cfWhatIfWrong = "";
       var pmId = damage.primary.id;
 
-      // Find strongest competing mechanism
       if (damage.validated.length >= 2) {
         cfAlt = damage.validated[1].name + " (" + damage.validated[1].reality_state + ", score " + damage.validated[1].reality_score + ")";
       }
@@ -2646,7 +2597,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.5.4",
+          engine_version: "physics-first-decision-core-v2.5.5",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
