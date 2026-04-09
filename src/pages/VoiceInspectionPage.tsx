@@ -1,53 +1,55 @@
-// DEPLOY170.3 — src/pages/VoiceInspectionPage.tsx v16.6l
-// v16.6l: PIPELINE REORDER + ENGINE BUNDLE PASSTHROUGH
+// DEPLOY176 — src/pages/VoiceInspectionPage.tsx v16.6m
+// v16.6m: HARD CONFIDENCE GATE + FORCED REALITY ENFORCEMENT LAYER
 //
-// CRITICAL ARCHITECTURAL FIX (discovered during DEPLOY170.2 planning):
-// The superbrain was running at pipeline step 5, BEFORE FMD (step 7) and
-// FTR (step 8). At the moment of synthesis, fmdResult/dpResult/ftResult
-// were all null because those engines had not run yet. The DEPLOY170.2
-// backend v1.2 constraint blocks (FMD governing mode override, ALR
-// contradiction matrix scope rule) could never fire because the data
-// they checked for did not exist at synthesis time.
+// DEPLOY176 closes four of the five gaps called out by GPT eval across
+// three consecutive scenarios: evidence enforcement, mechanism-specific
+// method mapping, disposition authority escalation on structural
+// instability, and the "report produced at 36% confidence" problem.
 //
-// FIX:
-// Move superbrain to the LAST pipeline step. Run order is now:
-//   0. Parser -> 1. Asset -> 2. Provenance -> 3. ALR+RSR -> 4. Decision Core
-//   -> 5. Hardening -> 6. FMD+DPR -> 7. FTR -> 8. Superbrain
+// LOCKED CONFIG (per scoping Q&A):
+//   1. Hard Confidence Gate: 0.60 threshold, HIGH + CRITICAL tiers only.
+//      Decision-core internal gate UNCHANGED at 0.58. Intentional
+//      asymmetry: detect early at 0.58, decide carefully at 0.60.
+//   2. Report mode: PROVISIONAL - failure narrative, contradiction
+//      matrix, and mechanism hypotheses remain VISIBLE when the gate
+//      fires. Final disposition and inspector action card are BLOCKED.
+//   3. Mechanism coverage: all 17 MECH_DEFS mechanisms, no subset.
+//   4. Decision-core.ts untouched. This is a DPR + frontend deploy.
 //
-// At superbrain call time, all six engines (ALR, RSR, FMD, DPR, FTR, plus
-// photo_analysis if available) are now populated. The fetch body passes
-// every available engine result to the backend as an engine bundle.
-// Backend v1.2 sees FMD and ALR, activates the constraint blocks, and
-// the narrative + contradiction matrix finally honor the deterministic
-// engine outputs.
-//
-// SCOPE:
-//   1. initialSteps array reordered -- Superbrain moved from index 5 to 8
-//   2. continuePipeline body -- hardening/FMD/FTR blocks renumbered to
-//      indices 5/6/7, superbrain block physically moved to end (index 8)
-//   3. dpResult and ftResult promoted to outer scope of continuePipeline
-//      so the moved superbrain block can access them
-//   4. Superbrain fetch body expanded to pass { decision_core, transcript,
-//      authority_lock, remaining_strength, failure_mode_dominance,
-//      disposition_pathway, failure_timeline } -- each field included
-//      only if the corresponding engine result is non-null
-//   5. Constraint metadata surfaced in the superbrain step detail when
-//      returned (FMD-lock, ALR-scope, narr-corrected, matrix-filtered)
-//   6. Version bump v16.6k -> v16.6l across header, subtitle, footer,
+// SCOPE (this file):
+//   1. callDispositionPathway fetch body extended with three new fields:
+//      - reality_confidence_overall (from coreResult.reality_confidence.overall)
+//      - structural_path (from fmdResult.structural_path)
+//      - validated_mechanisms (from coreResult.damage_reality.validated_mechanisms)
+//   2. PDF render: new branch for dpr.disposition === "HOLD_FOR_INPUT_ENFORCEMENT"
+//      - PROVISIONAL banner with gate math
+//      - Required Evidence Ledger section (per mechanism)
+//      - Required Inspection Plan section (per mechanism)
+//      - Inspector action card suppressed
+//   3. PDF render: new branch for dpr.disposition === "IMMEDIATE_STRUCTURAL_INTEGRITY_REVIEW"
+//      - Emergency structural header
+//      - Operating restrictions block (explicit)
+//      - Structural actions with capacity loss state + indicators
+//   4. Inspector action card: suppressed for both new dispositions
+//   5. Failure narrative + contradiction matrix: wrapped in PROVISIONAL
+//      tint when the confidence gate fires (reasoning visible but
+//      explicitly marked as unverified working analysis)
+//   6. Version bump v16.6l -> v16.6m across header, subtitle, footer,
 //      HARDENING DIAGNOSTIC label, h1, inline diagnostic box
 //
 // BACKEND COORDINATION:
-// Requires DEPLOY170.2 superbrain v1.2 deployed first. If backend is still
-// v1.1 when this frontend ships, the engine fields in the fetch body are
-// simply ignored by the backend and behavior is identical to v16.6k.
-// Safe to deploy in either order, but v1.2 backend must be live before
-// the constraint activation can be observed.
+// Requires DEPLOY176 DPR v1.1 deployed first. DPR v1.1 is null-safe
+// against v16.6l: if the frontend is still passing v1.0 fields only,
+// the new fields default to null/empty and the gate cannot fire, so
+// behavior is identical to DPR v1.0. Deploy backend first, confirm no
+// regression on Scenario 3, then deploy this frontend.
 //
-// CARRIES FORWARD FROM v16.6k (DEPLOY170.1):
-//   - Paragraph-format numeric extraction (nominal wall, measured min)
-//   - RSR-null and FTR-null transparency rendering
+// CARRIES FORWARD FROM v16.6l (DEPLOY170.3):
+//   - Pipeline reorder (superbrain runs last with full engine bundle)
+//   - Engine bundle passthrough to superbrain v1.2
+//   - Paragraph-format numeric extraction (DEPLOY170.1)
+//   - RSR-null and FTR-null transparency rendering (DEPLOY170.1)
 //   - NPS schedule inference (DEPLOY170)
-//   - DEPLOY166.2 ALR confidence NaN render hotfix
 //   - All prior patches
 //
 // NO TEMPLATE LITERALS -- STRING CONCATENATION ONLY
@@ -276,7 +278,7 @@ function generateInspectionReport(data: {
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>v16.6l | Engine: decision-core v2.5.4 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.0 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.2 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>v16.6m | Engine: decision-core v2.5.4 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.1 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.2 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -294,7 +296,7 @@ function generateInspectionReport(data: {
 
   // HARDENING DIAGNOSTIC
   html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
-  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6l)</div>";
+  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6m)</div>";
   html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time.</div>";
 
   var diagEngines = [
@@ -556,7 +558,183 @@ function generateInspectionReport(data: {
     html += "</div>";
   }
 
-  if (dpr) {
+  // DEPLOY176: HOLD_FOR_INPUT_ENFORCEMENT (hard confidence gate fired)
+  // PROVISIONAL mode per locked config - reasoning stays visible, final
+  // disposition is blocked, inspector action card is suppressed, and the
+  // Required Evidence Ledger + Required Inspection Plan are rendered.
+  if (dpr && dpr.disposition === "HOLD_FOR_INPUT_ENFORCEMENT") {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Disposition Pathway</div>";
+    html += "<div class='banner' style='background:#b45309;border:3px solid #78350f;'>PROVISIONAL &mdash; NOT A DISPOSITION</div>";
+    html += "<div style='margin-top:6px;padding:8px 10px;background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;font-size:11px;color:#78350f;'>";
+    html += "<strong>Hard Confidence Gate is active.</strong> This report presents reasoning and hypotheses, but <strong>no final disposition is issued.</strong> Pass/fail, repair/replace, and continue-service judgments are blocked until the required inputs listed below are collected and the case is re-evaluated.";
+    html += "</div>";
+
+    // Gate math box
+    var em = dpr.enforcement_metadata || {};
+    var confAtGate = (typeof em.confidence_at_gate === "number") ? em.confidence_at_gate.toFixed(2) : "unknown";
+    var threshAtGate = (typeof em.threshold === "number") ? em.threshold.toFixed(2) : "0.60";
+    var consTierAtGate = em.consequence_tier || "unknown";
+    html += "<div style='margin-top:10px;padding:10px 12px;background:#fff;border:2px solid #b45309;border-radius:6px;'>";
+    html += "<div style='font-size:10px;font-weight:800;color:#78350f;text-transform:uppercase;margin-bottom:6px;'>Gate Math</div>";
+    html += "<div class='info-row'><span class='info-label'>Consequence Tier</span><span class='info-value' style='font-weight:800;color:#b45309;'>" + esc(consTierAtGate) + "</span></div>";
+    html += "<div class='info-row'><span class='info-label'>Overall Confidence</span><span class='info-value' style='font-weight:800;color:#b45309;'>" + esc(confAtGate) + "</span></div>";
+    html += "<div class='info-row'><span class='info-label'>Enforcement Threshold</span><span class='info-value'>" + esc(threshAtGate) + "</span></div>";
+    html += "<div style='font-size:10px;color:#78350f;margin-top:6px;font-style:italic;'>Rule: consequence_tier in (HIGH, CRITICAL) AND reality_confidence_overall &lt; 0.60. Decision-core detects signals at 0.58; enforcement layer decides at 0.60. Detect early, decide carefully.</div>";
+    html += "</div>";
+
+    if (dpr.disposition_basis) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-radius:4px;border-left:3px solid #b45309;font-size:11px;'>" + esc(dpr.disposition_basis) + "</div>";
+    }
+
+    // Required Evidence Ledger
+    var rel = dpr.required_evidence_ledger;
+    if (rel && rel.length > 0) {
+      html += "<div style='margin-top:14px;padding:10px 12px;background:#fef3c7;border:2px solid #b45309;border-radius:6px;'>";
+      html += "<div style='font-size:12px;font-weight:800;color:#78350f;text-transform:uppercase;margin-bottom:8px;'>Required Evidence Ledger</div>";
+      html += "<div style='font-size:10px;color:#78350f;margin-bottom:8px;'>Each unresolved mechanism below must be confirmed or ruled out before a disposition can be issued.</div>";
+      for (var rli = 0; rli < rel.length; rli++) {
+        var relEntry = rel[rli];
+        html += "<div style='margin-top:10px;padding:8px 10px;background:#fff;border-left:3px solid #b45309;border-radius:4px;'>";
+        html += "<div style='font-size:11px;font-weight:800;color:#111;'>" + esc(relEntry.mechanism_name || relEntry.mechanism_id || "unknown") + "</div>";
+        var stateStr = (relEntry.reality_state || "unverified").toUpperCase();
+        var scoreStr = (typeof relEntry.reality_score === "number") ? " (score " + relEntry.reality_score.toFixed(2) + ")" : "";
+        html += "<div style='font-size:9px;color:#b45309;font-weight:700;margin-bottom:6px;'>Current state: " + esc(stateStr) + esc(scoreStr) + "</div>";
+        if (relEntry.confirmation_evidence && relEntry.confirmation_evidence.length > 0) {
+          html += "<div style='font-size:10px;font-weight:700;color:#374151;margin-top:4px;'>Confirmation evidence required:</div>";
+          for (var cei = 0; cei < relEntry.confirmation_evidence.length; cei++) {
+            html += "<div style='font-size:10px;color:#374151;padding:1px 0 1px 12px;'>&bull; " + esc(relEntry.confirmation_evidence[cei]) + "</div>";
+          }
+        }
+        if (relEntry.rule_out_evidence && relEntry.rule_out_evidence.length > 0) {
+          html += "<div style='font-size:10px;font-weight:700;color:#374151;margin-top:4px;'>OR rule-out evidence:</div>";
+          for (var roi = 0; roi < relEntry.rule_out_evidence.length; roi++) {
+            html += "<div style='font-size:10px;color:#374151;padding:1px 0 1px 12px;'>&bull; " + esc(relEntry.rule_out_evidence[roi]) + "</div>";
+          }
+        }
+        if (relEntry.severity_quantifiers && relEntry.severity_quantifiers.length > 0) {
+          html += "<div style='font-size:10px;font-weight:700;color:#374151;margin-top:4px;'>Severity quantifiers (if confirmed):</div>";
+          for (var sqi = 0; sqi < relEntry.severity_quantifiers.length; sqi++) {
+            html += "<div style='font-size:10px;color:#374151;padding:1px 0 1px 12px;'>&bull; " + esc(relEntry.severity_quantifiers[sqi]) + "</div>";
+          }
+        }
+        html += "</div>";
+      }
+      html += "</div>";
+    }
+
+    // Required Inspection Plan
+    var rip = dpr.required_inspection_plan;
+    if (rip && rip.length > 0) {
+      html += "<div style='margin-top:14px;padding:10px 12px;background:#fef3c7;border:2px solid #b45309;border-radius:6px;'>";
+      html += "<div style='font-size:12px;font-weight:800;color:#78350f;text-transform:uppercase;margin-bottom:8px;'>Required Inspection Plan (Mechanism-Specific)</div>";
+      html += "<div style='font-size:10px;color:#78350f;margin-bottom:8px;'>These methods address the specific physics of each candidate mechanism. This is not a generic \"add VT + UT + PAUT\" recommendation.</div>";
+      for (var rpi = 0; rpi < rip.length; rpi++) {
+        var rpEntry = rip[rpi];
+        html += "<div style='margin-top:10px;padding:8px 10px;background:#fff;border-left:3px solid #b45309;border-radius:4px;'>";
+        html += "<div style='font-size:11px;font-weight:800;color:#111;'>" + esc(rpEntry.mechanism_name || rpEntry.mechanism_id || "unknown") + "</div>";
+        if (rpEntry.methods && rpEntry.methods.length > 0) {
+          for (var mpi = 0; mpi < rpEntry.methods.length; mpi++) {
+            var methEntry = rpEntry.methods[mpi];
+            html += "<div style='margin-top:5px;padding-left:12px;'>";
+            html += "<div style='font-size:10px;font-weight:700;color:#374151;'>&bull; " + esc(methEntry.method || "") + "</div>";
+            if (methEntry.physics_basis) {
+              html += "<div style='font-size:9px;color:#6b7280;padding-left:12px;font-style:italic;'>" + esc(methEntry.physics_basis) + "</div>";
+            }
+            html += "</div>";
+          }
+        }
+        html += "</div>";
+      }
+      html += "</div>";
+    }
+
+    if (dpr.temporary_controls && dpr.temporary_controls.length > 0) {
+      html += "<div style='margin-top:10px;padding:8px 10px;background:#f9fafb;border-left:3px solid #6b7280;border-radius:4px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#374151;margin-bottom:4px;'>OPERATIONS UNCHANGED</div>";
+      for (var tci = 0; tci < dpr.temporary_controls.length; tci++) {
+        html += "<div style='font-size:10px;color:#374151;padding:1px 0;'>&bull; " + esc(dpr.temporary_controls[tci]) + "</div>";
+      }
+      html += "</div>";
+    }
+
+    if (dpr.escalation_triggers && dpr.escalation_triggers.length > 0) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#fef2f2;border-left:3px solid #dc2626;border-radius:4px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#991b1b;margin-bottom:4px;'>ESCALATION TRIGGERS</div>";
+      for (var eti = 0; eti < dpr.escalation_triggers.length; eti++) {
+        html += "<div style='font-size:10px;color:#991b1b;padding:1px 0;'>&bull; " + esc(dpr.escalation_triggers[eti]) + "</div>";
+      }
+      html += "</div>";
+    }
+
+    html += "<div style='margin-top:12px;padding:10px 12px;background:#f9fafb;border:1px dashed #9ca3af;border-radius:4px;font-size:10px;color:#374151;font-style:italic;'>";
+    html += "Re-run this assessment after the required evidence is collected to obtain a full disposition. Until then, the failure narrative, contradiction matrix, and mechanism hypotheses on this report are working analysis, not a decision.";
+    html += "</div>";
+
+    html += "</div>";
+  }
+
+  // DEPLOY176: IMMEDIATE_STRUCTURAL_INTEGRITY_REVIEW (structural escalation)
+  // Runs when FMD structural_path is active with capacity loss. This is
+  // a confirmed physical emergency, not a data gap, so it gets a full
+  // action card with explicit operating restrictions.
+  else if (dpr && dpr.disposition === "IMMEDIATE_STRUCTURAL_INTEGRITY_REVIEW") {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Disposition Pathway</div>";
+    html += "<div class='banner' style='background:#991b1b;border:3px solid #450a0a;'>IMMEDIATE STRUCTURAL INTEGRITY REVIEW</div>";
+    html += "<div style='margin-top:6px;padding:10px 12px;background:#fef2f2;border:2px solid #dc2626;border-radius:6px;font-size:11px;color:#991b1b;'>";
+    html += "<strong>EMERGENCY.</strong> Structural instability is active with measurable capacity loss. This is not an evidence-gathering problem &mdash; the supporting structure has already deviated from its designed load path, and the pressure boundary integrity depends on that structure. Operating restrictions below are effective immediately.";
+    html += "</div>";
+
+    var semd = dpr.enforcement_metadata || {};
+    if (semd.capacity_loss_state) {
+      html += "<div style='margin-top:10px;padding:10px 12px;background:#fff;border:2px solid #991b1b;border-radius:6px;'>";
+      html += "<div style='font-size:10px;font-weight:800;color:#991b1b;text-transform:uppercase;margin-bottom:6px;'>Structural State</div>";
+      html += "<div class='info-row'><span class='info-label'>Capacity Loss State</span><span class='info-value' style='font-weight:800;color:#991b1b;'>" + esc(String(semd.capacity_loss_state).toUpperCase().replace(/_/g, " ")) + "</span></div>";
+      if (semd.structural_indicators && semd.structural_indicators.length > 0) {
+        html += "<div class='info-row'><span class='info-label'>Indicators</span><span class='info-value'>" + esc(semd.structural_indicators.join(", ")) + "</span></div>";
+      }
+      html += "</div>";
+    }
+
+    if (dpr.urgency) html += "<div class='info-row'><span class='info-label'>Urgency</span><span class='info-value' style='color:#991b1b;font-weight:800;'>" + esc(dpr.urgency) + "</span></div>";
+    if (dpr.disposition_basis) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-radius:4px;border-left:3px solid #991b1b;font-size:11px;'>" + esc(dpr.disposition_basis) + "</div>";
+
+    if (dpr.temporary_controls && dpr.temporary_controls.length > 0) {
+      html += "<div style='margin-top:12px;padding:10px 12px;background:#fef2f2;border:2px solid #dc2626;border-radius:6px;'>";
+      html += "<div style='font-size:12px;font-weight:800;color:#991b1b;text-transform:uppercase;margin-bottom:6px;'>Operating Restrictions (Effective Immediately)</div>";
+      for (var stci = 0; stci < dpr.temporary_controls.length; stci++) {
+        html += "<div style='font-size:11px;color:#991b1b;padding:2px 0;font-weight:600;'>&bull; " + esc(dpr.temporary_controls[stci]) + "</div>";
+      }
+      html += "</div>";
+    }
+
+    if (dpr.actions && dpr.actions.length > 0) {
+      html += "<div style='margin-top:12px;font-size:11px;font-weight:800;color:#991b1b;text-transform:uppercase;'>Required Structural Actions (" + dpr.actions.length + ")</div>";
+      for (var sdai = 0; sdai < dpr.actions.length; sdai++) {
+        var sact = dpr.actions[sdai];
+        html += "<div class='recovery-item' style='border-left:3px solid #991b1b;'>";
+        html += "<strong>#" + esc(sact.priority || (sdai + 1)) + " " + esc(sact.action || "") + "</strong>";
+        if (sact.timeframe) html += " <span style='color:#dc2626;font-size:10px;font-weight:700;'>[" + esc(sact.timeframe) + "]</span>";
+        if (sact.detail) html += "<br/><span style='font-size:10px;'>" + esc(sact.detail) + "</span>";
+        if (sact.who) html += "<br/><span style='font-size:9px;color:#6b7280;'>Responsible: " + esc(sact.who) + "</span>";
+        html += "</div>";
+      }
+    }
+
+    if (dpr.escalation_triggers && dpr.escalation_triggers.length > 0) {
+      html += "<div style='margin-top:10px;padding:8px 10px;background:#fef2f2;border-left:3px solid #dc2626;border-radius:4px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#991b1b;margin-bottom:4px;'>ESCALATION TRIGGERS</div>";
+      for (var seti = 0; seti < dpr.escalation_triggers.length; seti++) {
+        html += "<div style='font-size:10px;color:#991b1b;padding:1px 0;'>&bull; " + esc(dpr.escalation_triggers[seti]) + "</div>";
+      }
+      html += "</div>";
+    }
+
+    html += "</div>";
+  }
+
+  else if (dpr) {
     html += "<div class='section'>";
     html += "<div class='section-title'>Disposition Pathway</div>";
     var dispColor = dpr.disposition === "IMMEDIATE_ACTION" ? "#dc2626"
@@ -677,19 +855,51 @@ function generateInspectionReport(data: {
 
   if (sb && sb.synthesis) {
     var syn = sb.synthesis;
+    // DEPLOY176: detect PROVISIONAL mode (hard confidence gate fired) and
+    // structural emergency (both suppress the generic inspector action card)
+    var isProvisional = dpr && dpr.disposition === "HOLD_FOR_INPUT_ENFORCEMENT";
+    var isStructuralEmergency = dpr && dpr.disposition === "IMMEDIATE_STRUCTURAL_INTEGRITY_REVIEW";
+    var suppressActionCard = isProvisional || isStructuralEmergency;
+
     if (syn.failure_narrative) {
-      html += "<div class='section'><div class='section-title'>Failure Narrative</div><div class='narrative'>" + esc(syn.failure_narrative) + "</div></div>";
+      if (isProvisional) {
+        html += "<div class='section'>";
+        html += "<div class='section-title'>Failure Narrative</div>";
+        html += "<div style='margin-bottom:8px;padding:6px 10px;background:#fffbeb;border:2px dashed #b45309;border-radius:4px;font-size:10px;font-weight:700;color:#78350f;text-transform:uppercase;'>PROVISIONAL &mdash; HYPOTHESIS ONLY &mdash; NOT A DISPOSITION</div>";
+        html += "<div class='narrative' style='opacity:0.92;'>" + esc(syn.failure_narrative) + "</div>";
+        html += "<div style='margin-top:6px;font-size:9px;color:#78350f;font-style:italic;'>This narrative is working analysis, not a conclusion. Treat as hypothesis pending the required evidence listed in the Disposition Pathway section.</div>";
+        html += "</div>";
+      } else {
+        html += "<div class='section'><div class='section-title'>Failure Narrative</div><div class='narrative'>" + esc(syn.failure_narrative) + "</div></div>";
+      }
     }
     if (syn.contradiction_matrix && syn.contradiction_matrix.length > 0) {
-      html += "<div class='section'><div class='section-title'>Contradiction Matrix</div>";
-      html += "<table class='sb-table'><tr><th>Framework</th><th>Verdict</th><th>Basis</th><th>Gap</th></tr>";
-      for (var ci = 0; ci < syn.contradiction_matrix.length; ci++) {
-        var cm = syn.contradiction_matrix[ci];
-        html += "<tr><td><strong>" + esc(cm.framework) + "</strong></td><td>" + esc(cm.verdict) + "</td><td>" + esc(cm.basis) + "</td><td>" + esc(cm.gap_reason) + "</td></tr>";
+      if (isProvisional) {
+        html += "<div class='section'>";
+        html += "<div class='section-title'>Contradiction Matrix</div>";
+        html += "<div style='margin-bottom:8px;padding:6px 10px;background:#fffbeb;border:2px dashed #b45309;border-radius:4px;font-size:10px;font-weight:700;color:#78350f;text-transform:uppercase;'>PROVISIONAL &mdash; UNVERIFIED FRAMEWORK COMPARISON</div>";
+        html += "<table class='sb-table' style='opacity:0.92;'><tr><th>Framework</th><th>Verdict</th><th>Basis</th><th>Gap</th></tr>";
+        for (var ci = 0; ci < syn.contradiction_matrix.length; ci++) {
+          var cm = syn.contradiction_matrix[ci];
+          html += "<tr><td><strong>" + esc(cm.framework) + "</strong></td><td>" + esc(cm.verdict) + "</td><td>" + esc(cm.basis) + "</td><td>" + esc(cm.gap_reason) + "</td></tr>";
+        }
+        html += "</table>";
+        html += "</div>";
+      } else {
+        html += "<div class='section'><div class='section-title'>Contradiction Matrix</div>";
+        html += "<table class='sb-table'><tr><th>Framework</th><th>Verdict</th><th>Basis</th><th>Gap</th></tr>";
+        for (var ci2 = 0; ci2 < syn.contradiction_matrix.length; ci2++) {
+          var cm2 = syn.contradiction_matrix[ci2];
+          html += "<tr><td><strong>" + esc(cm2.framework) + "</strong></td><td>" + esc(cm2.verdict) + "</td><td>" + esc(cm2.basis) + "</td><td>" + esc(cm2.gap_reason) + "</td></tr>";
+        }
+        html += "</table></div>";
       }
-      html += "</table></div>";
     }
-    if (syn.inspector_action_card && syn.inspector_action_card.length > 0) {
+    // DEPLOY176: Inspector Action Card suppressed when a specialized
+    // disposition path is active (HOLD_FOR_INPUT_ENFORCEMENT renders no
+    // actions because disposition is blocked; IMMEDIATE_STRUCTURAL_INTEGRITY_REVIEW
+    // has its own action block in the Disposition Pathway section).
+    if (!suppressActionCard && syn.inspector_action_card && syn.inspector_action_card.length > 0) {
       html += "<div class='section'><div class='section-title'>Inspector Action Card</div>";
       for (var ac = 0; ac < syn.inspector_action_card.length; ac++) {
         var action = syn.inspector_action_card[ac];
@@ -698,7 +908,13 @@ function generateInspectionReport(data: {
       html += "</div>";
     }
     if (syn.reviewer_brief) {
-      html += "<div class='section'><div class='section-title'>Reviewer Brief</div><div class='narrative'>" + esc(syn.reviewer_brief) + "</div></div>";
+      if (isProvisional) {
+        html += "<div class='section'><div class='section-title'>Reviewer Brief</div>";
+        html += "<div style='margin-bottom:6px;padding:4px 8px;background:#fffbeb;border:1px dashed #b45309;border-radius:3px;font-size:9px;font-weight:700;color:#78350f;text-transform:uppercase;'>PROVISIONAL SUMMARY</div>";
+        html += "<div class='narrative' style='opacity:0.92;'>" + esc(syn.reviewer_brief) + "</div></div>";
+      } else {
+        html += "<div class='section'><div class='section-title'>Reviewer Brief</div><div class='narrative'>" + esc(syn.reviewer_brief) + "</div></div>";
+      }
     }
   }
 
@@ -752,7 +968,7 @@ function generateInspectionReport(data: {
   html += "</div>";
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
-  html += "Generated by FORGED NDT Intelligence OS v16.6l - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
+  html += "Generated by FORGED NDT Intelligence OS v16.6m - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
   html += "</div>";
 
   html += "</body></html>";
@@ -1369,6 +1585,10 @@ export default function VoiceInspectionPage() {
       var hasCrack = (fmdResult && fmdResult.cracking_path && fmdResult.cracking_path.active) || false;
       var confBand = (coreResult && coreResult.reality_confidence && coreResult.reality_confidence.band) || "";
       var conTier = (coreResult && coreResult.consequence_reality && coreResult.consequence_reality.consequence_tier) || "";
+      // DEPLOY176: new fields for hard confidence gate + structural escalation
+      var realConfOverall: any = (coreResult && coreResult.reality_confidence && typeof coreResult.reality_confidence.overall === "number") ? coreResult.reality_confidence.overall : null;
+      var structPath: any = (fmdResult && fmdResult.structural_path) || null;
+      var validatedMechs: any = (coreResult && coreResult.damage_reality && coreResult.damage_reality.validated_mechanisms) || [];
       var response = await fetch("/.netlify/functions/disposition-pathway", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1376,7 +1596,11 @@ export default function VoiceInspectionPage() {
           reality_state: realState, disposition_blocked: dispBlocked, interaction_flag: interFlag,
           interaction_type: interType, brittle_fracture_risk: brittleRisk, wall_loss_percent: wallLoss,
           operating_ratio: opRatio, pressure_reduction_required: pressReduc, has_cracking: hasCrack,
-          confidence_band: confBand, consequence_tier: conTier
+          confidence_band: confBand, consequence_tier: conTier,
+          // DEPLOY176: enforcement layer inputs
+          reality_confidence_overall: realConfOverall,
+          structural_path: structPath,
+          validated_mechanisms: validatedMechs
         })
       });
       if (!response.ok) {
@@ -1977,8 +2201,8 @@ export default function VoiceInspectionPage() {
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6l</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY170.3: pipeline reorder + engine bundle passthrough to superbrain v1.2.</p>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6m</h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY176: hard confidence gate + forced reality enforcement layer. Provisional mode when HIGH/CRITICAL tier falls below 0.60.</p>
       </div>
 
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
@@ -2205,7 +2429,7 @@ export default function VoiceInspectionPage() {
 
         {(authorityLockResult || remainingStrengthResult || failureModeDominanceResult || dispositionPathwayResult || failureTimelineResult) && (
           <div style={{ marginBottom: "16px", padding: "12px", border: "2px solid #000", borderRadius: "8px", backgroundColor: "#fffbe6" }}>
-            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6l inline diagnostic)</div>
+            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6m inline diagnostic)</div>
             <div style={{ fontSize: "11px", fontFamily: "monospace", lineHeight: "1.6" }}>
               <div>ALR: {authorityLockResult ? "PRESENT \u2014 status=" + (authorityLockResult.status || "?") + " | " + ((authorityLockResult.authority_chain || []).length) + " primary | trigger_b31g=" + String(!!authorityLockResult.trigger_b31g) : "null"}</div>
               <div>RSR: {remainingStrengthResult ? "PRESENT \u2014 tier=" + (remainingStrengthResult.data_quality || "?") + " | envelope=" + (remainingStrengthResult.safe_envelope || "?") + " | MAOP=" + (remainingStrengthResult.governing_maop || "?") + " | severity=" + (remainingStrengthResult.severity_tier || "?") : "null"}</div>
