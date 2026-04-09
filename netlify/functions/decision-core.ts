@@ -1,3 +1,91 @@
+// DEPLOY171.5 — decision-core.ts v2.6.1
+// v2.6.1: Cascade-wide correction guard + physical_reality material/environment exposure
+//
+// MOTIVATING DEFECT (observed during DEPLOY171 validation on a nuclear PWR
+// pressurizer surge line transcript):
+//
+// The transcript described a Type 316 / Alloy 82-182 dissimilar metal weld
+// in a Pressurized Water Reactor primary loop at 580F / 2200 psi. Upstream
+// classifier returned asset_class="nuclear_vessel". The expected behavior
+// was for the SUPPORTED_DOMAINS gate (added in DEPLOY170) to refuse the
+// report with domain_not_supported=true, since the build has no nuclear
+// authority chain (10 CFR 50 App B, ASME Section XI), no nuclear mechanism
+// catalog (PWSCC, IGSCC, irradiation embrittlement), and no nuclear
+// consequence model. The observed behavior was that nuclear_vessel was
+// silently force-promoted to pressure_vessel BEFORE the gate ever ran,
+// then evaluated against API 510 + ASME Section VIII as if it were a
+// refinery hydroprocessing reactor. The engine survived this only by luck:
+// DEPLOY167's WEAK correction penalty + DEPLOY176 hard confidence gate
+// held the line at overall confidence 0.52, blocking the disposition.
+// Robustness was accidental, not designed.
+//
+// ROOT CAUSE: DEPLOY115 added a "piping lock" block that promotes any
+// non-piping/non-pressure_vessel class to pressure_vessel when the
+// transcript contains "pressure vessel", "reactor", "heat exchanger", or
+// "autoclave". The transcript contained "Pressurized Water Reactor", so
+// hasWord(lt, "reactor") returned true, and nuclear_vessel was rewritten.
+// DEPLOY170 added a startingClassSupported guard to ONE override block
+// (the field-language piping promotion) but left every other override
+// block in the cascade unguarded. The same shape of bug was present in
+// the hydrocracker block, the boiler block, the separator/drum block, the
+// "Transcript describes piping" block, the storage tank block, and the
+// DEPLOY115 piping lock — six parallel holes, any of which could
+// rewrite an unsupported class into a supported one and bypass the
+// SUPPORTED_DOMAINS gate.
+//
+// DEPLOY171.5 scope:
+//   1. Define a single shared correctionAllowedFrom constant + a single
+//      correctionGuardOpen boolean at the top of the cascade. Every
+//      override/promotion block below references this guard. Adding new
+//      override blocks in the future requires only the guard reference;
+//      adding new supported asset classes requires only one edit to the
+//      shared constant. Eliminates the drift risk that produced this bug.
+//   2. Add the guard to all six previously-unguarded override blocks.
+//      The hyperbaric and structural domain locks are intentionally NOT
+//      guarded — they are explicit class identifiers, not corrections,
+//      and should always fire when their keywords appear.
+//   3. Refactor the DEPLOY170 field-language block to consume the shared
+//      constants instead of declaring its own (which had a different
+//      list — the existing fieldOverrideAllowedFrom omitted the bridge
+//      family classes). This unifies the two lists and reduces drift.
+//   4. Expose physical_reality.material and physical_reality.environment
+//      in the success-path return JSON. The DEPLOY171 catalog evaluator
+//      already received these fields internally (the CUI rejection during
+//      validation proves it), but the explicit field copy in the success-
+//      path return JSON did not include them. Two-line addition. Makes
+//      the catalog evaluator's input data visible for downstream UI
+//      consumers and debugging.
+//   5. Engine version bumped to v2.6.1 in BOTH success-path and refusal-
+//      path return JSON.
+//
+// EXPECTED POST-DEPLOY171.5 BEHAVIOR ON NUCLEAR SCENARIO:
+//   - asset_class arrives as "nuclear_vessel"
+//   - correctionGuardOpen evaluates to false (nuclear_vessel not in
+//     correctionAllowedFrom)
+//   - Every override block in the cascade refuses to fire
+//   - assetClass remains "nuclear_vessel" through the entire cascade
+//   - SUPPORTED_DOMAINS gate refuses with domain_not_supported=true
+//   - Refusal payload reports engine_version v2.6.1
+//
+// PARALLEL HOLES CLOSED BY DEPLOY171.5 (each previously rewrote
+// nuclear_vessel/aircraft/spacecraft/marine_hull silently into a
+// supported class):
+//   - hydrocracker/hydrotreater/reactor_vessel/delayed_coker block
+//   - boiler/steam_drum/economizer block
+//   - separator/knockout_drum/flash_drum/surge_drum/accumulator block
+//   - "Transcript describes piping" block
+//   - storage tank block
+//   - DEPLOY115 piping lock (pressure_vessel/reactor/heat_exchanger/autoclave)
+//
+// This is a tactical fix to the cascade architecture, not a strategic
+// rebuild. The strategic fix remains the Domain Classification Engine
+// proposed in the post-DEPLOY171 strategic pivot, which will replace the
+// entire cascade with structured evidence weighting + explicit confidence
+// + explicit unknown handling. DEPLOY171.5 stops the bleeding so the
+// cascade is not the bottleneck while DEPLOY172 (catalog migration of
+// CSCC, MIC, sulfidation, naphthenic acid, polythionic SCC, rouging) and
+// the Domain Classification Engine ship.
+//
 // DEPLOY171 — decision-core.ts v2.6.0
 // v2.6.0: Mechanism catalog phase 1 — CUI migration to data-driven preconditions
 // This is the first concrete step in the long-running mechanism upgrade. The
@@ -2912,6 +3000,26 @@ var handler: Handler = async function(event: HandlerEvent) {
     var assetCorrected = false;
     var assetCorrectionReason = "";
     var isHyperbaricLocked = false;
+
+    // ============================================================================
+    // DEPLOY171.5 v2.6.1: SHARED CASCADE CORRECTION GUARD
+    // Every override/promotion block in the cascade below MUST check
+    // correctionGuardOpen before rewriting assetClass. Without this guard,
+    // a single keyword match (e.g. "reactor" inside "Pressurized Water
+    // Reactor") can silently rewrite an unsupported class (nuclear_vessel,
+    // aircraft, spacecraft, marine_hull, satellite, rocket_test_article)
+    // into a supported refinery class, bypassing the SUPPORTED_DOMAINS
+    // gate that was supposed to refuse the report. The hyperbaric and
+    // structural domain locks are explicit class identifiers (not
+    // corrections) and intentionally do not consult this guard.
+    // To add a new supported asset class to the cascade: add it to
+    // correctionAllowedFrom below. To add a new override block: copy any
+    // existing block and reference correctionGuardOpen in the if-condition.
+    // ============================================================================
+    var correctionAllowedFrom = ["unknown", "piping", "pipeline", "pressure_vessel", "tank", "storage_tank", "bridge", "rail_bridge", "bridge_steel", "bridge_concrete", "offshore_platform", "heat_exchanger", "boiler"];
+    var startingAssetClassForCorrection = asset.asset_class || "unknown";
+    var correctionGuardOpen = correctionAllowedFrom.indexOf(startingAssetClassForCorrection) !== -1;
+
     if (hasWord(lt_handler, "decompression chamber") || hasWord(lt_handler, "recompression chamber") || hasWord(lt_handler, "double lock") || hasWord(lt_handler, "hyperbaric chamber") || hasWord(lt_handler, "hyperbaric") || hasWord(lt_handler, "diving bell") || hasWord(lt_handler, "dive system") || hasWord(lt_handler, "pvho") || hasWord(lt_handler, "man-rated") || hasWord(lt_handler, "personnel chamber") || hasWord(lt_handler, "saturation div") || hasWord(lt_handler, "sat system") || hasWord(lt_handler, "living chamber") || hasWord(lt_handler, "transfer under pressure") || hasWord(lt_handler, "personnel transfer capsule")) {
       if (assetClass !== "pressure_vessel") {
         assetClass = "pressure_vessel";
@@ -2971,14 +3079,14 @@ var handler: Handler = async function(event: HandlerEvent) {
       }
     }
 
-    if (!isHyperbaricLocked && !isStructuralLocked && (hasWord(lt_handler, "hydrocracker") || hasWord(lt_handler, "hydrotreater") || hasWord(lt_handler, "reactor vessel") || hasWord(lt_handler, "delayed coker"))) {
+    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && (hasWord(lt_handler, "hydrocracker") || hasWord(lt_handler, "hydrotreater") || hasWord(lt_handler, "reactor vessel") || hasWord(lt_handler, "delayed coker"))) {
       if (assetClass !== "pressure_vessel") {
         assetClass = "pressure_vessel";
         assetCorrected = true;
         assetCorrectionReason = "Transcript describes process reactor/hydrocracker. Overriding to pressure_vessel.";
       }
     }
-    if (!isHyperbaricLocked && !isStructuralLocked && (hasWord(lt_handler, "boiler") || hasWord(lt_handler, "steam drum") || hasWord(lt_handler, "economizer"))) {
+    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && (hasWord(lt_handler, "boiler") || hasWord(lt_handler, "steam drum") || hasWord(lt_handler, "economizer"))) {
       if (assetClass !== "pressure_vessel" && assetClass !== "boiler") {
         assetClass = "pressure_vessel";
         assetCorrected = true;
@@ -2986,14 +3094,14 @@ var handler: Handler = async function(event: HandlerEvent) {
       }
     }
     // DEPLOY120: SEPARATOR/DRUM → PRESSURE VESSEL
-    if (!isHyperbaricLocked && !isStructuralLocked && (hasWord(lt_handler, "separator") || hasWord(lt_handler, "knockout drum") || hasWord(lt_handler, "flash drum") || hasWord(lt_handler, "surge drum") || hasWord(lt_handler, "accumulator") || (hasWord(lt_handler, "vessel") && !hasWord(lt_handler, "pipe") && !hasWord(lt_handler, "piping") && !hasWord(lt_handler, "line")))) {
+    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && (hasWord(lt_handler, "separator") || hasWord(lt_handler, "knockout drum") || hasWord(lt_handler, "flash drum") || hasWord(lt_handler, "surge drum") || hasWord(lt_handler, "accumulator") || (hasWord(lt_handler, "vessel") && !hasWord(lt_handler, "pipe") && !hasWord(lt_handler, "piping") && !hasWord(lt_handler, "line")))) {
       if (assetClass !== "pressure_vessel") {
         assetClass = "pressure_vessel";
         assetCorrected = true;
         assetCorrectionReason = "Transcript describes separator/drum/vessel equipment. Overriding to pressure_vessel.";
       }
     }
-    if (!isHyperbaricLocked && !isStructuralLocked && (hasWord(lt_handler, "pipe") || hasWord(lt_handler, "piping") || hasWord(lt_handler, "pipeline")) && assetClass !== "piping" && assetClass !== "pipeline") {
+    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && (hasWord(lt_handler, "pipe") || hasWord(lt_handler, "piping") || hasWord(lt_handler, "pipeline")) && assetClass !== "piping" && assetClass !== "pipeline") {
       if (assetClass === "unknown" || assetClass === "bridge_concrete" || assetClass === "bridge") {
         assetClass = "piping";
         assetCorrected = true;
@@ -3011,10 +3119,12 @@ var handler: Handler = async function(event: HandlerEvent) {
     // already in the refinery/structural family or explicitly "unknown" —
     // unsupported domains (aerospace, spacecraft, rail, marine_hull, etc.)
     // now flow through to the domain refusal check below instead.
-    var startingClassForFieldOverride = asset.asset_class || "unknown";
-    var fieldOverrideAllowedFrom = ["unknown", "piping", "pipeline", "pressure_vessel", "tank", "storage_tank", "bridge_concrete", "heat_exchanger", "boiler"];
-    var startingClassSupported = fieldOverrideAllowedFrom.indexOf(startingClassForFieldOverride) !== -1;
-    if (!isHyperbaricLocked && !isStructuralLocked && startingClassSupported && assetClass !== "piping" && assetClass !== "pipeline") {
+    // DEPLOY171.5 v2.6.1: Refactored to consume the shared correctionGuardOpen
+    // declared at the top of the cascade. Previous local fieldOverrideAllowedFrom
+    // omitted bridge/rail_bridge/offshore_platform — those classes are
+    // protected upstream by the structural lock so the unification is safe
+    // and eliminates list-drift risk.
+    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && assetClass !== "piping" && assetClass !== "pipeline") {
       var hasLineWord = hasWord(lt_handler, "line") || hasWord(lt_handler, "pipe") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || hasWord(lt_handler, "tubing");
       var hasProcessContext = hasWord(lt_handler, "amine") || hasWord(lt_handler, "steam") || hasWord(lt_handler, "process") || hasWord(lt_handler, "sour") || hasWord(lt_handler, "flare") || hasWord(lt_handler, "condensate") || hasWord(lt_handler, "caustic") || hasWord(lt_handler, "hydrogen") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || (lt_handler.indexOf(" tee ") !== -1 || lt_handler.indexOf(" tee,") !== -1 || lt_handler.indexOf(" tee.") !== -1 || lt_handler.indexOf("pipe tee") !== -1) || hasWord(lt_handler, "reducer") || hasWord(lt_handler, "dead leg") || hasWord(lt_handler, "hydro") || hasWord(lt_handler, "intrados") || hasWord(lt_handler, "downstream") || hasWord(lt_handler, "upstream") || hasWord(lt_handler, "propane") || hasWord(lt_handler, "lpg") || hasWord(lt_handler, "ngl") || hasWord(lt_handler, "butane") || hasWord(lt_handler, "ethylene") || hasWord(lt_handler, "carbon steel") || hasWord(lt_handler, "psi") || hasWord(lt_handler, "inch") || hasWord(lt_handler, "weld") || hasWord(lt_handler, "insulation") || hasWord(lt_handler, "support") || hasWord(lt_handler, "flow");
       var hasVesselEvidence = hasWord(lt_handler, "vessel") || hasWord(lt_handler, "drum") || hasWord(lt_handler, "tank") || hasWord(lt_handler, "shell side") || hasWord(lt_handler, "tube side") || hasWord(lt_handler, "head") && hasWord(lt_handler, "shell") || hasWord(lt_handler, "nozzle") && !hasWord(lt_handler, "pipe nozzle");
@@ -3024,13 +3134,17 @@ var handler: Handler = async function(event: HandlerEvent) {
         assetCorrectionReason = "Field language indicates piping (process line/pipe + no vessel evidence). Overriding upstream classification (" + (asset.asset_class || "unknown") + ") to piping.";
       }
     }
-    if (!isHyperbaricLocked && !isStructuralLocked && (hasWord(lt_handler, "storage tank") || hasWord(lt_handler, "aboveground storage") || hasWord(lt_handler, "aboveground tank")) && assetClass !== "tank") {
+    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && (hasWord(lt_handler, "storage tank") || hasWord(lt_handler, "aboveground storage") || hasWord(lt_handler, "aboveground tank")) && assetClass !== "tank") {
       assetClass = "tank";
       assetCorrected = true;
       assetCorrectionReason = "Transcript describes storage tank.";
     }
     // DEPLOY115: Piping lock
-    if (!isHyperbaricLocked && !isStructuralLocked && assetClass !== "piping" && assetClass !== "pipeline" && (hasWord(lt_handler, "pressure vessel") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "heat exchanger") || hasWord(lt_handler, "autoclave")) && assetClass !== "pressure_vessel") {
+    // DEPLOY171.5 v2.6.1: Added correctionGuardOpen guard. This block was the
+    // smoking gun in the nuclear PWR validation scenario — "Pressurized Water
+    // Reactor" matched hasWord("reactor") and silently rewrote nuclear_vessel
+    // to pressure_vessel, bypassing the SUPPORTED_DOMAINS gate.
+    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && assetClass !== "piping" && assetClass !== "pipeline" && (hasWord(lt_handler, "pressure vessel") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "heat exchanger") || hasWord(lt_handler, "autoclave")) && assetClass !== "pressure_vessel") {
       assetClass = "pressure_vessel";
       assetCorrected = true;
       assetCorrectionReason = "Transcript describes pressure equipment. Overriding to pressure_vessel.";
@@ -3076,7 +3190,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.6.0",
+            engine_version: "physics-first-decision-core-v2.6.1",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -3189,7 +3303,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.6.0",
+          engine_version: "physics-first-decision-core-v2.6.1",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
@@ -3199,7 +3313,9 @@ var handler: Handler = async function(event: HandlerEvent) {
             field_interaction: physics.field_interaction,
             physics_summary: physics.physics_summary,
             physics_confidence: physics.physics_confidence,
-            context_inferred: physics.context_inferred || []
+            context_inferred: physics.context_inferred || [],
+            material: physics.material || { class: null, class_confidence: 0, evidence: [] },
+            environment: physics.environment || { phases_present: [], phases_negated: [], atmosphere_class: null }
           },
           damage_reality: {
             validated_mechanisms: damage.validated,
