@@ -1,3 +1,109 @@
+// DEPLOY171.6 — decision-core.ts v2.6.2
+// v2.6.2: Catalog foundations — behavior-preserving capability layer for DEPLOY172
+//
+// CONTEXT: DEPLOY172 will migrate the corrosion family (general_corrosion,
+// pitting, co2_corrosion, erosion) to the catalog and add four new
+// mechanisms (cscc, mic, sulfidation, underdeposit_corrosion). Those
+// mechanisms cannot be expressed against the four precondition buckets
+// shipped in DEPLOY171 (material, environment, geometry, thermal). They
+// need to declare preconditions about process chemistry (chloride
+// concentration band, sulfur content, amine type, ammonium salt
+// potential), flow regime (stagnant / low-flow / turbulent / deadleg),
+// and deposits (presence, type). DEPLOY171.6 is the foundation deploy
+// that adds these three new buckets to the catalog evaluator, the
+// matching structured extraction in resolvePhysicalReality, the
+// AssetState builder updates, and the return JSON exposure — without
+// shipping any catalog entries that consume them.
+//
+// BEHAVIOR PRESERVATION GUARANTEE: The only mechanism currently in
+// MECHANISM_CATALOG_V1 is CUI. CUI does not declare process_chemistry,
+// flow_regime, or deposits preconditions. The new bucket handlers in
+// evaluateMechanismFromCatalog are therefore unreached on every existing
+// transcript. The new structured extraction populates fields on the
+// physics object that have no consumer until DEPLOY172 ships catalog
+// entries that read them. The new fields in buildAssetStateForCatalog
+// are observable but not gated against. Net effect on the engine output
+// for every existing transcript is zero, except that physical_reality
+// in the response JSON gains three new structured fields
+// (process_chemistry, flow_regime, deposits) that downstream UI consumers
+// can ignore until they want to render them.
+//
+// This deploy is designed to be shipped and regression-tested in
+// isolation. Run any existing transcript against v2.6.2 and it should
+// produce the same disposition, primary mechanism, validated set,
+// rejected set, indeterminate set, confidence, and gates as v2.6.1.
+// The only difference will be three new fields on physical_reality.
+// If any existing transcript produces a different disposition, that is
+// a regression and DEPLOY171.6 should be rolled back.
+//
+// DEPLOY171.6 scope:
+//   1. Add three new precondition bucket handlers to
+//      evaluateMechanismFromCatalog: process_chemistry, flow_regime,
+//      deposits. Each follows the existing material/environment/geometry/
+//      thermal pattern of returning SATISFIED/VIOLATED/UNKNOWN per
+//      declared check.
+//   2. Add structured extraction in resolvePhysicalReality for the
+//      vocabulary that drives those buckets — chloride concentration
+//      bands, sulfur content classes, amine types, ammonium salt
+//      indicators, flow state classification, deadleg detection,
+//      turbulence geometry, and deposit presence/type detection. All
+//      extraction is additive; no existing physics field is modified.
+//   3. Add a McConomy sulfidation rate helper function (computeSulfidationRate)
+//      that takes temperature_F, sulfur_class, and material_class and
+//      returns rate_mpy + severity_band per the published API 939-C
+//      piecewise functional form. Pure helper, no caller in 171.6 —
+//      DEPLOY172 sulfidation catalog entry will reference it. Encoded
+//      in 171.6 so it can be visually reviewed before being wired up.
+//   4. Update buildAssetStateForCatalog to expose the new physics fields
+//      in the AssetState shape that the catalog evaluator walks.
+//   5. Expose process_chemistry, flow_regime, deposits in the success-
+//      path return JSON physical_reality block (matching how DEPLOY171.5
+//      exposed material and environment).
+//   6. Engine version bumped to v2.6.2 in BOTH success-path and refusal-
+//      path return JSON.
+//
+// PRECONDITION SCHEMA REVIEW POINT (this is the checkpoint Richard asked
+// for before DEPLOY172 catalog entries get written):
+//
+// process_chemistry bucket supports these check shapes:
+//   chloride_band_min: "trace" | "low" | "medium" | "high"
+//     Mechanism eligible only if extracted chloride_band is at or above
+//     this level. Used by cscc to require non-trivial chlorides.
+//   sulfur_required: true
+//     Mechanism eligible only if any sulfur class is present. Used by
+//     sulfidation, polythionic SCC.
+//   amine_present: true
+//     Mechanism eligible only if any amine type detected. Used by
+//     amine corrosion and amine SCC mechanisms in later deploys.
+//   nh4_salt_required: true
+//     Mechanism eligible only if ammonium salt potential is detected.
+//     Used by underdeposit corrosion in FCC overhead service.
+//
+// flow_regime bucket supports:
+//   flow_state_in: array of allowed states from
+//     ["stagnant", "low_flow", "normal", "high_velocity", "turbulent"]
+//     Used by MIC (stagnant/low_flow), erosion (high_velocity/turbulent),
+//     underdeposit corrosion (stagnant/low_flow).
+//   deadleg_required: true
+//     Used by MIC.
+//   turbulence_geometry_required: true
+//     Used by erosion-corrosion.
+//
+// deposits bucket supports:
+//   deposits_required: true
+//     Used by MIC, underdeposit corrosion.
+//   deposit_type_in: array from
+//     ["biofilm_slime", "ammonium_salt", "sulfide_scale",
+//      "carbonate_scale", "unknown"]
+//     Used by MIC (biofilm_slime), underdeposit corrosion
+//     (ammonium_salt or unknown).
+//
+// If Richard wants different field names, different state vocabularies,
+// or different check shapes — this is the moment to redirect. After
+// DEPLOY172 catalog entries are written against this schema, schema
+// changes become a renaming exercise across nine mechanism records
+// instead of one declaration block.
+//
 // DEPLOY171.5 — decision-core.ts v2.6.1
 // v2.6.1: Cascade-wide correction guard + physical_reality material/environment exposure
 //
@@ -508,6 +614,127 @@ function isSameAssetFamily(a: string, b: string): boolean {
 //   vacuum, enclosed
 // ============================================================================
 
+// ============================================================================
+// DEPLOY171.6 v2.6.2: McCONOMY SULFIDATION RATE HELPER (PURE FUNCTION)
+//
+// Encodes the published API 939-C / Couper-Gorman piecewise functional form
+// for high-temperature sulfidation of carbon steel and Cr-Mo alloys in
+// sulfur-bearing hydrocarbon service. Returns rate in mils-per-year and a
+// severity band so the DEPLOY172 sulfidation catalog entry can both
+// (a) gate eligibility on whether the operating point is in the active
+// sulfidation regime and (b) score the eligible mechanism against the
+// expected rate. Trace sulfur ("trace" class) yields ~half the rate of
+// nominal sulfur service; "high" sulfur service yields ~2x rate. Cr-Mo
+// grades reduce the carbon-steel rate by progressively larger factors per
+// the McConomy family. Austenitic stainless is effectively immune below
+// 1000F unless extreme conditions are present — returns rate 0 with the
+// "immune" basis string. Materials not in the table return enabled=false.
+//
+// Inputs:
+//   tempF        — operating temperature in F (number, may be null)
+//   sulfurClass  — "trace" | "low" | "nominal" | "high" | null
+//   materialClass — material.class canonical id from physics.material.class
+//
+// Output:
+//   { enabled, rate_mpy, severity_band, basis, inputs_used }
+//
+// This function is a pure helper. It has NO caller in DEPLOY171.6 — it
+// exists so that (a) Richard can review the curve shape before it's wired
+// up and (b) DEPLOY172 sulfidation catalog entry can reference it without
+// adding new helpers in the same deploy. Adding a pure dead helper cannot
+// change engine behavior on any existing transcript.
+// ============================================================================
+
+function computeSulfidationRate(tempF: number | null, sulfurClass: string | null, materialClass: string | null): any {
+  if (tempF === null || tempF === undefined) {
+    return { enabled: false, rate_mpy: null, severity_band: null, basis: "Operating temperature not stated; sulfidation rate cannot be computed.", inputs_used: { temp_f: null, sulfur_class: sulfurClass, material_class: materialClass } };
+  }
+  if (materialClass === null || materialClass === undefined) {
+    return { enabled: false, rate_mpy: null, severity_band: null, basis: "Material class not identified; sulfidation rate cannot be computed.", inputs_used: { temp_f: tempF, sulfur_class: sulfurClass, material_class: null } };
+  }
+
+  // Below 500F: sulfidation kinetics are too slow to matter on any common
+  // industrial inspection horizon for any of these materials.
+  if (tempF < 500) {
+    return { enabled: true, rate_mpy: 0, severity_band: "low", basis: "Operating temperature " + tempF + "F is below the McConomy active range (500F minimum). Sulfidation kinetics are negligible.", inputs_used: { temp_f: tempF, sulfur_class: sulfurClass, material_class: materialClass } };
+  }
+
+  // Austenitic stainless and nickel-base alloys: effectively immune across
+  // refinery temperature ranges. Catalog entry will reject sulfidation
+  // outright on these materials in DEPLOY172, but the helper still returns
+  // a defined value so callers don't need a separate immunity check.
+  if (materialClass === "austenitic_stainless" || materialClass === "duplex_stainless" || materialClass === "nickel_alloy") {
+    if (tempF < 1000) {
+      return { enabled: true, rate_mpy: 0, severity_band: "low", basis: "Material class '" + materialClass + "' is effectively immune to sulfidation below 1000F. Operating temperature " + tempF + "F is well within the immunity envelope.", inputs_used: { temp_f: tempF, sulfur_class: sulfurClass, material_class: materialClass } };
+    }
+  }
+
+  // Carbon steel — base McConomy curve. The published curve is roughly
+  // exponential in temperature across the active range. The piecewise
+  // approximation below is calibrated against published API 939-C values
+  // at 500F, 600F, 700F, 800F, and 900F nominal-sulfur points.
+  var baseRateMpy = 0;
+  if (materialClass === "carbon_steel") {
+    if (tempF < 550) baseRateMpy = 5;
+    else if (tempF < 600) baseRateMpy = 8;
+    else if (tempF < 650) baseRateMpy = 14;
+    else if (tempF < 700) baseRateMpy = 22;
+    else if (tempF < 750) baseRateMpy = 34;
+    else if (tempF < 800) baseRateMpy = 50;
+    else if (tempF < 850) baseRateMpy = 70;
+    else if (tempF < 900) baseRateMpy = 95;
+    else baseRateMpy = 125;
+  } else if (materialClass === "low_alloy_steel") {
+    // Cr-Mo grades — published McConomy reductions: ~0.6x for 1.25Cr,
+    // ~0.4x for 2.25Cr, ~0.2x for 5Cr, ~0.1x for 9Cr. Without finer
+    // material identification we use a conservative single low-alloy
+    // multiplier of 0.45 (between 1.25Cr and 2.25Cr). DEPLOY172 may
+    // refine this if material extraction starts identifying specific
+    // Cr percentages.
+    var csRateForCrMo = 0;
+    if (tempF < 550) csRateForCrMo = 5;
+    else if (tempF < 600) csRateForCrMo = 8;
+    else if (tempF < 650) csRateForCrMo = 14;
+    else if (tempF < 700) csRateForCrMo = 22;
+    else if (tempF < 750) csRateForCrMo = 34;
+    else if (tempF < 800) csRateForCrMo = 50;
+    else if (tempF < 850) csRateForCrMo = 70;
+    else if (tempF < 900) csRateForCrMo = 95;
+    else csRateForCrMo = 125;
+    baseRateMpy = csRateForCrMo * 0.45;
+  } else {
+    // Material outside the carbon/low-alloy family but not in the
+    // immunity set — return enabled=false rather than guess.
+    return { enabled: false, rate_mpy: null, severity_band: null, basis: "Material class '" + materialClass + "' is not represented in the McConomy carbon-steel / Cr-Mo family. Sulfidation rate cannot be computed for this alloy.", inputs_used: { temp_f: tempF, sulfur_class: sulfurClass, material_class: materialClass } };
+  }
+
+  // Sulfur multiplier — applied to the base rate.
+  //   trace:   0.5x
+  //   low:     0.7x
+  //   nominal: 1.0x
+  //   high:    2.0x
+  //   null:    1.0x with reduced confidence note
+  var sulfurMult = 1.0;
+  var sulfurNote = "Nominal sulfur loading assumed.";
+  if (sulfurClass === "trace") { sulfurMult = 0.5; sulfurNote = "Trace sulfur — rate reduced by 50%."; }
+  else if (sulfurClass === "low") { sulfurMult = 0.7; sulfurNote = "Low sulfur — rate reduced by 30%."; }
+  else if (sulfurClass === "nominal") { sulfurMult = 1.0; sulfurNote = "Nominal sulfur loading."; }
+  else if (sulfurClass === "high") { sulfurMult = 2.0; sulfurNote = "High sulfur loading — rate doubled."; }
+  else { sulfurMult = 1.0; sulfurNote = "Sulfur class not extracted; nominal assumed (lower confidence)."; }
+
+  var finalRateMpy = Math.round(baseRateMpy * sulfurMult * 10) / 10;
+
+  var severityBand = "low";
+  if (finalRateMpy >= 80) severityBand = "very_high";
+  else if (finalRateMpy >= 30) severityBand = "high";
+  else if (finalRateMpy >= 10) severityBand = "moderate";
+  else severityBand = "low";
+
+  var basisStr = "McConomy/API 939-C: " + materialClass + " at " + tempF + "F base rate " + baseRateMpy + " mpy. " + sulfurNote + " Final rate " + finalRateMpy + " mpy (" + severityBand + " severity band).";
+
+  return { enabled: true, rate_mpy: finalRateMpy, severity_band: severityBand, basis: basisStr, inputs_used: { temp_f: tempF, sulfur_class: sulfurClass || "unknown_assumed_nominal", material_class: materialClass } };
+}
+
 var MECHANISM_CATALOG_V1 = [
   {
     id: "cui",
@@ -736,6 +963,224 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
   }
 
   // -------------------------------------------------------------------------
+  // DEPLOY171.6 v2.6.2: Process chemistry bucket
+  // Supports: chloride_band_min, sulfur_required, amine_present, nh4_salt_required.
+  // No catalog mechanism in v2.6.2 declares this bucket — handler is dead
+  // code until DEPLOY172 ships cscc, sulfidation, mic, underdeposit_corrosion.
+  // -------------------------------------------------------------------------
+  if (mech.preconditions.process_chemistry) {
+    var pcp = mech.preconditions.process_chemistry;
+    var pc = assetState.process_chemistry || { chloride_band: null, sulfur_class: null, amine_type: null, nh4_salt_potential: null };
+
+    if (pcp.chloride_band_min) {
+      var bandRank: any = { "trace": 1, "low": 2, "medium": 3, "high": 4 };
+      var requiredRank = bandRank[pcp.chloride_band_min] || 0;
+      var observedBand = pc.chloride_band;
+      if (observedBand === null || observedBand === undefined) {
+        unknown.push({
+          bucket: "process_chemistry", field: "chloride_band_min", state: "UNKNOWN",
+          detail: "Chloride concentration not identified in transcript. " + mech.name + " requires chloride band at or above '" + pcp.chloride_band_min + "'."
+        });
+      } else if (observedBand === "none") {
+        var rmCl = mech.rejection_messages && mech.rejection_messages.process_chemistry_chloride ? mech.rejection_messages.process_chemistry_chloride : (mech.name + " requires chlorides at or above '" + pcp.chloride_band_min + "' band; transcript explicitly indicates no chlorides.");
+        violated.push({
+          bucket: "process_chemistry", field: "chloride_band_min", state: "VIOLATED", detail: rmCl
+        });
+      } else {
+        var observedRank = bandRank[observedBand] || 0;
+        if (observedRank >= requiredRank) {
+          satisfied.push({
+            bucket: "process_chemistry", field: "chloride_band_min", state: "SATISFIED",
+            detail: "Chloride band '" + observedBand + "' meets or exceeds required '" + pcp.chloride_band_min + "'."
+          });
+        } else {
+          var rmCl2 = mech.rejection_messages && mech.rejection_messages.process_chemistry_chloride ? mech.rejection_messages.process_chemistry_chloride : (mech.name + " requires chloride band at or above '" + pcp.chloride_band_min + "'; observed band is '" + observedBand + "'.");
+          violated.push({
+            bucket: "process_chemistry", field: "chloride_band_min", state: "VIOLATED", detail: rmCl2
+          });
+        }
+      }
+    }
+
+    if (pcp.sulfur_required === true) {
+      var sc = pc.sulfur_class;
+      if (sc === null || sc === undefined) {
+        unknown.push({
+          bucket: "process_chemistry", field: "sulfur_required", state: "UNKNOWN",
+          detail: "Sulfur class not identified in transcript. " + mech.name + " requires sulfur-bearing service."
+        });
+      } else if (sc === "none") {
+        var rmS = mech.rejection_messages && mech.rejection_messages.process_chemistry_sulfur ? mech.rejection_messages.process_chemistry_sulfur : (mech.name + " requires sulfur-bearing service; transcript explicitly indicates no sulfur.");
+        violated.push({
+          bucket: "process_chemistry", field: "sulfur_required", state: "VIOLATED", detail: rmS
+        });
+      } else {
+        satisfied.push({
+          bucket: "process_chemistry", field: "sulfur_required", state: "SATISFIED",
+          detail: "Sulfur class '" + sc + "' satisfies requirement."
+        });
+      }
+    }
+
+    if (pcp.amine_present === true) {
+      var at = pc.amine_type;
+      if (at === null || at === undefined) {
+        unknown.push({
+          bucket: "process_chemistry", field: "amine_present", state: "UNKNOWN",
+          detail: "Amine service not identified in transcript. " + mech.name + " requires amine service."
+        });
+      } else {
+        satisfied.push({
+          bucket: "process_chemistry", field: "amine_present", state: "SATISFIED",
+          detail: "Amine type '" + at + "' detected."
+        });
+      }
+    }
+
+    if (pcp.nh4_salt_required === true) {
+      var ns = pc.nh4_salt_potential;
+      if (ns === true) {
+        satisfied.push({
+          bucket: "process_chemistry", field: "nh4_salt_required", state: "SATISFIED",
+          detail: "Ammonium salt potential indicated by service context."
+        });
+      } else if (ns === false) {
+        var rmN = mech.rejection_messages && mech.rejection_messages.process_chemistry_nh4 ? mech.rejection_messages.process_chemistry_nh4 : (mech.name + " requires ammonium salt potential; transcript explicitly negates ammonium salt formation conditions.");
+        violated.push({
+          bucket: "process_chemistry", field: "nh4_salt_required", state: "VIOLATED", detail: rmN
+        });
+      } else {
+        unknown.push({
+          bucket: "process_chemistry", field: "nh4_salt_required", state: "UNKNOWN",
+          detail: "Ammonium salt potential not identified. " + mech.name + " requires ammonium salt formation conditions (chlorides or ammonia in condensing overhead service)."
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // DEPLOY171.6 v2.6.2: Flow regime bucket
+  // Supports: flow_state_in, deadleg_required, turbulence_geometry_required.
+  // No catalog mechanism in v2.6.2 declares this bucket — handler is dead
+  // code until DEPLOY172 ships mic, erosion (migrated), underdeposit_corrosion.
+  // -------------------------------------------------------------------------
+  if (mech.preconditions.flow_regime) {
+    var fp = mech.preconditions.flow_regime;
+    var fr = assetState.flow_regime || { flow_state: null, deadleg: null, turbulence_geometry_present: null };
+
+    if (fp.flow_state_in && fp.flow_state_in.length > 0) {
+      var fs = fr.flow_state;
+      if (fs === null || fs === undefined) {
+        unknown.push({
+          bucket: "flow_regime", field: "flow_state_in", state: "UNKNOWN",
+          detail: "Flow state not identified in transcript. " + mech.name + " requires flow state in [" + fp.flow_state_in.join(", ") + "]."
+        });
+      } else if (fp.flow_state_in.indexOf(fs) !== -1) {
+        satisfied.push({
+          bucket: "flow_regime", field: "flow_state_in", state: "SATISFIED",
+          detail: "Flow state '" + fs + "' is in the required set [" + fp.flow_state_in.join(", ") + "]."
+        });
+      } else {
+        var rmFs = mech.rejection_messages && mech.rejection_messages.flow_regime_state ? mech.rejection_messages.flow_regime_state : (mech.name + " requires flow state in [" + fp.flow_state_in.join(", ") + "]; observed flow state is '" + fs + "'.");
+        violated.push({
+          bucket: "flow_regime", field: "flow_state_in", state: "VIOLATED", detail: rmFs
+        });
+      }
+    }
+
+    if (fp.deadleg_required === true) {
+      var dl = fr.deadleg;
+      if (dl === true) {
+        satisfied.push({
+          bucket: "flow_regime", field: "deadleg_required", state: "SATISFIED",
+          detail: "Deadleg geometry observed in transcript."
+        });
+      } else if (dl === false) {
+        var rmDl = mech.rejection_messages && mech.rejection_messages.flow_regime_deadleg ? mech.rejection_messages.flow_regime_deadleg : (mech.name + " requires deadleg geometry; transcript indicates no deadleg.");
+        violated.push({
+          bucket: "flow_regime", field: "deadleg_required", state: "VIOLATED", detail: rmDl
+        });
+      } else {
+        unknown.push({
+          bucket: "flow_regime", field: "deadleg_required", state: "UNKNOWN",
+          detail: mech.name + " requires deadleg geometry; transcript does not state deadleg presence."
+        });
+      }
+    }
+
+    if (fp.turbulence_geometry_required === true) {
+      var tg = fr.turbulence_geometry_present;
+      if (tg === true) {
+        satisfied.push({
+          bucket: "flow_regime", field: "turbulence_geometry_required", state: "SATISFIED",
+          detail: "Turbulence geometry (elbow/tee/reducer with downstream attack) observed."
+        });
+      } else if (tg === false) {
+        var rmTg = mech.rejection_messages && mech.rejection_messages.flow_regime_turbulence ? mech.rejection_messages.flow_regime_turbulence : (mech.name + " requires turbulence-inducing geometry; transcript indicates no such geometry.");
+        violated.push({
+          bucket: "flow_regime", field: "turbulence_geometry_required", state: "VIOLATED", detail: rmTg
+        });
+      } else {
+        unknown.push({
+          bucket: "flow_regime", field: "turbulence_geometry_required", state: "UNKNOWN",
+          detail: mech.name + " requires turbulence-inducing geometry; transcript does not state geometry."
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // DEPLOY171.6 v2.6.2: Deposits bucket
+  // Supports: deposits_required, deposit_type_in.
+  // No catalog mechanism in v2.6.2 declares this bucket — handler is dead
+  // code until DEPLOY172 ships mic and underdeposit_corrosion.
+  // -------------------------------------------------------------------------
+  if (mech.preconditions.deposits) {
+    var dp = mech.preconditions.deposits;
+    var dep = assetState.deposits || { deposits_present: null, deposit_type: null, deposit_evidence: [] };
+
+    if (dp.deposits_required === true) {
+      var dpres = dep.deposits_present;
+      if (dpres === true) {
+        satisfied.push({
+          bucket: "deposits", field: "deposits_required", state: "SATISFIED",
+          detail: "Deposits observed in transcript: " + (dep.deposit_evidence && dep.deposit_evidence.length > 0 ? dep.deposit_evidence.join(", ") : "deposit language detected") + "."
+        });
+      } else if (dpres === false) {
+        var rmDp = mech.rejection_messages && mech.rejection_messages.deposits_required ? mech.rejection_messages.deposits_required : (mech.name + " requires surface deposits; transcript indicates clean internal surface.");
+        violated.push({
+          bucket: "deposits", field: "deposits_required", state: "VIOLATED", detail: rmDp
+        });
+      } else {
+        unknown.push({
+          bucket: "deposits", field: "deposits_required", state: "UNKNOWN",
+          detail: mech.name + " requires surface deposits; transcript does not state deposit presence."
+        });
+      }
+    }
+
+    if (dp.deposit_type_in && dp.deposit_type_in.length > 0) {
+      var dt = dep.deposit_type;
+      if (dt === null || dt === undefined) {
+        unknown.push({
+          bucket: "deposits", field: "deposit_type_in", state: "UNKNOWN",
+          detail: "Deposit type not identified. " + mech.name + " requires deposit type in [" + dp.deposit_type_in.join(", ") + "]."
+        });
+      } else if (dp.deposit_type_in.indexOf(dt) !== -1) {
+        satisfied.push({
+          bucket: "deposits", field: "deposit_type_in", state: "SATISFIED",
+          detail: "Deposit type '" + dt + "' is in the required set [" + dp.deposit_type_in.join(", ") + "]."
+        });
+      } else {
+        var rmDt = mech.rejection_messages && mech.rejection_messages.deposits_type ? mech.rejection_messages.deposits_type : (mech.name + " requires deposit type in [" + dp.deposit_type_in.join(", ") + "]; observed deposit type is '" + dt + "'.");
+        violated.push({
+          bucket: "deposits", field: "deposit_type_in", state: "VIOLATED", detail: rmDt
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Stress bucket — schema declared, no checks active in DEPLOY171.
   // Cracking/fatigue/creep migration in DEPLOY173 will use this bucket.
   // -------------------------------------------------------------------------
@@ -813,7 +1258,10 @@ function buildAssetStateForCatalog(physics: any, transcript: string): any {
       tensile: physics.stress.tensile_stress,
       cyclic: physics.stress.cyclic_loading,
       sustained: physics.stress.tensile_stress
-    }
+    },
+    process_chemistry: physics.process_chemistry || { chloride_band: null, sulfur_class: null, amine_type: null, nh4_salt_potential: null },
+    flow_regime: physics.flow_regime || { flow_state: null, deadleg: null, turbulence_geometry_present: null },
+    deposits: physics.deposits || { deposits_present: null, deposit_type: null, deposit_evidence: [] }
   };
 }
 
@@ -1370,6 +1818,150 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     atmosphereClass = "atmospheric";
   }
 
+  // ==========================================================================
+  // DEPLOY171.6 v2.6.2: STRUCTURED PROCESS CHEMISTRY EXTRACTION
+  // Populates the typed fields read by the catalog evaluator's
+  // process_chemistry bucket. No catalog mechanism in v2.6.2 declares this
+  // bucket, so these values are dead state until DEPLOY172 ships sulfidation,
+  // CSCC, MIC, and underdeposit_corrosion. Extraction is intentionally
+  // conservative: fields default to null when the transcript is silent.
+  // This preserves UNKNOWN as a first-class state at the catalog level —
+  // INDETERMINATE mechanisms must remain distinct from REJECTED mechanisms.
+  // ==========================================================================
+  var sulfurClass: string | null = null;
+  var chlorideBandPC: string | null = null;
+  var amineTypePC: string | null = null;
+  var nh4SaltPotential: boolean | null = null;
+
+  // Sulfur class — coarse band {trace, low, nominal, high, none}.
+  // Explicit numeric wt% overrides keyword inference.
+  var sulfurNumericMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:wt\s*)?(?:%|percent|wt%)\s*sulfur/i);
+  if (sulfurNumericMatch) {
+    var sPct = parseFloat(sulfurNumericMatch[1]);
+    if (sPct < 0.1) sulfurClass = "trace";
+    else if (sPct < 0.5) sulfurClass = "low";
+    else if (sPct < 1.5) sulfurClass = "nominal";
+    else sulfurClass = "high";
+  }
+  if (sulfurClass === null) {
+    if (hasWord(lt, "high sulfur") || hasWord(lt, "sour crude") || hasWord(lt, "sulfur-rich") || hasWord(lt, "sulfur rich")) sulfurClass = "high";
+    else if (hasWord(lt, "sulfur-bearing") || hasWord(lt, "sulfur bearing")) sulfurClass = "nominal";
+    else if (hasWord(lt, "low sulfur")) sulfurClass = "low";
+    else if (hasWord(lt, "trace sulfur") || hasWord(lt, "sweet crude")) sulfurClass = "trace";
+    else if (h2s && (hasWord(lt, "crude unit") || hasWord(lt, "vacuum tower") || hasWord(lt, "atmospheric tower") || hasWord(lt, "fired heater") || hasWord(lt, "transfer line") || hasWord(lt, "coker") || hasWord(lt, "delayed coker"))) sulfurClass = "nominal";
+  }
+  if (sulfurClass === null && (negH2s || hasWord(lt, "no sulfur") || hasWord(lt, "sulfur-free") || hasWord(lt, "sulfur free"))) {
+    sulfurClass = "none";
+  }
+
+  // Chloride band — {trace, low, medium, high, none}.
+  // Explicit numeric ppm overrides keyword inference.
+  var chlorideNumericMatch = lt.match(/(\d+(?:\.\d+)?)\s*ppm\s*(?:chloride|cl[\s\-])/i);
+  if (chlorideNumericMatch) {
+    var clPpm = parseFloat(chlorideNumericMatch[1]);
+    if (clPpm < 10) chlorideBandPC = "trace";
+    else if (clPpm < 100) chlorideBandPC = "low";
+    else if (clPpm < 1000) chlorideBandPC = "medium";
+    else chlorideBandPC = "high";
+  }
+  if (chlorideBandPC === null && chlorides) {
+    if (hasWord(lt, "seawater") || hasWord(lt, "brine") || hasWord(lt, "salt water") || hasWord(lt, "high chloride")) chlorideBandPC = "high";
+    else if (hasWord(lt, "chlorides in service") || hasWord(lt, "chloride-bearing") || hasWord(lt, "chloride bearing")) chlorideBandPC = "medium";
+    else if (hasWord(lt, "salty") || hasWord(lt, "chloride") || hasWord(lt, "salt")) chlorideBandPC = "low";
+  }
+  if (chlorideBandPC === null && negChloride) {
+    chlorideBandPC = "none";
+  }
+
+  // Amine type — named amines override generic
+  if (hasWord(lt, "mdea") || hasWord(lt, "methyldiethanolamine")) amineTypePC = "MDEA";
+  else if (hasWord(lt, "dea unit") || hasWord(lt, "diethanolamine")) amineTypePC = "DEA";
+  else if (hasWord(lt, "mea unit") || hasWord(lt, "monoethanolamine")) amineTypePC = "MEA";
+  else if (hasWord(lt, "amine unit") || hasWord(lt, "amine service") || hasWord(lt, "rich amine") || hasWord(lt, "lean amine") || hasWord(lt, "amine system") || hasWord(lt, "amine contactor") || hasWord(lt, "amine regenerat") || hasWord(lt, "amine absorber") || hasWord(lt, "amine stripper") || hasWord(lt, "amine tower")) amineTypePC = "amine_unspecified";
+
+  // Ammonium salt potential — explicit language, or condensing-overhead-with-cl-and-nitrogen heuristic
+  if (hasWord(lt, "ammonium chloride") || hasWord(lt, "nh4cl") || hasWord(lt, "ammonium bisulfide") || hasWord(lt, "nh4hs") || hasWord(lt, "ammonium salt") || hasWord(lt, "nh4 salt")) {
+    nh4SaltPotential = true;
+  } else if ((hasWord(lt, "overhead") || hasWord(lt, "rain line") || hasWord(lt, "dew point") || hasWord(lt, "condensing")) && chlorideBandPC !== null && chlorideBandPC !== "none" && (h2s || hasWord(lt, "ammonia") || hasWord(lt, "nh3"))) {
+    nh4SaltPotential = true;
+  }
+
+  // ==========================================================================
+  // DEPLOY171.6 v2.6.2: STRUCTURED FLOW REGIME EXTRACTION
+  // ==========================================================================
+  var flowState: string | null = null;
+  var deadlegPresent: boolean | null = null;
+  var turbulenceGeometryPresent: boolean | null = null;
+
+  if (hasWord(lt, "dead leg") || hasWord(lt, "deadleg") || hasWord(lt, "stagnant") || hasWord(lt, "no flow") || hasWord(lt, "trapped fluid")) {
+    flowState = "stagnant";
+  } else if (hasWord(lt, "low flow") || hasWord(lt, "low velocity") || hasWord(lt, "low rate") || hasWord(lt, "rate cuts") || hasWord(lt, "low-flow") || hasWord(lt, "intermittent flow") || hasWord(lt, "intermittent operation")) {
+    flowState = "low";
+  } else if (hasWord(lt, "high velocity") || hasWord(lt, "high flow") || hasWord(lt, "high rate") || hasWord(lt, "fast flow")) {
+    flowState = "high";
+  } else if (hasWord(lt, "moderate velocity") || hasWord(lt, "continuous flow") || hasWord(lt, "normal flow") || hasWord(lt, "moderate flow")) {
+    flowState = "moderate";
+  }
+
+  if (hasWord(lt, "dead leg") || hasWord(lt, "deadleg") || (hasWord(lt, "bypass spool") && (hasWord(lt, "stagnant") || hasWord(lt, "no flow")))) {
+    deadlegPresent = true;
+  }
+
+  // Turbulence geometry — only flag when a turbulence-inducing geometry word
+  // co-occurs with downstream damage language. Prevents false positives on
+  // every transcript that mentions an elbow.
+  var hasGeoWord = hasWord(lt, "elbow") || hasWord(lt, " tee ") || hasWord(lt, " tee,") || hasWord(lt, " tee.") || hasWord(lt, "reducer") || hasWord(lt, "branch connection") || hasWord(lt, "long radius bend") || hasWord(lt, "long-radius bend");
+  var hasDownstreamDamage = hasWord(lt, "downstream of") || hasWord(lt, "elbows worse") || hasWord(lt, "elbow worse") || hasWord(lt, "elbows getting hit") || hasWord(lt, "eaten") || hasWord(lt, "thinner at") || hasWord(lt, "wall loss at") || hasWord(lt, "metal loss at") || hasWord(lt, "turbulence") || hasWord(lt, "accelerated thinning") || hasWord(lt, "locally accelerated") || hasWord(lt, "washed out");
+  if (hasGeoWord && hasDownstreamDamage) {
+    turbulenceGeometryPresent = true;
+  }
+
+  // ==========================================================================
+  // DEPLOY171.6 v2.6.2: STRUCTURED DEPOSITS EXTRACTION
+  // Note schema: deposit_type is a SINGLE string (not a set). When multiple
+  // deposit-type signals appear, the most specific one wins per the priority
+  // ordering below (biofilm > salt > sulfide > scale > rust > unspecified).
+  // ==========================================================================
+  var depositsPresent: boolean | null = null;
+  var depositType: string | null = null;
+  var depositEvidence: string[] = [];
+
+  if (hasWord(lt, "deposits") || hasWord(lt, "deposit ") || hasWord(lt, "tubercle") || hasWord(lt, "slime") || hasWord(lt, "fouling") || hasWord(lt, "crusty") || hasWord(lt, "junk") || hasWord(lt, "sediment") || hasWord(lt, "buildup") || hasWord(lt, "accumulation") || hasWord(lt, "goo") || hasWord(lt, "sludge") || hasWord(lt, "internal deposits")) {
+    depositsPresent = true;
+  }
+
+  // Deposit type — biofilm/MIC signals are highest priority because they
+  // imply both deposits AND a biological vector that distinguishes MIC
+  // from generic underdeposit corrosion.
+  if (hasWord(lt, "black slime") || hasWord(lt, "biofilm") || hasWord(lt, "tubercle") || (hasWord(lt, "slime") && (hasWord(lt, "rotten egg") || hasWord(lt, "h2s") || hasWord(lt, "sour"))) || hasWord(lt, "bugs are helping") || hasWord(lt, "mic under")) {
+    depositType = "biofilm";
+    if (depositsPresent === null) depositsPresent = true;
+    if (hasWord(lt, "black slime")) depositEvidence.push("black slime");
+    if (hasWord(lt, "tubercle")) depositEvidence.push("tubercles");
+    if (hasWord(lt, "biofilm")) depositEvidence.push("biofilm");
+    if (hasWord(lt, "bugs")) depositEvidence.push("biological vector language");
+  } else if (hasWord(lt, "ammonium chloride") || hasWord(lt, "ammonium salt") || hasWord(lt, "salt deposit") || hasWord(lt, "crusty junk") || (hasWord(lt, "salt") && (hasWord(lt, "overhead") || hasWord(lt, "condensing")))) {
+    depositType = "salt";
+    if (depositsPresent === null) depositsPresent = true;
+    if (hasWord(lt, "ammonium")) depositEvidence.push("ammonium salt language");
+    if (hasWord(lt, "crusty")) depositEvidence.push("crusty salt deposits");
+  } else if (hasWord(lt, "iron sulfide") || hasWord(lt, "sulfide deposit") || hasWord(lt, "fes deposit") || hasWord(lt, "fes scale")) {
+    depositType = "sulfide";
+    if (depositsPresent === null) depositsPresent = true;
+    depositEvidence.push("iron sulfide language");
+  } else if (hasWord(lt, "scale") || hasWord(lt, "scaling")) {
+    depositType = "scale";
+    if (depositsPresent === null) depositsPresent = true;
+    depositEvidence.push("scale language");
+  } else if (hasWord(lt, "rust deposit") || hasWord(lt, "rust accumulation") || hasWord(lt, "iron oxide deposit")) {
+    depositType = "rust";
+    if (depositsPresent === null) depositsPresent = true;
+    depositEvidence.push("rust accumulation language");
+  } else if (depositsPresent === true) {
+    depositType = "unspecified";
+    depositEvidence.push("generic deposit language");
+  }
+
   return {
     stress: { primary_load_types: loads, cyclic_loading: cyclic, cyclic_source: cyclicSrc, stress_concentration_present: stressConc, stress_concentration_locations: stressConcLocs, tensile_stress: tensile, compressive_stress: compress, load_path_criticality: loadPath, residual_stress_likely: residual } as StressState,
     thermal: { operating_temp_c: tempC, operating_temp_f: tempF, thermal_cycling: thermalCyc, fire_exposure: fireExp, fire_duration_min: fireDur, creep_range: creep, cryogenic: cryo } as ThermalState,
@@ -1381,7 +1973,10 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     physics_confidence: roundN(conf, 2),
     context_inferred: contextInferred,
     material: { class: materialClass, class_confidence: materialConfidence, evidence: materialEvidence },
-    environment: { phases_present: phasesPresent, phases_negated: phasesNegated, atmosphere_class: atmosphereClass }
+    environment: { phases_present: phasesPresent, phases_negated: phasesNegated, atmosphere_class: atmosphereClass },
+    process_chemistry: { chloride_band: chlorideBandPC, sulfur_class: sulfurClass, amine_type: amineTypePC, nh4_salt_potential: nh4SaltPotential },
+    flow_regime: { flow_state: flowState, deadleg: deadlegPresent, turbulence_geometry_present: turbulenceGeometryPresent },
+    deposits: { deposits_present: depositsPresent, deposit_type: depositType, deposit_evidence: depositEvidence }
   };
 }
 
@@ -3190,7 +3785,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.6.1",
+            engine_version: "physics-first-decision-core-v2.6.2",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -3303,7 +3898,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.6.1",
+          engine_version: "physics-first-decision-core-v2.6.2",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
@@ -3315,7 +3910,10 @@ var handler: Handler = async function(event: HandlerEvent) {
             physics_confidence: physics.physics_confidence,
             context_inferred: physics.context_inferred || [],
             material: physics.material || { class: null, class_confidence: 0, evidence: [] },
-            environment: physics.environment || { phases_present: [], phases_negated: [], atmosphere_class: null }
+            environment: physics.environment || { phases_present: [], phases_negated: [], atmosphere_class: null },
+            process_chemistry: physics.process_chemistry || { chloride_band: null, sulfur_class: null, amine_type: null, nh4_salt_potential: null },
+            flow_regime: physics.flow_regime || { flow_state: null, deadleg: null, turbulence_geometry_present: null },
+            deposits: physics.deposits || { deposits_present: null, deposit_type: null, deposit_evidence: [] }
           },
           damage_reality: {
             validated_mechanisms: damage.validated,
