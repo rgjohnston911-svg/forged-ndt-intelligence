@@ -1,3 +1,70 @@
+// DEPLOY171 — decision-core.ts v2.6.0
+// v2.6.0: Mechanism catalog phase 1 — CUI migration to data-driven preconditions
+// This is the first concrete step in the long-running mechanism upgrade. The
+// goal is to replace opaque MECH_DEFS predicates with a typed, data-driven
+// catalog where every mechanism declares its preconditions in named buckets
+// (material, environment, geometry, thermal, stress) and the evaluator walks
+// each precondition against a typed AssetState. Motivating bug: in v2.5.5,
+// CUI was defined as
+//   pre: function(s, t) { return t.operating_temp_f >= 0 && <= 350; }
+//   preLabels: ["Temperature in CUI range (0-350F)", "Insulated equipment"]
+// The label asserted two preconditions; the predicate enforced one. CUI
+// would silently fire on CMC thermal tiles in hard vacuum, on uninsulated
+// piping, and on materials physically incapable of corroding by the CUI
+// mechanism. The new shape forces preconditions to be declared as data and
+// walked by a generic evaluator that returns one of three states per
+// precondition: SATISFIED, VIOLATED, or UNKNOWN. The third state is the
+// upgrade — today's engine collapses UNKNOWN into FALSE and overcommits.
+// Under the new shape, INDETERMINATE mechanisms are surfaced in a new
+// damage_reality.indeterminate_mechanisms array so the engine can honestly
+// say "I cannot confirm or rule out CUI on this asset because the inspector
+// did not state material, insulation status, or temperature."
+//
+// DEPLOY171 scope (this deploy):
+//   1. Add the schema, AssetState builder, and generic evaluator function.
+//   2. Add structured material extraction (physics.material.class) inside
+//      resolvePhysicalReality. New field on the physics object. All existing
+//      physics consumers continue reading physics.chemical.* unchanged.
+//      Pure addition.
+//   3. Add structured phase / atmosphere extraction
+//      (physics.environment.phases_present, physics.environment.atmosphere_class).
+//      Same pattern: new field, no removals.
+//   4. Migrate exactly ONE mechanism — CUI — from MECH_DEFS predicate path
+//      to the catalog evaluator path inside resolveDamageReality. All other
+//      mechanisms continue to use MECH_DEFS unchanged.
+//   5. Surface INDETERMINATE catalog evaluations in
+//      damage_reality.indeterminate_mechanisms. INDETERMINATE mechanisms do
+//      NOT fire as validated and do NOT affect disposition logic in this
+//      deploy — they are observational so the schema can be validated against
+//      real transcripts before more mechanisms migrate.
+//   6. Engine version bumped to v2.6.0 in both success-path and refusal-path
+//      return JSON.
+//
+// What CUI does under the new path:
+//   - Spacecraft CMC tile in vacuum: REJECTED with three independent reasons
+//     (material class violated, environment phase violated, geometry violated).
+//   - Hot insulated 600F amine line: REJECTED — temperature window violated;
+//     metal stays dry above 350F. (Today this fires CUI incorrectly.)
+//   - Carbon steel piping at 200F, sweating reported, insulation present:
+//     ELIGIBLE — all preconditions satisfied. Scored against observation
+//     evidence as before.
+//   - Carbon steel piping at 200F, no insulation status stated:
+//     INDETERMINATE — geometry.insulation_present is null. Surfaced for
+//     manual review rather than silently firing.
+//
+// Future deploys in this track:
+//   DEPLOY172: Migrate remaining corrosion family (general, pitting, CO2,
+//     erosion) and add the new mechanisms the schema enables: CSCC on
+//     austenitic stainless under chloride+stress, MIC, sulfidation per
+//     McConomy curves, naphthenic acid corrosion, polythionic acid SCC on
+//     sensitized stainless, rouging on 316L electropolished service.
+//   DEPLOY173: Migrate cracking, fatigue, creep, brittle fracture, fire
+//     damage, hydrogen damage. Delete MECH_DEFS entirely. Catalog becomes
+//     the only damage mechanism source.
+//   DEPLOY174+: Extract catalog into shared module consumed by both
+//     decision-core.ts and the standalone failure-mode-dominance.js engine
+//     (requires the standalone FMD engine source).
+//
 // DEPLOY170 — decision-core.ts v2.5.5
 // v2.5.5: Supported domain gate + field-language override guard
 // DEPLOY170 FIX 1: The FIELD LANGUAGE PIPING OVERRIDE block (v2.3) had no
@@ -324,6 +391,342 @@ function isSameAssetFamily(a: string, b: string): boolean {
     if (fam.indexOf(a) !== -1 && fam.indexOf(b) !== -1) return true;
   }
   return false;
+}
+
+// ============================================================================
+// DEPLOY171 v2.6.0: MECHANISM CATALOG (PHASE 1 — CUI MIGRATION)
+//
+// See header comment block at top of file for the full migration plan.
+//
+// Schema: every mechanism declares preconditions in named buckets. The
+// evaluator walks each declared precondition against an AssetState and
+// returns one of three states per precondition: SATISFIED, VIOLATED, or
+// UNKNOWN. The mechanism overall status is:
+//   ELIGIBLE       — all declared preconditions SATISFIED
+//   REJECTED       — at least one VIOLATED
+//   INDETERMINATE  — no VIOLATED but at least one UNKNOWN
+//
+// Material class canonical IDs:
+//   carbon_steel, low_alloy_steel, austenitic_stainless, duplex_stainless,
+//   ferritic_stainless, martensitic_stainless, nickel_alloy, titanium_alloy,
+//   aluminum_alloy, copper_alloy, cmc, ceramic, polymer, concrete
+//
+// Environment phase canonical IDs:
+//   liquid_water, water_vapor_condensable, hydrocarbon_liquid,
+//   hydrocarbon_vapor, steam, vacuum, dry_inert_gas, ambient_air
+//
+// Atmosphere class canonical IDs:
+//   insulated, fireproofed, jacketed, buried, submerged, atmospheric,
+//   vacuum, enclosed
+// ============================================================================
+
+var MECHANISM_CATALOG_V1 = [
+  {
+    id: "cui",
+    name: "Corrosion Under Insulation",
+    family: "corrosion",
+    severity: "medium",
+    description: "External corrosion of insulated carbon steel or low-alloy steel driven by water ingress through insulation, jacketing, or fireproofing in the temperature window where liquid water can persist at the metal surface.",
+    preconditions: {
+      material: {
+        class_in: ["carbon_steel", "low_alloy_steel"],
+        class_not_in: ["cmc", "ceramic", "polymer", "titanium_alloy", "aluminum_alloy", "concrete", "nickel_alloy"]
+      },
+      environment: {
+        phase_must_include: ["liquid_water", "water_vapor_condensable"],
+        phase_must_exclude: ["vacuum", "dry_inert_gas"]
+      },
+      geometry: {
+        insulation_present: true
+      },
+      thermal: {
+        operating_temp_f_window: [0, 350]
+      }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed", "wet_insulation_observed"],
+    rejection_messages: {
+      material: "CUI requires a CUI-susceptible metallic substrate (carbon steel or low-alloy steel). Non-corroding materials (CMC, ceramic, polymer) and corrosion-resistant alloys (titanium, aluminum, nickel-base) cannot corrode by the CUI mechanism. Austenitic stainless under insulation should be evaluated for chloride ESCC, not CUI.",
+      environment_phase: "CUI requires liquid water or condensable water vapor at the metal surface. In hard vacuum or dry inert gas atmospheres, the precondition is physically impossible — there is no water to drive the corrosion reaction.",
+      geometry: "CUI by definition requires insulation. Without insulation present, the asset may corrode by atmospheric corrosion or another mechanism, but it cannot corrode by the CUI mechanism specifically.",
+      thermal: "CUI is most active in the temperature window where liquid water can persist at the metal surface beneath insulation. Below 0F water freezes and corrosion stops; above 350F water evaporates faster than it can pool, and the metal surface stays dry."
+    }
+  }
+];
+
+// Mechanisms migrated to the catalog evaluator path. All other mechanisms
+// continue to use the MECH_DEFS predicate path. This list will grow as
+// DEPLOY172 and DEPLOY173 ship.
+var MIGRATED_TO_CATALOG = ["cui"];
+
+function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
+  var satisfied: any[] = [];
+  var violated: any[] = [];
+  var unknown: any[] = [];
+
+  // -------------------------------------------------------------------------
+  // Material bucket
+  // -------------------------------------------------------------------------
+  if (mech.preconditions.material) {
+    var mp = mech.preconditions.material;
+    var matClass = assetState.material.class;
+
+    if (mp.class_in && mp.class_in.length > 0) {
+      if (matClass === null || matClass === undefined) {
+        unknown.push({
+          bucket: "material", field: "class_in", state: "UNKNOWN",
+          detail: "Material class not identified in transcript. " + mech.name + " requires material in [" + mp.class_in.join(", ") + "]. Cannot confirm or rule out without explicit material identification."
+        });
+      } else if (mp.class_in.indexOf(matClass) !== -1) {
+        satisfied.push({
+          bucket: "material", field: "class_in", state: "SATISFIED",
+          detail: "Material class '" + matClass + "' is in the susceptible set [" + mp.class_in.join(", ") + "]."
+        });
+      } else {
+        var rmMat = mech.rejection_messages.material || (mech.name + " requires material in [" + mp.class_in.join(", ") + "]; observed material class is '" + matClass + "'.");
+        violated.push({
+          bucket: "material", field: "class_in", state: "VIOLATED", detail: rmMat
+        });
+      }
+    }
+
+    if (mp.class_not_in && mp.class_not_in.length > 0) {
+      if (matClass === null || matClass === undefined) {
+        unknown.push({
+          bucket: "material", field: "class_not_in", state: "UNKNOWN",
+          detail: "Material class not identified; cannot confirm material is not in the forbidden set [" + mp.class_not_in.join(", ") + "]."
+        });
+      } else if (mp.class_not_in.indexOf(matClass) !== -1) {
+        var rmMat2 = mech.rejection_messages.material || (mech.name + " cannot occur on material class '" + matClass + "'.");
+        violated.push({
+          bucket: "material", field: "class_not_in", state: "VIOLATED", detail: rmMat2
+        });
+      } else {
+        satisfied.push({
+          bucket: "material", field: "class_not_in", state: "SATISFIED",
+          detail: "Material class '" + matClass + "' is not in the forbidden set."
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Environment bucket
+  // -------------------------------------------------------------------------
+  if (mech.preconditions.environment) {
+    var ep = mech.preconditions.environment;
+    var phasesPresent = assetState.environment.phases_present || [];
+    var phasesNegated = assetState.environment.phases_negated || [];
+
+    if (ep.phase_must_include && ep.phase_must_include.length > 0) {
+      var hasAny = false;
+      var allNegated = true;
+      var matchedPhase = "";
+      for (var pmi = 0; pmi < ep.phase_must_include.length; pmi++) {
+        if (phasesPresent.indexOf(ep.phase_must_include[pmi]) !== -1) {
+          hasAny = true;
+          matchedPhase = ep.phase_must_include[pmi];
+          break;
+        }
+        if (phasesNegated.indexOf(ep.phase_must_include[pmi]) === -1) {
+          allNegated = false;
+        }
+      }
+      if (hasAny) {
+        satisfied.push({
+          bucket: "environment", field: "phase_must_include", state: "SATISFIED",
+          detail: "Required phase observed in transcript: '" + matchedPhase + "'."
+        });
+      } else if (allNegated) {
+        var rmEp = mech.rejection_messages.environment_phase || (mech.name + " requires the presence of " + ep.phase_must_include.join(" or ") + "; transcript explicitly negates all required phases.");
+        violated.push({
+          bucket: "environment", field: "phase_must_include", state: "VIOLATED", detail: rmEp
+        });
+      } else {
+        unknown.push({
+          bucket: "environment", field: "phase_must_include", state: "UNKNOWN",
+          detail: mech.name + " requires the presence of " + ep.phase_must_include.join(" or ") + "; transcript neither confirms nor explicitly rules out the required phase."
+        });
+      }
+    }
+
+    if (ep.phase_must_exclude && ep.phase_must_exclude.length > 0) {
+      var hasForbidden: string | null = null;
+      for (var pej = 0; pej < ep.phase_must_exclude.length; pej++) {
+        if (phasesPresent.indexOf(ep.phase_must_exclude[pej]) !== -1) {
+          hasForbidden = ep.phase_must_exclude[pej];
+          break;
+        }
+      }
+      if (hasForbidden !== null) {
+        var rmEp2 = mech.rejection_messages.environment_phase || (mech.name + " cannot occur in the presence of '" + hasForbidden + "'.");
+        violated.push({
+          bucket: "environment", field: "phase_must_exclude", state: "VIOLATED", detail: rmEp2
+        });
+      } else {
+        satisfied.push({
+          bucket: "environment", field: "phase_must_exclude", state: "SATISFIED",
+          detail: "No forbidden phase (" + ep.phase_must_exclude.join(", ") + ") observed in transcript."
+        });
+      }
+    }
+
+    if (ep.atmosphere_class_in && ep.atmosphere_class_in.length > 0) {
+      var atm = assetState.environment.atmosphere_class;
+      if (atm === null || atm === undefined) {
+        unknown.push({
+          bucket: "environment", field: "atmosphere_class_in", state: "UNKNOWN",
+          detail: "Atmosphere class not identified; " + mech.name + " requires atmosphere in [" + ep.atmosphere_class_in.join(", ") + "]."
+        });
+      } else if (ep.atmosphere_class_in.indexOf(atm) !== -1) {
+        satisfied.push({
+          bucket: "environment", field: "atmosphere_class_in", state: "SATISFIED",
+          detail: "Atmosphere class '" + atm + "' is in the required set."
+        });
+      } else {
+        var rmAtm = mech.rejection_messages.environment_atmosphere || (mech.name + " requires atmosphere class in [" + ep.atmosphere_class_in.join(", ") + "]; observed: '" + atm + "'.");
+        violated.push({
+          bucket: "environment", field: "atmosphere_class_in", state: "VIOLATED", detail: rmAtm
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Geometry bucket
+  // -------------------------------------------------------------------------
+  if (mech.preconditions.geometry) {
+    var gp = mech.preconditions.geometry;
+
+    if (gp.insulation_present === true) {
+      var ins = assetState.geometry.insulation_present;
+      if (ins === true) {
+        satisfied.push({
+          bucket: "geometry", field: "insulation_present", state: "SATISFIED",
+          detail: "Insulation observed in transcript."
+        });
+      } else if (ins === false) {
+        var rmGeo = mech.rejection_messages.geometry || (mech.name + " requires insulation. Transcript indicates uninsulated asset.");
+        violated.push({
+          bucket: "geometry", field: "insulation_present", state: "VIOLATED", detail: rmGeo
+        });
+      } else {
+        unknown.push({
+          bucket: "geometry", field: "insulation_present", state: "UNKNOWN",
+          detail: mech.name + " requires insulation; transcript does not state insulation status."
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Thermal bucket
+  // -------------------------------------------------------------------------
+  if (mech.preconditions.thermal) {
+    var tp = mech.preconditions.thermal;
+
+    if (tp.operating_temp_f_window) {
+      var tLo = tp.operating_temp_f_window[0];
+      var tHi = tp.operating_temp_f_window[1];
+      var tF = assetState.thermal.operating_temp_f;
+      if (tF === null || tF === undefined) {
+        unknown.push({
+          bucket: "thermal", field: "operating_temp_f_window", state: "UNKNOWN",
+          detail: "Operating temperature not stated; " + mech.name + " requires temperature in [" + tLo + "F, " + tHi + "F]."
+        });
+      } else if (tF >= tLo && tF <= tHi) {
+        satisfied.push({
+          bucket: "thermal", field: "operating_temp_f_window", state: "SATISFIED",
+          detail: "Operating temperature " + tF + "F is within the required window [" + tLo + "F, " + tHi + "F]."
+        });
+      } else {
+        var rmTherm = mech.rejection_messages.thermal || (mech.name + " requires temperature in [" + tLo + "F, " + tHi + "F]; observed " + tF + "F is outside the physically active window.");
+        violated.push({
+          bucket: "thermal", field: "operating_temp_f_window", state: "VIOLATED", detail: rmTherm
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Stress bucket — schema declared, no checks active in DEPLOY171.
+  // Cracking/fatigue/creep migration in DEPLOY173 will use this bucket.
+  // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // Determine overall status
+  // -------------------------------------------------------------------------
+  var status = "ELIGIBLE";
+  if (violated.length > 0) {
+    status = "REJECTED";
+  } else if (unknown.length > 0) {
+    status = "INDETERMINATE";
+  }
+
+  var rejectionSummary: string | null = null;
+  if (status === "REJECTED") {
+    var rrParts: string[] = [];
+    for (var rri = 0; rri < violated.length; rri++) rrParts.push(violated[rri].detail);
+    rejectionSummary = rrParts.join(" ");
+  }
+
+  var indeterminateSummary: string | null = null;
+  if (status === "INDETERMINATE") {
+    var iiParts: string[] = [];
+    for (var iii = 0; iii < unknown.length; iii++) iiParts.push(unknown[iii].detail);
+    indeterminateSummary = "Mechanism cannot be confirmed or ruled out from the available evidence. Missing data: " + iiParts.join(" ");
+  }
+
+  return {
+    mechanism_id: mech.id,
+    mechanism_name: mech.name,
+    mechanism_family: mech.family,
+    status: status,
+    satisfied: satisfied,
+    violated: violated,
+    unknown: unknown,
+    rejection_summary: rejectionSummary,
+    indeterminate_summary: indeterminateSummary
+  };
+}
+
+function buildAssetStateForCatalog(physics: any, transcript: string): any {
+  var lt = transcript.toLowerCase();
+
+  // Insulation status from explicit transcript language. Defaults to null
+  // (unknown) — null is the correct answer when the inspector did not state
+  // whether the asset is insulated.
+  var insulationPresent: boolean | null = null;
+  if (hasWord(lt, "no insulation") || hasWord(lt, "uninsulated") || hasWord(lt, "not insulated") || hasWord(lt, "insulation removed") || hasWord(lt, "bare pipe") || hasWord(lt, "bare line") || hasWord(lt, "bare metal")) {
+    insulationPresent = false;
+  } else if (hasWord(lt, "insulated") || hasWord(lt, "insulation") || hasWord(lt, "lagging") || hasWord(lt, "jacketing") || hasWord(lt, "fireproofing") || hasWord(lt, "cladded") || hasWord(lt, "under the insulation") || hasWord(lt, "under insulation")) {
+    insulationPresent = true;
+  }
+
+  return {
+    material: physics.material || { class: null, class_confidence: 0, evidence: [] },
+    environment: {
+      phases_present: (physics.environment && physics.environment.phases_present) || [],
+      phases_negated: (physics.environment && physics.environment.phases_negated) || [],
+      atmosphere_class: (physics.environment && physics.environment.atmosphere_class) || null,
+      agents_present: physics.chemical.environment_agents || [],
+      agents_negated: []
+    },
+    geometry: {
+      insulation_present: insulationPresent,
+      welds_present: physics.stress.stress_concentration_locations.length > 0 ? true : null,
+      stress_concentration_present: physics.stress.stress_concentration_present
+    },
+    thermal: {
+      operating_temp_f: physics.thermal.operating_temp_f,
+      fire_exposure: physics.thermal.fire_exposure,
+      thermal_cycling: physics.thermal.thermal_cycling
+    },
+    stress: {
+      tensile: physics.stress.tensile_stress,
+      cyclic: physics.stress.cyclic_loading,
+      sustained: physics.stress.tensile_stress
+    }
+  };
 }
 
 // ============================================================================
@@ -761,6 +1164,124 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     interactionWarnings.push("No significant force interaction detected. Individual force assessment applies.");
   }
 
+  // ==========================================================================
+  // DEPLOY171 v2.6.0: STRUCTURED MATERIAL EXTRACTION
+  // Today's code scans material keywords inline (e.g. inside the HTHA check).
+  // The new mechanism catalog needs a typed material.class field on the
+  // physics object so the catalog evaluator can run material preconditions
+  // against an AssetState. This block reads from the same keyword vocabulary
+  // today's code already uses but stores the result in a structured shape.
+  // All existing physics consumers continue reading physics.chemical.* fields
+  // unchanged. Pure addition.
+  // ==========================================================================
+  var materialClass: string | null = null;
+  var materialEvidence: string[] = [];
+  var materialConfidence = 0;
+
+  // Carbon steel — most common refinery material
+  if (hasWord(lt, "carbon steel") || hasWord(lt, "c-mn") || hasWord(lt, "carbon-manganese") || hasWord(lt, "a106") || hasWord(lt, "a 106") || hasWord(lt, "a516") || hasWord(lt, "a 516") || hasWord(lt, "sa-106") || hasWord(lt, "sa 106") || hasWord(lt, "sa-516") || hasWord(lt, "sa516")) {
+    materialClass = "carbon_steel";
+    materialEvidence.push("carbon steel keyword or ASTM/ASME grade");
+    materialConfidence = 0.85;
+  }
+
+  // Low-alloy steel (Cr-Mo) — overrides carbon steel if found
+  if (hasWord(lt, "1.25cr") || hasWord(lt, "1-1/4 cr") || hasWord(lt, "1.25 cr") || hasWord(lt, "2.25cr") || hasWord(lt, "2-1/4cr") || hasWord(lt, "2 1/4 cr") || hasWord(lt, "2.25 cr") || hasWord(lt, "9cr") || hasWord(lt, "9 cr") || hasWord(lt, "p11") || hasWord(lt, "p22") || hasWord(lt, "p91") || hasWord(lt, "1cr-1/2mo") || hasWord(lt, "c-1/2mo") || hasWord(lt, "low alloy steel") || hasWord(lt, "low-alloy steel") || hasWord(lt, "cr-mo") || hasWord(lt, "chrome moly") || hasWord(lt, "chrome-moly")) {
+    materialClass = "low_alloy_steel";
+    materialEvidence.push("low-alloy / Cr-Mo grade");
+    materialConfidence = 0.85;
+  }
+
+  // Austenitic stainless — overrides if found
+  if (hasWord(lt, "316l") || hasWord(lt, "type 304") || hasWord(lt, "type 316") || hasWord(lt, "tp304") || hasWord(lt, "tp316") || hasWord(lt, "ss304") || hasWord(lt, "ss316") || hasWord(lt, "austenitic") || hasWord(lt, "austenitic stainless") || hasWord(lt, "a312") || hasWord(lt, "a 312")) {
+    materialClass = "austenitic_stainless";
+    materialEvidence.push("austenitic stainless grade");
+    materialConfidence = 0.85;
+  }
+
+  // Duplex stainless
+  if (hasWord(lt, "duplex stainless") || hasWord(lt, "duplex ss") || hasWord(lt, "2205") || hasWord(lt, "2507") || hasWord(lt, "super duplex")) {
+    materialClass = "duplex_stainless";
+    materialEvidence.push("duplex stainless grade");
+    materialConfidence = 0.85;
+  }
+
+  // Nickel alloy
+  if (hasWord(lt, "inconel") || hasWord(lt, "hastelloy") || hasWord(lt, "monel") || hasWord(lt, "incoloy") || hasWord(lt, "alloy 625") || hasWord(lt, "alloy 825") || hasWord(lt, "alloy 800") || hasWord(lt, "alloy 718") || hasWord(lt, "nickel alloy") || hasWord(lt, "nickel-base") || hasWord(lt, "nickel base")) {
+    materialClass = "nickel_alloy";
+    materialEvidence.push("nickel-base alloy");
+    materialConfidence = 0.85;
+  }
+
+  // Titanium
+  if (hasWord(lt, "titanium") || hasWord(lt, "ti-6al") || hasWord(lt, "ti6al") || hasWord(lt, "ti-6al-4v") || hasWord(lt, "grade 2 ti") || hasWord(lt, "grade 5 ti")) {
+    materialClass = "titanium_alloy";
+    materialEvidence.push("titanium alloy");
+    materialConfidence = 0.85;
+  }
+
+  // Aluminum
+  if (hasWord(lt, "aluminum") || hasWord(lt, "aluminium") || hasWord(lt, "al-li") || hasWord(lt, "2195") || hasWord(lt, "6061") || hasWord(lt, "5083") || hasWord(lt, "7075")) {
+    materialClass = "aluminum_alloy";
+    materialEvidence.push("aluminum alloy");
+    materialConfidence = 0.85;
+  }
+
+  // Ceramic matrix composite
+  if (hasWord(lt, "cmc") || hasWord(lt, "ceramic matrix composite") || hasWord(lt, "ceramic matrix") || hasWord(lt, "thermal tile") || hasWord(lt, "ceramic tile") || hasWord(lt, "rcc tile") || hasWord(lt, "reinforced carbon-carbon")) {
+    materialClass = "cmc";
+    materialEvidence.push("ceramic matrix composite");
+    materialConfidence = 0.85;
+  }
+
+  // Concrete
+  if (hasWord(lt, "concrete") || hasWord(lt, "reinforced concrete") || hasWord(lt, "rebar") || hasWord(lt, "prestressed")) {
+    materialClass = "concrete";
+    materialEvidence.push("concrete construction");
+    materialConfidence = 0.80;
+  }
+
+  // ==========================================================================
+  // DEPLOY171 v2.6.0: STRUCTURED PHASE / ATMOSPHERE EXTRACTION
+  // ==========================================================================
+  var phasesPresent: string[] = [];
+  var phasesNegated: string[] = [];
+  var atmosphereClass: string | null = null;
+
+  if (hasWord(lt, "sweating") || hasWord(lt, "wet insulation") || hasWord(lt, "wet lagging") || hasWord(lt, "condensation") || hasWord(lt, "water ingress") || hasWord(lt, "moisture") || hasWord(lt, "wet jacket") || hasWord(lt, "damp") || hasWord(lt, "weeping water")) {
+    if (phasesPresent.indexOf("liquid_water") === -1) phasesPresent.push("liquid_water");
+  }
+  if (hasWord(lt, "humid") || hasWord(lt, "dew point") || hasWord(lt, "condensable")) {
+    if (phasesPresent.indexOf("water_vapor_condensable") === -1) phasesPresent.push("water_vapor_condensable");
+  }
+  if (hasWord(lt, "hydrocarbon") || hasWord(lt, "crude") || hasWord(lt, "naphtha") || hasWord(lt, "diesel") || hasWord(lt, "gasoline") || hasWord(lt, "kerosene") || hasWord(lt, "lpg") || hasWord(lt, "propane") || hasWord(lt, "butane") || hasWord(lt, "ngl") || hasWord(lt, "ethylene") || hasWord(lt, "methane") || hasWord(lt, "process fluid")) {
+    if (phasesPresent.indexOf("hydrocarbon_liquid") === -1) phasesPresent.push("hydrocarbon_liquid");
+  }
+  if (hasWord(lt, "steam")) {
+    if (phasesPresent.indexOf("steam") === -1) phasesPresent.push("steam");
+  }
+  if (hasWord(lt, "vacuum") || hasWord(lt, "hard vacuum") || hasWord(lt, "space environment") || hasWord(lt, "evacuated") || hasWord(lt, "in space") || hasWord(lt, "outer space")) {
+    if (phasesPresent.indexOf("vacuum") === -1) phasesPresent.push("vacuum");
+    if (phasesNegated.indexOf("liquid_water") === -1) phasesNegated.push("liquid_water");
+    if (phasesNegated.indexOf("water_vapor_condensable") === -1) phasesNegated.push("water_vapor_condensable");
+  }
+  if (hasWord(lt, "nitrogen blanket") || hasWord(lt, "dry nitrogen") || hasWord(lt, "n2 blanket") || hasWord(lt, "inert gas blanket") || hasWord(lt, "nitrogen purge") || hasWord(lt, "argon blanket")) {
+    if (phasesPresent.indexOf("dry_inert_gas") === -1) phasesPresent.push("dry_inert_gas");
+  }
+
+  // Atmosphere classification
+  if (!hasWord(lt, "no insulation") && !hasWord(lt, "uninsulated") && !hasWord(lt, "not insulated") && !hasWord(lt, "bare pipe") && !hasWord(lt, "bare line") && !hasWord(lt, "bare metal")) {
+    if (hasWord(lt, "insulated") || hasWord(lt, "insulation") || hasWord(lt, "lagging") || hasWord(lt, "jacketing") || hasWord(lt, "fireproofing") || hasWord(lt, "cladded") || hasWord(lt, "under the insulation") || hasWord(lt, "under insulation")) {
+      atmosphereClass = "insulated";
+    }
+  }
+  if (hasWord(lt, "buried") || hasWord(lt, "underground")) atmosphereClass = "buried";
+  if (hasWord(lt, "submerged") || hasWord(lt, "subsea") || hasWord(lt, "underwater")) atmosphereClass = "submerged";
+  if (hasWord(lt, "vacuum") || hasWord(lt, "hard vacuum") || hasWord(lt, "space environment")) atmosphereClass = "vacuum";
+  if (atmosphereClass === null && (hasWord(lt, "atmospheric") || hasWord(lt, "outdoor") || hasWord(lt, "exposed") || hasWord(lt, "weather"))) {
+    atmosphereClass = "atmospheric";
+  }
+
   return {
     stress: { primary_load_types: loads, cyclic_loading: cyclic, cyclic_source: cyclicSrc, stress_concentration_present: stressConc, stress_concentration_locations: stressConcLocs, tensile_stress: tensile, compressive_stress: compress, load_path_criticality: loadPath, residual_stress_likely: residual } as StressState,
     thermal: { operating_temp_c: tempC, operating_temp_f: tempF, thermal_cycling: thermalCyc, fire_exposure: fireExp, fire_duration_min: fireDur, creep_range: creep, cryogenic: cryo } as ThermalState,
@@ -770,7 +1291,9 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     field_interaction: { hotspots: hotspots, interaction_score: interactionScore, interaction_level: interactionLevel, warnings: interactionWarnings },
     physics_summary: summary,
     physics_confidence: roundN(conf, 2),
-    context_inferred: contextInferred
+    context_inferred: contextInferred,
+    material: { class: materialClass, class_confidence: materialConfidence, evidence: materialEvidence },
+    environment: { phases_present: phasesPresent, phases_negated: phasesNegated, atmosphere_class: atmosphereClass }
   };
 }
 
@@ -836,6 +1359,11 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
   var lt = transcript.toLowerCase();
   var validated: ValidatedMechanism[] = [];
   var rejected: RejectedMechanism[] = [];
+  var indeterminate: any[] = [];
+
+  // DEPLOY171 v2.6.0: Build the AssetState once for the catalog evaluator.
+  // Used by the catalog routing block inside the MECH_DEFS for-loop below.
+  var assetStateForCatalog = buildAssetStateForCatalog(physics, transcript);
 
   // ============================================================================
   // EVIDENCE HIERARCHY — DEPLOY115
@@ -876,7 +1404,71 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
 
   for (var i = 0; i < MECH_DEFS.length; i++) {
     var md = MECH_DEFS[i];
-    if (!md.pre(s, t, c, e, fl)) {
+
+    // ========================================================================
+    // DEPLOY171 v2.6.0: CATALOG ROUTING FOR MIGRATED MECHANISMS
+    // If this mechanism has been migrated to the data-driven catalog, run
+    // the catalog evaluator instead of (or in addition to) the legacy
+    // MECH_DEFS predicate. The catalog produces one of three statuses:
+    //   REJECTED      — physically impossible. Add to rejected[] and skip
+    //                   the rest of the loop body for this mechanism.
+    //   INDETERMINATE — preconditions cannot be confirmed or ruled out from
+    //                   available evidence. Add to indeterminate[] and skip
+    //                   the rest of the loop body. Does NOT fire as a
+    //                   validated mechanism in DEPLOY171 — observational
+    //                   only, surfaced for manual review.
+    //   ELIGIBLE      — all preconditions satisfied. Set skipOldPredicate
+    //                   so the legacy md.pre(...) gate is bypassed (the
+    //                   catalog has already verified preconditions), then
+    //                   fall through to the existing scoring path which
+    //                   computes reality_score against observation evidence.
+    // ========================================================================
+    var skipOldPredicate = false;
+    if (MIGRATED_TO_CATALOG.indexOf(md.id) !== -1) {
+      var catalogEntry: any = null;
+      for (var cei = 0; cei < MECHANISM_CATALOG_V1.length; cei++) {
+        if (MECHANISM_CATALOG_V1[cei].id === md.id) { catalogEntry = MECHANISM_CATALOG_V1[cei]; break; }
+      }
+      if (catalogEntry) {
+        var evalResult = evaluateMechanismFromCatalog(catalogEntry, assetStateForCatalog);
+        if (evalResult.status === "REJECTED") {
+          var rejMet: string[] = [];
+          for (var rmi = 0; rmi < evalResult.satisfied.length; rmi++) {
+            rejMet.push(evalResult.satisfied[rmi].bucket + "." + evalResult.satisfied[rmi].field);
+          }
+          var rejMissing: string[] = [];
+          for (var rmj = 0; rmj < evalResult.violated.length; rmj++) {
+            rejMissing.push(evalResult.violated[rmj].bucket + "." + evalResult.violated[rmj].field);
+          }
+          rejected.push({
+            id: md.id,
+            name: md.name,
+            rejection_reason: "CATALOG REJECTED: " + evalResult.rejection_summary,
+            missing_precondition: rejMissing.join("; "),
+            met_preconditions: rejMet
+          });
+          continue;
+        }
+        if (evalResult.status === "INDETERMINATE") {
+          indeterminate.push({
+            id: md.id,
+            name: md.name,
+            family: evalResult.mechanism_family,
+            status: "INDETERMINATE",
+            summary: evalResult.indeterminate_summary,
+            satisfied: evalResult.satisfied,
+            unknown: evalResult.unknown,
+            violated: evalResult.violated
+          });
+          continue;
+        }
+        // status === "ELIGIBLE": fall through to scoring. Bypass the legacy
+        // predicate because the catalog has already verified preconditions.
+        skipOldPredicate = true;
+      }
+    }
+
+    if (!skipOldPredicate && !md.pre(s, t, c, e, fl)) {
       var missingPres: string[] = [];
       var metPres: string[] = [];
       for (var pi = 0; pi < md.preLabels.length; pi++) {
@@ -1071,7 +1663,7 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
   if (primary) narr += "Primary: " + primary.name + " (score " + primary.reality_score + "). Physics: " + primary.physics_basis + ". ";
   narr += validated.length + " possible, " + rejected.length + " physically impossible.";
 
-  return { validated: validated, rejected: rejected, primary: primary, damage_confidence: roundN(dmgConf, 2), physics_narrative: narr };
+  return { validated: validated, rejected: rejected, indeterminate: indeterminate, primary: primary, damage_confidence: roundN(dmgConf, 2), physics_narrative: narr };
 }
 
 // ============================================================================
@@ -2484,7 +3076,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.5.5",
+            engine_version: "physics-first-decision-core-v2.6.0",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -2597,7 +3189,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.5.5",
+          engine_version: "physics-first-decision-core-v2.6.0",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
@@ -2612,6 +3204,7 @@ var handler: Handler = async function(event: HandlerEvent) {
           damage_reality: {
             validated_mechanisms: damage.validated,
             rejected_mechanisms: damage.rejected,
+            indeterminate_mechanisms: damage.indeterminate || [],
             primary_mechanism: damage.primary,
             mechanism_count: {
               validated: damage.validated.length,
