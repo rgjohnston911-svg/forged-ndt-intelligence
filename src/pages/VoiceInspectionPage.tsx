@@ -198,7 +198,88 @@ function generateInspectionReport(data: {
   errors?: string[];
 }) {
   var dc = data.decisionCore;
-  if (!dc) { alert("No Decision Core data to export."); return; }
+  if (\!dc) { alert("No Decision Core data to export."); return; }
+
+  // ========================================================================
+  // DEPLOY171.8: DOMAIN REFUSAL PDF PAGE
+  // When the decision-core refused because the asset domain is unsupported,
+  // render a single-page professional refusal notice instead of the full
+  // report template with empty sections.
+  // ========================================================================
+  if (dc.domain_not_supported === true) {
+    var refNow = new Date();
+    var refDateStr = refNow.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    var refTimeStr = refNow.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+    var refCaseRef = "FORGED-" + refNow.getFullYear() + "-" + String(refNow.getMonth() + 1).padStart(2, "0") + String(refNow.getDate()).padStart(2, "0") + "-" + String(refNow.getHours()).padStart(2, "0") + String(refNow.getMinutes()).padStart(2, "0");
+    var refAssetClass = dc.asset_class_received || dc.asset_class_original || "unknown";
+    var refSupportedDomains = (dc.supported_domains || []).join(", ");
+    var refReason = dc.refusal_reason || "Asset domain is not in the supported set for this engine build.";
+    var refEngVer = dc.engine_version || "unknown";
+
+    var refHtml = "";
+    refHtml += "<\!DOCTYPE html><html><head><meta charset='utf-8'><title>FORGED NDT - Domain Not Supported</title>";
+    refHtml += "<style>";
+    refHtml += "* { margin: 0; padding: 0; box-sizing: border-box; }";
+    refHtml += "body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; line-height: 1.6; color: #1a1a1a; padding: 60px; max-width: 850px; margin: 0 auto; }";
+    refHtml += "@media print { body { padding: 40px; } .no-print { display: none \!important; } @page { margin: 1in; } }";
+    refHtml += ".header { text-align: center; border-bottom: 3px solid #dc2626; padding-bottom: 20px; margin-bottom: 40px; }";
+    refHtml += ".header h1 { font-size: 20px; color: #1e40af; margin-bottom: 6px; }";
+    refHtml += ".refusal-banner { background: #dc2626; color: #fff; padding: 16px 24px; border-radius: 8px; text-align: center; font-size: 18px; font-weight: 800; margin-bottom: 32px; letter-spacing: 1px; }";
+    refHtml += ".info-block { margin-bottom: 24px; padding: 16px 20px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb; }";
+    refHtml += ".info-block h3 { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 8px; text-transform: uppercase; }";
+    refHtml += ".info-block p { font-size: 12px; color: #1a1a1a; line-height: 1.7; }";
+    refHtml += ".domain-list { margin-top: 8px; padding: 12px 16px; background: #f0f4ff; border-radius: 6px; font-size: 11px; color: #1e40af; font-weight: 600; }";
+    refHtml += ".action-box { margin-top: 32px; padding: 20px; border: 2px solid #dc2626; border-radius: 8px; background: #fef2f2; }";
+    refHtml += ".action-box h3 { font-size: 14px; color: #991b1b; margin-bottom: 10px; }";
+    refHtml += ".action-box p { font-size: 12px; color: #374151; }";
+    refHtml += ".footer { margin-top: 60px; text-align: center; font-size: 10px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 16px; }";
+    refHtml += ".print-btn { position: fixed; top: 20px; right: 20px; padding: 12px 24px; font-size: 14px; font-weight: 700; color: #fff; background: #dc2626; border: none; border-radius: 6px; cursor: pointer; z-index: 1000; }";
+    refHtml += "</style></head><body>";
+
+    refHtml += "<button class='print-btn no-print' onclick='window.print()'>Save as PDF / Print</button>";
+
+    refHtml += "<div class='header'>";
+    refHtml += "<h1>FORGED NDT Intelligence OS</h1>";
+    refHtml += "<div style='font-size: 13px; color: #6b7280;'>Physics-First Inspection Intelligence Report</div>";
+    refHtml += "<div style='font-size: 11px; color: #9ca3af; margin-top: 4px;'>Case: " + refCaseRef + " | " + refDateStr + " " + refTimeStr + " | Engine: " + refEngVer + "</div>";
+    refHtml += "</div>";
+
+    refHtml += "<div class='refusal-banner'>DOMAIN NOT SUPPORTED</div>";
+
+    refHtml += "<div class='info-block'>";
+    refHtml += "<h3>Asset Classification Received</h3>";
+    refHtml += "<p style='font-size: 16px; font-weight: 700;'>" + refAssetClass + "</p>";
+    refHtml += "</div>";
+
+    refHtml += "<div class='info-block'>";
+    refHtml += "<h3>Refusal Reason</h3>";
+    refHtml += "<p>" + refReason + "</p>";
+    refHtml += "</div>";
+
+    refHtml += "<div class='info-block'>";
+    refHtml += "<h3>Supported Domains (Current Build)</h3>";
+    refHtml += "<div class='domain-list'>" + refSupportedDomains + "</div>";
+    refHtml += "</div>";
+
+    refHtml += "<div class='action-box'>";
+    refHtml += "<h3>Required Action</h3>";
+    refHtml += "<p>This asset class requires a domain-specific authority chain, mechanism catalog, and consequence model that are not present in this engine build. No disposition, mechanism evaluation, or inspection plan was produced.</p>";
+    refHtml += "<p style='margin-top: 10px;'>Recommended next steps:</p>";
+    refHtml += "<p style='margin-top: 6px; padding-left: 16px;'>1. Verify the asset classification is correct. If the upstream classification was wrong, re-run with the correct asset class.</p>";
+    refHtml += "<p style='padding-left: 16px;'>2. If the classification is correct, this asset requires manual review by domain-qualified personnel (e.g., Level III inspector, materials engineer, or structural engineer with domain expertise).</p>";
+    refHtml += "<p style='padding-left: 16px;'>3. Contact the system administrator to request this domain be added to a future engine build.</p>";
+    refHtml += "</div>";
+
+    refHtml += "<div class='footer'>";
+    refHtml += "FORGED NDT Intelligence OS | Domain Refusal Notice | " + refEngVer + " | Generated " + refDateStr + " " + refTimeStr;
+    refHtml += "</div>";
+
+    refHtml += "</body></html>";
+
+    var refWin = window.open("", "_blank");
+    if (refWin) { refWin.document.write(refHtml); refWin.document.close(); }
+    return;
+  }
 
   var phy = dc.physical_reality;
   var dmg = dc.damage_reality;
@@ -278,7 +359,7 @@ function generateInspectionReport(data: {
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>v16.6m | Engine: decision-core v2.5.4 + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.1 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.2 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>v16.6m | Engine: " + (dc.engine_version || "decision-core") + " + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.1 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.2 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -1032,7 +1113,7 @@ async function saveCaseToSupabase(transcriptText: string, parsedData: any, asset
     sb_confidence: (conf.overall || 0),
     sb_mechanism: (dmg.primary_mechanism ? dmg.primary_mechanism.name : null),
     sb_sufficiency: (insp.sufficiency_verdict || null),
-    sb_engine_version: (dcResult.engine_version || "v2.5.4"),
+    sb_engine_version: (dcResult.engine_version || "unknown"),
     sb_last_eval: now.toISOString()
   };
 
