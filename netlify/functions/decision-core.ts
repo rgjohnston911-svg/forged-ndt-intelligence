@@ -1,6 +1,7 @@
 // @ts-nocheck
-// DEPLOY182 -- decision-core.ts v2.9.2
-// v2.9.2: DEPLOY182 -- NPS nominal wall inference + RSR data-quality gate (clean rebuild).
+// DEPLOY183 -- decision-core.ts v2.9.3
+// v2.9.3: DEPLOY183 -- Fix hasEvent() crash on object events (500 on computation paths), remove duplicate energy key.
+// Previous: v2.9.2 -- DEPLOY182 -- NPS nominal wall inference + RSR data-quality gate (clean rebuild).
 // Previous: v2.9.0 -- DEPLOY180 Consequence Reality fail-upward gate.
 // Previous: v2.8.1 -- DEPLOY174 INDETERMINATE mechanism escalation.
 // Previous: DEPLOY171.6 -- decision-core.ts v2.6.2
@@ -1306,7 +1307,6 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
         });
       }
     }
-  }
     if (tp.thermal_cycling_required === true) {
       var thc = assetState.thermal.thermal_cycling;
       if (thc === true) {
@@ -1406,6 +1406,7 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
         });
       }
     }
+  }
 
   // -------------------------------------------------------------------------
   // DEPLOY171.6 v2.6.2: Process chemistry bucket
@@ -1930,7 +1931,11 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   var loadPath = "unknown"; var residual = false;
 
   function hasEvent(term: string): boolean {
-    for (var ei = 0; ei < events.length; ei++) { if (events[ei].toLowerCase().indexOf(term) !== -1) return true; }
+    for (var ei = 0; ei < events.length; ei++) {
+      var ev = events[ei];
+      var evStr = (typeof ev === "string") ? ev : (ev && typeof ev === "object" ? (ev.type || "") + " " + (ev.location || "") + " " + (ev.severity || "") : String(ev));
+      if (evStr.toLowerCase().indexOf(term) !== -1) return true;
+    }
     return false;
   }
   if (hasEvent("cycl") || hasEvent("fatigue") || hasEvent("vibrat") || hasEvent("traffic") || hasEvent("train") || hasEvent("railroad") || hasEvent("operational_cycling")) {
@@ -2019,8 +2024,8 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (loads.length > 0) conf += 0.12;
   if (stressConc) conf += 0.08;
 
-  var tempC: number | null = nv.temperature_c || null;
-  var tempF: number | null = nv.temperature_f || null;
+  var tempC: number | null = nv.temperature_c || nv.operating_temperature_c || null;
+  var tempF: number | null = nv.temperature_f || nv.operating_temperature_f || null;
   if (!tempC && tempF) tempC = Math.round((tempF - 32) * 5 / 9);
   if (!tempF && tempC) tempF = Math.round(tempC * 9 / 5 + 32);
   var thermalCyc = hasWord(lt, "thermal cycl") || (hasWord(lt, "startup") && hasWord(lt, "shutdown"));
@@ -2706,6 +2711,10 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
 
   for (var i = 0; i < MECH_SCORING_TABLE.length; i++) {
     var md = MECH_SCORING_TABLE[i];
+    var score = 0;
+    var evFor: string[] = [];
+    var evAg: string[] = [];
+    var obs = false;
 
     // ========================================================================
     // DEPLOY171 v2.6.0: CATALOG ROUTING FOR MIGRATED MECHANISMS
@@ -4683,7 +4692,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.2",
+            engine_version: "physics-first-decision-core-v2.9.3",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -4796,7 +4805,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.2",
+          engine_version: "physics-first-decision-core-v2.9.3",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
@@ -4810,11 +4819,7 @@ var handler: Handler = async function(event: HandlerEvent) {
             material: physics.material || { class: null, class_confidence: 0, evidence: [] },
             environment: physics.environment || { phases_present: [], phases_negated: [], atmosphere_class: null },
             process_chemistry: physics.process_chemistry || { chloride_band: null, sulfur_class: null, amine_type: null, nh4_salt_potential: null, h2s_present: false, caustic_present: false, hydrogen_present: false },
-            energy: {
-      vibration: physics.energy.vibration || false,
-      impact_event: physics.energy.impact_event || false
-    },
-    flow_regime: physics.flow_regime || { flow_state: null, deadleg: null, turbulence_geometry_present: null },
+            flow_regime: physics.flow_regime || { flow_state: null, deadleg: null, turbulence_geometry_present: null },
             deposits: physics.deposits || { deposits_present: null, deposit_type: null, deposit_evidence: [] },
             nps_inference: npsWallInference
           },
