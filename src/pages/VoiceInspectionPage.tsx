@@ -1,4 +1,4 @@
-// DEPLOY176 — src/pages/VoiceInspectionPage.tsx v16.6m
+// DEPLOY176 -- src/pages/VoiceInspectionPage.tsx v16.6m
 // v16.6m: HARD CONFIDENCE GATE + FORCED REALITY ENFORCEMENT LAYER
 //
 // DEPLOY176 closes four of the five gaps called out by GPT eval across
@@ -198,7 +198,7 @@ function generateInspectionReport(data: {
   errors?: string[];
 }) {
   var dc = data.decisionCore;
-  if (\!dc) { alert("No Decision Core data to export."); return; }
+  if (!dc) { alert("No Decision Core data to export."); return; }
 
   // ========================================================================
   // DEPLOY171.8: DOMAIN REFUSAL PDF PAGE
@@ -217,11 +217,11 @@ function generateInspectionReport(data: {
     var refEngVer = dc.engine_version || "unknown";
 
     var refHtml = "";
-    refHtml += "<\!DOCTYPE html><html><head><meta charset='utf-8'><title>FORGED NDT - Domain Not Supported</title>";
+    refHtml += "<!DOCTYPE html><html><head><meta charset='utf-8'><title>FORGED NDT - Domain Not Supported</title>";
     refHtml += "<style>";
     refHtml += "* { margin: 0; padding: 0; box-sizing: border-box; }";
     refHtml += "body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; line-height: 1.6; color: #1a1a1a; padding: 60px; max-width: 850px; margin: 0 auto; }";
-    refHtml += "@media print { body { padding: 40px; } .no-print { display: none \!important; } @page { margin: 1in; } }";
+    refHtml += "@media print { body { padding: 40px; } .no-print { display: none !important; } @page { margin: 1in; } }";
     refHtml += ".header { text-align: center; border-bottom: 3px solid #dc2626; padding-bottom: 20px; margin-bottom: 40px; }";
     refHtml += ".header h1 { font-size: 20px; color: #1e40af; margin-bottom: 6px; }";
     refHtml += ".refusal-banner { background: #dc2626; color: #fff; padding: 16px 24px; border-radius: 8px; text-align: center; font-size: 18px; font-weight: 800; margin-bottom: 32px; letter-spacing: 1px; }";
