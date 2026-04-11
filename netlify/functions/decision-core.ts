@@ -1,6 +1,6 @@
 // @ts-nocheck
-// DEPLOY173 — decision-core.ts v2.8.0
-// v2.8.0: Complete migration to physics-first catalog. All 21 mechanisms route through evaluator. MECH_DEFS deleted.
+// DEPLOY173 — decision-core.ts v2.8.1
+// v2.8.1: DEPLOY174 — INDETERMINATE mechanism escalation on HIGH/CRITICAL assets.
 // Previous: DEPLOY171.6 — decision-core.ts v2.6.2
 // v2.6.2 (superseded by v2.7.0): Catalog foundations — behavior-preserving capability layer for DEPLOY172
 //
@@ -4109,6 +4109,63 @@ function resolveDecisionReality(physics: any, damage: any, consequence: any, aut
     gates.push({ gate: "physics_computation", result: "PASS", reason: "No computation escalation", required_action: null });
   }
 
+  // ========================================================================
+  // DEPLOY174: INDETERMINATE MECHANISM ESCALATION
+  // When the catalog evaluator returns INDETERMINATE for any mechanism in
+  // the dominant family on a HIGH/CRITICAL asset, the disposition must
+  // escalate to manual review. INDETERMINATE means the engine cannot
+  // confirm or rule out a mechanism from available evidence — on a high-
+  // consequence asset, that uncertainty must be surfaced, not swallowed.
+  // ========================================================================
+  var indeterminateEscalation = false;
+  var indeterminateEscalationReasons: string[] = [];
+  if (damage.indeterminate && damage.indeterminate.length > 0 &&
+      (consequence.consequence_tier === "HIGH" || consequence.consequence_tier === "CRITICAL")) {
+    // Check if any indeterminate mechanism shares a family with the primary
+    var primaryFamily = (damage.primary && damage.primary.id) ? damage.primary.id.split("_")[0] : "";
+    for (var idi = 0; idi < damage.indeterminate.length; idi++) {
+      var indMech = damage.indeterminate[idi];
+      var indFamily = (indMech.family || "").toLowerCase();
+      var indId = (indMech.id || "");
+      var sameFamily = indId.indexOf(primaryFamily) \!== -1 || indFamily === primaryFamily;
+      // On CRITICAL: escalate ALL indeterminate mechanisms, not just same-family
+      // On HIGH: escalate same-family or critical-severity indeterminate
+      if (consequence.consequence_tier === "CRITICAL" ||
+          sameFamily ||
+          (indMech.severity === "critical" || indMech.severity === "high")) {
+        indeterminateEscalation = true;
+        var unknownFields: string[] = [];
+        if (indMech.unknown && indMech.unknown.length > 0) {
+          for (var iui = 0; iui < indMech.unknown.length; iui++) {
+            unknownFields.push(indMech.unknown[iui].bucket + "." + indMech.unknown[iui].field);
+          }
+        }
+        indeterminateEscalationReasons.push(indMech.name + " (missing: " + (unknownFields.length > 0 ? unknownFields.join(", ") : "unspecified") + ")");
+      }
+    }
+  }
+  if (indeterminateEscalation) {
+    gates.push({
+      gate: "indeterminate_mechanism",
+      result: "ESCALATED",
+      reason: "INDETERMINATE mechanisms on " + consequence.consequence_tier + " asset: " + indeterminateEscalationReasons.join("; "),
+      required_action: "Collect missing data to confirm or rule out: " + indeterminateEscalationReasons.join("; ")
+    });
+    escalated = true;
+    for (var ier = 0; ier < indeterminateEscalationReasons.length; ier++) {
+      trace.push("INDETERMINATE ESCALATION: " + indeterminateEscalationReasons[ier]);
+    }
+  } else if (damage.indeterminate && damage.indeterminate.length > 0) {
+    gates.push({
+      gate: "indeterminate_mechanism",
+      result: "INFO",
+      reason: damage.indeterminate.length + " mechanism(s) indeterminate but consequence tier (" + consequence.consequence_tier + ") does not require escalation",
+      required_action: null
+    });
+  } else {
+    gates.push({ gate: "indeterminate_mechanism", result: "PASS", reason: "No indeterminate mechanisms", required_action: null });
+  }
+
   if (blocked) {
     gates.push({ gate: "disposition_eligibility", result: "BLOCKED", reason: "Blocked at: " + blockGate, required_action: "Resolve blocking gates" });
   } else if (escalated) {
@@ -4451,7 +4508,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.8.0",
+            engine_version: "physics-first-decision-core-v2.8.1",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -4564,7 +4621,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.8.0",
+          engine_version: "physics-first-decision-core-v2.8.1",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
