@@ -1,5 +1,11 @@
 // ============================================================================
-// DEPLOY170.2 — SUPERBRAIN SYNTHESIS v1.2
+// DEPLOY184 — SUPERBRAIN SYNTHESIS v1.3
+// v1.3 (DEPLOY184): Wire consequence_undetermined into synthesis.
+//   - consequence_undetermined + undetermined_impacts added to field map
+//   - Conditional system prompt block forces GPT-4o to surface undetermined impacts
+//   - Post-response safety net appends warning if GPT-4o omits it
+//   - constraint_metadata reports consequence_undetermined_applied, impacts, warning_injected
+// Previous: v1.2 (DEPLOY170.2)
 // ============================================================================
 // Backend constraint hardening. Closes two GPT coker eval findings:
 //   (1) Narrative contradicting FMD governing mode
@@ -163,6 +169,8 @@ var handler = async function(event) {
       "",
       "  consequence_reality:",
       "    consequence_tier: (CRITICAL|HIGH|ELEVATED|MODERATE|LOW)",
+      "    consequence_undetermined: (boolean -- true when consequence cannot be fully determined from available data)",
+      "    undetermined_impacts: [ strings -- which impact dimensions (human_impact, environmental_impact, operational_impact) lack evidence ]",
       "    failure_mode, failure_physics, consequence_basis, human_impact, environmental_impact, operational_impact",
       "    enforcement_requirements, damage_state, degradation_certainty, damage_trajectory",
       "    threshold_score, threshold_reasons[], monitoring_urgency",
@@ -353,6 +361,41 @@ var handler = async function(event) {
     }
 
     // ======================================================================
+    // DEPLOY184: CONSEQUENCE UNDETERMINED WARNING BLOCK (conditional)
+    // ======================================================================
+    // When decision-core flags consequence_undetermined = true, one or more
+    // impact dimensions (human, environmental, operational) could not be
+    // determined from available data. The consequence tier may understate
+    // actual risk. GPT-4o must surface this in its narrative and reviewer_brief.
+
+    var consequenceUndetermined = decisionCore && decisionCore.consequence_reality && decisionCore.consequence_reality.consequence_undetermined === true;
+    var undeterminedImpacts = (decisionCore && decisionCore.consequence_reality && decisionCore.consequence_reality.undetermined_impacts) || [];
+
+    var consequenceUndeterminedPrompt = "";
+    if (consequenceUndetermined) {
+      var impactList = undeterminedImpacts.length > 0 ? undeterminedImpacts.join(", ") : "unspecified dimensions";
+      consequenceUndeterminedPrompt = [
+        "",
+        "============================================================",
+        "CONSEQUENCE UNDETERMINED WARNING -- ABSOLUTE RULE",
+        "============================================================",
+        "The decision-core has flagged consequence_undetermined = true.",
+        "Undetermined impact dimensions: " + impactList,
+        "",
+        "This means the consequence tier may be UNDERSTATED because evidence for one or more",
+        "impact dimensions (human, environmental, operational) was not available.",
+        "Absence of evidence is NOT evidence of low consequence.",
+        "",
+        "Your outputs MUST:",
+        "1. State in failure_narrative that consequence assessment is INCOMPLETE for: " + impactList + ".",
+        "2. In reviewer_brief, explicitly warn that consequence tier may be understated and name the missing dimensions.",
+        "3. In inspector_action_card, include a step to gather missing consequence data for: " + impactList + ".",
+        "4. In live_physics_state, note consequence_undetermined status and the missing dimensions.",
+        "5. Include consequence_reality.consequence_undetermined and consequence_reality.undetermined_impacts in evidence_trace."
+      ].join("\n");
+    }
+
+    // ======================================================================
     // OUTPUT FORMAT AND QUALITY REQUIREMENTS
     // ======================================================================
 
@@ -420,7 +463,7 @@ var handler = async function(event) {
       "- evidence_trace: minimum 8 entries covering the most critical claims across all features."
     ].join("\n");
 
-    var systemPrompt = basePrompt + enginePrompt + fmdOverridePrompt + alrScopePrompt + outputPrompt;
+    var systemPrompt = basePrompt + enginePrompt + fmdOverridePrompt + alrScopePrompt + consequenceUndeterminedPrompt + outputPrompt;
 
     // ======================================================================
     // USER PROMPT: transcript + decision-core + engine bundle
@@ -462,6 +505,9 @@ var handler = async function(event) {
     }
     if (alrScopePresent) {
       userPromptLines.push("REMINDER: The contradiction matrix scope rule is in effect. ONLY codes from the ALR chain above.");
+    }
+    if (consequenceUndetermined) {
+      userPromptLines.push("REMINDER: Consequence is UNDETERMINED for: " + undeterminedImpacts.join(", ") + ". You MUST address this in failure_narrative and reviewer_brief. Absence of evidence is NOT evidence of low consequence.");
     }
     userPromptLines.push("Respond with ONLY the JSON object. No markdown. No preamble.");
 
@@ -602,6 +648,26 @@ var handler = async function(event) {
     }
 
     // ======================================================================
+    // DEPLOY184: POST-RESPONSE CONSEQUENCE UNDETERMINED SAFETY NET
+    // ======================================================================
+    // If consequence_undetermined is true and GPT-4o's narrative does not
+    // reference undetermined/incomplete consequence, append a warning sentence.
+    // Belt-and-suspenders guarantee that undetermined consequence is never
+    // silently omitted from the synthesis.
+
+    var consequenceWarningInjected = false;
+    if (consequenceUndetermined && synthesis.failure_narrative) {
+      var narrativeForCheck = String(synthesis.failure_narrative).toLowerCase();
+      var hasUndeterminedRef = narrativeForCheck.indexOf("undetermined") >= 0 || narrativeForCheck.indexOf("incomplete") >= 0 || narrativeForCheck.indexOf("not fully determined") >= 0 || narrativeForCheck.indexOf("understated") >= 0;
+      if (!hasUndeterminedRef) {
+        var impactLabel = undeterminedImpacts.length > 0 ? undeterminedImpacts.join(", ") : "one or more impact dimensions";
+        var warningText = " CONSEQUENCE WARNING: Consequence assessment is incomplete — " + impactLabel + " could not be fully determined from available data. The stated consequence tier may understate actual risk.";
+        synthesis.failure_narrative = synthesis.failure_narrative + warningText;
+        consequenceWarningInjected = true;
+      }
+    }
+
+    // ======================================================================
     // DEPLOY170.2: POST-RESPONSE CONTRADICTION MATRIX FILTER
     // ======================================================================
     // Drop any matrix entry whose framework does not fuzzy-match an ALR code.
@@ -689,6 +755,9 @@ var handler = async function(event) {
     var constraintMetadata = {
       fmd_override_applied: fmdGoverningPresent,
       alr_scope_applied: alrScopePresent,
+      consequence_undetermined_applied: consequenceUndetermined,
+      consequence_undetermined_impacts: undeterminedImpacts.length > 0 ? undeterminedImpacts : null,
+      consequence_warning_injected: consequenceWarningInjected,
       narrative_corrected: narrativeCorrected,
       narrative_correction_reason: narrativeCorrectionReason,
       matrix_filter_applied: matrixFilterApplied,
