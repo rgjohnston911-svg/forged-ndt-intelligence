@@ -1,5 +1,7 @@
-// DEPLOY171.6 — decision-core.ts v2.6.2
-// v2.6.2: Catalog foundations — behavior-preserving capability layer for DEPLOY172
+// DEPLOY172 — decision-core.ts v2.7.0
+// v2.7.0: Corrosion family catalog migration + 4 new mechanisms (cscc, mic, sulfidation, underdeposit_corrosion)
+// Previous: DEPLOY171.6 — decision-core.ts v2.6.2
+// v2.6.2 (superseded by v2.7.0): Catalog foundations — behavior-preserving capability layer for DEPLOY172
 //
 // CONTEXT: DEPLOY172 will migrate the corrosion family (general_corrosion,
 // pitting, co2_corrosion, erosion) to the catalog and add four new
@@ -765,13 +767,198 @@ var MECHANISM_CATALOG_V1 = [
       geometry: "CUI by definition requires insulation. Without insulation present, the asset may corrode by atmospheric corrosion or another mechanism, but it cannot corrode by the CUI mechanism specifically.",
       thermal: "CUI is most active in the temperature window where liquid water can persist at the metal surface beneath insulation. Below 0F water freezes and corrosion stops; above 350F water evaporates faster than it can pool, and the metal surface stays dry."
     }
+  },
+  // =========================================================================
+  // DEPLOY172 v2.7.0: CORROSION FAMILY MIGRATION + NEW MECHANISMS
+  // 4 migrated from MECH_DEFS: general_corrosion, pitting, co2_corrosion, erosion
+  // 4 new: cscc, mic, sulfidation, underdeposit_corrosion
+  // =========================================================================
+  {
+    id: "general_corrosion",
+    name: "General Corrosion",
+    family: "corrosion",
+    severity: "medium",
+    description: "Uniform or near-uniform metal loss driven by electrochemical reaction between a susceptible metallic substrate and a corrosive environment containing water and dissolved species.",
+    preconditions: {
+      material: {
+        class_in: ["carbon_steel", "low_alloy_steel"],
+        class_not_in: ["cmc", "ceramic", "polymer", "titanium_alloy", "nickel_alloy"]
+      },
+      environment: {
+        phase_must_include: ["liquid_water", "water_vapor_condensable", "aqueous_acid", "aqueous_alkaline", "wet_gas"]
+      }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed", "leak_suspected"],
+    rejection_messages: {
+      material: "General corrosion requires a corrosion-susceptible metallic substrate. Non-metallic materials and corrosion-resistant alloys (titanium, nickel-base) do not corrode by the general aqueous mechanism in typical service.",
+      environment_phase: "General corrosion requires an aqueous phase or condensable water vapor at the metal surface. Without water, the electrochemical corrosion cell cannot form."
+    }
+  },
+  {
+    id: "pitting",
+    name: "Pitting Corrosion",
+    family: "corrosion",
+    severity: "high",
+    description: "Localized metal loss driven by breakdown of passive film or concentration-cell effects in the presence of chlorides, CO2, or other pit-initiating species.",
+    preconditions: {
+      material: {
+        class_in: ["carbon_steel", "low_alloy_steel", "austenitic_stainless", "duplex_stainless"],
+        class_not_in: ["cmc", "ceramic", "polymer"]
+      },
+      process_chemistry: {
+        chloride_band_min: "trace"
+      }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed", "leak_confirmed"],
+    rejection_messages: {
+      material: "Pitting requires a metallic substrate susceptible to localized corrosion. Non-metallic materials cannot pit.",
+      process_chemistry_chloride: "Pitting corrosion requires localized corrosive agents to break down the passive film. Without at least trace chloride or CO2 presence, the pit-initiation mechanism is not active."
+    }
+  },
+  {
+    id: "co2_corrosion",
+    name: "CO2 (Sweet) Corrosion",
+    family: "corrosion",
+    severity: "medium",
+    description: "Internal corrosion driven by dissolved CO2 forming carbonic acid in the presence of free water. Common in wet gas and multiphase production systems.",
+    preconditions: {
+      material: {
+        class_in: ["carbon_steel", "low_alloy_steel"],
+        class_not_in: ["austenitic_stainless", "duplex_stainless", "nickel_alloy", "cmc", "ceramic", "polymer"]
+      },
+      environment: {
+        phase_must_include: ["liquid_water", "water_vapor_condensable", "wet_gas"]
+      }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed"],
+    rejection_messages: {
+      material: "CO2 corrosion attacks carbon steel and low-alloy steel. CRAs (austenitic stainless, duplex, nickel-base) are resistant to sweet corrosion at typical refinery conditions.",
+      environment_phase: "CO2 corrosion requires free water or condensable water vapor to form carbonic acid."
+    }
+  },
+  {
+    id: "erosion",
+    name: "Erosion / Erosion-Corrosion",
+    family: "corrosion",
+    severity: "medium",
+    description: "Metal loss driven by high-velocity fluid or entrained particles mechanically removing protective scale or base metal at flow-direction-change geometries (elbows, tees, reducers).",
+    preconditions: {
+      material: {
+        class_in: ["carbon_steel", "low_alloy_steel", "austenitic_stainless", "duplex_stainless"]
+      },
+      flow_regime: {
+        flow_state_in: ["high_velocity", "turbulent"]
+      }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed"],
+    rejection_messages: {
+      material: "Erosion requires a metallic substrate susceptible to mechanical or electrochemical material removal under flow.",
+      flow_regime_state: "Erosion-corrosion requires high-velocity or turbulent flow conditions. In stagnant or low-flow conditions, the erosive mechanism is not active."
+    }
+  },
+  {
+    id: "cscc",
+    name: "Chloride Stress Corrosion Cracking",
+    family: "cracking",
+    severity: "critical",
+    description: "Transgranular or intergranular cracking of austenitic stainless steel under the combined action of tensile stress and chloride-bearing environment above approximately 140F. Cracks are typically branching.",
+    preconditions: {
+      material: {
+        class_in: ["austenitic_stainless", "duplex_stainless"]
+      },
+      process_chemistry: {
+        chloride_band_min: "trace"
+      },
+      thermal: {
+        operating_temp_f_window: [140, 1200]
+      }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: {
+      material: "Chloride SCC requires an austenitic or duplex stainless steel substrate. Carbon steel and low-alloy steel are not susceptible to the chloride SCC mechanism.",
+      process_chemistry_chloride: "Chloride SCC requires chlorides at the metal surface. Without at least trace chloride presence, the crack-initiation chemistry is absent.",
+      thermal: "Chloride SCC is most active above approximately 140F. Below 140F the mechanism is kinetically dormant in typical process service."
+    }
+  },
+  {
+    id: "mic",
+    name: "Microbiologically Influenced Corrosion",
+    family: "corrosion",
+    severity: "high",
+    description: "Localized corrosion driven by microbial colonies (SRB, APB, IOB) that establish biofilm on internal surfaces in stagnant or low-flow zones. Produces pitting beneath biofilm deposits.",
+    preconditions: {
+      environment: {
+        phase_must_include: ["liquid_water", "water_vapor_condensable", "wet_gas"]
+      },
+      flow_regime: {
+        flow_state_in: ["stagnant", "low_flow"]
+      },
+      deposits: {
+        deposits_required: true,
+        deposit_type_in: ["biofilm_slime", "sulfide_scale", "unknown"]
+      }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed", "leak_confirmed"],
+    rejection_messages: {
+      environment_phase: "MIC requires an aqueous phase to sustain microbial activity. In dry gas or anhydrous service, microbial colonies cannot establish.",
+      flow_regime_state: "MIC requires stagnant or low-flow conditions for biofilm establishment. In high-velocity or turbulent flow, shear forces prevent biofilm attachment.",
+      deposits_required: "MIC requires surface deposits (biofilm, slime, sulfide scale) as evidence of microbial colonization.",
+      deposits_type: "MIC is associated with biofilm/slime deposits or sulfide scale from SRB activity. The observed deposit type does not match the MIC deposit signature."
+    }
+  },
+  {
+    id: "sulfidation",
+    name: "High-Temperature Sulfidation",
+    family: "corrosion",
+    severity: "high",
+    description: "Elevated-temperature corrosion of carbon steel and low-alloy steel driven by reaction with sulfur species above approximately 500F. Rate follows the McConomy/API 939-C curve family.",
+    preconditions: {
+      material: {
+        class_in: ["carbon_steel", "low_alloy_steel"],
+        class_not_in: ["austenitic_stainless", "duplex_stainless", "nickel_alloy"]
+      },
+      process_chemistry: {
+        sulfur_required: true
+      },
+      thermal: {
+        operating_temp_f_window: [500, 1200]
+      }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed"],
+    rejection_messages: {
+      material: "High-temperature sulfidation attacks carbon steel and low-alloy (Cr-Mo) steel. Austenitic stainless, duplex, and nickel-base alloys are effectively immune below 1000F per the McConomy curve family.",
+      process_chemistry_sulfur: "Sulfidation requires sulfur-bearing service. Without sulfur species in the process stream, the sulfidation reaction cannot proceed.",
+      thermal: "Sulfidation kinetics are negligible below approximately 500F. Above 500F, the corrosion rate increases exponentially with temperature per the McConomy/API 939-C curve."
+    }
+  },
+  {
+    id: "underdeposit_corrosion",
+    name: "Under-Deposit Corrosion",
+    family: "corrosion",
+    severity: "high",
+    description: "Localized corrosion beneath surface deposits (ammonium salts, carbonate scale, sulfide scale) that create concentration cells or trap corrosive species against the metal surface.",
+    preconditions: {
+      deposits: {
+        deposits_required: true,
+        deposit_type_in: ["ammonium_salt", "carbonate_scale", "sulfide_scale", "unknown"]
+      },
+      process_chemistry: {
+        nh4_salt_required: true
+      }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed", "leak_confirmed"],
+    rejection_messages: {
+      deposits_required: "Under-deposit corrosion requires surface deposits that trap corrosive species against the metal surface.",
+      deposits_type: "Under-deposit corrosion is associated with ammonium salts, carbonate scale, or sulfide scale. The observed deposit type does not match.",
+      process_chemistry_nh4: "Under-deposit corrosion in FCC/crude overhead service requires ammonium salt formation conditions. Without ammonium salt potential, the primary deposit-driven corrosion mechanism is not active."
+    }
   }
 ];
 
 // Mechanisms migrated to the catalog evaluator path. All other mechanisms
 // continue to use the MECH_DEFS predicate path. This list will grow as
 // DEPLOY172 and DEPLOY173 ship.
-var MIGRATED_TO_CATALOG = ["cui"];
+var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion"];
 
 function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
   var satisfied: any[] = [];
@@ -2148,6 +2335,70 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
         // status === "ELIGIBLE": fall through to scoring. Bypass the legacy
         // predicate because the catalog has already verified preconditions.
         skipOldPredicate = true;
+
+        // DEPLOY172 v2.7.0: CATALOG-SPECIFIC SCORING BOOSTS
+        // These fire only for catalog-routed ELIGIBLE mechanisms. They add
+        // physics-derived scoring that the legacy evidence-key path cannot
+        // provide because the legacy path only reads flags, not structured
+        // physics state. Each boost reads the assetState that the catalog
+        // evaluator already validated, so the physics basis is guaranteed
+        // to be present.
+        if (md.id === "sulfidation") {
+          // Wire the McConomy helper for sulfidation rate scoring.
+          var sulfRateResult = computeSulfidationRate(
+            assetStateForCatalog.thermal.operating_temp_f,
+            assetStateForCatalog.process_chemistry.sulfur_class,
+            assetStateForCatalog.material.class
+          );
+          if (sulfRateResult.enabled && sulfRateResult.rate_mpy > 0) {
+            // Scale bonus by severity band: low +0.05, moderate +0.10,
+            // high +0.15, very_high +0.20
+            if (sulfRateResult.severity_band === "very_high") { score += 0.20; evFor.push("McConomy rate " + sulfRateResult.rate_mpy + " mpy (very high severity)"); }
+            else if (sulfRateResult.severity_band === "high") { score += 0.15; evFor.push("McConomy rate " + sulfRateResult.rate_mpy + " mpy (high severity)"); }
+            else if (sulfRateResult.severity_band === "moderate") { score += 0.10; evFor.push("McConomy rate " + sulfRateResult.rate_mpy + " mpy (moderate severity)"); }
+            else { score += 0.05; evFor.push("McConomy rate " + sulfRateResult.rate_mpy + " mpy (low severity)"); }
+          }
+        }
+        if (md.id === "cscc") {
+          // CSCC gets a boost from tensile stress presence (the catalog
+          // checks material + chlorides + temperature, but stress is not
+          // yet a catalog precondition — it will be in DEPLOY173 when the
+          // stress bucket activates). For now, read it from physics.
+          if (assetStateForCatalog.stress.tensile) {
+            score += 0.12;
+            evFor.push("tensile stress present — completes the CSCC triad (material + chlorides + stress)");
+          }
+          // Branching crack morphology is the classic CSCC signature
+          if (hasWordNotNegated(lt, "branch") || hasWordNotNegated(lt, "branching") || hasWordNotNegated(lt, "transgranular")) {
+            score += 0.10;
+            evFor.push("branching/transgranular crack morphology — classic CSCC signature");
+          }
+        }
+        if (md.id === "mic") {
+          // MIC boost for deadleg geometry (catalog checks flow_state
+          // but deadleg is an independent strong indicator)
+          if (assetStateForCatalog.flow_regime.deadleg === true) {
+            score += 0.10;
+            evFor.push("deadleg geometry — classic MIC colonization site");
+          }
+          // Black slime / biofilm language
+          if (hasWordNotNegated(lt, "slime") || hasWordNotNegated(lt, "biofilm") || hasWordNotNegated(lt, "black deposit") || hasWordNotNegated(lt, "black slime") || hasWordNotNegated(lt, "biological")) {
+            score += 0.10;
+            evFor.push("biofilm/slime language — direct MIC indicator");
+          }
+        }
+        if (md.id === "underdeposit_corrosion") {
+          // NH4 salt-specific language boosts
+          if (hasWordNotNegated(lt, "salt") || hasWordNotNegated(lt, "ammonium") || hasWordNotNegated(lt, "nh4") || hasWordNotNegated(lt, "ammoni")) {
+            score += 0.10;
+            evFor.push("ammonium salt language — direct under-deposit indicator");
+          }
+          // Overhead / condensation zone context
+          if (hasWord(lt, "overhead") || hasWord(lt, "fractionator") || hasWord(lt, "condenser") || hasWord(lt, "dew point") || hasWord(lt, "initial condensation")) {
+            score += 0.08;
+            evFor.push("overhead/condensation service context — classic NH4 salt deposition zone");
+          }
+        }
       }
     }
 
@@ -2166,7 +2417,6 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
         met_preconditions: metPres });
       continue;
     }
-    var evFor: string[] = []; var evAg: string[] = []; var obs = false; var score = 0.4;
     for (var ei = 0; ei < md.eKeys.length; ei++) {
       if (fl[md.eKeys[ei]]) { evFor.push(md.eKeys[ei].replace(/_/g, " ")); score += 0.2; obs = true; }
     }
@@ -2200,7 +2450,7 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
       if (hasWord(lt, "rust") || hasWord(lt, "stain")) score += 0.05;
     }
 
-    var isCorrosionMech = md.id === "general_corrosion" || md.id === "pitting" || md.id === "co2_corrosion" || md.id === "cui" || md.id === "erosion";
+    var isCorrosionMech = md.id === "general_corrosion" || md.id === "pitting" || md.id === "co2_corrosion" || md.id === "cui" || md.id === "erosion" || md.id === "mic" || md.id === "sulfidation" || md.id === "underdeposit_corrosion";
     if (isCorrosionMech && wallLossReported) {
       score += 0.15;
       obs = true;
@@ -3785,7 +4035,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.6.2",
+            engine_version: "physics-first-decision-core-v2.7.0",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -3898,7 +4148,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.6.2",
+          engine_version: "physics-first-decision-core-v2.7.0",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
