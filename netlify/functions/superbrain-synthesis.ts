@@ -73,6 +73,33 @@ var handler = async function(event) {
 
   try {
     var body = JSON.parse(event.body || "{}");
+
+    // ========================================================================
+    // DEPLOY171.7: DOMAIN REFUSAL SHORT-CIRCUIT
+    // The superbrain pays GPT-4o latency to synthesize narratives. When the
+    // domain is unsupported, the decision-core returns null physics across all
+    // six reality states. Running GPT against that produces garbage narratives
+    // and wastes tokens. Short-circuit here.
+    // ========================================================================
+    var domainRefused = false;
+    if (body.domain_not_supported === true) { domainRefused = true; }
+    if (body.decision_core && body.decision_core.domain_not_supported === true) { domainRefused = true; }
+    if (domainRefused) {
+      return {
+        statusCode: 200,
+        headers: headers,
+        body: JSON.stringify({
+          domain_not_supported: true,
+          refusal_reason: "Upstream decision-core refused this asset domain. Superbrain synthesis not performed — no physics to narrate.",
+          narrative: null,
+          executive_summary: "DOMAIN NOT SUPPORTED — The asset class is outside this engine build's supported domain set. No inspection intelligence was produced. Manual review by domain-qualified personnel is required.",
+          section_summaries: {},
+          confidence_narrative: null,
+          engine_version: "superbrain-synthesis-v1.2-deploy171.7"
+        })
+      };
+    }
+
     var decisionCore = body.decision_core;
     var transcript = body.transcript || "";
 
