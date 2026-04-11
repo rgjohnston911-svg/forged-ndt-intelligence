@@ -1,8 +1,13 @@
 // ============================================================================
-// DEPLOY176 - DISPOSITION PATHWAY ENGINE v1.1
+// DEPLOY180 - DISPOSITION PATHWAY ENGINE v1.2
 // File: netlify/functions/disposition-pathway.js
 // NO TYPESCRIPT - PURE JAVASCRIPT - NO TEMPLATE LITERALS - var ONLY
 // ============================================================================
+//
+// DEPLOY180: Consequence undetermined gate -- when decision-core reports
+//   consequence_undetermined=true on HIGH/CRITICAL assets, disposition holds
+//   for engineering review. The engine cannot issue a disposition when it does
+//   not know what the consequences of failure are.
 //
 // DEPLOY176 SCOPE (per locked config):
 //   1. HARD CONFIDENCE GATE
@@ -134,6 +139,10 @@ var handler = async function(event) {
       var imSev = (indeterminateMechanisms[imi].severity || "").toLowerCase();
       if (imSev === "critical" || imSev === "high") { hasHighSeverityIndeterminate = true; break; }
     }
+
+    // DEPLOY180: CONSEQUENCE UNDETERMINED INPUT
+    var consequenceUndetermined = body.consequence_undetermined || false;
+    var undeterminedImpacts = body.undetermined_impacts || [];
 
     // ====================================================================
     // DEPLOY176: MECHANISM_EVIDENCE_CONTRACT
@@ -1090,6 +1099,47 @@ var handler = async function(event) {
       };
     }
 
+
+    // ----------------------------------------------------------------
+    // DEPLOY180 TIER 1.8: CONSEQUENCE UNDETERMINED GATE
+    // When the consequence model could not determine one or more impact
+    // dimensions (human, environmental, operational) on a HIGH/CRITICAL
+    // asset, disposition holds. The engine cannot issue go/no-go when
+    // it does not know what failure consequences are.
+    // ----------------------------------------------------------------
+
+    else if (consequenceUndetermined && (consequenceTier === "HIGH" || consequenceTier === "CRITICAL")) {
+      disposition = "HOLD_FOR_INPUT_ENFORCEMENT";
+      urgency = "ENFORCEMENT_BLOCK";
+
+      var undImpactStr = undeterminedImpacts.join(", ");
+      dispositionBasis = "CONSEQUENCE UNDETERMINED GATE ACTIVE. " +
+        "Decision-core could not classify " + undeterminedImpacts.length + " impact dimension(s) (" +
+        undImpactStr + ") on " + consequenceTier + " asset from available evidence. " +
+        "Disposition is blocked until impact dimensions are classified. " +
+        "The absence of evidence is not evidence of low consequence.";
+
+      conditions.push("CONSEQUENCE UNDETERMINED - Disposition blocked pending impact classification.");
+      conditions.push("Undetermined impacts: " + undImpactStr);
+      conditions.push("Provide evidence to classify: process fluid hazard, personnel proximity, environmental sensitivity, operational criticality.");
+
+      temporaryControls.push("Current operating conditions maintained pending impact assessment.");
+      temporaryControls.push("Enhanced monitoring and personnel awareness during assessment period.");
+
+      escalationTriggers.push("Any leak, weep, or release indication");
+      escalationTriggers.push("Any observed change in damage condition");
+      escalationTriggers.push("Discovery of hazardous process fluid not previously identified");
+
+      enforcementMetadata = {
+        gate: "consequence_undetermined",
+        mode: "ENFORCEMENT_BLOCK",
+        consequence_tier: consequenceTier,
+        undetermined_impacts: undeterminedImpacts,
+        undetermined_count: undeterminedImpacts.length,
+        required_action: "Classify impact dimensions: " + undImpactStr
+      };
+    }
+
     // ----------------------------------------------------------------
     // TIER 2: HOLD FOR DATA (unknown state blocks disposition)
     // ----------------------------------------------------------------
@@ -1385,12 +1435,14 @@ var handler = async function(event) {
         structural_capacity_loss_state: structuralPath ? (structuralPath.capacity_loss_state || null) : null,
         validated_mechanisms_count: validatedMechanisms ? validatedMechanisms.length : 0,
         indeterminate_mechanisms_count: indeterminateCount,
-        indeterminate_escalation: hasHighSeverityIndeterminate && (consequenceTier === "HIGH" || consequenceTier === "CRITICAL")
+        indeterminate_escalation: hasHighSeverityIndeterminate && (consequenceTier === "HIGH" || consequenceTier === "CRITICAL"),
+        consequence_undetermined: consequenceUndetermined,
+        undetermined_impacts: undeterminedImpacts
       },
       metadata: {
         engine: "disposition-pathway",
-        version: "1.1",
-        deploy: "DEPLOY176",
+        version: "1.2",
+        deploy: "DEPLOY180",
         features: {
           hard_confidence_gate: true,
           hard_confidence_threshold: 0.60,
