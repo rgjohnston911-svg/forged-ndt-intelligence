@@ -1,7 +1,6 @@
 // @ts-nocheck
-// DEPLOY182 -- decision-core.ts v2.9.2
-// v2.9.2: DEPLOY182 -- NPS nominal wall inference + RSR data-quality gate (clean rebuild).
-// Previous: v2.9.0 -- DEPLOY180 Consequence Reality fail-upward gate.
+// DEPLOY180 -- decision-core.ts v2.9.0
+// v2.9.0: DEPLOY180 -- Consequence Reality fail-upward gate.
 // Previous: v2.8.1 -- DEPLOY174 INDETERMINATE mechanism escalation.
 // Previous: DEPLOY171.6 — decision-core.ts v2.6.2
 // v2.6.2 (superseded by v2.7.0): Catalog foundations — behavior-preserving capability layer for DEPLOY172
@@ -3334,169 +3333,14 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
 }
 
 // ============================================================================
-// DEPLOY182: NPS NOMINAL WALL INFERENCE (ASME B36.10M / B36.19M)
-// ============================================================================
-// Given an NPS (nominal pipe size) and schedule from transcript, look up
-// nominal wall thickness from ASME B36.10M (carbon steel). This provides
-// a INFERRED wall thickness when no MEASURED value is available, enabling
-// the physics computations to run RSR/hoop calculations on pipe assets
-// that only report NPS + schedule in the inspection transcript.
-//
-// Data-quality gate: the return includes wall_source = "MEASURED" or
-// "INFERRED" so downstream consumers and disposition-pathway can
-// distinguish between measured and inferred wall thickness and apply
-// appropriate confidence adjustments.
-// ============================================================================
-
-var NPS_WALL_TABLE: any = {
-  "0.5_5": 1.65, "0.5_10": 1.65, "0.5_40": 2.11, "0.5_80": 3.73, "0.5_160": 4.75, "0.5_XXS": 7.47,
-  "0.75_5": 1.65, "0.75_10": 1.65, "0.75_40": 2.31, "0.75_80": 3.91, "0.75_160": 5.56, "0.75_XXS": 7.82,
-  "1_5": 1.65, "1_10": 1.65, "1_40": 2.77, "1_80": 3.91, "1_160": 6.35, "1_XXS": 8.74,
-  "1.25_5": 1.65, "1.25_10": 1.65, "1.25_40": 2.77, "1.25_80": 4.32, "1.25_160": 6.35, "1.25_XXS": 8.74,
-  "1.5_5": 1.65, "1.5_10": 2.11, "1.5_40": 2.77, "1.5_80": 4.32, "1.5_160": 7.14, "1.5_XXS": 8.74,
-  "2_5": 1.65, "2_10": 2.11, "2_40": 3.91, "2_80": 5.54, "2_160": 8.74, "2_XXS": 11.07,
-  "2.5_5": 2.11, "2.5_10": 3.05, "2.5_40": 5.16, "2.5_80": 7.01, "2.5_160": 9.53, "2.5_XXS": 14.02,
-  "3_5": 2.11, "3_10": 3.05, "3_40": 5.49, "3_80": 7.62, "3_160": 11.13, "3_XXS": 15.24,
-  "3.5_5": 2.11, "3.5_10": 3.05, "3.5_40": 5.74, "3.5_80": 8.08,
-  "4_5": 2.11, "4_10": 3.05, "4_40": 6.02, "4_80": 8.56, "4_120": 11.13, "4_160": 13.49, "4_XXS": 17.12,
-  "5_5": 2.77, "5_10": 3.40, "5_40": 6.55, "5_80": 9.53, "5_120": 12.70, "5_160": 15.88, "5_XXS": 19.05,
-  "6_5": 2.77, "6_10": 3.40, "6_40": 7.11, "6_80": 10.97, "6_120": 14.27, "6_160": 18.26, "6_XXS": 21.95,
-  "8_5": 2.77, "8_10": 3.76, "8_20": 6.35, "8_30": 7.04, "8_40": 8.18, "8_60": 10.31, "8_80": 12.70, "8_100": 15.09, "8_120": 18.26, "8_140": 20.62, "8_160": 23.01, "8_XXS": 22.23,
-  "10_5": 3.40, "10_10": 4.19, "10_20": 6.35, "10_30": 7.80, "10_40": 9.27, "10_60": 12.70, "10_80": 15.09, "10_100": 18.26, "10_120": 21.44, "10_140": 25.40, "10_160": 28.58,
-  "12_5": 3.96, "12_10": 4.57, "12_20": 6.35, "12_30": 8.38, "12_40": 10.31, "12_60": 14.27, "12_80": 17.48, "12_100": 21.44, "12_120": 25.40, "12_140": 28.58, "12_160": 33.32,
-  "14_5": 3.96, "14_10": 6.35, "14_20": 7.92, "14_30": 9.53, "14_40": 11.13, "14_60": 15.09, "14_80": 19.05, "14_100": 23.83, "14_120": 27.79, "14_140": 31.75, "14_160": 35.71,
-  "16_5": 4.19, "16_10": 6.35, "16_20": 7.92, "16_30": 9.53, "16_40": 12.70, "16_60": 16.66, "16_80": 21.44, "16_100": 26.19, "16_120": 30.96, "16_140": 36.53, "16_160": 40.49,
-  "18_5": 4.19, "18_10": 6.35, "18_20": 7.92, "18_30": 11.13, "18_40": 14.27, "18_60": 19.05, "18_80": 23.83, "18_100": 29.36, "18_120": 34.93, "18_140": 39.67, "18_160": 45.24,
-  "20_5": 4.78, "20_10": 6.35, "20_20": 9.53, "20_30": 12.70, "20_40": 15.09, "20_60": 20.62, "20_80": 26.19, "20_100": 32.54, "20_120": 38.10, "20_140": 44.45, "20_160": 50.01,
-  "24_5": 5.54, "24_10": 6.35, "24_20": 9.53, "24_30": 14.27, "24_40": 17.48, "24_60": 24.61, "24_80": 30.96, "24_100": 38.89, "24_120": 46.02, "24_140": 52.37, "24_160": 59.54,
-  "30_5": 6.35, "30_10": 7.92, "30_20": 12.70, "30_30": 15.88, "30_40": 19.05,
-  "36_5": 6.35, "36_10": 9.53, "36_20": 12.70, "36_30": 15.88, "36_40": 19.05
-};
-
-var NPS_OD_TABLE: any = {
-  "0.5": 21.3, "0.75": 26.7, "1": 33.4, "1.25": 42.2, "1.5": 48.3,
-  "2": 60.3, "2.5": 73.0, "3": 88.9, "3.5": 101.6, "4": 114.3,
-  "5": 141.3, "6": 168.3, "8": 219.1, "10": 273.1, "12": 323.9,
-  "14": 355.6, "16": 406.4, "18": 457.2, "20": 508.0, "24": 609.6,
-  "30": 762.0, "36": 914.4
-};
-
-function inferNominalWall(transcript: string, numVals: any) {
-  var result: any = {
-    nps_inch: null,
-    schedule: null,
-    nominal_wall_mm: null,
-    outside_diameter_mm: null,
-    wall_source: "NONE",
-    inference_confidence: 0
-  };
-
-  // If measured wall thickness already exists, mark as MEASURED and return
-  if (numVals && (numVals.wall_thickness_mm || numVals.current_thickness_mm)) {
-    result.wall_source = "MEASURED";
-    result.inference_confidence = 1.0;
-    result.nominal_wall_mm = numVals.wall_thickness_mm || numVals.current_thickness_mm;
-    return result;
-  }
-
-  if (typeof transcript !== "string" || transcript.length === 0) return result;
-
-  var lt = transcript.toLowerCase();
-
-  // Extract NPS from transcript
-  var npsVal: number | null = null;
-
-  // Pattern: "NPS 8", "nps 12", "NPS8"
-  var npsPatterns = [
-    /nps\s*(\d+(?:\.\d+)?)/i,
-    /(\d+(?:\.\d+)?)\s*[\-]?\s*inch\s+(?:nominal|nom|nps|pipe)/i,
-    /(\d+(?:\.\d+)?)\s*"\s*(?:nominal|nom|nps|pipe)/i,
-    /(\d+(?:\.\d+)?)\s*inch\s+(?:line|pipe|piping|header)/i,
-    /nominal\s+(?:pipe\s+)?size\s+(\d+(?:\.\d+)?)/i
-  ];
-
-  for (var pi = 0; pi < npsPatterns.length; pi++) {
-    var npsMatch = npsPatterns[pi].exec(lt);
-    if (npsMatch && npsMatch[1]) {
-      var candidate = parseFloat(npsMatch[1]);
-      if (candidate >= 0.5 && candidate <= 36) {
-        npsVal = candidate;
-        break;
-      }
-    }
-  }
-
-  if (npsVal === null) return result;
-
-  // Extract schedule from transcript
-  var schVal: string | null = null;
-
-  var schPatterns = [
-    /schedule\s+(\d+|xxs|xs)/i,
-    /sch\s*\.?\s*(\d+|xxs|xs)/i,
-    /s(\d+)\s/i
-  ];
-
-  for (var si = 0; si < schPatterns.length; si++) {
-    var schMatch = schPatterns[si].exec(lt);
-    if (schMatch && schMatch[1]) {
-      var raw = schMatch[1].toUpperCase();
-      if (raw === "XS") raw = "80";
-      if (raw === "STD" || raw === "STANDARD") raw = "40";
-      schVal = raw;
-      break;
-    }
-  }
-
-  // Default to Schedule 40 (STD) if NPS found but no schedule
-  if (schVal === null) schVal = "40";
-
-  var npsStr = String(npsVal);
-  var key = npsStr + "_" + schVal;
-  var wallMm = NPS_WALL_TABLE[key] || null;
-  var odMm = NPS_OD_TABLE[npsStr] || null;
-
-  if (wallMm === null) {
-    // Try schedule 40 fallback
-    var fallbackKey = npsStr + "_40";
-    wallMm = NPS_WALL_TABLE[fallbackKey] || null;
-    if (wallMm !== null) schVal = "40";
-  }
-
-  result.nps_inch = npsVal;
-  result.schedule = schVal;
-  result.nominal_wall_mm = wallMm;
-  result.outside_diameter_mm = odMm;
-  result.wall_source = wallMm !== null ? "INFERRED" : "NONE";
-  result.inference_confidence = wallMm !== null ? 0.75 : 0;
-
-  return result;
-}
-
-// ============================================================================
 // PHYSICS COMPUTATIONS
 // ============================================================================
 function runPhysicsComputations(physics: any, numVals: any, assetClass: string, consequence: any) {
   var nv = numVals || {};
   var wallT = nv.wall_thickness_mm || null;
-  var wallSource = wallT ? "MEASURED" : "NONE";
-
-  // DEPLOY182: NPS inference fallback for wall thickness and OD
-  var npsInference = nv._nps_inference || null;
-  if (!wallT && npsInference && npsInference.nominal_wall_mm) {
-    wallT = npsInference.nominal_wall_mm;
-    wallSource = "INFERRED";
-  }
-
   var flawD = nv.flaw_depth_mm || nv.crack_depth_mm || null;
   var pressMpa = nv.operating_pressure_mpa || (nv.operating_pressure_psi ? nv.operating_pressure_psi * 0.00689476 : null);
   var radiusMm = nv.inside_radius_mm || (nv.inside_diameter_mm ? nv.inside_diameter_mm / 2 : null) || (nv.outside_diameter_mm && wallT ? (nv.outside_diameter_mm - 2 * wallT) / 2 : null);
-
-  // DEPLOY182: NPS OD fallback for radius when no direct measurement
-  if (!radiusMm && npsInference && npsInference.outside_diameter_mm && wallT) {
-    radiusMm = (npsInference.outside_diameter_mm - 2 * wallT) / 2;
-  }
-
   var cyclesPerDay = nv.cycles_per_day || null;
   var corrRate = nv.corrosion_rate_mm_per_year || null;
   var tMin = nv.minimum_thickness_mm || null;
@@ -3572,15 +3416,7 @@ function runPhysicsComputations(physics: any, numVals: any, assetClass: string, 
         "Leak-before-break tendency favored, but does not reduce inspection rigor." };
   }
 
-  // DEPLOY182: data quality tracking
-  var dataQuality: any = {
-    wall_source: wallSource,
-    wall_thickness_used_mm: wallT,
-    nps_inference_applied: (wallSource === "INFERRED"),
-    confidence_note: wallSource === "MEASURED" ? "Wall thickness from direct measurement" : wallSource === "INFERRED" ? "Wall thickness inferred from NPS/schedule lookup (ASME B36.10M). Treat computed RSR/hoop as preliminary." : "No wall thickness available"
-  };
-
-  return { fatigue: fatigue, critical_flaw: critFlaw, wall_loss: wallLoss, leak_vs_burst: leakBurst, data_quality: dataQuality };
+  return { fatigue: fatigue, critical_flaw: critFlaw, wall_loss: wallLoss, leak_vs_burst: leakBurst };
 }
 
 
@@ -4532,10 +4368,6 @@ var handler: Handler = async function(event: HandlerEvent) {
     var numVals = parsed.numeric_values || {};
     var lt_handler = transcript.toLowerCase();
 
-    // DEPLOY182: NPS nominal wall inference
-    var npsWallInference = inferNominalWall(transcript, numVals);
-    numVals._nps_inference = npsWallInference;
-
     // ASSET ALIAS CORRECTION
     var assetCorrected = false;
     var assetCorrectionReason = "";
@@ -4730,7 +4562,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.2",
+            engine_version: "physics-first-decision-core-v2.9.0",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -4843,7 +4675,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.2",
+          engine_version: "physics-first-decision-core-v2.9.0",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
@@ -4862,8 +4694,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       impact_event: physics.energy.impact_event || false
     },
     flow_regime: physics.flow_regime || { flow_state: null, deadleg: null, turbulence_geometry_present: null },
-            deposits: physics.deposits || { deposits_present: null, deposit_type: null, deposit_evidence: [] },
-            nps_inference: npsWallInference
+            deposits: physics.deposits || { deposits_present: null, deposit_type: null, deposit_evidence: [] }
           },
           damage_reality: {
             validated_mechanisms: damage.validated,
@@ -4959,4 +4790,7 @@ var handler: Handler = async function(event: HandlerEvent) {
     };
   } catch (err: any) {
     return { statusCode: 500, headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
-      body: JSON.string
+      body: JSON.stringify({ error: "decision-core failed: " + (err.message || String(err)) }) };
+  }
+};
+export { handler };
