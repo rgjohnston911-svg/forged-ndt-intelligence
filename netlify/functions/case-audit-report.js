@@ -28,6 +28,7 @@ var handler = async function(event) {
     var domainRefused = false;
     if (body.domain_not_supported === true) { domainRefused = true; }
     if (body.decision_core_result && body.decision_core_result.domain_not_supported === true) { domainRefused = true; }
+    if (body.decision_core && body.decision_core.domain_not_supported === true) { domainRefused = true; }
     if (domainRefused) {
       var refusalHeaders = {
         "Access-Control-Allow-Origin": "*",
