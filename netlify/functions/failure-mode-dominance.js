@@ -1,6 +1,14 @@
-// FAILURE MODE DOMINANCE ENGINE v1.3.2
+// FAILURE MODE DOMINANCE ENGINE v1.4.0
 // File: netlify/functions/failure-mode-dominance.js
 // NO TYPESCRIPT -- PURE JAVASCRIPT
+//
+// v1.4.0: DEPLOY174+ CATALOG FAMILY MAP
+//        Adds CATALOG_FAMILY_MAP that maps all 21 decision-core catalog
+//        mechanism IDs to their canonical FMD failure mode families.
+//        Classification loop checks the map FIRST before keyword fallback.
+//        Prevents drift between decision-core catalog and FMD classification
+//        (e.g. sulfidation, creep, brittle_fracture, fire_damage, hydrogen_damage
+//        were falling through to otherMechanisms because no keyword matched).
 //
 // v1.3.2 HOTFIX: MISALIGNMENT CONTEXT DISCRIMINATOR
 //        "misalignment" / "misaligned" / "out of alignment" were in the
@@ -245,6 +253,46 @@ function inferCrackConfirmationState(text, keyword) {
   return state;
 }
 
+// ======================================================================
+// DEPLOY174+: CATALOG FAMILY MAP
+// Maps all 21 decision-core catalog mechanism IDs to their canonical FMD
+// failure mode family. When a mechanism ID is recognized in this map, the
+// classification loop uses the map instead of keyword matching. This
+// prevents drift between decision-core's catalog and FMD's classification.
+//
+// Families: "corrosion", "cracking", "structural", "thermal_degradation"
+// thermal_degradation is a new family for mechanisms that don't fit the
+// traditional corrosion/cracking/structural split but need to be tracked
+// separately from "other" (which implies truly unknown).
+// ======================================================================
+var CATALOG_FAMILY_MAP = {
+  // Corrosion family (wall thinning / material loss)
+  "cui": "corrosion",
+  "general_corrosion": "corrosion",
+  "pitting": "corrosion",
+  "co2_corrosion": "corrosion",
+  "erosion": "corrosion",
+  "sulfidation": "corrosion",
+  "mic": "corrosion",
+  "underdeposit_corrosion": "corrosion",
+  // Cracking family (crack initiation / propagation)
+  "cscc": "cracking",
+  "scc_chloride": "cracking",
+  "scc_caustic": "cracking",
+  "ssc_sulfide": "cracking",
+  "hic": "cracking",
+  "fatigue_mechanical": "cracking",
+  "fatigue_thermal": "cracking",
+  "fatigue_vibration": "cracking",
+  "hydrogen_damage": "cracking",
+  // Structural family (geometry / stability)
+  "overload_buckling": "structural",
+  // Thermal degradation family (property loss, not wall loss)
+  "creep": "thermal_degradation",
+  "brittle_fracture": "thermal_degradation",
+  "fire_damage": "thermal_degradation"
+};
+
 var handler = async function(event) {
   "use strict";
 
@@ -323,7 +371,21 @@ var handler = async function(event) {
       // on snake_case mechanism tokens (e.g. "tilt_severe" -> "tilt severe")
       var mechNorm = mech.replace(/_/g, " ");
 
-      if (mech.indexOf("crack") >= 0 || mech.indexOf("scc") >= 0 || mech.indexOf("ssc") >= 0 ||
+      // DEPLOY174+: Check catalog family map FIRST before keyword fallback
+      var catalogFamily = CATALOG_FAMILY_MAP[mech] || null;
+      if (catalogFamily === "corrosion") {
+        corrosionMechanisms.push(mech);
+      } else if (catalogFamily === "cracking") {
+        crackingMechanisms.push(mech);
+      } else if (catalogFamily === "structural") {
+        structuralMechanisms.push(mech);
+      } else if (catalogFamily === "thermal_degradation") {
+        // Thermal degradation mechanisms (creep, brittle fracture, fire damage)
+        // are tracked in corrosion path for FFS purposes -- wall thinning and
+        // property degradation both route through API 579-1 Part 4/10/11.
+        // They don't belong in "other" because they are known, real mechanisms.
+        corrosionMechanisms.push(mech);
+      } else if (mech.indexOf("crack") >= 0 || mech.indexOf("scc") >= 0 || mech.indexOf("ssc") >= 0 ||
           mech.indexOf("sscc") >= 0 || mech.indexOf("hic") >= 0 || mech.indexOf("sohic") >= 0 ||
           mech.indexOf("fatigue") >= 0 || mech === "hydrogen_induced_cracking" ||
           mech === "sulfide_stress_cracking" || mech === "stress_corrosion_cracking" ||
@@ -871,7 +933,7 @@ var handler = async function(event) {
       },
       metadata: {
         engine: "failure-mode-dominance",
-        version: "1.3.2",
+        version: "1.4.0",
         timestamp: new Date().toISOString()
       }
     };
