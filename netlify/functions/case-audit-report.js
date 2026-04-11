@@ -22,6 +22,42 @@ var handler = async function(event) {
   try {
     var body = JSON.parse(event.body);
 
+    // ========================================================================
+    // DEPLOY171.7: DOMAIN REFUSAL SHORT-CIRCUIT
+    // ========================================================================
+    var domainRefused = false;
+    if (body.domain_not_supported === true) { domainRefused = true; }
+    if (body.decision_core_result && body.decision_core_result.domain_not_supported === true) { domainRefused = true; }
+    if (domainRefused) {
+      var refusalHeaders = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Content-Type": "application/json"
+      };
+      return {
+        statusCode: 200,
+        headers: refusalHeaders,
+        body: JSON.stringify({
+          domain_not_supported: true,
+          refusal_reason: "Upstream decision-core refused this asset domain. Case audit report not generated.",
+          audit_summary: {
+            run_id: body.run_id || "unspecified",
+            timestamp: new Date().toISOString(),
+            modules_present: [],
+            overall_confidence: "DOMAIN_NOT_SUPPORTED",
+            reality_state: "DOMAIN_NOT_SUPPORTED",
+            decision_class: "domain_not_supported",
+            hardening_version: "1.0-deploy171.7"
+          },
+          trace_cards: [],
+          gaps: [],
+          confidence_breakdown: null,
+          engine_version: "case-audit-report-v1.0-deploy171.7"
+        })
+      };
+    }
+
     var challengeResult = body.challenge_result || null;
     var unknownStateResult = body.unknown_state_result || null;
     var decisionCoreResult = body.decision_core_result || null;
