@@ -100,7 +100,7 @@ var handler = async function(event) {
           required_actions: [],
           pressure_reduction: null,
           monitoring_plan: null,
-          engine_version: "disposition-pathway-v1.0-deploy171.7"
+          engine_version: "disposition-pathway-v1.0-deploy174"
         })
       };
     }
@@ -125,6 +125,15 @@ var handler = async function(event) {
     var realityConfidenceOverall = typeof body.reality_confidence_overall === "number" ? body.reality_confidence_overall : null;
     var structuralPath = body.structural_path || null;
     var validatedMechanisms = body.validated_mechanisms || [];
+
+    // DEPLOY174: INDETERMINATE MECHANISM ESCALATION INPUT
+    var indeterminateMechanisms = body.indeterminate_mechanisms || [];
+    var indeterminateCount = indeterminateMechanisms.length;
+    var hasHighSeverityIndeterminate = false;
+    for (var imi = 0; imi < indeterminateMechanisms.length; imi++) {
+      var imSev = (indeterminateMechanisms[imi].severity || "").toLowerCase();
+      if (imSev === "critical" || imSev === "high") { hasHighSeverityIndeterminate = true; break; }
+    }
 
     // ====================================================================
     // DEPLOY176: MECHANISM_EVIDENCE_CONTRACT
@@ -1374,7 +1383,9 @@ var handler = async function(event) {
         reality_confidence_overall: realityConfidenceOverall,
         structural_path_active: structuralPath ? !!structuralPath.active : false,
         structural_capacity_loss_state: structuralPath ? (structuralPath.capacity_loss_state || null) : null,
-        validated_mechanisms_count: validatedMechanisms ? validatedMechanisms.length : 0
+        validated_mechanisms_count: validatedMechanisms ? validatedMechanisms.length : 0,
+        indeterminate_mechanisms_count: indeterminateCount,
+        indeterminate_escalation: hasHighSeverityIndeterminate && (consequenceTier === "HIGH" || consequenceTier === "CRITICAL")
       },
       metadata: {
         engine: "disposition-pathway",
