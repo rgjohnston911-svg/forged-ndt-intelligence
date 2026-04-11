@@ -1,6 +1,11 @@
-// FAILURE TIMELINE ENGINE v1.1
+// FAILURE TIMELINE ENGINE v1.2
 // File: netlify/functions/failure-timeline.js
 // NO TYPESCRIPT -- PURE JAVASCRIPT
+// v1.2 (DEPLOY184): Wire consequence_undetermined into timeline response.
+//   - Extracts consequence_undetermined + undetermined_impacts from decision_core
+//   - Surfaces consequence_context in response with warning when undetermined
+//   - metadata.consequence_undetermined flag for downstream consumers
+// Previous: v1.1 (DEPLOY165)
 //
 // v1.1 (DEPLOY165) additions:
 //   1. New input: service_age_years
@@ -69,6 +74,18 @@ var handler = async function(event) {
         })
       };
     }
+
+    // ====================================================================
+    // DEPLOY184: CONSEQUENCE UNDETERMINED CONTEXT
+    // ====================================================================
+    // Extract consequence_undetermined from decision_core so the timeline
+    // response can surface that urgency band may need upward revision once
+    // consequence dimensions are fully characterized.
+    var dc = body.decision_core || {};
+    var cr = dc.consequence_reality || {};
+    var consequenceUndetermined = cr.consequence_undetermined === true;
+    var undeterminedImpacts = cr.undetermined_impacts || [];
+    var consequenceTier = cr.consequence_tier || null;
 
     // ====================================================================
     // CORROSION INPUTS
@@ -465,6 +482,12 @@ var handler = async function(event) {
       progression_state_basis: progressionBasis,
       corrosion_timeline: corrosionTimeline,
       crack_timeline: crackTimeline,
+      consequence_context: {
+        consequence_undetermined: consequenceUndetermined,
+        undetermined_impacts: undeterminedImpacts,
+        consequence_tier: consequenceTier,
+        warning: consequenceUndetermined ? "Timeline computed against asset with undetermined consequence dimensions (" + undeterminedImpacts.join(", ") + "). Urgency band may need upward revision once consequence is fully characterized." : null
+      },
       inputs_echo: {
         nominal_wall: nominalWall,
         current_wall: currentWall,
@@ -480,8 +503,9 @@ var handler = async function(event) {
       },
       metadata: {
         engine: "failure-timeline",
-        version: "1.1",
+        version: "1.2",
         method: "Linear corrosion projection + Paris Law crack growth + wall-loss/age derivation + 6-state progression taxonomy",
+        consequence_undetermined: consequenceUndetermined,
         timestamp: new Date().toISOString()
       }
     };
