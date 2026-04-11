@@ -27,6 +27,32 @@ var handler = async function(event) {
     var body = JSON.parse(event.body || "{}");
 
     // ========================================================================
+    // DEPLOY171.7: DOMAIN REFUSAL SHORT-CIRCUIT
+    // If the decision-core refused because the asset domain is unsupported,
+    // return immediately with a clean refusal payload instead of running
+    // challenge logic against null physics.
+    // ========================================================================
+    var domainRefused = false;
+    if (body.domain_not_supported === true) { domainRefused = true; }
+    if (body.decision_core && body.decision_core.domain_not_supported === true) { domainRefused = true; }
+    if (domainRefused) {
+      return {
+        statusCode: 200,
+        headers: headers,
+        body: JSON.stringify({
+          domain_not_supported: true,
+          refusal_reason: "Upstream decision-core refused this asset domain. Reality challenge not performed.",
+          primary_reality_hypothesis: null,
+          alternate_hypotheses: [],
+          ambiguity_score: 0,
+          ambiguity_flags: [],
+          challenge_summary: "DOMAIN NOT SUPPORTED — no challenge performed",
+          engine_version: "reality-challenge-v1.1-deploy171.7"
+        })
+      };
+    }
+
+    // ========
     // INPUTS — from pipeline data
     // ========================================================================
 
