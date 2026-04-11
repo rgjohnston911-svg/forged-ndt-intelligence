@@ -46,6 +46,30 @@ var handler = async function(event) {
   try {
     var body = JSON.parse(event.body || "{}");
 
+    // ========================================================================
+    // DEPLOY171.7: DOMAIN REFUSAL SHORT-CIRCUIT
+    // ========================================================================
+    var domainRefused = false;
+    if (body.domain_not_supported === true) { domainRefused = true; }
+    if (body.decision_core && body.decision_core.domain_not_supported === true) { domainRefused = true; }
+    if (domainRefused) {
+      return {
+        statusCode: 200,
+        headers: headers,
+        body: JSON.stringify({
+          domain_not_supported: true,
+          refusal_reason: "Upstream decision-core refused this asset domain. Failure timeline not computed.",
+          corrosion_timeline: null,
+          crack_timeline: null,
+          creep_timeline: null,
+          combined_remaining_life_years: null,
+          governing_timeline: "DOMAIN_NOT_SUPPORTED",
+          urgency_band: null,
+          engine_version: "failure-timeline-v1.1-deploy171.7"
+        })
+      };
+    }
+
     // ====================================================================
     // CORROSION INPUTS
     // ====================================================================
