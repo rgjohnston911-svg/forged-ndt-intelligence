@@ -28,6 +28,30 @@ var handler = async function(event) {
     var body = JSON.parse(event.body || "{}");
 
     // ========================================================================
+    // DEPLOY171.7: DOMAIN REFUSAL SHORT-CIRCUIT
+    // ========================================================================
+    var domainRefused = false;
+    if (body.domain_not_supported === true) { domainRefused = true; }
+    if (body.decision_core && body.decision_core.domain_not_supported === true) { domainRefused = true; }
+    if (domainRefused) {
+      return {
+        statusCode: 200,
+        headers: headers,
+        body: JSON.stringify({
+          domain_not_supported: true,
+          refusal_reason: "Upstream decision-core refused this asset domain. Unknown state evaluation not performed.",
+          reality_state: "DOMAIN_NOT_SUPPORTED",
+          confidence_score: 0,
+          minimum_data_met: false,
+          minimum_data_items: [],
+          evidence_quality: null,
+          recommendation: "Asset domain is not supported by this engine build. Manual review by domain-qualified personnel required.",
+          engine_version: "unknown-state-v1.1-deploy171.7"
+        })
+      };
+    }
+
+    // ========
     // INPUTS
     // ========================================================================
 
