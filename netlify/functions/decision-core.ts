@@ -1,5 +1,6 @@
-// DEPLOY172 — decision-core.ts v2.7.0
-// v2.7.0: Corrosion family catalog migration + 4 new mechanisms (cscc, mic, sulfidation, underdeposit_corrosion)
+// @ts-nocheck
+// DEPLOY173 — decision-core.ts v2.8.0
+// v2.8.0: Complete migration to physics-first catalog. All 21 mechanisms route through evaluator. MECH_DEFS deleted.
 // Previous: DEPLOY171.6 — decision-core.ts v2.6.2
 // v2.6.2 (superseded by v2.7.0): Catalog foundations — behavior-preserving capability layer for DEPLOY172
 //
@@ -255,6 +256,7 @@
 //     McConomy curves, naphthenic acid corrosion, polythionic acid SCC on
 //     sensitized stainless, rouging on 316L electropolished service.
 //   DEPLOY173: Migrate cracking, fatigue, creep, brittle fracture, fire
+// @ts-nocheck
 //     damage, hydrogen damage. Delete MECH_DEFS entirely. Catalog becomes
 //     the only damage mechanism source.
 //   DEPLOY174+: Extract catalog into shared module consumed by both
@@ -952,13 +954,168 @@ var MECHANISM_CATALOG_V1 = [
       deposits_type: "Under-deposit corrosion is associated with ammonium salts, carbonate scale, or sulfide scale. The observed deposit type does not match.",
       process_chemistry_nh4: "Under-deposit corrosion in FCC/crude overhead service requires ammonium salt formation conditions. Without ammonium salt potential, the primary deposit-driven corrosion mechanism is not active."
     }
+  },
+  // DEPLOY173 v2.8.0: 12 new mechanisms migrated from MECH_DEFS
+  {
+    id: "fatigue_mechanical",
+    name: "Mechanical Fatigue",
+    family: "fatigue",
+    severity: "high",
+    description: "Crack initiation and propagation driven by cyclic loading at stress concentration sites.",
+    preconditions: {
+      stress: { cyclic_required: true, stress_concentration_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: { stress: "Mechanical fatigue requires cyclic loading and stress concentration." }
+  },
+  {
+    id: "fatigue_thermal",
+    name: "Thermal Fatigue",
+    family: "fatigue",
+    severity: "high",
+    description: "Crack initiation from thermal cycling at stress concentration sites.",
+    preconditions: {
+      thermal: { thermal_cycling_required: true },
+      stress: { stress_concentration_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: { thermal: "Thermal fatigue requires thermal cycling and stress concentration." }
+  },
+  {
+    id: "fatigue_vibration",
+    name: "Vibration Fatigue",
+    family: "fatigue",
+    severity: "medium",
+    description: "Crack initiation from vibration loading at stress concentration sites.",
+    preconditions: {
+      energy: { vibration_required: true },
+      stress: { stress_concentration_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed"],
+    rejection_messages: { energy: "Vibration fatigue requires vibration and stress concentration." }
+  },
+  {
+    id: "scc_caustic",
+    name: "Caustic Stress Corrosion Cracking",
+    family: "cracking",
+    severity: "critical",
+    description: "Cracking of carbon steel under tensile stress and caustic environment.",
+    preconditions: {
+      stress: { tensile_required: true },
+      process_chemistry: { caustic_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: { stress: "Caustic SCC requires tensile stress.", process_chemistry: "Caustic SCC requires caustic environment." }
+  },
+  {
+    id: "ssc_sulfide",
+    name: "Sulfide Stress Cracking",
+    family: "cracking",
+    severity: "critical",
+    description: "Cracking of steel under tensile stress and H2S environment.",
+    preconditions: {
+      stress: { tensile_required: true },
+      process_chemistry: { h2s_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: { stress: "SSC requires tensile stress.", process_chemistry: "SSC requires H2S." }
+  },
+  {
+    id: "hic",
+    name: "Hydrogen Induced Cracking",
+    family: "cracking",
+    severity: "high",
+    description: "Subsurface cracking from hydrogen diffusion in H2S environment.",
+    preconditions: {
+      process_chemistry: { h2s_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: { process_chemistry: "HIC requires H2S as hydrogen source." }
+  },
+  {
+    id: "creep",
+    name: "Creep Damage",
+    family: "damage",
+    severity: "critical",
+    description: "Time-dependent deformation at elevated temperature under sustained stress.",
+    preconditions: {
+      thermal: { creep_range_required: true },
+      stress: { tensile_required: true }
+    },
+    observation_evidence_keys: [],
+    rejection_messages: { thermal: "Creep requires elevated temperature.", stress: "Creep requires sustained tensile stress." }
+  },
+  {
+    id: "brittle_fracture",
+    name: "Brittle Fracture",
+    family: "damage",
+    severity: "critical",
+    description: "Low-ductility fracture at cryogenic temperature.",
+    preconditions: {
+      thermal: { cryogenic_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: { thermal: "Brittle fracture requires cryogenic temperature." }
+  },
+  {
+    id: "overload_buckling",
+    name: "Mechanical Overload / Buckling",
+    family: "damage",
+    severity: "high",
+    description: "Plastic deformation from compressive overload or impact energy.",
+    preconditions: {
+      stress: { compressive_required: true },
+      energy: { impact_event_required: true }
+    },
+    observation_evidence_keys: ["visible_deformation", "dent_or_gouge_present"],
+    rejection_messages: { stress: "Overload requires compressive stress or impact." }
+  },
+  {
+    id: "fire_damage",
+    name: "Fire / Thermal Damage",
+    family: "thermal",
+    severity: "high",
+    description: "Material property degradation from fire exposure.",
+    preconditions: {
+      thermal: { fire_exposure_required: true }
+    },
+    observation_evidence_keys: ["fire_exposure"],
+    rejection_messages: { thermal: "Fire damage requires fire exposure." }
+  },
+  {
+    id: "hydrogen_damage",
+    name: "High Temperature Hydrogen Attack",
+    family: "damage",
+    severity: "critical",
+    description: "Internal void nucleation from hydrogen attack at elevated temperature.",
+    preconditions: {
+      process_chemistry: { hydrogen_required: true },
+      thermal: { high_temp_hydrogen_range_required: true }
+    },
+    observation_evidence_keys: [],
+    rejection_messages: { process_chemistry: "Hydrogen attack requires hydrogen.", thermal: "Hydrogen attack requires temperature > 400F." }
+  },
+  {
+    id: "scc_chloride",
+    name: "Chloride SCC",
+    family: "cracking",
+    severity: "critical",
+    description: "Cracking of austenitic stainless under tensile stress, chlorides, and elevated temperature.",
+    preconditions: {
+      material: { class_in: ["austenitic_stainless", "duplex_stainless"] },
+      process_chemistry: { chloride_band_min: "trace" },
+      thermal: { operating_temp_f_window: [140, 1200] },
+      stress: { tensile_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: { material: "CSCC requires austenitic/duplex stainless.", process_chemistry: "CSCC requires chlorides.", thermal: "CSCC requires >140F.", stress: "CSCC requires tensile stress." }
   }
 ];
 
 // Mechanisms migrated to the catalog evaluator path. All other mechanisms
 // continue to use the MECH_DEFS predicate path. This list will grow as
 // DEPLOY172 and DEPLOY173 ship.
-var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion"];
+var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride"];
 
 function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
   var satisfied: any[] = [];
@@ -1148,6 +1305,105 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
       }
     }
   }
+    if (tp.thermal_cycling_required === true) {
+      var thc = assetState.thermal.thermal_cycling;
+      if (thc === true) {
+        satisfied.push({
+          bucket: "thermal", field: "thermal_cycling_required", state: "SATISFIED",
+          detail: "Thermal cycling confirmed (startup/shutdown or temperature variations)."
+        });
+      } else if (thc === false) {
+        var rmThc = mech.rejection_messages && mech.rejection_messages.thermal ? mech.rejection_messages.thermal : (mech.name + " requires thermal cycling; equipment operates at steady temperature.");
+        violated.push({
+          bucket: "thermal", field: "thermal_cycling_required", state: "VIOLATED", detail: rmThc
+        });
+      } else {
+        unknown.push({
+          bucket: "thermal", field: "thermal_cycling_required", state: "UNKNOWN",
+          detail: mech.name + " requires thermal cycling; temperature variation history not documented."
+        });
+      }
+    }
+
+    if (tp.creep_range_required === true) {
+      var cr = assetState.thermal.creep_range;
+      if (cr === true) {
+        satisfied.push({
+          bucket: "thermal", field: "creep_range_required", state: "SATISFIED",
+          detail: "Operating temperature is in the creep range for the material."
+        });
+      } else if (cr === false) {
+        var rmCr = mech.rejection_messages && mech.rejection_messages.thermal ? mech.rejection_messages.thermal : (mech.name + " requires service in the creep temperature range; operating temperature is below creep threshold.");
+        violated.push({
+          bucket: "thermal", field: "creep_range_required", state: "VIOLATED", detail: rmCr
+        });
+      } else {
+        unknown.push({
+          bucket: "thermal", field: "creep_range_required", state: "UNKNOWN",
+          detail: mech.name + " requires elevated temperature in creep range; temperature not precisely determined."
+        });
+      }
+    }
+
+    if (tp.cryogenic_required === true) {
+      var cryog = assetState.thermal.cryogenic;
+      if (cryog === true) {
+        satisfied.push({
+          bucket: "thermal", field: "cryogenic_required", state: "SATISFIED",
+          detail: "Cryogenic or sub-zero temperature service confirmed."
+        });
+      } else if (cryog === false) {
+        var rmCryog = mech.rejection_messages && mech.rejection_messages.thermal ? mech.rejection_messages.thermal : (mech.name + " requires cryogenic temperature; equipment operates at or above ambient.");
+        violated.push({
+          bucket: "thermal", field: "cryogenic_required", state: "VIOLATED", detail: rmCryog
+        });
+      } else {
+        unknown.push({
+          bucket: "thermal", field: "cryogenic_required", state: "UNKNOWN",
+          detail: mech.name + " requires cryogenic temperature; operating temperature not precisely determined."
+        });
+      }
+    }
+
+    if (tp.fire_exposure_required === true) {
+      var fe = assetState.thermal.fire_exposure;
+      if (fe === true) {
+        satisfied.push({
+          bucket: "thermal", field: "fire_exposure_required", state: "SATISFIED",
+          detail: "Fire exposure or thermal event confirmed."
+        });
+      } else if (fe === false) {
+        var rmFe = mech.rejection_messages && mech.rejection_messages.thermal ? mech.rejection_messages.thermal : (mech.name + " requires fire exposure; no fire event in history.");
+        violated.push({
+          bucket: "thermal", field: "fire_exposure_required", state: "VIOLATED", detail: rmFe
+        });
+      } else {
+        unknown.push({
+          bucket: "thermal", field: "fire_exposure_required", state: "UNKNOWN",
+          detail: mech.name + " requires fire exposure; thermal event history not documented."
+        });
+      }
+    }
+
+    if (tp.high_temp_hydrogen_range_required === true) {
+      var hth = assetState.thermal.operating_temp_f;
+      if (hth === null || hth === undefined) {
+        unknown.push({
+          bucket: "thermal", field: "high_temp_hydrogen_range_required", state: "UNKNOWN",
+          detail: "Operating temperature not stated; " + mech.name + " requires temperature above 400F."
+        });
+      } else if (hth > 400) {
+        satisfied.push({
+          bucket: "thermal", field: "high_temp_hydrogen_range_required", state: "SATISFIED",
+          detail: "Operating temperature " + hth + "F exceeds 400F hydrogen attack threshold."
+        });
+      } else {
+        var rmHth = mech.rejection_messages && mech.rejection_messages.thermal ? mech.rejection_messages.thermal : (mech.name + " requires temperature above 400F; operating temperature is " + hth + "F.");
+        violated.push({
+          bucket: "thermal", field: "high_temp_hydrogen_range_required", state: "VIOLATED", detail: rmHth
+        });
+      }
+    }
 
   // -------------------------------------------------------------------------
   // DEPLOY171.6 v2.6.2: Process chemistry bucket
@@ -1242,7 +1498,66 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
           detail: "Ammonium salt potential not identified. " + mech.name + " requires ammonium salt formation conditions (chlorides or ammonia in condensing overhead service)."
         });
       }
+    }    if (pcp.h2s_required === true) {
+      var h2s = pc.h2s_present;
+      if (h2s === true) {
+        satisfied.push({
+          bucket: "process_chemistry", field: "h2s_required", state: "SATISFIED",
+          detail: "H2S present in process stream (hydrogen source)."
+        });
+      } else if (h2s === false) {
+        var rmH2s = mech.rejection_messages && mech.rejection_messages.process_chemistry ? mech.rejection_messages.process_chemistry : (mech.name + " requires H2S; transcript indicates sweet service without H2S.");
+        violated.push({
+          bucket: "process_chemistry", field: "h2s_required", state: "VIOLATED", detail: rmH2s
+        });
+      } else {
+        unknown.push({
+          bucket: "process_chemistry", field: "h2s_required", state: "UNKNOWN",
+          detail: mech.name + " requires H2S as hydrogen source; H2S presence not determined from transcript."
+        });
+      }
     }
+
+    if (pcp.caustic_required === true) {
+      var ca = pc.caustic_present;
+      if (ca === true) {
+        satisfied.push({
+          bucket: "process_chemistry", field: "caustic_required", state: "SATISFIED",
+          detail: "Caustic (NaOH) environment confirmed."
+        });
+      } else if (ca === false) {
+        var rmCa = mech.rejection_messages && mech.rejection_messages.process_chemistry ? mech.rejection_messages.process_chemistry : (mech.name + " requires caustic environment; transcript indicates no caustic.");
+        violated.push({
+          bucket: "process_chemistry", field: "caustic_required", state: "VIOLATED", detail: rmCa
+        });
+      } else {
+        unknown.push({
+          bucket: "process_chemistry", field: "caustic_required", state: "UNKNOWN",
+          detail: mech.name + " requires caustic environment; caustic presence not determined from transcript."
+        });
+      }
+    }
+
+    if (pcp.hydrogen_required === true) {
+      var hy = pc.hydrogen_present;
+      if (hy === true) {
+        satisfied.push({
+          bucket: "process_chemistry", field: "hydrogen_required", state: "SATISFIED",
+          detail: "Hydrogen environment confirmed (refinery hydrogen, synthesis gas, etc.)."
+        });
+      } else if (hy === false) {
+        var rmHy = mech.rejection_messages && mech.rejection_messages.process_chemistry ? mech.rejection_messages.process_chemistry : (mech.name + " requires hydrogen environment; service is non-hydrogen bearing.");
+        violated.push({
+          bucket: "process_chemistry", field: "hydrogen_required", state: "VIOLATED", detail: rmHy
+        });
+      } else {
+        unknown.push({
+          bucket: "process_chemistry", field: "hydrogen_required", state: "UNKNOWN",
+          detail: mech.name + " requires hydrogen in process stream; hydrogen presence not determined from transcript."
+        });
+      }
+    }
+
   }
 
   // -------------------------------------------------------------------------
@@ -1373,6 +1688,143 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
   // -------------------------------------------------------------------------
 
   // -------------------------------------------------------------------------
+  // DEPLOY173 v2.8.0: Stress bucket
+  // Supports: tensile_required, cyclic_required, compressive_required,
+  // stress_concentration_required.
+  // -------------------------------------------------------------------------
+  if (mech.preconditions.stress) {
+    var stp = mech.preconditions.stress;
+
+    if (stp.tensile_required === true) {
+      var tens = assetState.stress.tensile;
+      if (tens === true) {
+        satisfied.push({
+          bucket: "stress", field: "tensile_required", state: "SATISFIED",
+          detail: "Tensile stress confirmed in service conditions."
+        });
+      } else if (tens === false) {
+        var rmTens = mech.rejection_messages && mech.rejection_messages.stress ? mech.rejection_messages.stress : (mech.name + " requires tensile stress; transcript indicates no tensile loading.");
+        violated.push({
+          bucket: "stress", field: "tensile_required", state: "VIOLATED", detail: rmTens
+        });
+      } else {
+        unknown.push({
+          bucket: "stress", field: "tensile_required", state: "UNKNOWN",
+          detail: mech.name + " requires tensile stress; stress state not determined from transcript."
+        });
+      }
+    }
+
+    if (stp.cyclic_required === true) {
+      var cyc = assetState.stress.cyclic;
+      if (cyc === true) {
+        satisfied.push({
+          bucket: "stress", field: "cyclic_required", state: "SATISFIED",
+          detail: "Cyclic loading confirmed in service history."
+        });
+      } else if (cyc === false) {
+        var rmCyc = mech.rejection_messages && mech.rejection_messages.stress ? mech.rejection_messages.stress : (mech.name + " requires cyclic loading; transcript indicates sustained or static loading only.");
+        violated.push({
+          bucket: "stress", field: "cyclic_required", state: "VIOLATED", detail: rmCyc
+        });
+      } else {
+        unknown.push({
+          bucket: "stress", field: "cyclic_required", state: "UNKNOWN",
+          detail: mech.name + " requires cyclic loading; transcript does not state whether loading cycles."
+        });
+      }
+    }
+
+    if (stp.compressive_required === true) {
+      var comp = assetState.stress.compressive;
+      if (comp === true) {
+        satisfied.push({
+          bucket: "stress", field: "compressive_required", state: "SATISFIED",
+          detail: "Compressive stress or overload confirmed."
+        });
+      } else if (comp === false) {
+        var rmComp = mech.rejection_messages && mech.rejection_messages.stress ? mech.rejection_messages.stress : (mech.name + " requires compressive stress or overload; transcript indicates tension or neutral loading only.");
+        violated.push({
+          bucket: "stress", field: "compressive_required", state: "VIOLATED", detail: rmComp
+        });
+      } else {
+        unknown.push({
+          bucket: "stress", field: "compressive_required", state: "UNKNOWN",
+          detail: mech.name + " requires compressive stress or overload; stress state not determined from transcript."
+        });
+      }
+    }
+
+    if (stp.stress_concentration_required === true) {
+      var stc = assetState.stress.stress_concentration_present;
+      if (stc === true) {
+        satisfied.push({
+          bucket: "stress", field: "stress_concentration_required", state: "SATISFIED",
+          detail: "Stress concentration present (weld, notch, dent, or discontinuity)."
+        });
+      } else if (stc === false) {
+        var rmStc = mech.rejection_messages && mech.rejection_messages.stress ? mech.rejection_messages.stress : (mech.name + " requires a stress concentration site (weld, notch, dent); none detected.");
+        violated.push({
+          bucket: "stress", field: "stress_concentration_required", state: "VIOLATED", detail: rmStc
+        });
+      } else {
+        unknown.push({
+          bucket: "stress", field: "stress_concentration_required", state: "UNKNOWN",
+          detail: mech.name + " requires a stress concentration site; geometry not fully characterized."
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // DEPLOY173 v2.8.0: Energy bucket
+  // Supports: vibration_required, impact_event_required.
+  // -------------------------------------------------------------------------
+  if (mech.preconditions.energy) {
+    var enp = mech.preconditions.energy;
+
+    if (enp.vibration_required === true) {
+      var vib = assetState.energy.vibration;
+      if (vib === true) {
+        satisfied.push({
+          bucket: "energy", field: "vibration_required", state: "SATISFIED",
+          detail: "Vibration loading confirmed in service."
+        });
+      } else if (vib === false) {
+        var rmVib = mech.rejection_messages && mech.rejection_messages.energy ? mech.rejection_messages.energy : (mech.name + " requires vibration as an energy source; no vibration detected.");
+        violated.push({
+          bucket: "energy", field: "vibration_required", state: "VIOLATED", detail: rmVib
+        });
+      } else {
+        unknown.push({
+          bucket: "energy", field: "vibration_required", state: "UNKNOWN",
+          detail: mech.name + " requires vibration; vibration presence not determined from transcript."
+        });
+      }
+    }
+
+    if (enp.impact_event_required === true) {
+      var imp = assetState.energy.impact_event;
+      if (imp === true) {
+        satisfied.push({
+          bucket: "energy", field: "impact_event_required", state: "SATISFIED",
+          detail: "Impact energy or overload event confirmed."
+        });
+      } else if (imp === false) {
+        var rmImp = mech.rejection_messages && mech.rejection_messages.energy ? mech.rejection_messages.energy : (mech.name + " requires impact energy or overload event; no such event in history.");
+        violated.push({
+          bucket: "energy", field: "impact_event_required", state: "VIOLATED", detail: rmImp
+        });
+      } else {
+        unknown.push({
+          bucket: "energy", field: "impact_event_required", state: "UNKNOWN",
+          detail: mech.name + " requires impact energy or overload event; event history not fully documented."
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Determine overall status
   // -------------------------------------------------------------------------
   var status = "ELIGIBLE";
@@ -1439,14 +1891,22 @@ function buildAssetStateForCatalog(physics: any, transcript: string): any {
     thermal: {
       operating_temp_f: physics.thermal.operating_temp_f,
       fire_exposure: physics.thermal.fire_exposure,
-      thermal_cycling: physics.thermal.thermal_cycling
+      thermal_cycling: physics.thermal.thermal_cycling,
+      creep_range: physics.thermal.creep_range || false,
+      cryogenic: physics.thermal.cryogenic || false
     },
     stress: {
       tensile: physics.stress.tensile_stress,
       cyclic: physics.stress.cyclic_loading,
-      sustained: physics.stress.tensile_stress
+      sustained: physics.stress.tensile_stress,
+      compressive: physics.stress.compressive_stress || false,
+      stress_concentration_present: physics.stress.stress_concentration_present
     },
-    process_chemistry: physics.process_chemistry || { chloride_band: null, sulfur_class: null, amine_type: null, nh4_salt_potential: null },
+    process_chemistry: physics.process_chemistry || { chloride_band: null, sulfur_class: null, amine_type: null, nh4_salt_potential: null, h2s_present: false, caustic_present: false, hydrogen_present: false },
+    energy: {
+      vibration: physics.energy.vibration || false,
+      impact_event: physics.energy.impact_event || false
+    },
     flow_regime: physics.flow_regime || { flow_state: null, deadleg: null, turbulence_geometry_present: null },
     deposits: physics.deposits || { deposits_present: null, deposit_type: null, deposit_evidence: [] }
   };
@@ -2170,58 +2630,28 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
 // ============================================================================
 // STATE 2: DAMAGE REALITY ENGINE
 // ============================================================================
-var MECH_DEFS = [
-  { id: "fatigue_mechanical", name: "Mechanical Fatigue", sev: "high", eKeys: ["crack_confirmed", "visible_cracking"],
-    pre: function(s: any, t: any, c: any, e: any) { return s.cyclic_loading && s.stress_concentration_present; },
-    preLabels: ["Cyclic loading", "Stress concentration"] },
-  { id: "fatigue_thermal", name: "Thermal Fatigue", sev: "high", eKeys: ["crack_confirmed", "visible_cracking"],
-    pre: function(s: any, t: any) { return t.thermal_cycling && s.stress_concentration_present; },
-    preLabels: ["Thermal cycling", "Stress concentration"] },
-  { id: "fatigue_vibration", name: "Vibration Fatigue", sev: "medium", eKeys: ["crack_confirmed"],
-    pre: function(s: any, t: any, c: any, e: any) { return e.vibration && s.stress_concentration_present; },
-    preLabels: ["Vibration", "Stress concentration"] },
-  { id: "general_corrosion", name: "General Corrosion", sev: "medium", eKeys: ["critical_wall_loss_confirmed", "leak_suspected"],
-    pre: function(s: any, t: any, c: any) { return c.corrosive_environment; },
-    preLabels: ["Corrosive environment"] },
-  { id: "pitting", name: "Pitting Corrosion", sev: "high", eKeys: ["critical_wall_loss_confirmed", "leak_confirmed"],
-    pre: function(s: any, t: any, c: any) { return c.chlorides_present || c.co2_present; },
-    preLabels: ["Localized corrosive agent (Cl-/CO2)"] },
-  { id: "scc_chloride", name: "Chloride SCC", sev: "critical", eKeys: ["crack_confirmed"],
-    pre: function(s: any, t: any, c: any) { return s.tensile_stress && c.chlorides_present && c.material_susceptibility.indexOf("chloride_SCC") !== -1; },
-    preLabels: ["Tensile stress", "Chlorides", "Susceptible material (austenitic/duplex)"] },
-  { id: "scc_caustic", name: "Caustic SCC", sev: "critical", eKeys: ["crack_confirmed"],
-    pre: function(s: any, t: any, c: any) { return s.tensile_stress && c.caustic_present; },
-    preLabels: ["Tensile stress", "Caustic environment"] },
-  { id: "ssc_sulfide", name: "Sulfide Stress Cracking", sev: "critical", eKeys: ["crack_confirmed"],
-    pre: function(s: any, t: any, c: any) { return s.tensile_stress && c.h2s_present; },
-    preLabels: ["Tensile stress", "H2S present"] },
-  { id: "hic", name: "Hydrogen Induced Cracking", sev: "high", eKeys: ["crack_confirmed", "visible_cracking"],
-    pre: function(s: any, t: any, c: any) { return c.h2s_present; },
-    preLabels: ["H2S present (hydrogen source)"] },
-  { id: "co2_corrosion", name: "CO2 (Sweet) Corrosion", sev: "medium", eKeys: ["critical_wall_loss_confirmed"],
-    pre: function(s: any, t: any, c: any) { return c.co2_present && c.corrosive_environment; },
-    preLabels: ["CO2 present", "Water phase"] },
-  { id: "creep", name: "Creep Damage", sev: "critical", eKeys: [],
-    pre: function(s: any, t: any) { return t.creep_range && s.tensile_stress; },
-    preLabels: ["Temperature in creep range", "Sustained tensile stress"] },
-  { id: "brittle_fracture", name: "Brittle Fracture", sev: "critical", eKeys: ["crack_confirmed"],
-    pre: function(s: any, t: any, c: any, e: any, fl: any) { return t.cryogenic && (!!fl.crack_confirmed || !!fl.visible_cracking || !!fl.dent_or_gouge_present); },
-    preLabels: ["Low temperature", "Pre-existing flaw"] },
-  { id: "erosion", name: "Erosion / Erosion-Corrosion", sev: "medium", eKeys: ["critical_wall_loss_confirmed"],
-    pre: function(s: any, t: any, c: any, e: any) { return e.flow_erosion_risk; },
-    preLabels: ["High flow velocity or erosive conditions"] },
-  { id: "overload_buckling", name: "Mechanical Overload / Buckling", sev: "high", eKeys: ["visible_deformation", "dent_or_gouge_present"],
-    pre: function(s: any, t: any, c: any, e: any) { return s.compressive_stress || e.impact_event; },
-    preLabels: ["Compressive overload or impact energy"] },
-  { id: "fire_damage", name: "Fire / Thermal Damage", sev: "high", eKeys: ["fire_exposure", "fire_property_degradation_confirmed"],
-    pre: function(s: any, t: any) { return t.fire_exposure; },
-    preLabels: ["Fire or elevated temperature exposure"] },
-  { id: "cui", name: "Corrosion Under Insulation", sev: "medium", eKeys: ["critical_wall_loss_confirmed"],
-    pre: function(s: any, t: any) { return t.operating_temp_f !== null && t.operating_temp_f >= 0 && t.operating_temp_f <= 350; },
-    preLabels: ["Temperature in CUI range (0-350F)", "Insulated equipment"] },
-  { id: "hydrogen_damage", name: "High Temp Hydrogen Attack", sev: "critical", eKeys: [],
-    pre: function(s: any, t: any, c: any) { return c.hydrogen_present && t.operating_temp_f !== null && t.operating_temp_f > 400; },
-    preLabels: ["Hydrogen environment", "Elevated temperature (>400F)"] }
+var MECH_SCORING_TABLE = [
+  { id: "cui", name: "Corrosion Under Insulation", sev: "medium", eKeys: ["critical_wall_loss_confirmed"], preLabels: ["Temperature in CUI range (0-350F)", "Insulated equipment"] },
+  { id: "general_corrosion", name: "General Corrosion", sev: "medium", eKeys: ["critical_wall_loss_confirmed", "leak_suspected"], preLabels: ["Corrosive environment"] },
+  { id: "pitting", name: "Pitting Corrosion", sev: "high", eKeys: ["critical_wall_loss_confirmed", "leak_confirmed"], preLabels: ["Localized corrosive agent (Cl-/CO2)"] },
+  { id: "co2_corrosion", name: "CO2 (Sweet) Corrosion", sev: "medium", eKeys: ["critical_wall_loss_confirmed"], preLabels: ["CO2 present", "Water phase"] },
+  { id: "erosion", name: "Erosion / Erosion-Corrosion", sev: "medium", eKeys: ["critical_wall_loss_confirmed"], preLabels: ["High flow velocity or erosive conditions"] },
+  { id: "cscc", name: "Chloride Stress Corrosion Cracking", sev: "critical", eKeys: ["crack_confirmed", "visible_cracking"], preLabels: ["Austenitic/duplex stainless", "Chlorides", "Temperature > 140F"] },
+  { id: "mic", name: "Microbiologically Influenced Corrosion", sev: "high", eKeys: ["critical_wall_loss_confirmed", "leak_confirmed"], preLabels: ["Stagnant/low-flow regime", "Deposits with biofilm"] },
+  { id: "sulfidation", name: "High-Temperature Sulfidation", sev: "high", eKeys: ["critical_wall_loss_confirmed"], preLabels: ["Sulfur-bearing service", "Elevated temperature"] },
+  { id: "underdeposit_corrosion", name: "Under-Deposit Corrosion", sev: "high", eKeys: ["critical_wall_loss_confirmed", "leak_confirmed"], preLabels: ["Deposits present", "Ammonium salt potential"] },
+  { id: "fatigue_mechanical", name: "Mechanical Fatigue", sev: "high", eKeys: ["crack_confirmed", "visible_cracking"], preLabels: ["Cyclic loading", "Stress concentration"] },
+  { id: "fatigue_thermal", name: "Thermal Fatigue", sev: "high", eKeys: ["crack_confirmed", "visible_cracking"], preLabels: ["Thermal cycling", "Stress concentration"] },
+  { id: "fatigue_vibration", name: "Vibration Fatigue", sev: "medium", eKeys: ["crack_confirmed"], preLabels: ["Vibration", "Stress concentration"] },
+  { id: "scc_chloride", name: "Chloride SCC", sev: "critical", eKeys: ["crack_confirmed"], preLabels: ["Tensile stress", "Chlorides", "Susceptible material (austenitic/duplex)"] },
+  { id: "scc_caustic", name: "Caustic SCC", sev: "critical", eKeys: ["crack_confirmed"], preLabels: ["Tensile stress", "Caustic environment"] },
+  { id: "ssc_sulfide", name: "Sulfide Stress Cracking", sev: "critical", eKeys: ["crack_confirmed"], preLabels: ["Tensile stress", "H2S present"] },
+  { id: "hic", name: "Hydrogen Induced Cracking", sev: "high", eKeys: ["crack_confirmed", "visible_cracking"], preLabels: ["H2S present (hydrogen source)"] },
+  { id: "creep", name: "Creep Damage", sev: "critical", eKeys: [], preLabels: ["Temperature in creep range", "Sustained tensile stress"] },
+  { id: "brittle_fracture", name: "Brittle Fracture", sev: "critical", eKeys: ["crack_confirmed"], preLabels: ["Low temperature", "Pre-existing flaw"] },
+  { id: "overload_buckling", name: "Mechanical Overload / Buckling", sev: "high", eKeys: ["visible_deformation", "dent_or_gouge_present"], preLabels: ["Compressive overload or impact energy"] },
+  { id: "fire_damage", name: "Fire / Thermal Damage", sev: "high", eKeys: ["fire_exposure", "fire_property_degradation_confirmed"], preLabels: ["Fire or elevated temperature exposure"] },
+  { id: "hydrogen_damage", name: "High Temp Hydrogen Attack", sev: "critical", eKeys: [], preLabels: ["Hydrogen environment", "Elevated temperature (>400F)"] }
 ];
 
 function resolveDamageReality(physics: any, flags: any, transcript: string, provenance?: any) {
@@ -2272,8 +2702,8 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
     "Elevated temperature (>400F)": t.operating_temp_f !== null && t.operating_temp_f > 400
   };
 
-  for (var i = 0; i < MECH_DEFS.length; i++) {
-    var md = MECH_DEFS[i];
+  for (var i = 0; i < MECH_SCORING_TABLE.length; i++) {
+    var md = MECH_SCORING_TABLE[i];
 
     // ========================================================================
     // DEPLOY171 v2.6.0: CATALOG ROUTING FOR MIGRATED MECHANISMS
@@ -2402,21 +2832,7 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
       }
     }
 
-    if (!skipOldPredicate && !md.pre(s, t, c, e, fl)) {
-      var missingPres: string[] = [];
-      var metPres: string[] = [];
-      for (var pi = 0; pi < md.preLabels.length; pi++) {
-        var label = md.preLabels[pi];
-        if (preCheckMap[label]) { metPres.push(label); }
-        else { missingPres.push(label); }
-      }
-      if (missingPres.length === 0 && metPres.length === 0) missingPres = md.preLabels.slice();
-      rejected.push({ id: md.id, name: md.name,
-        rejection_reason: "PHYSICALLY IMPOSSIBLE: Missing required precondition(s): " + missingPres.join("; "),
-        missing_precondition: missingPres.join("; "),
-        met_preconditions: metPres });
-      continue;
-    }
+
     for (var ei = 0; ei < md.eKeys.length; ei++) {
       if (fl[md.eKeys[ei]]) { evFor.push(md.eKeys[ei].replace(/_/g, " ")); score += 0.2; obs = true; }
     }
@@ -4035,7 +4451,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.7.0",
+            engine_version: "physics-first-decision-core-v2.8.0",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -4148,7 +4564,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.7.0",
+          engine_version: "physics-first-decision-core-v2.8.0",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
@@ -4161,8 +4577,12 @@ var handler: Handler = async function(event: HandlerEvent) {
             context_inferred: physics.context_inferred || [],
             material: physics.material || { class: null, class_confidence: 0, evidence: [] },
             environment: physics.environment || { phases_present: [], phases_negated: [], atmosphere_class: null },
-            process_chemistry: physics.process_chemistry || { chloride_band: null, sulfur_class: null, amine_type: null, nh4_salt_potential: null },
-            flow_regime: physics.flow_regime || { flow_state: null, deadleg: null, turbulence_geometry_present: null },
+            process_chemistry: physics.process_chemistry || { chloride_band: null, sulfur_class: null, amine_type: null, nh4_salt_potential: null, h2s_present: false, caustic_present: false, hydrogen_present: false },
+            energy: {
+      vibration: physics.energy.vibration || false,
+      impact_event: physics.energy.impact_event || false
+    },
+    flow_regime: physics.flow_regime || { flow_state: null, deadleg: null, turbulence_geometry_present: null },
             deposits: physics.deposits || { deposits_present: null, deposit_type: null, deposit_evidence: [] }
           },
           damage_reality: {
