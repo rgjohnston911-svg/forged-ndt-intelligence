@@ -1,6 +1,7 @@
 // @ts-nocheck
-// DEPLOY173 — decision-core.ts v2.8.1
-// v2.8.1: DEPLOY174 — INDETERMINATE mechanism escalation on HIGH/CRITICAL assets.
+// DEPLOY180 -- decision-core.ts v2.9.0
+// v2.9.0: DEPLOY180 -- Consequence Reality fail-upward gate.
+// Previous: v2.8.1 -- DEPLOY174 INDETERMINATE mechanism escalation.
 // Previous: DEPLOY171.6 — decision-core.ts v2.6.2
 // v2.6.2 (superseded by v2.7.0): Catalog foundations — behavior-preserving capability layer for DEPLOY172
 //
@@ -3026,11 +3027,12 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   var failMode = "equipment_degradation";
   var failPhysics = "";
   var humanImpact = "Low"; var envImpact = "Negligible"; var opImpact = "Operational disruption";
+  var humanImpactSet = false; var envImpactSet = false; var opImpactSet = false;
   var requirements: string[] = [];
 
   var critKw = ["decompression chamber", "hyperbaric", "dive system", "diving bell", "life support", "human occupancy", "manned", "personnel basket", "escape capsule", "breathing air", "double lock", "saturation div", "recompression", "treatment chamber", "man-rated"];
   for (var ci = 0; ci < critKw.length; ci++) {
-    if (hasWord(lt, critKw[ci])) { tier = "CRITICAL"; basis.push("PHYSICS: Human occupancy (" + critKw[ci] + ")"); humanImpact = "FATAL — human occupancy during operation"; break; }
+    if (hasWord(lt, critKw[ci])) { tier = "CRITICAL"; basis.push("PHYSICS: Human occupancy (" + critKw[ci] + ")"); humanImpact = "FATAL — human occupancy during operation"; humanImpactSet = true; break; }
   }
   if (physics.energy.stored_energy_significant) {
     if (tier !== "CRITICAL") tier = "HIGH";
@@ -3044,8 +3046,8 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   if (physics.chemical.h2s_present || physics.chemical.caustic_present) {
     if (tier === "MEDIUM" || tier === "LOW") tier = "HIGH";
     basis.push("PHYSICS: Toxic substance (" + physics.chemical.environment_agents.join(", ") + ")");
-    humanImpact = "Serious injury/fatality from toxic release";
-    envImpact = "Environmental release";
+    humanImpact = "Serious injury/fatality from toxic release"; humanImpactSet = true;
+    envImpact = "Environmental release"; envImpactSet = true;
   }
   if (physics.thermal.fire_exposure) {
     if (tier === "MEDIUM" || tier === "LOW") tier = "HIGH";
@@ -3057,42 +3059,42 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   if (structuralInstability && physics.energy.stored_energy_significant) {
     tier = "CRITICAL";
     basis.push("PHYSICS: Structural instability + stored pressure energy — structural failure induces pressure boundary failure. Cannot be evaluated independently.");
-    humanImpact = "FATAL — structural collapse releases stored pressure energy";
+    humanImpact = "FATAL — structural collapse releases stored pressure energy"; humanImpactSet = true;
     failMode = "structural_pressure_cascade";
   }
   if (physics.thermal.fire_exposure && physics.energy.stored_energy_significant) {
     tier = "CRITICAL";
     basis.push("PHYSICS: Fire exposure + stored pressure energy — fire degrades containment while pressure maintains load. Catastrophic release risk.");
-    if (humanImpact.indexOf("FATAL") === -1) humanImpact = "FATAL — fire-weakened pressure boundary under load";
+    if (humanImpact.indexOf("FATAL") === -1) humanImpact = "FATAL — fire-weakened pressure boundary under load"; humanImpactSet = true;
     failMode = "fire_pressure_cascade";
   }
 
   if (assetClass === "bridge" || assetClass === "rail_bridge") {
     if (tier === "MEDIUM" || tier === "LOW") tier = "HIGH";
     basis.push("PHYSICS: Public infrastructure — civilian exposure");
-    humanImpact = "Public fatality risk";
+    humanImpact = "Public fatality risk"; humanImpactSet = true;
   }
   if (hasWord(lt, "crude oil") || hasWord(lt, "petroleum") || hasWord(lt, "hazmat") || hasWord(lt, "flammable") || hasWord(lt, "toxic cargo") || hasWord(lt, "lng") || hasWord(lt, "lpg") || hasWord(lt, "ammonia") || hasWord(lt, "chlorine")) {
     tier = "CRITICAL";
     basis.push("CONSEQUENCE: Hazardous cargo — release creates fatality/environmental catastrophe");
-    humanImpact = "FATAL — hazardous material release";
-    envImpact = "Major environmental contamination";
+    humanImpact = "FATAL — hazardous material release"; humanImpactSet = true;
+    envImpact = "Major environmental contamination"; envImpactSet = true;
   }
   if (hasWord(lt, "fracture-critical") || hasWord(lt, "fracture critical")) {
     if (tier !== "CRITICAL") tier = "HIGH";
     basis.push("CONSEQUENCE: Fracture-critical member — single-member failure = collapse");
-    if (humanImpact === "Low") humanImpact = "Fatality risk from structural collapse";
+    if (humanImpact === "Low") { humanImpact = "Fatality risk from structural collapse"; humanImpactSet = true; }
   }
   if ((hasWordBoundary(lt, "train") || hasWord(lt, "railroad") || hasWord(lt, "locomotive")) && (hasWord(lt, "loaded") || hasWordBoundary(lt, "car") || hasWord(lt, "freight"))) {
     if (tier === "MEDIUM" || tier === "LOW") tier = "HIGH";
     basis.push("CONSEQUENCE: Loaded train — derailment risk");
-    if (humanImpact === "Low") humanImpact = "Derailment fatality risk";
+    if (humanImpact === "Low") { humanImpact = "Derailment fatality risk"; humanImpactSet = true; }
   }
   if (assetClass === "offshore_platform" || hasWord(lt, "offshore") || hasWord(lt, "platform") || hasWord(lt, "jacket structure")) {
     if (tier === "MEDIUM" || tier === "LOW") tier = "HIGH";
     basis.push("CONSEQUENCE: Offshore platform — personnel exposure, hydrocarbon systems, structural collapse risk");
     if (humanImpact === "Low") humanImpact = "Personnel fatality risk — offshore structural failure";
-    envImpact = "Hydrocarbon release / environmental contamination";
+    envImpact = "Hydrocarbon release / environmental contamination"; envImpactSet = true;
   }
   if (hasWord(lt, "hurricane") || hasWord(lt, "typhoon") || hasWord(lt, "cyclone") || hasWord(lt, "category") || (hasWord(lt, "storm") && (hasWord(lt, "major") || hasWord(lt, "severe")))) {
     if (tier !== "CRITICAL") tier = "HIGH";
@@ -3144,23 +3146,53 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     if (opTempF >= 400 && flammableContext) {
       basis.push("PHYSICS: Hot hydrocarbon release at " + opTempF + "F with pressure boundary thinning mechanism — thermal burn + flash fire/autoignition risk on release (fluid at or above hydrocarbon autoignition threshold)");
       if (humanImpact === "Low" || humanImpact === "Operational disruption") {
-        humanImpact = "Serious injury/fatality from thermal burns + flash fire on release";
+        humanImpact = "Serious injury/fatality from thermal burns + flash fire on release"; humanImpactSet = true;
       }
-      if (envImpact === "Negligible") envImpact = "Hydrocarbon release with fire risk";
+      if (envImpact === "Negligible") { envImpact = "Hydrocarbon release with fire risk"; envImpactSet = true; }
       if (failMode === "equipment_degradation") failMode = "hot_hydrocarbon_release";
     } else if (opTempF >= 400) {
       basis.push("PHYSICS: High-temperature fluid release at " + opTempF + "F with pressure boundary thinning mechanism — severe thermal burn risk (fluid well above thermal injury threshold)");
       if (humanImpact === "Low" || humanImpact === "Operational disruption") {
-        humanImpact = "Serious thermal burn injury from high-temperature release";
+        humanImpact = "Serious thermal burn injury from high-temperature release"; humanImpactSet = true;
       }
       if (failMode === "equipment_degradation") failMode = "hot_fluid_release";
     } else {
       basis.push("PHYSICS: Heated fluid release at " + opTempF + "F with pressure boundary thinning mechanism — thermal burn/scald risk (above OSHA thermal contact threshold of 140F)");
       if (humanImpact === "Low" || humanImpact === "Operational disruption") {
-        humanImpact = "Thermal burn injury from heated fluid release";
+        humanImpact = "Thermal burn injury from heated fluid release"; humanImpactSet = true;
       }
       if (failMode === "equipment_degradation") failMode = "heated_fluid_release";
     }
+  }
+
+  // ========================================================================
+  // DEPLOY180: CONSEQUENCE REALITY FAIL-UPWARD GATE
+  // When the consequence model cannot determine human/environmental/operational
+  // impact from available evidence, the safe default is UNDETERMINED, not Low/
+  // Negligible. On HIGH/CRITICAL assets, undetermined impact triggers explicit
+  // escalation. The absence of evidence is NOT evidence of low consequence.
+  // ========================================================================
+  var consequenceUndetermined = false;
+  var undeterminedImpacts: string[] = [];
+  if (tier === "HIGH" || tier === "CRITICAL") {
+    if (!humanImpactSet && humanImpact === "Low") {
+      humanImpact = "UNDETERMINED — insufficient evidence to classify human impact";
+      undeterminedImpacts.push("human_impact");
+      consequenceUndetermined = true;
+    }
+    if (!envImpactSet && envImpact === "Negligible") {
+      envImpact = "UNDETERMINED — insufficient evidence to classify environmental impact";
+      undeterminedImpacts.push("environmental_impact");
+      consequenceUndetermined = true;
+    }
+    if (!opImpactSet && opImpact === "Operational disruption") {
+      opImpact = "UNDETERMINED — insufficient evidence to classify operational impact";
+      undeterminedImpacts.push("operational_impact");
+      consequenceUndetermined = true;
+    }
+  }
+  if (consequenceUndetermined) {
+    basis.push("DEPLOY180: " + undeterminedImpacts.length + " impact dimension(s) UNDETERMINED on " + tier + " asset — fail-upward applied");
   }
 
   if (basis.length === 0) basis.push("Standard asset — default MEDIUM");
@@ -3182,9 +3214,9 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
       failMode = "inspection_required";
     }
     if (humanImpact.indexOf("FATAL") !== -1) {
-      humanImpact = "FATAL potential (life-safety asset) — current degradation NOT confirmed";
+      humanImpact = "FATAL potential (life-safety asset) — current degradation NOT confirmed"; humanImpactSet = true;
     }
-    opImpact = "Routine inspection — no immediate operational impact established";
+    opImpact = "Routine inspection — no immediate operational impact established"; opImpactSet = true;
   }
 
   var isStructuralAssetType = assetClass === "bridge" || assetClass === "rail_bridge" || assetClass === "bridge_steel" || assetClass === "bridge_concrete" || assetClass === "offshore_platform";
@@ -3294,7 +3326,9 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     damage_state: damageState, damage_trajectory: damageTrajectory,
     threshold_score: thresholdScore, threshold_reasons: thresholdReasons,
     monitoring_urgency: monitoringUrgency,
-    consequence_confidence: roundN(consConf, 2)
+    consequence_confidence: roundN(consConf, 2),
+    consequence_undetermined: consequenceUndetermined,
+    undetermined_impacts: undeterminedImpacts
   };
 }
 
@@ -4166,6 +4200,26 @@ function resolveDecisionReality(physics: any, damage: any, consequence: any, aut
     gates.push({ gate: "indeterminate_mechanism", result: "PASS", reason: "No indeterminate mechanisms", required_action: null });
   }
 
+
+  // ========================================================================
+  // DEPLOY180: CONSEQUENCE UNDETERMINED GATE
+  // If the consequence model could not determine one or more impact dimensions
+  // on a HIGH/CRITICAL asset, escalate. The engine must not proceed to
+  // disposition when it does not know what the consequences of failure are.
+  // ========================================================================
+  if (consequence.consequence_undetermined) {
+    gates.push({
+      gate: "consequence_undetermined",
+      result: "ESCALATED",
+      reason: "Consequence model could not determine " + consequence.undetermined_impacts.join(", ") + " on " + consequence.consequence_tier + " asset -- engineering review required to classify impact",
+      required_action: "Provide evidence to classify: " + consequence.undetermined_impacts.join(", ")
+    });
+    escalated = true;
+    trace.push("CONSEQUENCE UNDETERMINED: " + consequence.undetermined_impacts.join(", ") + " on " + consequence.consequence_tier + " asset");
+  } else {
+    gates.push({ gate: "consequence_undetermined", result: "PASS", reason: "All impact dimensions classified", required_action: null });
+  }
+
   if (blocked) {
     gates.push({ gate: "disposition_eligibility", result: "BLOCKED", reason: "Blocked at: " + blockGate, required_action: "Resolve blocking gates" });
   } else if (escalated) {
@@ -4508,7 +4562,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.8.1",
+            engine_version: "physics-first-decision-core-v2.9.0",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -4621,7 +4675,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.8.1",
+          engine_version: "physics-first-decision-core-v2.9.0",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
@@ -4674,7 +4728,9 @@ var handler: Handler = async function(event: HandlerEvent) {
             threshold_score: consequence.threshold_score,
             threshold_reasons: consequence.threshold_reasons,
             monitoring_urgency: consequence.monitoring_urgency,
-            consequence_confidence: consequence.consequence_confidence
+            consequence_confidence: consequence.consequence_confidence,
+            consequence_undetermined: consequence.consequence_undetermined || false,
+            undetermined_impacts: consequence.undetermined_impacts || []
           },
           authority_reality: {
             primary_authority: authority.primary_authority,
