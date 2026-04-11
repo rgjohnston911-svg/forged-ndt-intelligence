@@ -80,6 +80,31 @@ var handler = async function(event) {
   try {
     var body = JSON.parse(event.body || "{}");
 
+    // ========================================================================
+    // DEPLOY171.7: DOMAIN REFUSAL SHORT-CIRCUIT
+    // ========================================================================
+    var domainRefused = false;
+    if (body.domain_not_supported === true) { domainRefused = true; }
+    if (body.decision_core && body.decision_core.domain_not_supported === true) { domainRefused = true; }
+    if (domainRefused) {
+      return {
+        statusCode: 200,
+        headers: headers,
+        body: JSON.stringify({
+          domain_not_supported: true,
+          refusal_reason: "Upstream decision-core refused this asset domain. Disposition pathway not evaluated.",
+          pathway: "DOMAIN_NOT_SUPPORTED",
+          pathway_basis: "Asset class outside supported domain set. No disposition logic executed.",
+          disposition: "domain_not_supported",
+          conditions: [],
+          required_actions: [],
+          pressure_reduction: null,
+          monitoring_plan: null,
+          engine_version: "disposition-pathway-v1.0-deploy171.7"
+        })
+      };
+    }
+
     // v1.0 fields
     var safeEnvelope = (body.safe_envelope || "").toUpperCase().trim();
     var governingMode = (body.governing_failure_mode || "").toUpperCase().trim();
