@@ -4127,7 +4127,7 @@ function resolveDecisionReality(physics: any, damage: any, consequence: any, aut
       var indMech = damage.indeterminate[idi];
       var indFamily = (indMech.family || "").toLowerCase();
       var indId = (indMech.id || "");
-      var sameFamily = indId.indexOf(primaryFamily) \!== -1 || indFamily === primaryFamily;
+      var sameFamily = indId.indexOf(primaryFamily) !== -1 || indFamily === primaryFamily;
       // On CRITICAL: escalate ALL indeterminate mechanisms, not just same-family
       // On HIGH: escalate same-family or critical-severity indeterminate
       if (consequence.consequence_tier === "CRITICAL" ||
