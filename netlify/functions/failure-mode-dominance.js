@@ -266,6 +266,29 @@ var handler = async function(event) {
   try {
     var body = JSON.parse(event.body || "{}");
 
+    // ========================================================================
+    // DEPLOY171.7: DOMAIN REFUSAL SHORT-CIRCUIT
+    // ========================================================================
+    var domainRefused = false;
+    if (body.domain_not_supported === true) { domainRefused = true; }
+    if (body.decision_core && body.decision_core.domain_not_supported === true) { domainRefused = true; }
+    if (domainRefused) {
+      return {
+        statusCode: 200,
+        headers: headers,
+        body: JSON.stringify({
+          domain_not_supported: true,
+          refusal_reason: "Upstream decision-core refused this asset domain. Failure mode dominance analysis not performed.",
+          governing_failure_mode: "DOMAIN_NOT_SUPPORTED",
+          governing_mechanism: null,
+          failure_mode_scores: {},
+          structural_override: false,
+          misalignment_flags: [],
+          engine_version: "failure-mode-dominance-v1.3.2-deploy171.7"
+        })
+      };
+    }
+
     var mechanisms = (body.damage_mechanisms || []).map(function(m) { return (m || "").toLowerCase().trim(); });
     var remainingStrength = body.remaining_strength || null;
     var authorityLock = body.authority_lock || null;
