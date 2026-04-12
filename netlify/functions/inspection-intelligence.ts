@@ -1,15 +1,16 @@
 // @ts-nocheck
-// DEPLOY192 -- inspection-intelligence.ts v1.0.1
-// v1.0.3: DEPLOY192 -- Haiku for speed. Sonnet exceeds 26s on complex prompts. Haiku completes in 5-8s with same prompt quality.
+// DEPLOY193 -- inspection-intelligence.ts v1.1.0
+// v1.1.0: DEPLOY193 -- Switched Engine 2 from Anthropic API (timeout issues) to OpenAI API (GPT-4o-mini).
+//   OpenAI proven fast in existing functions (observation-layer, parse-incident, voice-incident-plan).
 //   Engine 1 (Deterministic): decision-core proven physics state (41 mechanisms, precondition veto)
-//   Engine 2 (AI Reasoning): Claude extends analysis to ANY domain, ANY code, ANY mechanism
+//   Engine 2 (AI Reasoning): GPT-4o-mini extends analysis to ANY domain, ANY code, ANY mechanism
 //   Physics veto: AI suggestions validated against proven physics -- impossible mechanisms rejected
 //   Temporal projection: degradation modeling, remaining life, intervention windows
-// Uses ANTHROPIC_API_KEY (Claude) for AI reasoning layer.
+// Uses OPENAI_API_KEY (GPT-4o-mini) for AI reasoning layer.
 
 import type { Handler } from "@netlify/functions";
 
-var anthropicKey = process.env.ANTHROPIC_API_KEY || "";
+var openaiKey = process.env.OPENAI_API_KEY || "";
 
 // ============================================================================
 // SYSTEM PROMPT: The soul of Engine 2
@@ -265,16 +266,16 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({
           domain_not_supported: true,
           reason: "Decision core refused this domain. Inspection intelligence cannot extend a refused analysis.",
-          metadata: { version: "1.0.3", engine: "inspection-intelligence" }
+          metadata: { version: "1.1.0", engine: "inspection-intelligence" }
         })
       };
     }
 
-    if (!anthropicKey) {
+    if (!openaiKey) {
       return {
         statusCode: 500,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({ error: "ANTHROPIC_API_KEY not configured" })
+        body: JSON.stringify({ error: "OPENAI_API_KEY not configured" })
       };
     }
 
@@ -289,27 +290,29 @@ export var handler: Handler = async function(event) {
       physicsContext = physicsContext + "\n=== ASSET DESCRIPTION ===\n" + assetDescription + "\n";
     }
 
-    // Call Claude -- Engine 2 (with 20s timeout to stay within Netlify gateway limit)
+    // Call GPT-4o-mini -- Engine 2 (with 24s timeout to stay within Netlify 26s gateway limit)
     var abortController = new AbortController();
     var fetchTimeout = setTimeout(function() { abortController.abort(); }, 24000);
 
-    var claudeResp;
-    var claudeJson;
+    var aiResp;
+    var aiJson;
     try {
-      claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
+      aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         signal: abortController.signal,
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": anthropicKey,
-          "anthropic-version": "2023-06-01"
+          "Authorization": "Bearer " + openaiKey
         },
         body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
+          model: "gpt-4o-mini",
           max_tokens: 4096,
           temperature: 0.2,
-          system: SYSTEM_PROMPT,
           messages: [
+            {
+              role: "system",
+              content: SYSTEM_PROMPT
+            },
             {
               role: "user",
               content: "Return ONLY raw JSON, no markdown. Analyze this inspection case and generate an inspection plan with temporal projections.\n\n" + physicsContext
@@ -325,38 +328,38 @@ export var handler: Handler = async function(event) {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
         body: JSON.stringify({
-          error: isAbort ? "Claude API call timed out after 24 seconds" : "Claude API fetch failed: " + fetchErr.message,
+          error: isAbort ? "OpenAI API call timed out after 24 seconds" : "OpenAI API fetch failed: " + fetchErr.message,
           debug: {
-            key_present: anthropicKey.length > 0,
-            key_prefix: anthropicKey.substring(0, 10) + "...",
+            key_present: openaiKey.length > 0,
+            key_prefix: openaiKey.substring(0, 10) + "...",
             physics_context_length: physicsContext.length,
             timeout: isAbort
           },
-          metadata: { version: "1.0.3", engine: "inspection-intelligence" }
+          metadata: { version: "1.1.0", engine: "inspection-intelligence" }
         })
       };
     }
 
-    claudeJson = await claudeResp.json();
+    aiJson = await aiResp.json();
 
-    if (!claudeResp.ok) {
+    if (!aiResp.ok) {
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
         body: JSON.stringify({
-          error: "Claude API returned error",
-          status: claudeResp.status,
-          claude_error: claudeJson,
+          error: "OpenAI API returned error",
+          status: aiResp.status,
+          openai_error: aiJson,
           debug: {
-            key_prefix: anthropicKey.substring(0, 10) + "...",
-            model: "claude-haiku-4-5-20251001"
+            key_prefix: openaiKey.substring(0, 10) + "...",
+            model: "gpt-4o-mini"
           },
-          metadata: { version: "1.0.3", engine: "inspection-intelligence" }
+          metadata: { version: "1.1.0", engine: "inspection-intelligence" }
         })
       };
     }
 
-    var responseText = (claudeJson.content && claudeJson.content[0]) ? claudeJson.content[0].text : "";
+    var responseText = (aiJson.choices && aiJson.choices[0] && aiJson.choices[0].message) ? aiJson.choices[0].message.content : "";
 
     // Parse JSON from response -- strip markdown wrapping and find the JSON object
     var cleanedText = responseText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
@@ -377,7 +380,7 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({
           error: "AI response was not valid JSON",
           raw_response: responseText.substring(0, 2000),
-          metadata: { version: "1.0.3", engine: "inspection-intelligence" }
+          metadata: { version: "1.1.0", engine: "inspection-intelligence" }
         })
       };
     }
@@ -395,7 +398,7 @@ export var handler: Handler = async function(event) {
     var finalOutput = {
       // Engine identification
       metadata: {
-        version: "1.0.3",
+        version: "1.1.0",
         engine: "inspection-intelligence",
         architecture: "dual-engine-physics-first",
         elapsed_ms: elapsed,
@@ -453,7 +456,7 @@ export var handler: Handler = async function(event) {
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
       body: JSON.stringify({
         error: err.message || "inspection-intelligence failed",
-        metadata: { version: "1.0.3", engine: "inspection-intelligence" }
+        metadata: { version: "1.1.0", engine: "inspection-intelligence" }
       })
     };
   }
