@@ -307,7 +307,12 @@ var CATALOG_FAMILY_MAP = {
   "high_temp_oxidation": "corrosion",
   "spheroidization": "thermal_degradation",
   "decarburization": "thermal_degradation",
-  "graphitization": "thermal_degradation"
+  "graphitization": "thermal_degradation",
+  // DEPLOY189: Remaining corrosion mechanisms
+  "galvanic_corrosion": "corrosion",
+  "atmospheric_corrosion": "corrosion",
+  "soil_corrosion": "corrosion",
+  "cavitation": "corrosion"
 };
 
 var handler = async function(event) {
