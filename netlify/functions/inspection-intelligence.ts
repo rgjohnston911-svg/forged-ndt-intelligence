@@ -89,40 +89,27 @@ function formatPhysicsStateForAI(dcOutput: any) {
     text = text + "  Atmosphere class: " + env.atmosphere_class + "\n";
   }
 
-  // Thermal
-  var thermal = pr.thermal || {};
-  text = text + "\nTHERMAL STATE:\n";
-  text = text + "  " + JSON.stringify(thermal) + "\n";
+  // Compact state summary -- only non-null/non-false/non-empty values to save tokens
+  function compactState(label: string, obj: any) {
+    var parts = [];
+    for (var key in obj) {
+      var val = obj[key];
+      if (val === null || val === undefined || val === false || val === "" || val === 0) continue;
+      if (Array.isArray(val) && val.length === 0) continue;
+      if (typeof val === "object" && !Array.isArray(val) && Object.keys(val).length === 0) continue;
+      parts.push(key + "=" + (typeof val === "object" ? JSON.stringify(val) : val));
+    }
+    if (parts.length === 0) return "";
+    return label + ": " + parts.join(", ") + "\n";
+  }
 
-  // Stress
-  var stress = pr.stress || {};
-  text = text + "\nSTRESS STATE:\n";
-  text = text + "  " + JSON.stringify(stress) + "\n";
-
-  // Chemical
-  var chemical = pr.chemical || {};
-  text = text + "\nCHEMICAL STATE:\n";
-  text = text + "  " + JSON.stringify(chemical) + "\n";
-
-  // Energy
-  var energy = pr.energy || {};
-  text = text + "\nENERGY STATE:\n";
-  text = text + "  " + JSON.stringify(energy) + "\n";
-
-  // Process Chemistry
-  var procChem = pr.process_chemistry || {};
-  text = text + "\nPROCESS CHEMISTRY:\n";
-  text = text + "  " + JSON.stringify(procChem) + "\n";
-
-  // Flow Regime
-  var flow = pr.flow_regime || {};
-  text = text + "\nFLOW REGIME:\n";
-  text = text + "  " + JSON.stringify(flow) + "\n";
-
-  // Deposits
-  var deposits = pr.deposits || {};
-  text = text + "\nDEPOSITS:\n";
-  text = text + "  " + JSON.stringify(deposits) + "\n";
+  text = text + compactState("THERMAL", pr.thermal || {});
+  text = text + compactState("STRESS", pr.stress || {});
+  text = text + compactState("CHEMICAL", pr.chemical || {});
+  text = text + compactState("ENERGY", pr.energy || {});
+  text = text + compactState("PROCESS_CHEMISTRY", pr.process_chemistry || {});
+  text = text + compactState("FLOW_REGIME", pr.flow_regime || {});
+  text = text + compactState("DEPOSITS", pr.deposits || {});
 
   // NPS inference
   var nps = pr.nps_inference || {};
@@ -133,9 +120,10 @@ function formatPhysicsStateForAI(dcOutput: any) {
   // Context inferred
   var ctx = pr.context_inferred || [];
   if (ctx.length > 0) {
-    text = text + "\nCONTEXT INFERRED BY PHYSICS ENGINE:\n";
-    for (var i = 0; i < ctx.length; i++) {
-      text = text + "  - " + ctx[i] + "\n";
+    var ctxSlice = ctx.slice(0, 8);
+    text = text + "\nCONTEXT INFERRED (" + ctx.length + " total):\n";
+    for (var i = 0; i < ctxSlice.length; i++) {
+      text = text + "  - " + ctxSlice[i] + "\n";
     }
   }
 
@@ -153,11 +141,8 @@ function formatPhysicsStateForAI(dcOutput: any) {
 
   var rejected = dr.rejected_mechanisms || [];
   if (rejected.length > 0) {
-    text = text + "\nREJECTED MECHANISMS (physics preconditions violated -- DO NOT re-suggest these):\n";
-    for (var k = 0; k < rejected.length; k++) {
-      var r = rejected[k];
-      text = text + "  - " + r.id + " -- rejected because: " + (r.rejection_reason || r.violated_bucket || "precondition violated") + "\n";
-    }
+    var rejIds = rejected.map(function(r: any) { return r.id; });
+    text = text + "\nREJECTED MECHANISMS (" + rejected.length + " total -- DO NOT re-suggest any of these): " + rejIds.join(", ") + "\n";
   }
 
   var primary = dr.primary_mechanism || {};
@@ -398,8 +383,14 @@ export var handler: Handler = async function(event) {
 
     var responseText = (claudeJson.content && claudeJson.content[0]) ? claudeJson.content[0].text : "";
 
-    // Parse JSON from response
-    var cleanedText = responseText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    // Parse JSON from response -- strip markdown wrapping and find the JSON object
+    var cleanedText = responseText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+    // Find the first { and last } to extract JSON even if there's extra text
+    var jsonStart = cleanedText.indexOf("{");
+    var jsonEnd = cleanedText.lastIndexOf("}");
+    if (jsonStart >= 0 && jsonEnd > jsonStart) {
+      cleanedText = cleanedText.substring(jsonStart, jsonEnd + 1);
+    }
     var aiOutput;
     try {
       aiOutput = JSON.parse(cleanedText);
