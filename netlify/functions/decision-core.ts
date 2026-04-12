@@ -1,6 +1,7 @@
 // @ts-nocheck
-// DEPLOY186 -- decision-core.ts v2.9.5
-// v2.9.5: DEPLOY186 -- Add amine cracking (amine SCC) + carbonate SCC to mechanism catalog. Harden austenitic stainless material classifier (304/316/321/347 bare patterns).
+// DEPLOY187 -- decision-core.ts v2.9.6
+// v2.9.6: DEPLOY187 -- Add 885F embrittlement, sigma phase embrittlement, temper embrittlement to mechanism catalog. Batch 1 of API 571 mechanism sweep.
+// Previous: v2.9.5 -- DEPLOY186 -- Add amine cracking (amine SCC) + carbonate SCC to mechanism catalog. Harden austenitic stainless material classifier.
 // Previous: v2.9.4 -- DEPLOY185 -- Add naphthenic acid corrosion + polythionic acid SCC to mechanism catalog.
 // Previous: v2.9.3 -- DEPLOY183 -- Fix hasEvent() crash on object events (500 on computation paths), remove duplicate energy key.
 // Previous: v2.9.2 -- DEPLOY182 -- NPS nominal wall inference + RSR data-quality gate (clean rebuild).
@@ -1171,13 +1172,55 @@ var MECHANISM_CATALOG_V1 = [
     },
     observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
     rejection_messages: { material: "Carbonate SCC affects carbon steel and low-alloy steel.", process_chemistry_carbonate: "Carbonate SCC requires carbonate/alkaline sour water environment; transcript does not indicate carbonate cracking context." }
+  },
+  // DEPLOY187: 885F Embrittlement (475C Embrittlement)
+  {
+    id: "embrittlement_885f",
+    name: "885F (475C) Embrittlement",
+    family: "thermal_degradation",
+    severity: "high",
+    description: "Loss of toughness and ductility in ferritic stainless steels (400-series) and the ferrite phase of duplex stainless steels from prolonged exposure in the 600-1000F (315-540C) range. Caused by formation of alpha-prime phase in ferrite. API 571 Section 5.1.3.1.",
+    preconditions: {
+      material: { class_in: ["ferritic_stainless", "duplex_stainless", "martensitic_stainless"] },
+      thermal: { operating_temp_f_window: [600, 1000] }
+    },
+    observation_evidence_keys: [],
+    rejection_messages: { material: "885F embrittlement affects ferritic stainless (400-series), martensitic stainless, and the ferrite phase of duplex stainless. Austenitic stainless and carbon steel are not susceptible.", thermal: "885F embrittlement is active in the 600-1000F range; operating temperature is outside this window." }
+  },
+  // DEPLOY187: Sigma Phase Embrittlement
+  {
+    id: "sigma_phase_embrittlement",
+    name: "Sigma Phase Embrittlement",
+    family: "thermal_degradation",
+    severity: "high",
+    description: "Formation of hard, brittle sigma phase in austenitic and duplex stainless steels during prolonged exposure above 1000F (538C). Sigma phase depletes chromium from the matrix, reducing corrosion resistance and causing severe loss of toughness. Most common in 300-series SS and duplex in the 1000-1600F range. API 571 Section 5.1.3.2.",
+    preconditions: {
+      material: { class_in: ["austenitic_stainless", "duplex_stainless"] },
+      thermal: { operating_temp_f_window: [1000, 1600] }
+    },
+    observation_evidence_keys: [],
+    rejection_messages: { material: "Sigma phase embrittlement affects austenitic stainless (300-series) and duplex stainless steels. Carbon steel and low-alloy steel are not susceptible.", thermal: "Sigma phase formation requires prolonged exposure in the 1000-1600F range; operating temperature is outside this window." }
+  },
+  // DEPLOY187: Temper Embrittlement
+  {
+    id: "temper_embrittlement",
+    name: "Temper Embrittlement",
+    family: "thermal_degradation",
+    severity: "critical",
+    description: "Loss of toughness in Cr-Mo low-alloy steels (1Cr-0.5Mo, 1.25Cr-0.5Mo, 2.25Cr-1Mo, 3Cr-1Mo) from prolonged service in or slow cooling through the 650-1070F (345-575C) range. Tramp elements (P, Sn, As, Sb) segregate to grain boundaries. Common in hydroprocessing reactor vessels and hot-wall equipment. API 571 Section 5.1.3.3.",
+    preconditions: {
+      material: { class_in: ["low_alloy_steel"] },
+      thermal: { operating_temp_f_window: [650, 1070] }
+    },
+    observation_evidence_keys: [],
+    rejection_messages: { material: "Temper embrittlement primarily affects Cr-Mo low-alloy steels (1Cr through 3Cr); carbon steel and stainless steel are not typically susceptible.", thermal: "Temper embrittlement occurs from service in or slow cooling through the 650-1070F range; operating temperature is outside this window." }
   }
 ];
 
 // Mechanisms migrated to the catalog evaluator path. All other mechanisms
 // continue to use the MECH_DEFS predicate path. This list will grow as
 // DEPLOY172 and DEPLOY173 ship.
-var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride", "naphthenic_acid_corrosion", "polythionic_acid_scc", "amine_cracking", "carbonate_scc"];
+var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride", "naphthenic_acid_corrosion", "polythionic_acid_scc", "amine_cracking", "carbonate_scc", "embrittlement_885f", "sigma_phase_embrittlement", "temper_embrittlement"];
 
 function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
   var satisfied: any[] = [];
@@ -2427,6 +2470,22 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     if (agents.indexOf("carbonate_scc") === -1) { agents.push("carbonate_scc"); contextInferred.push("carbonate SCC language detected -> carbonate stress corrosion cracking risk in alkaline sour water"); }
   }
 
+  // DEPLOY187: EMBRITTLEMENT KEYWORD DETECTION
+  // 885F embrittlement -- ferritic/duplex stainless in 600-1000F range
+  if (hasWord(lt, "885") || hasWord(lt, "885f") || hasWord(lt, "885 f") || hasWord(lt, "885 degree") || hasWord(lt, "475c") || hasWord(lt, "475 c") || hasWord(lt, "alpha prime") || (hasWord(lt, "embrittlement") && (hasWord(lt, "ferritic") || hasWord(lt, "duplex") || hasWord(lt, "400 series") || hasWord(lt, "410") || hasWord(lt, "430")))) {
+    if (agents.indexOf("885f_embrittlement") === -1) { agents.push("885f_embrittlement"); contextInferred.push("885F embrittlement language detected -> alpha-prime embrittlement risk for ferritic/duplex stainless"); }
+  }
+
+  // Sigma phase embrittlement -- austenitic/duplex stainless in 1000-1600F range
+  if (hasWord(lt, "sigma phase") || hasWord(lt, "sigma embrittlement") || (hasWord(lt, "sigma") && (hasWord(lt, "stainless") || hasWord(lt, "embrittlement") || hasWord(lt, "duplex")))) {
+    if (agents.indexOf("sigma_phase") === -1) { agents.push("sigma_phase"); contextInferred.push("sigma phase language detected -> sigma phase embrittlement risk for austenitic/duplex stainless at elevated temperature"); }
+  }
+
+  // Temper embrittlement -- Cr-Mo steels, 650-1070F range or slow cooling through that range
+  if (hasWord(lt, "temper embrittlement") || hasWord(lt, "temper embrittled") || hasWord(lt, "step cooling") || hasWord(lt, "j-factor") || hasWord(lt, "x-factor") || hasWord(lt, "vTr") || (hasWord(lt, "embrittlement") && (hasWord(lt, "2.25cr") || hasWord(lt, "cr-mo") || hasWord(lt, "chrome moly") || hasWord(lt, "1cr") || hasWord(lt, "reactor vessel")))) {
+    if (agents.indexOf("temper_embrittlement") === -1) { agents.push("temper_embrittlement"); contextInferred.push("temper embrittlement language detected -> Cr-Mo steel toughness degradation from service in or slow cooling through 650-1070F range"); }
+  }
+
   var suscept: string[] = [];
   if (h2s && tensile) suscept.push("SSC");
   if (h2s) suscept.push("HIC");
@@ -2568,6 +2627,20 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (hasWord(lt, "duplex stainless") || hasWord(lt, "duplex ss") || hasWord(lt, "2205") || hasWord(lt, "2507") || hasWord(lt, "super duplex")) {
     materialClass = "duplex_stainless";
     materialEvidence.push("duplex stainless grade");
+    materialConfidence = 0.85;
+  }
+
+  // DEPLOY187: Ferritic stainless (400-series, types 405, 409, 410S, 430, 446)
+  if (hasWord(lt, "ferritic stainless") || hasWord(lt, "ferritic ss") || hasWord(lt, "type 405") || hasWord(lt, "type 409") || hasWord(lt, "type 430") || hasWord(lt, "type 446") || hasWord(lt, "405 stainless") || hasWord(lt, "409 stainless") || hasWord(lt, "430 stainless") || hasWord(lt, "446 stainless") || hasWord(lt, "410s") || hasWord(lt, "12 chrome") || hasWord(lt, "12cr") || hasWord(lt, "400 series stainless") || hasWord(lt, "400-series stainless")) {
+    materialClass = "ferritic_stainless";
+    materialEvidence.push("ferritic stainless grade (400-series)");
+    materialConfidence = 0.85;
+  }
+
+  // DEPLOY187: Martensitic stainless (types 410, 420, 440)
+  if (hasWord(lt, "martensitic stainless") || hasWord(lt, "martensitic ss") || hasWord(lt, "type 410 ") || hasWord(lt, "type 420") || hasWord(lt, "type 440") || hasWord(lt, "410 stainless") || hasWord(lt, "420 stainless") || hasWord(lt, "ca-6nm") || hasWord(lt, "ca6nm") || hasWord(lt, "13cr")) {
+    materialClass = "martensitic_stainless";
+    materialEvidence.push("martensitic stainless grade");
     materialConfidence = 0.85;
   }
 
@@ -2803,7 +2876,7 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     context_inferred: contextInferred,
     material: { class: materialClass, class_confidence: materialConfidence, evidence: materialEvidence },
     environment: { phases_present: phasesPresent, phases_negated: phasesNegated, atmosphere_class: atmosphereClass },
-    process_chemistry: { chloride_band: chlorideBandPC, sulfur_class: sulfurClass, amine_type: amineTypePC, nh4_salt_potential: nh4SaltPotential, naphthenic_acid_present: agents.indexOf("naphthenic_acid") !== -1, polythionic_acid_present: agents.indexOf("polythionic_acid") !== -1, amine_cracking_context: agents.indexOf("amine_cracking") !== -1, carbonate_scc_context: agents.indexOf("carbonate_scc") !== -1 },
+    process_chemistry: { chloride_band: chlorideBandPC, sulfur_class: sulfurClass, amine_type: amineTypePC, nh4_salt_potential: nh4SaltPotential, naphthenic_acid_present: agents.indexOf("naphthenic_acid") !== -1, polythionic_acid_present: agents.indexOf("polythionic_acid") !== -1, amine_cracking_context: agents.indexOf("amine_cracking") !== -1, carbonate_scc_context: agents.indexOf("carbonate_scc") !== -1, embrittlement_885f_context: agents.indexOf("885f_embrittlement") !== -1, sigma_phase_context: agents.indexOf("sigma_phase") !== -1, temper_embrittlement_context: agents.indexOf("temper_embrittlement") !== -1 },
     flow_regime: { flow_state: flowState, deadleg: deadlegPresent, turbulence_geometry_present: turbulenceGeometryPresent },
     deposits: { deposits_present: depositsPresent, deposit_type: depositType, deposit_evidence: depositEvidence }
   };
@@ -2839,7 +2912,11 @@ var MECH_SCORING_TABLE = [
   { id: "polythionic_acid_scc", name: "Polythionic Acid SCC", sev: "critical", eKeys: ["crack_confirmed", "visible_cracking", "intergranular_cracking"], preLabels: ["Polythionic acid cracking context", "Susceptible material (austenitic/duplex)"] },
   // DEPLOY186: Amine Cracking + Carbonate SCC
   { id: "amine_cracking", name: "Amine SCC", sev: "high", eKeys: ["crack_confirmed", "visible_cracking"], preLabels: ["Amine service environment", "Carbon steel / low-alloy steel"] },
-  { id: "carbonate_scc", name: "Carbonate SCC", sev: "high", eKeys: ["crack_confirmed", "visible_cracking"], preLabels: ["Carbonate / alkaline sour water environment", "Carbon steel / low-alloy steel"] }
+  { id: "carbonate_scc", name: "Carbonate SCC", sev: "high", eKeys: ["crack_confirmed", "visible_cracking"], preLabels: ["Carbonate / alkaline sour water environment", "Carbon steel / low-alloy steel"] },
+  // DEPLOY187: Embrittlement mechanisms
+  { id: "embrittlement_885f", name: "885F Embrittlement", sev: "high", eKeys: [], preLabels: ["Ferritic/duplex stainless", "Temperature in 885F range (600-1000F)"] },
+  { id: "sigma_phase_embrittlement", name: "Sigma Phase Embrittlement", sev: "high", eKeys: [], preLabels: ["Austenitic/duplex stainless", "Temperature in sigma range (1000-1600F)"] },
+  { id: "temper_embrittlement", name: "Temper Embrittlement", sev: "critical", eKeys: [], preLabels: ["Cr-Mo low-alloy steel", "Temperature in temper embrittlement range (650-1070F)"] }
 ];
 
 function resolveDamageReality(physics: any, flags: any, transcript: string, provenance?: any) {
@@ -2895,7 +2972,14 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
     // DEPLOY186: Amine cracking + carbonate SCC preChecks
     "Amine service environment": c.environment_agents && (c.environment_agents.indexOf("amine_cracking") !== -1 || c.caustic_present),
     "Carbon steel / low-alloy steel": true,
-    "Carbonate / alkaline sour water environment": c.environment_agents && c.environment_agents.indexOf("carbonate_scc") !== -1
+    "Carbonate / alkaline sour water environment": c.environment_agents && c.environment_agents.indexOf("carbonate_scc") !== -1,
+    // DEPLOY187: Embrittlement preChecks
+    "Ferritic/duplex stainless": false,
+    "Temperature in 885F range (600-1000F)": t.operating_temp_f !== null && t.operating_temp_f >= 600 && t.operating_temp_f <= 1000,
+    "Austenitic/duplex stainless": false,
+    "Temperature in sigma range (1000-1600F)": t.operating_temp_f !== null && t.operating_temp_f >= 1000 && t.operating_temp_f <= 1600,
+    "Cr-Mo low-alloy steel": false,
+    "Temperature in temper embrittlement range (650-1070F)": t.operating_temp_f !== null && t.operating_temp_f >= 650 && t.operating_temp_f <= 1070
   };
 
   for (var i = 0; i < MECH_SCORING_TABLE.length; i++) {
@@ -4881,7 +4965,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.5",
+            engine_version: "physics-first-decision-core-v2.9.6",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -4994,7 +5078,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.5",
+          engine_version: "physics-first-decision-core-v2.9.6",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
