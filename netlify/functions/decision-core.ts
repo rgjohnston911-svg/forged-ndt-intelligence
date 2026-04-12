@@ -1,6 +1,6 @@
 // @ts-nocheck
-// DEPLOY190 -- decision-core.ts v2.9.9
-// v2.9.9: DEPLOY190 -- Add ammonia SCC, hydrogen embrittlement, wet H2S blistering/SOHIC. Batch 4 (final) of API 571 sweep. Catalog now at 41 mechanisms.
+// DEPLOY191 -- decision-core.ts v2.9.10
+// v2.9.10: DEPLOY191 -- Fix ammonia SCC false-positive: tighten keyword detection to require compound phrases, not loose word combos. 41 mechanisms unchanged.
 // Previous: v2.9.8 -- DEPLOY189 -- Add galvanic corrosion, atmospheric corrosion, soil-side corrosion, cavitation. Batch 3 of API 571 sweep.
 // Previous: v2.9.7 -- DEPLOY188 -- Add carburization, metal dusting, high-temp oxidation, spheroidization, decarburization, graphitization. Batch 2 of API 571 sweep.
 // Previous: v2.9.6 -- DEPLOY187 -- 885F embrittlement, sigma phase, temper embrittlement + ferritic/martensitic stainless material classifier.
@@ -2833,7 +2833,7 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // DEPLOY190: AMMONIA SCC KEYWORD DETECTION
-  if (hasWord(lt, "ammonia scc") || hasWord(lt, "ammonia stress") || hasWord(lt, "ammonia cracking") || hasWord(lt, "anhydrous ammonia") || hasWord(lt, "ammonia storage") || hasWord(lt, "ammonia refriger") || hasWord(lt, "nh3 scc") || (hasWord(lt, "ammonia") && (hasWord(lt, "cracking") || hasWord(lt, "crack") || hasWord(lt, "scc"))) || (hasWord(lt, "ammonia") && hasWord(lt, "stress corrosion")) || (hasWord(lt, "anhydrous") && hasWord(lt, "nh3"))) {
+  if (hasWord(lt, "ammonia scc") || hasWord(lt, "ammonia stress") || hasWord(lt, "ammonia cracking") || hasWord(lt, "anhydrous ammonia") || hasWord(lt, "ammonia storage") || hasWord(lt, "ammonia refriger") || hasWord(lt, "ammonia service") || hasWord(lt, "nh3 scc") || hasWord(lt, "nh3 cracking") || hasWord(lt, "ammonia environment") || hasWord(lt, "ammonia corrosion") || (hasWord(lt, "anhydrous") && hasWord(lt, "nh3"))) {
     corrosive = true;
     if (agents.indexOf("ammonia_scc") === -1) { agents.push("ammonia_scc"); contextInferred.push("ammonia SCC language detected -> stress corrosion cracking risk in ammonia service"); }
   }
@@ -5367,7 +5367,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.9",
+            engine_version: "physics-first-decision-core-v2.9.10",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5480,7 +5480,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.9",
+          engine_version: "physics-first-decision-core-v2.9.10",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
