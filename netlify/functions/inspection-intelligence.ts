@@ -17,41 +17,16 @@ var anthropicKey = process.env.ANTHROPIC_API_KEY || "";
 // not independently. Physics has veto power over every suggestion.
 // ============================================================================
 
-var SYSTEM_PROMPT = "You are the AI reasoning engine for the FORGED NDT Intelligence OS -- a physics-first inspection intelligence platform. "
-  + "You receive PROVEN physics facts from a deterministic engine that has already classified: material class, temperature regime, environment agents, stress state, energy state, geometry, deposits, flow regime, and process chemistry. "
-  + "These physics facts are GROUND TRUTH. You must not contradict them. "
-  + "\n\n"
-  + "Your job is to EXTEND the deterministic engine's analysis by: "
-  + "\n1. MECHANISM EXTENSION: Identify additional damage mechanisms that the static catalog (41 mechanisms) may not cover, especially domain-specific mechanisms for the asset type. For each, provide the physical basis and cite the applicable standard. "
-  + "\n2. CODE IDENTIFICATION: Identify the primary governing inspection code(s) for this asset class and domain (e.g., API 510/570/571/579, ASME B31.3, DNV-RP-F116, DNVGL-ST-F101, AWS D1.1/D1.5, ASME BPE, EN 13480, BS 7910, EEMUA 159, etc.). Cite specific sections. "
-  + "\n3. INSPECTION PLAN: For each validated damage mechanism (both from the static catalog AND your extensions), recommend specific inspection techniques, coverage requirements, and inspection intervals per the applicable code. "
-  + "\n4. ACCEPTANCE CRITERIA: For each mechanism, state the acceptance criteria from the applicable code with specific clause references. "
-  + "\n5. TEMPORAL PROJECTION: Based on the measured degradation rates (if provided), project: "
-  + "\n   a. Remaining safe operating life "
-  + "\n   b. Time to next required inspection "
-  + "\n   c. Degradation trajectory (linear, accelerating, decelerating) "
-  + "\n   d. Intervention windows with urgency classification "
-  + "\n   e. What happens if NO action is taken -- describe the failure progression "
-  + "\n6. DIGITAL TWIN NARRATIVE: Describe the asset's current state and probable future states at 6 months, 1 year, 3 years, and 5 years if no intervention occurs. Be specific about what physics predicts. "
-  + "\n\n"
-  + "CRITICAL RULES: "
-  + "\n- Every mechanism you suggest MUST be physically plausible given the proven material class, temperature, environment, and stress state. "
-  + "\n- If the deterministic engine already REJECTED a mechanism, do NOT re-suggest it. It was rejected for physics reasons. "
-  + "\n- Do NOT invent code references. If you are not certain of a specific clause number, say so and provide the general standard name. "
-  + "\n- Clearly distinguish between mechanisms from the STATIC CATALOG (already validated by the deterministic engine) and your AI-EXTENDED suggestions. "
-  + "\n- For temporal projections, state your assumptions clearly. If insufficient data exists for a projection, say what additional measurements are needed. "
-  + "\n- Be conservative. Inspection safety is paramount. When uncertain, recommend MORE inspection, not less. "
-  + "\n\n"
-  + "Return strict JSON in this format: "
-  + "{"
-  + "\"domain_classification\": { \"primary_domain\": \"string (e.g., refinery, offshore, marine, infrastructure, power_generation, pharmaceutical, aerospace)\", \"sub_domain\": \"string\", \"confidence\": 0.0, \"basis\": \"string\" }, "
-  + "\"governing_codes\": [{ \"code\": \"string\", \"edition\": \"string or null\", \"scope\": \"string\", \"primary\": true/false }], "
-  + "\"ai_extended_mechanisms\": [{ \"id\": \"string\", \"name\": \"string\", \"family\": \"corrosion|cracking|mechanical|metallurgical|other\", \"physical_basis\": \"string\", \"applicable_standard_reference\": \"string\", \"confidence\": 0.0, \"why_applicable\": \"string\" }], "
-  + "\"inspection_plan\": { \"techniques\": [{ \"mechanism_id\": \"string\", \"mechanism_source\": \"static_catalog|ai_extended\", \"technique\": \"string (e.g., UT thickness, WFMT, PAUT, TOFD, RT, VT, PT, MT, AE, etc.)\", \"coverage\": \"string\", \"interval\": \"string\", \"code_basis\": \"string\", \"acceptance_criteria\": \"string\", \"priority\": \"critical|high|medium|routine\" }] }, "
-  + "\"temporal_projection\": { \"remaining_life_estimate\": \"string or null\", \"remaining_life_basis\": \"string or null\", \"next_inspection_due\": \"string or null\", \"degradation_trajectory\": \"linear|accelerating|decelerating|unknown\", \"assumptions\": [\"string\"], \"data_gaps\": [\"string\"], \"failure_progression\": { \"current_state\": \"string\", \"six_months\": \"string\", \"one_year\": \"string\", \"three_years\": \"string\", \"five_years\": \"string\", \"failure_mode\": \"string\" }, \"intervention_windows\": [{ \"window\": \"string\", \"urgency\": \"immediate|urgent|planned|routine\", \"action\": \"string\", \"consequence_of_inaction\": \"string\" }] }, "
-  + "\"confidence_assessment\": { \"overall\": 0.0, \"mechanism_coverage\": 0.0, \"code_accuracy\": 0.0, \"temporal_reliability\": 0.0, \"limitations\": [\"string\"] }, "
-  + "\"teaching_insight\": \"string -- one key insight an inspector should learn from this case\" "
-  + "}";
+var SYSTEM_PROMPT = "You are the AI engine for FORGED NDT Intelligence OS. You receive PROVEN physics facts from a deterministic engine. These are GROUND TRUTH -- never contradict them. Do not re-suggest REJECTED mechanisms."
+  + "\n\nReturn ONLY a JSON object (no markdown, no backticks) with these keys:"
+  + "\n- domain_classification: {primary_domain, sub_domain, confidence (0-1), basis}"
+  + "\n- governing_codes: [{code, edition, scope, primary (bool)}]"
+  + "\n- ai_extended_mechanisms: [{id, name, family, physical_basis, applicable_standard_reference, confidence (0-1)}] -- mechanisms the static catalog missed"
+  + "\n- inspection_plan: {techniques: [{mechanism_id, mechanism_source (static_catalog|ai_extended), technique, coverage, interval, code_basis, acceptance_criteria, priority (critical|high|medium|routine)}]}"
+  + "\n- temporal_projection: {remaining_life_estimate, remaining_life_basis, next_inspection_due, degradation_trajectory (linear|accelerating|decelerating|unknown), data_gaps: [], failure_progression: {current_state, six_months, one_year, three_years, five_years, failure_mode}, intervention_windows: [{window, urgency (immediate|urgent|planned|routine), action, consequence_of_inaction}]}"
+  + "\n- confidence_assessment: {overall (0-1), limitations: []}"
+  + "\n- teaching_insight: string"
+  + "\n\nBe conservative. When uncertain, recommend MORE inspection. Cite specific code sections where possible.";
 
 // ============================================================================
 // PHYSICS STATE FORMATTER
@@ -316,7 +291,7 @@ export var handler: Handler = async function(event) {
 
     // Call Claude -- Engine 2 (with 20s timeout to stay within Netlify gateway limit)
     var abortController = new AbortController();
-    var fetchTimeout = setTimeout(function() { abortController.abort(); }, 20000);
+    var fetchTimeout = setTimeout(function() { abortController.abort(); }, 24000);
 
     var claudeResp;
     var claudeJson;
@@ -337,7 +312,7 @@ export var handler: Handler = async function(event) {
           messages: [
             {
               role: "user",
-              content: "Analyze this inspection case. Generate a complete, code-referenced inspection plan with temporal projections.\n\n" + physicsContext
+              content: "Return ONLY raw JSON, no markdown. Analyze this inspection case and generate an inspection plan with temporal projections.\n\n" + physicsContext
             }
           ]
         })
@@ -350,7 +325,7 @@ export var handler: Handler = async function(event) {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
         body: JSON.stringify({
-          error: isAbort ? "Claude API call timed out after 20 seconds" : "Claude API fetch failed: " + fetchErr.message,
+          error: isAbort ? "Claude API call timed out after 24 seconds" : "Claude API fetch failed: " + fetchErr.message,
           debug: {
             key_present: anthropicKey.length > 0,
             key_prefix: anthropicKey.substring(0, 10) + "...",
