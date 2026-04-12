@@ -1,6 +1,7 @@
 // @ts-nocheck
-// DEPLOY187 -- decision-core.ts v2.9.6
-// v2.9.6: DEPLOY187 -- Add 885F embrittlement, sigma phase embrittlement, temper embrittlement to mechanism catalog. Batch 1 of API 571 mechanism sweep.
+// DEPLOY188 -- decision-core.ts v2.9.7
+// v2.9.7: DEPLOY188 -- Add carburization, metal dusting, high-temp oxidation, spheroidization, decarburization, graphitization. Batch 2 of API 571 sweep. Catalog now at 34 mechanisms.
+// Previous: v2.9.6 -- DEPLOY187 -- 885F embrittlement, sigma phase, temper embrittlement + ferritic/martensitic stainless material classifier.
 // Previous: v2.9.5 -- DEPLOY186 -- Add amine cracking (amine SCC) + carbonate SCC to mechanism catalog. Harden austenitic stainless material classifier.
 // Previous: v2.9.4 -- DEPLOY185 -- Add naphthenic acid corrosion + polythionic acid SCC to mechanism catalog.
 // Previous: v2.9.3 -- DEPLOY183 -- Fix hasEvent() crash on object events (500 on computation paths), remove duplicate energy key.
@@ -1214,13 +1215,97 @@ var MECHANISM_CATALOG_V1 = [
     },
     observation_evidence_keys: [],
     rejection_messages: { material: "Temper embrittlement primarily affects Cr-Mo low-alloy steels (1Cr through 3Cr); carbon steel and stainless steel are not typically susceptible.", thermal: "Temper embrittlement occurs from service in or slow cooling through the 650-1070F range; operating temperature is outside this window." }
+  },
+  // DEPLOY188: Carburization
+  {
+    id: "carburization",
+    name: "Carburization",
+    family: "thermal_degradation",
+    severity: "high",
+    description: "Carbon diffusion into steel alloys at temperatures above 1100F (593C) in hydrocarbon process environments. Results in increased hardness, reduced ductility, and potential for cracking. Common in fired heater tubes, reformer tubes, and ethylene cracker tubes. API 571 Section 5.1.3.4.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel", "austenitic_stainless"] },
+      thermal: { operating_temp_f_window: [1100, 2000] }
+    },
+    observation_evidence_keys: [],
+    rejection_messages: { material: "Carburization affects carbon steel, low-alloy steel, and austenitic stainless in high-temperature hydrocarbon service.", thermal: "Carburization requires temperatures above 1100F; operating temperature is below this threshold." }
+  },
+  // DEPLOY188: Metal Dusting
+  {
+    id: "metal_dusting",
+    name: "Metal Dusting",
+    family: "corrosion",
+    severity: "critical",
+    description: "Catastrophic form of carburization occurring in the 900-1500F (480-815C) range in environments with high carbon activity (CO-rich, syngas, reformer effluent). Metal disintegrates into powder mixture of metal particles, carbides, and carbon. API 571 Section 5.1.3.5.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel", "austenitic_stainless", "nickel_alloy"] },
+      thermal: { operating_temp_f_window: [900, 1500] }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed"],
+    rejection_messages: { material: "Metal dusting can affect carbon steel, low-alloy steel, austenitic stainless, and nickel alloys in CO-rich environments.", thermal: "Metal dusting is active in the 900-1500F range; operating temperature is outside this window." }
+  },
+  // DEPLOY188: High-Temperature Oxidation
+  {
+    id: "high_temp_oxidation",
+    name: "High-Temperature Oxidation",
+    family: "corrosion",
+    severity: "medium",
+    description: "Formation of oxide scale on metal surfaces at temperatures above 1000F (538C). Rate depends on alloy composition (chromium content provides resistance). Common on fired heater tubes, furnace internals, and high-temperature piping. API 571 Section 5.1.3.6.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel", "austenitic_stainless"] },
+      thermal: { operating_temp_f_window: [1000, 2200] }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed"],
+    rejection_messages: { material: "High-temperature oxidation affects most engineering alloys at sufficient temperature.", thermal: "Significant oxidation scaling requires temperatures above 1000F; operating temperature is below this threshold." }
+  },
+  // DEPLOY188: Spheroidization
+  {
+    id: "spheroidization",
+    name: "Spheroidization",
+    family: "thermal_degradation",
+    severity: "medium",
+    description: "Transformation of lamellar pearlite carbides to spheroidal form in carbon steel and C-0.5Mo steels at temperatures above 850F (454C) over long service periods. Reduces tensile and creep strength. Common in fired heater tubes and long-term elevated temperature service. API 571 Section 5.1.3.7.",
+    preconditions: {
+      material: { class_in: ["carbon_steel"] },
+      thermal: { operating_temp_f_window: [850, 1400] }
+    },
+    observation_evidence_keys: [],
+    rejection_messages: { material: "Spheroidization primarily affects carbon steel and C-0.5Mo steel; Cr-Mo steels and stainless are resistant.", thermal: "Spheroidization requires prolonged exposure above 850F; operating temperature is below this threshold." }
+  },
+  // DEPLOY188: Decarburization
+  {
+    id: "decarburization",
+    name: "Decarburization",
+    family: "thermal_degradation",
+    severity: "medium",
+    description: "Loss of carbon from the surface of steel at temperatures above 800F (427C), particularly in hydrogen-rich or strongly oxidizing environments. Reduces strength and hardness. Distinct from HTHA (which causes internal voids). API 571 Section 5.1.3.8.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel"] },
+      thermal: { operating_temp_f_window: [800, 1400] }
+    },
+    observation_evidence_keys: [],
+    rejection_messages: { material: "Decarburization affects carbon steel and low-alloy steels.", thermal: "Decarburization requires temperatures above 800F; operating temperature is below this threshold." }
+  },
+  // DEPLOY188: Graphitization
+  {
+    id: "graphitization",
+    name: "Graphitization",
+    family: "thermal_degradation",
+    severity: "high",
+    description: "Decomposition of pearlite into ferrite and graphite nodules in carbon steel and C-0.5Mo steels after long-term exposure above 800F (427C). Graphite nodules form preferentially at weld HAZ, creating planes of weakness. Can lead to sudden brittle failure. API 571 Section 5.1.3.9.",
+    preconditions: {
+      material: { class_in: ["carbon_steel"] },
+      thermal: { operating_temp_f_window: [800, 1200] }
+    },
+    observation_evidence_keys: [],
+    rejection_messages: { material: "Graphitization affects carbon steel and C-0.5Mo steel; Cr-Mo steels are resistant.", thermal: "Graphitization requires prolonged exposure above 800F; operating temperature is below this threshold." }
   }
 ];
 
 // Mechanisms migrated to the catalog evaluator path. All other mechanisms
 // continue to use the MECH_DEFS predicate path. This list will grow as
 // DEPLOY172 and DEPLOY173 ship.
-var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride", "naphthenic_acid_corrosion", "polythionic_acid_scc", "amine_cracking", "carbonate_scc", "embrittlement_885f", "sigma_phase_embrittlement", "temper_embrittlement"];
+var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride", "naphthenic_acid_corrosion", "polythionic_acid_scc", "amine_cracking", "carbonate_scc", "embrittlement_885f", "sigma_phase_embrittlement", "temper_embrittlement", "carburization", "metal_dusting", "high_temp_oxidation", "spheroidization", "decarburization", "graphitization"];
 
 function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
   var satisfied: any[] = [];
@@ -2486,6 +2571,37 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     if (agents.indexOf("temper_embrittlement") === -1) { agents.push("temper_embrittlement"); contextInferred.push("temper embrittlement language detected -> Cr-Mo steel toughness degradation from service in or slow cooling through 650-1070F range"); }
   }
 
+  // DEPLOY188: HIGH-TEMPERATURE DEGRADATION KEYWORD DETECTION
+  // Carburization -- carbon diffusion into alloy at >1100F in hydrocarbon service
+  if (hasWord(lt, "carburiz") || hasWord(lt, "carburis") || hasWord(lt, "carbon pickup") || hasWord(lt, "carbon ingress") || (hasWord(lt, "carbon") && hasWord(lt, "diffusion") && (hasWord(lt, "tube") || hasWord(lt, "heater") || hasWord(lt, "furnace")))) {
+    if (agents.indexOf("carburization") === -1) { agents.push("carburization"); contextInferred.push("carburization language detected -> carbon diffusion at elevated temperature in hydrocarbon service"); }
+  }
+
+  // Metal dusting -- catastrophic carburization in high CO / syngas at 900-1500F
+  if (hasWord(lt, "metal dusting") || hasWord(lt, "metal dust") || (hasWord(lt, "dusting") && (hasWord(lt, "syngas") || hasWord(lt, "reformer") || hasWord(lt, "co rich") || hasWord(lt, "carbon monoxide")))) {
+    if (agents.indexOf("metal_dusting") === -1) { agents.push("metal_dusting"); contextInferred.push("metal dusting language detected -> catastrophic carburization in CO-rich / syngas environment"); }
+  }
+
+  // High-temperature oxidation -- scaling at >1000F
+  if (hasWord(lt, "high temp oxidation") || hasWord(lt, "high temperature oxidation") || hasWord(lt, "oxide scale") || hasWord(lt, "scaling") && (tempF !== null && tempF > 900) || hasWord(lt, "oxidation") && (hasWord(lt, "heater") || hasWord(lt, "furnace") || hasWord(lt, "tube"))) {
+    if (agents.indexOf("high_temp_oxidation") === -1) { agents.push("high_temp_oxidation"); contextInferred.push("high-temperature oxidation language detected -> oxide scaling at elevated temperature"); }
+  }
+
+  // Spheroidization -- C and C-0.5Mo steels at >850F long-term
+  if (hasWord(lt, "spheroidiz") || hasWord(lt, "spheroidis") || (hasWord(lt, "carbide") && hasWord(lt, "spheroid")) || (hasWord(lt, "pearlite") && hasWord(lt, "degradation"))) {
+    if (agents.indexOf("spheroidization") === -1) { agents.push("spheroidization"); contextInferred.push("spheroidization language detected -> carbide morphology change reducing strength in carbon/C-0.5Mo steel"); }
+  }
+
+  // Decarburization -- carbon loss at >800F in hydrogen-rich or oxidizing environments
+  if (hasWord(lt, "decarburiz") || hasWord(lt, "decarburis") || hasWord(lt, "carbon depletion") || (hasWord(lt, "carbon loss") && (hasWord(lt, "hydrogen") || hasWord(lt, "surface")))) {
+    if (agents.indexOf("decarburization") === -1) { agents.push("decarburization"); contextInferred.push("decarburization language detected -> surface carbon loss at elevated temperature"); }
+  }
+
+  // Graphitization -- graphite nodule formation in C and C-0.5Mo steels >800F long-term
+  if (hasWord(lt, "graphitiz") || hasWord(lt, "graphitis") || hasWord(lt, "graphite nodule") || hasWord(lt, "graphite formation") || (hasWord(lt, "graphite") && (hasWord(lt, "steel") || hasWord(lt, "weld") || hasWord(lt, "haz")))) {
+    if (agents.indexOf("graphitization") === -1) { agents.push("graphitization"); contextInferred.push("graphitization language detected -> graphite nodule formation in C/C-0.5Mo steel at elevated temperature long-term"); }
+  }
+
   var suscept: string[] = [];
   if (h2s && tensile) suscept.push("SSC");
   if (h2s) suscept.push("HIC");
@@ -2916,7 +3032,14 @@ var MECH_SCORING_TABLE = [
   // DEPLOY187: Embrittlement mechanisms
   { id: "embrittlement_885f", name: "885F Embrittlement", sev: "high", eKeys: [], preLabels: ["Ferritic/duplex stainless", "Temperature in 885F range (600-1000F)"] },
   { id: "sigma_phase_embrittlement", name: "Sigma Phase Embrittlement", sev: "high", eKeys: [], preLabels: ["Austenitic/duplex stainless", "Temperature in sigma range (1000-1600F)"] },
-  { id: "temper_embrittlement", name: "Temper Embrittlement", sev: "critical", eKeys: [], preLabels: ["Cr-Mo low-alloy steel", "Temperature in temper embrittlement range (650-1070F)"] }
+  { id: "temper_embrittlement", name: "Temper Embrittlement", sev: "critical", eKeys: [], preLabels: ["Cr-Mo low-alloy steel", "Temperature in temper embrittlement range (650-1070F)"] },
+  // DEPLOY188: High-temperature degradation mechanisms
+  { id: "carburization", name: "Carburization", sev: "high", eKeys: [], preLabels: ["Temperature above 1100F", "Hydrocarbon service"] },
+  { id: "metal_dusting", name: "Metal Dusting", sev: "critical", eKeys: ["critical_wall_loss_confirmed"], preLabels: ["Temperature in metal dusting range (900-1500F)", "CO-rich / syngas environment"] },
+  { id: "high_temp_oxidation", name: "High-Temp Oxidation", sev: "medium", eKeys: ["critical_wall_loss_confirmed"], preLabels: ["Temperature above 1000F"] },
+  { id: "spheroidization", name: "Spheroidization", sev: "medium", eKeys: [], preLabels: ["Carbon steel", "Temperature above 850F"] },
+  { id: "decarburization", name: "Decarburization", sev: "medium", eKeys: [], preLabels: ["Carbon/low-alloy steel", "Temperature above 800F"] },
+  { id: "graphitization", name: "Graphitization", sev: "high", eKeys: [], preLabels: ["Carbon steel", "Temperature above 800F long-term"] }
 ];
 
 function resolveDamageReality(physics: any, flags: any, transcript: string, provenance?: any) {
@@ -2979,7 +3102,18 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
     "Austenitic/duplex stainless": false,
     "Temperature in sigma range (1000-1600F)": t.operating_temp_f !== null && t.operating_temp_f >= 1000 && t.operating_temp_f <= 1600,
     "Cr-Mo low-alloy steel": false,
-    "Temperature in temper embrittlement range (650-1070F)": t.operating_temp_f !== null && t.operating_temp_f >= 650 && t.operating_temp_f <= 1070
+    "Temperature in temper embrittlement range (650-1070F)": t.operating_temp_f !== null && t.operating_temp_f >= 650 && t.operating_temp_f <= 1070,
+    // DEPLOY188: High-temp degradation preChecks
+    "Temperature above 1100F": t.operating_temp_f !== null && t.operating_temp_f >= 1100,
+    "Hydrocarbon service": c.corrosive_environment,
+    "Temperature in metal dusting range (900-1500F)": t.operating_temp_f !== null && t.operating_temp_f >= 900 && t.operating_temp_f <= 1500,
+    "CO-rich / syngas environment": c.environment_agents && c.environment_agents.indexOf("metal_dusting") !== -1,
+    "Temperature above 1000F": t.operating_temp_f !== null && t.operating_temp_f >= 1000,
+    "Carbon steel": false,
+    "Temperature above 850F": t.operating_temp_f !== null && t.operating_temp_f >= 850,
+    "Carbon/low-alloy steel": false,
+    "Temperature above 800F": t.operating_temp_f !== null && t.operating_temp_f >= 800,
+    "Temperature above 800F long-term": t.operating_temp_f !== null && t.operating_temp_f >= 800
   };
 
   for (var i = 0; i < MECH_SCORING_TABLE.length; i++) {
@@ -4965,7 +5099,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.6",
+            engine_version: "physics-first-decision-core-v2.9.7",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5078,7 +5212,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.6",
+          engine_version: "physics-first-decision-core-v2.9.7",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
