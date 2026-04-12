@@ -1,6 +1,7 @@
 // @ts-nocheck
-// DEPLOY189 -- decision-core.ts v2.9.8
-// v2.9.8: DEPLOY189 -- Add galvanic corrosion, atmospheric corrosion, soil-side corrosion, cavitation. Batch 3 of API 571 sweep. Catalog now at 38 mechanisms.
+// DEPLOY190 -- decision-core.ts v2.9.9
+// v2.9.9: DEPLOY190 -- Add ammonia SCC, hydrogen embrittlement, wet H2S blistering/SOHIC. Batch 4 (final) of API 571 sweep. Catalog now at 41 mechanisms.
+// Previous: v2.9.8 -- DEPLOY189 -- Add galvanic corrosion, atmospheric corrosion, soil-side corrosion, cavitation. Batch 3 of API 571 sweep.
 // Previous: v2.9.7 -- DEPLOY188 -- Add carburization, metal dusting, high-temp oxidation, spheroidization, decarburization, graphitization. Batch 2 of API 571 sweep.
 // Previous: v2.9.6 -- DEPLOY187 -- 885F embrittlement, sigma phase, temper embrittlement + ferritic/martensitic stainless material classifier.
 // Previous: v2.9.5 -- DEPLOY186 -- Add amine cracking (amine SCC) + carbonate SCC to mechanism catalog. Harden austenitic stainless material classifier.
@@ -1356,13 +1357,55 @@ var MECHANISM_CATALOG_V1 = [
     },
     observation_evidence_keys: ["critical_wall_loss_confirmed", "localized_thinning"],
     rejection_messages: { material: "Cavitation can affect most metallic materials.", energy: "Cavitation requires evidence of vapor bubble collapse conditions (pumps, valves, restrictions); no cavitation language detected." }
+  },
+  // DEPLOY190: Ammonia SCC
+  {
+    id: "ammonia_scc",
+    name: "Ammonia Stress Corrosion Cracking",
+    family: "cracking",
+    severity: "critical",
+    description: "Stress corrosion cracking of carbon steel, brass, and copper alloys in anhydrous or aqueous ammonia environments. Particularly aggressive in anhydrous ammonia storage and refrigeration systems with air or oxygen contamination. Can also occur in refinery environments with high ammonia concentrations. API 571 Section 5.1.2.2.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel"] },
+      process_chemistry: { ammonia_scc_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: { material: "Ammonia SCC primarily affects carbon steel and brass/copper alloys in ammonia service.", process_chemistry: "Ammonia SCC requires ammonia environment; no ammonia service language detected." }
+  },
+  // DEPLOY190: Hydrogen Embrittlement
+  {
+    id: "hydrogen_embrittlement",
+    name: "Hydrogen Embrittlement",
+    family: "cracking",
+    severity: "critical",
+    description: "Loss of ductility and cracking susceptibility from absorption of atomic hydrogen into steel. Occurs during cathodic charging (cathodic protection, electroplating, pickling), welding with moist consumables, or service in hydrogen-bearing environments. High-strength steels (>90 ksi yield) are most susceptible. Distinct from HTHA which requires >400F. API 571 Section 5.1.2.4.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel", "martensitic_stainless"] },
+      process_chemistry: { hydrogen_charging_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: { material: "Hydrogen embrittlement primarily affects carbon steel, low-alloy steel, and high-strength martensitic stainless steels.", process_chemistry: "Hydrogen embrittlement requires a hydrogen charging source (cathodic protection, electroplating, pickling, welding, or H2 service); no hydrogen charging language detected." }
+  },
+  // DEPLOY190: Wet H2S Blistering / SOHIC
+  {
+    id: "wet_h2s_blister",
+    name: "Wet H2S Blistering / SOHIC",
+    family: "cracking",
+    severity: "high",
+    description: "Hydrogen blistering and stress-oriented hydrogen induced cracking (SOHIC) in carbon steel exposed to wet H2S (sour water) service. Atomic hydrogen from H2S corrosion diffuses into steel, recombines at inclusions forming blisters, or links up along through-thickness stress fields (SOHIC). Most common in sour water strippers, amine units, and FCC gas concentration units. Distinct from HIC (stepwise internal cracking) and SSC (external stress-driven). API 571 Section 5.1.2.5.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel"] },
+      process_chemistry: { wet_h2s_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: { material: "Wet H2S blistering/SOHIC primarily affects carbon steel and low-alloy steels.", process_chemistry: "Wet H2S blistering requires wet (aqueous) H2S service; no wet H2S / sour water language detected." }
   }
 ];
 
 // Mechanisms migrated to the catalog evaluator path. All other mechanisms
 // continue to use the MECH_DEFS predicate path. This list will grow as
 // DEPLOY172 and DEPLOY173 ship.
-var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride", "naphthenic_acid_corrosion", "polythionic_acid_scc", "amine_cracking", "carbonate_scc", "embrittlement_885f", "sigma_phase_embrittlement", "temper_embrittlement", "carburization", "metal_dusting", "high_temp_oxidation", "spheroidization", "decarburization", "graphitization", "galvanic_corrosion", "atmospheric_corrosion", "soil_corrosion", "cavitation"];
+var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride", "naphthenic_acid_corrosion", "polythionic_acid_scc", "amine_cracking", "carbonate_scc", "embrittlement_885f", "sigma_phase_embrittlement", "temper_embrittlement", "carburization", "metal_dusting", "high_temp_oxidation", "spheroidization", "decarburization", "graphitization", "galvanic_corrosion", "atmospheric_corrosion", "soil_corrosion", "cavitation", "ammonia_scc", "hydrogen_embrittlement", "wet_h2s_blister"];
 
 function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
   var satisfied: any[] = [];
@@ -1941,6 +1984,54 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
         unknown.push({
           bucket: "process_chemistry", field: "carbonate_scc_required", state: "UNKNOWN",
           detail: mech.name + " requires carbonate/alkaline sour water environment; carbonate presence not determined from transcript."
+        });
+      }
+    }
+
+    // DEPLOY190: Ammonia SCC required
+    if (pcp.ammonia_scc_required === true) {
+      var amScc = pc.ammonia_scc_context;
+      if (amScc === true) {
+        satisfied.push({
+          bucket: "process_chemistry", field: "ammonia_scc_required", state: "SATISFIED",
+          detail: "Ammonia SCC environment confirmed (ammonia service / anhydrous ammonia language detected)."
+        });
+      } else {
+        var rmAmScc = mech.rejection_messages && mech.rejection_messages.process_chemistry ? mech.rejection_messages.process_chemistry : (mech.name + " requires ammonia environment; no ammonia service language detected.");
+        violated.push({
+          bucket: "process_chemistry", field: "ammonia_scc_required", state: "VIOLATED", detail: rmAmScc
+        });
+      }
+    }
+
+    // DEPLOY190: Hydrogen charging required (HE -- distinct from HTHA hydrogen_required)
+    if (pcp.hydrogen_charging_required === true) {
+      var hCharge = pc.hydrogen_charging_context;
+      if (hCharge === true) {
+        satisfied.push({
+          bucket: "process_chemistry", field: "hydrogen_charging_required", state: "SATISFIED",
+          detail: "Hydrogen charging source confirmed (cathodic protection, electroplating, pickling, welding, or H2 service)."
+        });
+      } else {
+        var rmHCharge = mech.rejection_messages && mech.rejection_messages.process_chemistry ? mech.rejection_messages.process_chemistry : (mech.name + " requires hydrogen charging source; no hydrogen charging language detected.");
+        violated.push({
+          bucket: "process_chemistry", field: "hydrogen_charging_required", state: "VIOLATED", detail: rmHCharge
+        });
+      }
+    }
+
+    // DEPLOY190: Wet H2S required (blistering/SOHIC -- distinct from HIC h2s_required)
+    if (pcp.wet_h2s_required === true) {
+      var wetH2s = pc.wet_h2s_context;
+      if (wetH2s === true) {
+        satisfied.push({
+          bucket: "process_chemistry", field: "wet_h2s_required", state: "SATISFIED",
+          detail: "Wet H2S / sour water environment confirmed (blistering/SOHIC conditions present)."
+        });
+      } else {
+        var rmWetH2s = mech.rejection_messages && mech.rejection_messages.process_chemistry ? mech.rejection_messages.process_chemistry : (mech.name + " requires wet (aqueous) H2S service; no wet H2S / sour water blistering language detected.");
+        violated.push({
+          bucket: "process_chemistry", field: "wet_h2s_required", state: "VIOLATED", detail: rmWetH2s
         });
       }
     }
@@ -2741,6 +2832,25 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     if (agents.indexOf("soil_contact") === -1) { agents.push("soil_contact"); contextInferred.push("buried / soil-contact language detected -> soil-side corrosion potential on external surface"); }
   }
 
+  // DEPLOY190: AMMONIA SCC KEYWORD DETECTION
+  if (hasWord(lt, "ammonia scc") || hasWord(lt, "ammonia stress") || hasWord(lt, "ammonia cracking") || hasWord(lt, "anhydrous ammonia") || hasWord(lt, "ammonia storage") || hasWord(lt, "ammonia refriger") || hasWord(lt, "nh3 scc") || (hasWord(lt, "ammonia") && (hasWord(lt, "cracking") || hasWord(lt, "crack") || hasWord(lt, "scc"))) || (hasWord(lt, "ammonia") && hasWord(lt, "stress corrosion")) || (hasWord(lt, "anhydrous") && hasWord(lt, "nh3"))) {
+    corrosive = true;
+    if (agents.indexOf("ammonia_scc") === -1) { agents.push("ammonia_scc"); contextInferred.push("ammonia SCC language detected -> stress corrosion cracking risk in ammonia service"); }
+  }
+
+  // DEPLOY190: HYDROGEN EMBRITTLEMENT KEYWORD DETECTION
+  // Distinct from HTHA (hydrogen_damage) -- HE is atomic hydrogen absorption at lower temps
+  if (hasWord(lt, "hydrogen embrittlement") || hasWord(lt, "hydrogen embrit") || hasWord(lt, "hydrogen assisted crack") || hasWord(lt, "hydrogen induced crack") && !hasWord(lt, "hic") || hasWord(lt, "cathodic charging") || hasWord(lt, "cathodic hydrogen") || hasWord(lt, "hydrogen charging") || hasWord(lt, "electroplat") || hasWord(lt, "pickling") && (hasWord(lt, "hydrogen") || hasWord(lt, "embrittl")) || hasWord(lt, "hydrogen delayed fracture") || hasWord(lt, "high strength") && hasWord(lt, "hydrogen") || hasWord(lt, "hsc") && hasWord(lt, "hydrogen")) {
+    if (agents.indexOf("hydrogen_charging") === -1) { agents.push("hydrogen_charging"); contextInferred.push("hydrogen embrittlement language detected -> atomic hydrogen absorption causing ductility loss / delayed cracking"); }
+  }
+
+  // DEPLOY190: WET H2S BLISTERING / SOHIC KEYWORD DETECTION
+  // Distinct from HIC (stepwise internal) and SSC (external stress) -- this covers blistering + SOHIC
+  if (hasWord(lt, "blister") || hasWord(lt, "blistering") || hasWord(lt, "hydrogen blister") || hasWord(lt, "sohic") || hasWord(lt, "stress oriented") && hasWord(lt, "hydrogen") || hasWord(lt, "wet h2s") && (hasWord(lt, "blister") || hasWord(lt, "sohic") || hasWord(lt, "damage")) || hasWord(lt, "sour water") && (hasWord(lt, "blister") || hasWord(lt, "bulge") || hasWord(lt, "sohic")) || (hasWord(lt, "h2s") && hasWord(lt, "blister"))) {
+    corrosive = true;
+    if (agents.indexOf("wet_h2s_blister") === -1) { agents.push("wet_h2s_blister"); contextInferred.push("wet H2S blistering/SOHIC language detected -> hydrogen blistering or stress-oriented HIC in sour water service"); }
+  }
+
   var suscept: string[] = [];
   if (h2s && tensile) suscept.push("SSC");
   if (h2s) suscept.push("HIC");
@@ -3131,7 +3241,7 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     context_inferred: contextInferred,
     material: { class: materialClass, class_confidence: materialConfidence, evidence: materialEvidence },
     environment: { phases_present: phasesPresent, phases_negated: phasesNegated, atmosphere_class: atmosphereClass },
-    process_chemistry: { chloride_band: chlorideBandPC, sulfur_class: sulfurClass, amine_type: amineTypePC, nh4_salt_potential: nh4SaltPotential, naphthenic_acid_present: agents.indexOf("naphthenic_acid") !== -1, polythionic_acid_present: agents.indexOf("polythionic_acid") !== -1, amine_cracking_context: agents.indexOf("amine_cracking") !== -1, carbonate_scc_context: agents.indexOf("carbonate_scc") !== -1, embrittlement_885f_context: agents.indexOf("885f_embrittlement") !== -1, sigma_phase_context: agents.indexOf("sigma_phase") !== -1, temper_embrittlement_context: agents.indexOf("temper_embrittlement") !== -1 },
+    process_chemistry: { chloride_band: chlorideBandPC, sulfur_class: sulfurClass, amine_type: amineTypePC, nh4_salt_potential: nh4SaltPotential, naphthenic_acid_present: agents.indexOf("naphthenic_acid") !== -1, polythionic_acid_present: agents.indexOf("polythionic_acid") !== -1, amine_cracking_context: agents.indexOf("amine_cracking") !== -1, carbonate_scc_context: agents.indexOf("carbonate_scc") !== -1, embrittlement_885f_context: agents.indexOf("885f_embrittlement") !== -1, sigma_phase_context: agents.indexOf("sigma_phase") !== -1, temper_embrittlement_context: agents.indexOf("temper_embrittlement") !== -1, ammonia_scc_context: agents.indexOf("ammonia_scc") !== -1, hydrogen_charging_context: agents.indexOf("hydrogen_charging") !== -1, wet_h2s_context: agents.indexOf("wet_h2s_blister") !== -1 },
     flow_regime: { flow_state: flowState, deadleg: deadlegPresent, turbulence_geometry_present: turbulenceGeometryPresent },
     deposits: { deposits_present: depositsPresent, deposit_type: depositType, deposit_evidence: depositEvidence }
   };
@@ -3183,7 +3293,11 @@ var MECH_SCORING_TABLE = [
   { id: "galvanic_corrosion", name: "Galvanic Corrosion", sev: "medium", eKeys: ["critical_wall_loss_confirmed", "localized_thinning"], preLabels: ["Dissimilar metal contact", "Electrolyte present"] },
   { id: "atmospheric_corrosion", name: "Atmospheric Corrosion", sev: "low", eKeys: ["critical_wall_loss_confirmed"], preLabels: ["Outdoor / atmospheric exposure", "Carbon/low-alloy steel"] },
   { id: "soil_corrosion", name: "Soil-Side Corrosion", sev: "medium", eKeys: ["critical_wall_loss_confirmed", "localized_thinning"], preLabels: ["Buried / soil contact", "Carbon/low-alloy steel"] },
-  { id: "cavitation", name: "Cavitation Damage", sev: "medium", eKeys: ["critical_wall_loss_confirmed", "localized_thinning"], preLabels: ["Cavitation conditions (pumps, valves, restrictions)"] }
+  { id: "cavitation", name: "Cavitation Damage", sev: "medium", eKeys: ["critical_wall_loss_confirmed", "localized_thinning"], preLabels: ["Cavitation conditions (pumps, valves, restrictions)"] },
+  // DEPLOY190: Remaining cracking mechanisms
+  { id: "ammonia_scc", name: "Ammonia SCC", sev: "critical", eKeys: ["crack_confirmed", "visible_cracking"], preLabels: ["Ammonia service environment"] },
+  { id: "hydrogen_embrittlement", name: "Hydrogen Embrittlement", sev: "critical", eKeys: ["crack_confirmed", "visible_cracking"], preLabels: ["Hydrogen charging source"] },
+  { id: "wet_h2s_blister", name: "Wet H2S Blistering/SOHIC", sev: "high", eKeys: ["crack_confirmed", "visible_cracking"], preLabels: ["Wet H2S / sour water blistering environment"] }
 ];
 
 function resolveDamageReality(physics: any, flags: any, transcript: string, provenance?: any) {
@@ -3263,7 +3377,11 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
     "Electrolyte present": c.corrosive_environment,
     "Outdoor / atmospheric exposure": c.environment_agents && (c.environment_agents.indexOf("atmospheric") !== -1 || c.environment_agents.indexOf("environmental_exposure") !== -1),
     "Buried / soil contact": c.environment_agents && c.environment_agents.indexOf("soil_contact") !== -1,
-    "Cavitation conditions (pumps, valves, restrictions)": e.cavitation
+    "Cavitation conditions (pumps, valves, restrictions)": e.cavitation,
+    // DEPLOY190: Remaining cracking mechanism preChecks
+    "Ammonia service environment": c.environment_agents && c.environment_agents.indexOf("ammonia_scc") !== -1,
+    "Hydrogen charging source": c.environment_agents && c.environment_agents.indexOf("hydrogen_charging") !== -1,
+    "Wet H2S / sour water blistering environment": c.environment_agents && c.environment_agents.indexOf("wet_h2s_blister") !== -1
   };
 
   for (var i = 0; i < MECH_SCORING_TABLE.length; i++) {
@@ -5249,7 +5367,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.8",
+            engine_version: "physics-first-decision-core-v2.9.9",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5362,7 +5480,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.8",
+          engine_version: "physics-first-decision-core-v2.9.9",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
