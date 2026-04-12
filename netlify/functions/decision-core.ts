@@ -1,5 +1,12 @@
 // @ts-nocheck
-// DEPLOY191 -- decision-core.ts v2.9.10
+// DEPLOY194 -- decision-core.ts v2.9.11
+// v2.9.11: DEPLOY194 -- Two system bugs fixed:
+//   1. process_chemistry missing hydrogen_present/h2s_present/caustic_present flags.
+//      These lived in physics.chemical but catalog evaluator read from process_chemistry.
+//      HTHA (hydrogen_damage) could never fully validate. Now wired through.
+//   2. Concrete material class overriding metallic materials. Cascading if-statements
+//      let "concrete pedestal" overwrite "2.25Cr-1Mo steel". Now guarded: concrete
+//      only sets if no metallic material already classified.
 // v2.9.10: DEPLOY191 -- Fix ammonia SCC false-positive: tighten keyword detection to require compound phrases, not loose word combos. 41 mechanisms unchanged.
 // Previous: v2.9.8 -- DEPLOY189 -- Add galvanic corrosion, atmospheric corrosion, soil-side corrosion, cavitation. Batch 3 of API 571 sweep.
 // Previous: v2.9.7 -- DEPLOY188 -- Add carburization, metal dusting, high-temp oxidation, spheroidization, decarburization, graphitization. Batch 2 of API 571 sweep.
@@ -3037,11 +3044,19 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     materialConfidence = 0.85;
   }
 
-  // Concrete
+  // Concrete -- DEPLOY194: Only classify as concrete if no metallic material already detected.
+  // Many transcripts mention both metal components AND concrete foundations/pedestals.
+  // The primary material class should always be the metal when both are present,
+  // since the inspection analysis is about the metallic pressure boundary or structure.
+  var metalClasses = ["carbon_steel", "low_alloy_steel", "austenitic_stainless", "duplex_stainless", "ferritic_stainless", "martensitic_stainless", "nickel_alloy", "titanium_alloy", "aluminum_alloy"];
   if (hasWord(lt, "concrete") || hasWord(lt, "reinforced concrete") || hasWord(lt, "rebar") || hasWord(lt, "prestressed")) {
-    materialClass = "concrete";
-    materialEvidence.push("concrete construction");
-    materialConfidence = 0.80;
+    if (materialClass === null || metalClasses.indexOf(materialClass) === -1) {
+      materialClass = "concrete";
+      materialEvidence.push("concrete construction");
+      materialConfidence = 0.80;
+    } else {
+      materialEvidence.push("concrete_also_present (foundation/pedestal -- not primary material)");
+    }
   }
 
   // ==========================================================================
@@ -3241,7 +3256,11 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     context_inferred: contextInferred,
     material: { class: materialClass, class_confidence: materialConfidence, evidence: materialEvidence },
     environment: { phases_present: phasesPresent, phases_negated: phasesNegated, atmosphere_class: atmosphereClass },
-    process_chemistry: { chloride_band: chlorideBandPC, sulfur_class: sulfurClass, amine_type: amineTypePC, nh4_salt_potential: nh4SaltPotential, naphthenic_acid_present: agents.indexOf("naphthenic_acid") !== -1, polythionic_acid_present: agents.indexOf("polythionic_acid") !== -1, amine_cracking_context: agents.indexOf("amine_cracking") !== -1, carbonate_scc_context: agents.indexOf("carbonate_scc") !== -1, embrittlement_885f_context: agents.indexOf("885f_embrittlement") !== -1, sigma_phase_context: agents.indexOf("sigma_phase") !== -1, temper_embrittlement_context: agents.indexOf("temper_embrittlement") !== -1, ammonia_scc_context: agents.indexOf("ammonia_scc") !== -1, hydrogen_charging_context: agents.indexOf("hydrogen_charging") !== -1, wet_h2s_context: agents.indexOf("wet_h2s_blister") !== -1 },
+    // DEPLOY194: Added hydrogen_present, h2s_present, caustic_present from chemical state.
+    // These flags were only in physics.chemical but the catalog evaluator reads from
+    // assetState.process_chemistry. Without them, hydrogen_required (HTHA), h2s checks,
+    // and caustic checks always returned UNKNOWN -- those mechanisms could never fully validate.
+    process_chemistry: { chloride_band: chlorideBandPC, sulfur_class: sulfurClass, amine_type: amineTypePC, nh4_salt_potential: nh4SaltPotential, hydrogen_present: hydrogen, h2s_present: h2s, caustic_present: caustic, naphthenic_acid_present: agents.indexOf("naphthenic_acid") !== -1, polythionic_acid_present: agents.indexOf("polythionic_acid") !== -1, amine_cracking_context: agents.indexOf("amine_cracking") !== -1, carbonate_scc_context: agents.indexOf("carbonate_scc") !== -1, embrittlement_885f_context: agents.indexOf("885f_embrittlement") !== -1, sigma_phase_context: agents.indexOf("sigma_phase") !== -1, temper_embrittlement_context: agents.indexOf("temper_embrittlement") !== -1, ammonia_scc_context: agents.indexOf("ammonia_scc") !== -1, hydrogen_charging_context: agents.indexOf("hydrogen_charging") !== -1, wet_h2s_context: agents.indexOf("wet_h2s_blister") !== -1 },
     flow_regime: { flow_state: flowState, deadleg: deadlegPresent, turbulence_geometry_present: turbulenceGeometryPresent },
     deposits: { deposits_present: depositsPresent, deposit_type: depositType, deposit_evidence: depositEvidence }
   };
@@ -5367,7 +5386,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.10",
+            engine_version: "physics-first-decision-core-v2.9.11",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5480,7 +5499,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.10",
+          engine_version: "physics-first-decision-core-v2.9.11",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
