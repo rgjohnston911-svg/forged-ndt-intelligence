@@ -255,7 +255,7 @@ function inferCrackConfirmationState(text, keyword) {
 
 // ======================================================================
 // DEPLOY174+: CATALOG FAMILY MAP
-// Maps all 28 decision-core catalog mechanism IDs to their canonical FMD
+// Maps all 34 decision-core catalog mechanism IDs to their canonical FMD
 // failure mode family. When a mechanism ID is recognized in this map, the
 // classification loop uses the map instead of keyword matching. This
 // prevents drift between decision-core's catalog and FMD's classification.
@@ -300,7 +300,14 @@ var CATALOG_FAMILY_MAP = {
   // DEPLOY187: Embrittlement mechanisms
   "embrittlement_885f": "thermal_degradation",
   "sigma_phase_embrittlement": "thermal_degradation",
-  "temper_embrittlement": "thermal_degradation"
+  "temper_embrittlement": "thermal_degradation",
+  // DEPLOY188: High-temperature degradation + metal dusting/oxidation
+  "carburization": "thermal_degradation",
+  "metal_dusting": "corrosion",
+  "high_temp_oxidation": "corrosion",
+  "spheroidization": "thermal_degradation",
+  "decarburization": "thermal_degradation",
+  "graphitization": "thermal_degradation"
 };
 
 var handler = async function(event) {
