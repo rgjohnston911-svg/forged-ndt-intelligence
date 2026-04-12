@@ -1,5 +1,15 @@
 // @ts-nocheck
-// DEPLOY199 -- decision-core.ts v2.9.16
+// DEPLOY200 -- decision-core.ts v2.10.0
+// v2.10.0: DEPLOY200 -- Coatings as 10th precondition bucket in Engine 1 catalog evaluator.
+//   Coating condition detection: "intact", "degraded", "absent", or null (unknown).
+//   Coating type detection: FBE, epoxy, polyurethane, zinc/galvanized, TSA, coal tar,
+//   vinyl ester/FRP, rubber lining, ceramic, paint system.
+//   New coating_protection precondition on 3 external-attack mechanisms:
+//   atmospheric_corrosion, soil_corrosion, galvanic_corrosion.
+//   Intact coating -> VIOLATED (physically blocks external corrosion cell).
+//   Degraded/absent -> SATISFIED (metal exposed). Unknown -> UNKNOWN.
+//   Internal mechanisms (general_corrosion, pitting, MIC, CO2, erosion) NOT gated
+//   because external coatings do not protect internal surfaces.
 // v2.9.16: DEPLOY199 -- fire_damage negation fix. hasWord is plain indexOf and matched
 //   "fire event" inside "No actual fire event". Switched all fire-event phrase checks from
 //   hasWord to hasWordNotNegated so negated fire references no longer trigger fire_damage.
@@ -1340,10 +1350,11 @@ var MECHANISM_CATALOG_V1 = [
     description: "Accelerated corrosion of the less noble (anodic) metal when two dissimilar metals are in electrical contact in the presence of an electrolyte. Rate depends on area ratio, potential difference, and electrolyte conductivity. API 571 Section 5.1.1.3.",
     preconditions: {
       material: { class_in: ["carbon_steel", "low_alloy_steel", "austenitic_stainless", "duplex_stainless", "ferritic_stainless", "martensitic_stainless", "nickel_alloy"] },
-      environment: { galvanic_context_required: true }
+      environment: { galvanic_context_required: true },
+      coating: { coating_protection: true }
     },
     observation_evidence_keys: ["critical_wall_loss_confirmed", "localized_thinning"],
-    rejection_messages: { material: "Galvanic corrosion can affect most metallic materials when coupled to a more noble metal.", environment: "Galvanic corrosion requires dissimilar metal contact with an electrolyte present." }
+    rejection_messages: { material: "Galvanic corrosion can affect most metallic materials when coupled to a more noble metal.", environment: "Galvanic corrosion requires dissimilar metal contact with an electrolyte present.", coating: "Galvanic corrosion requires electrical contact between dissimilar metals through an electrolyte. An intact coating electrically isolates the metal surface and prevents the galvanic cell from forming." }
   },
   // DEPLOY189: Atmospheric Corrosion
   {
@@ -1354,10 +1365,11 @@ var MECHANISM_CATALOG_V1 = [
     description: "General or localized corrosion of metals exposed to the atmosphere, driven by moisture, oxygen, and contaminants (chlorides, SO2, industrial pollutants). Most common on uninsulated, uncoated carbon steel in outdoor service. API 571 Section 5.1.1.4.",
     preconditions: {
       material: { class_in: ["carbon_steel", "low_alloy_steel"] },
-      environment: { atmospheric_exposure_required: true }
+      environment: { atmospheric_exposure_required: true },
+      coating: { coating_protection: true }
     },
     observation_evidence_keys: ["critical_wall_loss_confirmed"],
-    rejection_messages: { material: "Atmospheric corrosion primarily affects carbon steel and low-alloy steels.", environment: "Atmospheric corrosion requires outdoor/weather exposure; no atmospheric exposure language detected." }
+    rejection_messages: { material: "Atmospheric corrosion primarily affects carbon steel and low-alloy steels.", environment: "Atmospheric corrosion requires outdoor/weather exposure; no atmospheric exposure language detected.", coating: "Atmospheric corrosion requires direct exposure of the metal surface to the atmosphere. An intact coating physically prevents the electrochemical corrosion cell from forming at the metal-atmosphere interface." }
   },
   // DEPLOY189: Soil-Side Corrosion (Buried Piping)
   {
@@ -1368,10 +1380,11 @@ var MECHANISM_CATALOG_V1 = [
     description: "External corrosion of buried or partially buried metallic piping and equipment driven by soil moisture, soil chemistry (pH, resistivity, chlorides, sulfates), stray currents, and microbiological activity. Coating condition and cathodic protection effectiveness are key mitigating factors. API 571 Section 5.1.1.5.",
     preconditions: {
       material: { class_in: ["carbon_steel", "low_alloy_steel"] },
-      environment: { soil_burial_required: true }
+      environment: { soil_burial_required: true },
+      coating: { coating_protection: true }
     },
     observation_evidence_keys: ["critical_wall_loss_confirmed", "localized_thinning"],
-    rejection_messages: { material: "Soil-side corrosion primarily affects carbon steel and low-alloy steel buried piping.", environment: "Soil-side corrosion requires buried or soil-contact conditions; no buried/soil language detected." }
+    rejection_messages: { material: "Soil-side corrosion primarily affects carbon steel and low-alloy steel buried piping.", environment: "Soil-side corrosion requires buried or soil-contact conditions; no buried/soil language detected.", coating: "Soil-side corrosion requires direct contact between the metal surface and soil electrolyte. An intact coating (FBE, coal tar, polyethylene) physically isolates the metal from the soil environment." }
   },
   // DEPLOY189: Cavitation
   {
@@ -1639,6 +1652,40 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
         unknown.push({
           bucket: "geometry", field: "insulation_present", state: "UNKNOWN",
           detail: mech.name + " requires insulation; transcript does not state insulation status."
+        });
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // DEPLOY200: Coating bucket -- 10th precondition domain
+  // coating_protection: true means the mechanism requires exposed metal surface.
+  // An intact external coating physically prevents the corrosion cell from forming.
+  // -------------------------------------------------------------------------
+  if (mech.preconditions.coating) {
+    var cp = mech.preconditions.coating;
+
+    if (cp.coating_protection === true) {
+      var cc = assetState.coating || { coating_condition: null };
+      var ccCond = cc.coating_condition;
+
+      if (ccCond === "absent" || ccCond === "degraded") {
+        // Coating not protecting -- mechanism can proceed
+        satisfied.push({
+          bucket: "coating", field: "coating_protection", state: "SATISFIED",
+          detail: "Coating is " + ccCond + " -- metal surface exposed to environment."
+        });
+      } else if (ccCond === "intact") {
+        // Intact coating physically blocks external corrosion
+        var rmCoat = mech.rejection_messages.coating || (mech.name + " requires exposed metal surface. Intact coating prevents direct environmental attack.");
+        violated.push({
+          bucket: "coating", field: "coating_protection", state: "VIOLATED", detail: rmCoat
+        });
+      } else {
+        // Coating condition unknown -- cannot confirm or rule out
+        unknown.push({
+          bucket: "coating", field: "coating_protection", state: "UNKNOWN",
+          detail: mech.name + " is suppressed by intact coatings; transcript does not state coating condition."
         });
       }
     }
@@ -2437,7 +2484,9 @@ function buildAssetStateForCatalog(physics: any, transcript: string): any {
       cavitation: physics.energy.cavitation || false
     },
     flow_regime: physics.flow_regime || { flow_state: null, deadleg: null, turbulence_geometry_present: null },
-    deposits: physics.deposits || { deposits_present: null, deposit_type: null, deposit_evidence: [] }
+    deposits: physics.deposits || { deposits_present: null, deposit_type: null, deposit_evidence: [] },
+    // DEPLOY200: Coatings bucket
+    coating: physics.coating || { coating_condition: null, coating_type: null, coating_evidence: [] }
   };
 }
 
@@ -2946,9 +2995,74 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (h2s) suscept.push("HIC");
   if (chlorides && (hasWord(lt, "stainless") || hasWord(lt, "austenitic"))) suscept.push("chloride_SCC");
   if (caustic && tensile) suscept.push("caustic_SCC");
+  // =========================================================================
+  // DEPLOY200: Coatings as 10th precondition bucket.
+  // Coating condition is a major variable in external corrosion mechanisms.
+  // Three states: "intact" (protecting), "degraded" (partial), "absent" (none).
+  // Coating type tracked for engineering context.
+  // =========================================================================
+  var coatingCondition: string | null = null;  // "intact" | "degraded" | "absent" | null
+  var coatingType: string | null = null;
+  var coatingEvidence: string[] = [];
+
+  // --- Coating ABSENT detection (bare metal, no coating, stripped) ---
+  var negCoat = hasWord(lt, "no coating") || hasWord(lt, "not coated") || hasWord(lt, "without coating");
+  if (negCoat || hasWord(lt, "uncoated") || hasWord(lt, "bare steel") || hasWord(lt, "bare metal") || hasWord(lt, "bare pipe") || hasWord(lt, "coating removed") || hasWord(lt, "coating stripped") || hasWord(lt, "no paint") || hasWord(lt, "unpainted") || hasWord(lt, "bare surface") || hasWord(lt, "bare substrate")) {
+    coatingCondition = "absent";
+    coatingEvidence.push("coating absent: bare/uncoated metal");
+  }
+
+  // --- Coating DEGRADED detection (failing, damaged, partial) ---
+  if (coatingCondition !== "absent") {
+    if (hasWord(lt, "coating fail") || hasWord(lt, "coating failure") || hasWord(lt, "coating breakdown") || hasWord(lt, "coating damage") || hasWord(lt, "coating deteriorat") || hasWord(lt, "coating degrad") || hasWord(lt, "disbond") || hasWord(lt, "disbonded") || hasWord(lt, "blistered coating") || hasWord(lt, "coating blister") || hasWord(lt, "chalking") || hasWord(lt, "peeling") || hasWord(lt, "flaking") || hasWord(lt, "rust through") || hasWord(lt, "rust bleed") || hasWord(lt, "holidays") || hasWord(lt, "holiday") || hasWord(lt, "pinhole") || hasWord(lt, "bare spot") || hasWord(lt, "coating loss") || hasWord(lt, "paint fail") || hasWord(lt, "paint damage") || hasWord(lt, "paint peel") || hasWord(lt, "underfilm corrosion") || hasWord(lt, "undercutting") || hasWord(lt, "topcoat gone") || hasWord(lt, "primer exposed") || hasWord(lt, "rust staining") || hasWord(lt, "corroded through coating") || hasWord(lt, "coating compromised") || hasWord(lt, "coating defect") || hasWord(lt, "wrinkled coating") || hasWord(lt, "cracked coating") || hasWord(lt, "poor coating") || hasWord(lt, "worn coating") || hasWord(lt, "thin coating") || hasWord(lt, "coating erosion") || hasWord(lt, "mechanical damage to coating") || hasWord(lt, "abrasion")) {
+      coatingCondition = "degraded";
+      coatingEvidence.push("coating degraded: failure/damage/disbondment language");
+    }
+  }
+
+  // --- Coating INTACT detection (good condition, recently applied) ---
+  if (coatingCondition === null) {
+    if (hasWord(lt, "coating intact") || hasWord(lt, "coating good") || hasWord(lt, "good coating") || hasWord(lt, "coating in good condition") || hasWord(lt, "well coated") || hasWord(lt, "properly coated") || hasWord(lt, "newly coated") || hasWord(lt, "recently coated") || hasWord(lt, "recently painted") || hasWord(lt, "fresh coat") || hasWord(lt, "coating satisfactory") || hasWord(lt, "coating acceptable") || hasWord(lt, "no coating defect") || hasWord(lt, "coating adhered") || hasWord(lt, "well adhered") || hasWord(lt, "sound coating")) {
+      coatingCondition = "intact";
+      coatingEvidence.push("coating intact: good condition language");
+    }
+  }
+
+  // --- Coating TYPE detection (what kind of coating) ---
+  if (hasWord(lt, "fbe") || hasWord(lt, "fusion bonded epoxy") || hasWord(lt, "fusion-bonded epoxy")) {
+    coatingType = "FBE"; coatingEvidence.push("type: fusion bonded epoxy");
+  } else if (hasWord(lt, "epoxy coating") || hasWord(lt, "epoxy coated") || hasWord(lt, "epoxy paint") || hasWord(lt, "epoxy lined")) {
+    coatingType = "epoxy"; coatingEvidence.push("type: epoxy");
+  } else if (hasWord(lt, "polyurethane") || hasWord(lt, "urethane coat")) {
+    coatingType = "polyurethane"; coatingEvidence.push("type: polyurethane");
+  } else if (hasWord(lt, "zinc coat") || hasWord(lt, "zinc rich") || hasWord(lt, "zinc-rich") || hasWord(lt, "hot dip galvan") || hasWord(lt, "galvanized") || hasWord(lt, "galvanised") || hasWord(lt, "hdg")) {
+    coatingType = "zinc_galvanized"; coatingEvidence.push("type: zinc/galvanized");
+  } else if (hasWord(lt, "tsa") || hasWord(lt, "thermal spray aluminum") || hasWord(lt, "thermal spray aluminium") || hasWord(lt, "metallized") || hasWord(lt, "metalizing")) {
+    coatingType = "TSA"; coatingEvidence.push("type: thermal spray aluminum");
+  } else if (hasWord(lt, "coal tar") || hasWord(lt, "bituminous")) {
+    coatingType = "coal_tar"; coatingEvidence.push("type: coal tar/bituminous");
+  } else if (hasWord(lt, "vinyl ester") || hasWord(lt, "fiberglass lined") || hasWord(lt, "frp lined")) {
+    coatingType = "vinyl_ester_FRP"; coatingEvidence.push("type: vinyl ester/FRP");
+  } else if (hasWord(lt, "rubber lined") || hasWord(lt, "rubber lining") || hasWord(lt, "elastomer")) {
+    coatingType = "rubber_lining"; coatingEvidence.push("type: rubber lining");
+  } else if (hasWord(lt, "ceramic coat") || hasWord(lt, "ceramic lined")) {
+    coatingType = "ceramic"; coatingEvidence.push("type: ceramic");
+  } else if (hasWord(lt, "painted") || hasWord(lt, "paint system") || hasWord(lt, "primer") || hasWord(lt, "topcoat") || hasWord(lt, "alkyd")) {
+    coatingType = "paint_system"; coatingEvidence.push("type: paint system");
+  }
+
+  // If we detected a coating type but no condition, infer coating is present (condition unknown but not absent)
+  if (coatingType !== null && coatingCondition === null) {
+    // Coating type mentioned without condition = coating exists but condition not stated.
+    // Leave coatingCondition as null (unknown) -- the evaluator will return UNKNOWN,
+    // which is the correct answer: we know there IS a coating but don't know its state.
+    coatingEvidence.push("coating type identified but condition not stated");
+  }
+
+  // Backward compat: coatingOk still feeds chemical state for legacy consumers
   var coatingOk: boolean | null = null;
-  if (hasWord(lt, "coating fail") || hasWord(lt, "coating breakdown") || hasWord(lt, "coating damage")) coatingOk = false;
-  else if (hasWord(lt, "coating intact") || hasWord(lt, "coating good")) coatingOk = true;
+  if (coatingCondition === "intact") coatingOk = true;
+  else if (coatingCondition === "degraded" || coatingCondition === "absent") coatingOk = false;
   if (corrosive) conf += 0.05;
 
   var presCyc = cyclic && (hasWord(lt, "pressure") || assetClass === "pressure_vessel" || assetClass === "piping");
@@ -3445,7 +3559,9 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     // and caustic checks always returned UNKNOWN -- those mechanisms could never fully validate.
     process_chemistry: { chloride_band: chlorideBandPC, sulfur_class: sulfurClass, amine_type: amineTypePC, nh4_salt_potential: nh4SaltPotential, hydrogen_present: hydrogen, h2s_present: h2s, caustic_present: caustic, naphthenic_acid_present: agents.indexOf("naphthenic_acid") !== -1, polythionic_acid_present: agents.indexOf("polythionic_acid") !== -1, amine_cracking_context: agents.indexOf("amine_cracking") !== -1, carbonate_scc_context: agents.indexOf("carbonate_scc") !== -1, embrittlement_885f_context: agents.indexOf("885f_embrittlement") !== -1, sigma_phase_context: agents.indexOf("sigma_phase") !== -1, temper_embrittlement_context: agents.indexOf("temper_embrittlement") !== -1, ammonia_scc_context: agents.indexOf("ammonia_scc") !== -1, hydrogen_charging_context: agents.indexOf("hydrogen_charging") !== -1, wet_h2s_context: agents.indexOf("wet_h2s_blister") !== -1 },
     flow_regime: { flow_state: flowState, deadleg: deadlegPresent, turbulence_geometry_present: turbulenceGeometryPresent },
-    deposits: { deposits_present: depositsPresent, deposit_type: depositType, deposit_evidence: depositEvidence }
+    deposits: { deposits_present: depositsPresent, deposit_type: depositType, deposit_evidence: depositEvidence },
+    // DEPLOY200: Coatings bucket -- 10th precondition domain
+    coating: { coating_condition: coatingCondition, coating_type: coatingType, coating_evidence: coatingEvidence }
   };
 }
 
@@ -5569,7 +5685,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.16",
+            engine_version: "physics-first-decision-core-v2.10.0",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5682,7 +5798,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.16",
+          engine_version: "physics-first-decision-core-v2.10.0",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
@@ -5698,6 +5814,8 @@ var handler: Handler = async function(event: HandlerEvent) {
             process_chemistry: physics.process_chemistry || { chloride_band: null, sulfur_class: null, amine_type: null, nh4_salt_potential: null, h2s_present: false, caustic_present: false, hydrogen_present: false },
             flow_regime: physics.flow_regime || { flow_state: null, deadleg: null, turbulence_geometry_present: null },
             deposits: physics.deposits || { deposits_present: null, deposit_type: null, deposit_evidence: [] },
+            // DEPLOY200: Coating condition in physical reality output
+            coating: physics.coating || { coating_condition: null, coating_type: null, coating_evidence: [] },
             nps_inference: npsWallInference
           },
           damage_reality: {
