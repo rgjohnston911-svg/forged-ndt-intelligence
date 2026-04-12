@@ -1,5 +1,11 @@
 // @ts-nocheck
-// DEPLOY196 -- decision-core.ts v2.9.13
+// DEPLOY197 -- decision-core.ts v2.9.14
+// v2.9.14: DEPLOY197 -- Four catalog vocabulary mismatches fixed:
+//   1. erosion: flow_state_in ["high_velocity","turbulent"] -> ["high","turbulent"] to match physics engine output.
+//   2. mic: flow_state_in ["stagnant","low_flow"] -> ["stagnant","low"] to match physics engine output.
+//   3. mic: deposit_type_in ["biofilm_slime","sulfide_scale","unknown"] -> ["biofilm","sulfide","unspecified"].
+//   4. underdeposit_corrosion: deposit_type_in ["ammonium_salt","carbonate_scale","sulfide_scale","unknown"] -> ["salt","sulfide","scale","unspecified"].
+//   Plus: physics engine now emits flow_state="turbulent" when turbulence geometry is detected without explicit flow velocity.
 // v2.9.11: DEPLOY194 -- Two system bugs fixed:
 //   1. process_chemistry missing hydrogen_present/h2s_present/caustic_present flags.
 //      These lived in physics.chemical but catalog evaluator read from process_chemistry.
@@ -865,7 +871,7 @@ var MECHANISM_CATALOG_V1 = [
         class_in: ["carbon_steel", "low_alloy_steel", "austenitic_stainless", "duplex_stainless"]
       },
       flow_regime: {
-        flow_state_in: ["high_velocity", "turbulent"]
+        flow_state_in: ["high", "turbulent"]
       }
     },
     observation_evidence_keys: ["critical_wall_loss_confirmed"],
@@ -909,11 +915,11 @@ var MECHANISM_CATALOG_V1 = [
         phase_must_include: ["liquid_water", "water_vapor_condensable", "wet_gas"]
       },
       flow_regime: {
-        flow_state_in: ["stagnant", "low_flow"]
+        flow_state_in: ["stagnant", "low"]
       },
       deposits: {
         deposits_required: true,
-        deposit_type_in: ["biofilm_slime", "sulfide_scale", "unknown"]
+        deposit_type_in: ["biofilm", "sulfide", "unspecified"]
       }
     },
     observation_evidence_keys: ["critical_wall_loss_confirmed", "leak_confirmed"],
@@ -958,7 +964,7 @@ var MECHANISM_CATALOG_V1 = [
     preconditions: {
       deposits: {
         deposits_required: true,
-        deposit_type_in: ["ammonium_salt", "carbonate_scale", "sulfide_scale", "unknown"]
+        deposit_type_in: ["salt", "sulfide", "scale", "unspecified"]
       },
       process_chemistry: {
         nh4_salt_required: true
@@ -3309,6 +3315,12 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   var hasDownstreamDamage = hasWord(lt, "downstream of") || hasWord(lt, "elbows worse") || hasWord(lt, "elbow worse") || hasWord(lt, "elbows getting hit") || hasWord(lt, "eaten") || hasWord(lt, "thinner at") || hasWord(lt, "wall loss at") || hasWord(lt, "metal loss at") || hasWord(lt, "turbulence") || hasWord(lt, "accelerated thinning") || hasWord(lt, "locally accelerated") || hasWord(lt, "washed out");
   if (hasGeoWord && hasDownstreamDamage) {
     turbulenceGeometryPresent = true;
+    // DEPLOY197: Promote flow_state to "turbulent" when turbulence geometry + downstream
+    // damage are both present but no explicit velocity keyword was given. This allows the
+    // erosion catalog mechanism to reach SATISFIED on its flow_regime precondition.
+    if (flowState === null) {
+      flowState = "turbulent";
+    }
   }
 
   // ==========================================================================
@@ -5499,7 +5511,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.13",
+            engine_version: "physics-first-decision-core-v2.9.14",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5612,7 +5624,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.13",
+          engine_version: "physics-first-decision-core-v2.9.14",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
