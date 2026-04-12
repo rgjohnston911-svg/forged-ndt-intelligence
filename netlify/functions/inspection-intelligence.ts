@@ -1,5 +1,10 @@
 // @ts-nocheck
-// DEPLOY196 -- inspection-intelligence.ts v1.3.1
+// DEPLOY202 -- inspection-intelligence.ts v1.4.0
+// v1.4.0: DEPLOY202 -- Dual-provider AI failover. GPT-4o-mini primary, Claude Sonnet fallback.
+//   If OpenAI is down or returns an error, automatically falls to Anthropic Claude.
+//   Both API keys already in Netlify env. Non-breaking -- behaves identically when OpenAI healthy.
+//   New metadata fields: ai_provider, ai_failover_used, ai_primary_error.
+// v1.3.1: DEPLOY196 -- Field language awareness in system prompt.
 // v1.2.0: DEPLOY194 -- Strengthened Engine 2 system prompt. AI now has explicit mandate to extend
 //   beyond static catalog, identify cross-domain failures, recommend advanced techniques, and flag
 //   code authority collisions. Previous prompt was too deferential -- AI returned 0 extensions
@@ -10,11 +15,12 @@
 //   Engine 2 (AI Reasoning): GPT-4o-mini extends analysis to ANY domain, ANY code, ANY mechanism
 //   Physics veto: AI suggestions validated against proven physics -- impossible mechanisms rejected
 //   Temporal projection: degradation modeling, remaining life, intervention windows
-// Uses OPENAI_API_KEY (GPT-4o-mini) for AI reasoning layer.
+// Uses OPENAI_API_KEY (GPT-4o-mini) primary, ANTHROPIC_API_KEY (Claude) fallback.
 
 import type { Handler } from "@netlify/functions";
 
 var openaiKey = process.env.OPENAI_API_KEY || "";
+var anthropicKey = process.env.ANTHROPIC_API_KEY || "";
 
 // ============================================================================
 // SYSTEM PROMPT: The soul of Engine 2
@@ -298,11 +304,11 @@ export var handler: Handler = async function(event) {
       };
     }
 
-    if (!openaiKey) {
+    if (!openaiKey && !anthropicKey) {
       return {
-        statusCode: 500,
+        statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({ error: "OPENAI_API_KEY not configured" })
+        body: JSON.stringify({ error: "No AI API keys configured (need OPENAI_API_KEY or ANTHROPIC_API_KEY)" })
       };
     }
 
@@ -317,80 +323,125 @@ export var handler: Handler = async function(event) {
       physicsContext = physicsContext + "\n=== ASSET DESCRIPTION ===\n" + assetDescription + "\n";
     }
 
-    // Call GPT-4o-mini -- Engine 2 (with 24s timeout to stay within Netlify 26s gateway limit)
-    var abortController = new AbortController();
-    var fetchTimeout = setTimeout(function() { abortController.abort(); }, 24000);
+    var userContent = "Return ONLY raw JSON, no markdown. Analyze this inspection case and generate an inspection plan with temporal projections.\n\n" + physicsContext;
 
-    var aiResp;
-    var aiJson;
-    try {
-      aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        signal: abortController.signal,
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + openaiKey
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          max_tokens: 4096,
-          temperature: 0.2,
-          messages: [
-            {
-              role: "system",
-              content: SYSTEM_PROMPT
-            },
-            {
-              role: "user",
-              content: "Return ONLY raw JSON, no markdown. Analyze this inspection case and generate an inspection plan with temporal projections.\n\n" + physicsContext
-            }
-          ]
-        })
-      });
-      clearTimeout(fetchTimeout);
-    } catch (fetchErr: any) {
-      clearTimeout(fetchTimeout);
-      var isAbort = fetchErr.name === "AbortError";
+    // DEPLOY202: DUAL-PROVIDER AI CALL WITH FAILOVER
+    // Primary: OpenAI GPT-4o-mini. Fallback: Anthropic Claude Sonnet.
+    var responseText = "";
+    var e2AiProvider = "none";
+    var e2FailoverUsed = false;
+    var e2PrimaryError: string | null = null;
+
+    // --- ATTEMPT 1: OpenAI GPT-4o-mini (primary) ---
+    if (openaiKey) {
+      e2AiProvider = "openai_gpt4o_mini";
+      try {
+        var oaiAbort = new AbortController();
+        var oaiTimeout = setTimeout(function() { oaiAbort.abort(); }, 22000);
+
+        var aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          signal: oaiAbort.signal,
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + openaiKey
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            max_tokens: 4096,
+            temperature: 0.2,
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              { role: "user", content: userContent }
+            ]
+          })
+        });
+        clearTimeout(oaiTimeout);
+
+        if (aiResp.ok) {
+          var aiJson = await aiResp.json();
+          responseText = (aiJson.choices && aiJson.choices[0] && aiJson.choices[0].message) ? aiJson.choices[0].message.content : "";
+          if (!responseText) {
+            e2PrimaryError = "OpenAI returned empty content";
+          }
+        } else {
+          var oaiErrJson = await aiResp.json();
+          e2PrimaryError = "OpenAI API error " + aiResp.status + ": " + JSON.stringify(oaiErrJson).substring(0, 200);
+        }
+      } catch (fetchErr: any) {
+        clearTimeout(oaiTimeout);
+        if (fetchErr.name === "AbortError") {
+          e2PrimaryError = "OpenAI timed out after 22 seconds";
+        } else {
+          e2PrimaryError = "OpenAI fetch error: " + (fetchErr.message || String(fetchErr));
+        }
+      }
+    }
+
+    // --- ATTEMPT 2: Anthropic Claude (fallback) ---
+    if (!responseText && anthropicKey) {
+      e2FailoverUsed = true;
+      e2AiProvider = "anthropic_claude_failover";
+      try {
+        var claudeAbort = new AbortController();
+        var claudeTimeout = setTimeout(function() { claudeAbort.abort(); }, 24000);
+
+        var claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          signal: claudeAbort.signal,
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": anthropicKey,
+            "anthropic-version": "2023-06-01"
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 4096,
+            temperature: 0.2,
+            system: SYSTEM_PROMPT + "\n\nCRITICAL: Respond with ONLY valid JSON. No markdown fences. No preamble.",
+            messages: [
+              { role: "user", content: userContent }
+            ]
+          })
+        });
+        clearTimeout(claudeTimeout);
+
+        if (claudeResp.ok) {
+          var claudeData: any = await claudeResp.json();
+          responseText = (claudeData.content && claudeData.content[0] && claudeData.content[0].text) || "";
+          if (responseText) {
+            responseText = responseText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+          }
+          if (!responseText) {
+            e2PrimaryError = (e2PrimaryError ? e2PrimaryError + " | " : "") + "Claude also returned empty content";
+          }
+        } else {
+          var claudeErrText = await claudeResp.text();
+          e2PrimaryError = (e2PrimaryError ? e2PrimaryError + " | " : "") + "Claude API error " + claudeResp.status + ": " + claudeErrText.substring(0, 200);
+        }
+      } catch (claudeErr: any) {
+        clearTimeout(claudeTimeout);
+        var claudeMsg = claudeErr.name === "AbortError" ? "Claude timed out after 24 seconds" : "Claude fetch error: " + (claudeErr.message || String(claudeErr));
+        e2PrimaryError = (e2PrimaryError ? e2PrimaryError + " | " : "") + claudeMsg;
+      }
+    }
+
+    // --- Both providers failed ---
+    if (!responseText) {
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
         body: JSON.stringify({
-          error: isAbort ? "OpenAI API call timed out after 24 seconds" : "OpenAI API fetch failed: " + fetchErr.message,
-          debug: {
-            key_present: openaiKey.length > 0,
-            key_prefix: openaiKey.substring(0, 10) + "...",
-            physics_context_length: physicsContext.length,
-            timeout: isAbort
-          },
-          metadata: { version: "1.3.0", engine: "inspection-intelligence" }
+          error: "Both AI providers failed",
+          detail: e2PrimaryError || "No API keys or both returned empty",
+          failover_attempted: e2FailoverUsed,
+          metadata: { version: "1.4.0", engine: "inspection-intelligence" }
         })
       };
     }
 
-    aiJson = await aiResp.json();
-
-    if (!aiResp.ok) {
-      return {
-        statusCode: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({
-          error: "OpenAI API returned error",
-          status: aiResp.status,
-          openai_error: aiJson,
-          debug: {
-            key_prefix: openaiKey.substring(0, 10) + "...",
-            model: "gpt-4o-mini"
-          },
-          metadata: { version: "1.3.0", engine: "inspection-intelligence" }
-        })
-      };
-    }
-
-    var responseText = (aiJson.choices && aiJson.choices[0] && aiJson.choices[0].message) ? aiJson.choices[0].message.content : "";
-
-    // Parse JSON from response -- strip markdown wrapping and find the JSON object
+    // Parse JSON from response
     var cleanedText = responseText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-    // Find the first { and last } to extract JSON even if there's extra text
     var jsonStart = cleanedText.indexOf("{");
     var jsonEnd = cleanedText.lastIndexOf("}");
     if (jsonStart >= 0 && jsonEnd > jsonStart) {
@@ -400,14 +451,13 @@ export var handler: Handler = async function(event) {
     try {
       aiOutput = JSON.parse(cleanedText);
     } catch (parseErr) {
-      // If JSON parse fails, return raw text with error flag
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
         body: JSON.stringify({
-          error: "AI response was not valid JSON",
+          error: "AI response was not valid JSON (provider: " + e2AiProvider + ")",
           raw_response: responseText.substring(0, 2000),
-          metadata: { version: "1.3.0", engine: "inspection-intelligence" }
+          metadata: { version: "1.4.0", engine: "inspection-intelligence" }
         })
       };
     }
@@ -425,7 +475,7 @@ export var handler: Handler = async function(event) {
     var finalOutput = {
       // Engine identification
       metadata: {
-        version: "1.3.0",
+        version: "1.4.0",
         engine: "inspection-intelligence",
         architecture: "dual-engine-physics-first",
         elapsed_ms: elapsed,
@@ -434,7 +484,10 @@ export var handler: Handler = async function(event) {
         ai_suggested_count: aiMechanisms.length,
         ai_approved_count: vetoResult.approved.length,
         ai_vetoed_count: vetoResult.vetoed.length,
-        physics_veto_active: true
+        physics_veto_active: true,
+        ai_provider: e2AiProvider,
+        ai_failover_used: e2FailoverUsed,
+        ai_primary_error: e2PrimaryError
       },
 
       // Domain classification (from AI)
