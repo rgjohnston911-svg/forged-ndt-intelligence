@@ -1,5 +1,5 @@
 // @ts-nocheck
-// DEPLOY194 -- inspection-intelligence.ts v1.2.0
+// DEPLOY195 -- inspection-intelligence.ts v1.3.0
 // v1.2.0: DEPLOY194 -- Strengthened Engine 2 system prompt. AI now has explicit mandate to extend
 //   beyond static catalog, identify cross-domain failures, recommend advanced techniques, and flag
 //   code authority collisions. Previous prompt was too deferential -- AI returned 0 extensions
@@ -31,18 +31,23 @@ var SYSTEM_PROMPT = "You are the AI reasoning engine for FORGED NDT Intelligence
   + "\n4. Industry-specific mechanisms relevant to the described service conditions"
   + "\nIf the transcript mentions specific mechanisms by name (HTHA, HIC, SCC, etc.) or describes conditions that imply them (hydrogen service + high temperature, cyclic loading + corrosive environment), you MUST include them in ai_extended_mechanisms even if the static catalog did not validate them."
   + "\nIf the static catalog validated very few mechanisms relative to the scenario complexity, that is a signal to look harder for what it missed."
+  + "\n\nNO DUPLICATION RULE: Do NOT include mechanisms in ai_extended_mechanisms that are already in the VALIDATED list above. The static catalog already covers those. Your job is to find what it MISSED. If you would suggest fatigue_mechanical but it is already validated, do NOT include it. Instead, find the SPECIFIC sub-types or coupled modes the catalog cannot express, such as 'resonance_fatigue_amplification', 'dynamic_coupling_stiffness_degradation', 'wave_slam_local_buckling', 'corrosion_under_fireproofing', etc."
+  + "\n\nMECHANISM ID FORMAT: Each ai_extended_mechanism MUST have a descriptive snake_case id that names the specific mechanism (e.g., 'htha_high_temp_hydrogen_attack', 'dynamic_stiffness_degradation', 'splash_zone_wave_slam', 'corrosion_under_insulation'). NEVER use generic IDs like '1', '2', '3', 'mechanism_1', etc."
   + "\n\nGOVERNING CODES -- Be thorough. Identify ALL applicable codes across ALL relevant domains:"
   + "\nFor multi-domain scenarios (structural + pressure vessel + welding), list codes from EACH domain. Include API, ASME, AWS, AISC, ACI, IBC, DNV, and any other applicable standards. Flag when codes from different domains create conflicting requirements."
+  + "\nDo NOT include codes that are irrelevant to the scenario. For example, DNVGL-ST-0126 (wind turbine supports) should not appear for oil and gas platforms. Use domain-appropriate standards: API RP 2A for fixed offshore platforms, API RP 2SIM for structural integrity management, API RP 2MIM for mooring integrity, NORSOK for North Sea operations, etc."
   + "\n\nINSPECTION TECHNIQUES -- Go beyond basic UT/VT/MT/PT:"
-  + "\nRecommend advanced and specialized techniques when the scenario demands them: guided wave UT, acoustic emission monitoring, phased array UT, time-of-flight diffraction (TOFD), vibration analysis, metallurgical replication, strain measurement, digital radiography, eddy current, etc."
+  + "\nRecommend advanced and specialized techniques when the scenario demands them. For EACH validated and AI-extended mechanism, specify the best technique. A complex scenario should have 8-15+ techniques, not 4-5."
+  + "\nAdvanced techniques to consider: guided wave UT, acoustic emission monitoring, phased array UT (PAUT), time-of-flight diffraction (TOFD), vibration analysis / modal analysis, frequency response testing, metallurgical replication, strain gauging, laser displacement measurement, thermal imaging / infrared thermography, digital radiography, eddy current, long-range UT, underwater inspection, dimensional survey / alignment check, hardness testing, positive material identification (PMI), coating thickness measurement."
+  + "\nWhen visual inspection or CWI has been performed but the scenario suggests hidden damage, explicitly state that visual/CWI acceptance does not resolve the underlying physics concern."
   + "\n\nReturn ONLY a JSON object (no markdown, no backticks) with these keys:"
   + "\n- domain_classification: {primary_domain, sub_domain, confidence (0-1), basis}"
   + "\n- governing_codes: [{code, edition, scope, primary (bool)}]"
-  + "\n- ai_extended_mechanisms: [{id, name, family, physical_basis, applicable_standard_reference, confidence (0-1)}] -- mechanisms beyond the static catalog. THIS ARRAY SHOULD RARELY BE EMPTY for complex scenarios."
-  + "\n- inspection_plan: {techniques: [{mechanism_id, mechanism_source (static_catalog|ai_extended), technique, coverage, interval, code_basis, acceptance_criteria, priority (critical|high|medium|routine)}]}"
+  + "\n- ai_extended_mechanisms: [{id (descriptive snake_case), name, family, physical_basis, applicable_standard_reference, confidence (0-1)}] -- mechanisms beyond the static catalog. THIS ARRAY SHOULD RARELY BE EMPTY for complex scenarios. NEVER duplicate VALIDATED mechanisms."
+  + "\n- inspection_plan: {techniques: [{mechanism_id, mechanism_source (static_catalog|ai_extended), technique, coverage, interval, code_basis, acceptance_criteria, priority (critical|high|medium|routine)}]} -- aim for 8-15 techniques on complex scenarios"
   + "\n- temporal_projection: {remaining_life_estimate, remaining_life_basis, next_inspection_due, degradation_trajectory (linear|accelerating|decelerating|unknown), data_gaps: [], failure_progression: {current_state, six_months, one_year, three_years, five_years, failure_mode}, intervention_windows: [{window, urgency (immediate|urgent|planned|routine), action, consequence_of_inaction}]}"
-  + "\n- confidence_assessment: {overall (0-1), limitations: []}"
-  + "\n- teaching_insight: string"
+  + "\n- confidence_assessment: {overall (0-1), limitations: []} -- if access is limited, coverage is poor, or data gaps exist, confidence should be LOW (0.3-0.5), not high"
+  + "\n- teaching_insight: string -- focus on the specific engineering lesson this scenario teaches, not generic advice"
   + "\n\nBe conservative. When uncertain, recommend MORE inspection. Cite specific code sections where possible.";
 
 // ============================================================================
@@ -282,7 +287,7 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({
           domain_not_supported: true,
           reason: "Decision core refused this domain. Inspection intelligence cannot extend a refused analysis.",
-          metadata: { version: "1.2.0", engine: "inspection-intelligence" }
+          metadata: { version: "1.3.0", engine: "inspection-intelligence" }
         })
       };
     }
@@ -351,7 +356,7 @@ export var handler: Handler = async function(event) {
             physics_context_length: physicsContext.length,
             timeout: isAbort
           },
-          metadata: { version: "1.2.0", engine: "inspection-intelligence" }
+          metadata: { version: "1.3.0", engine: "inspection-intelligence" }
         })
       };
     }
@@ -370,7 +375,7 @@ export var handler: Handler = async function(event) {
             key_prefix: openaiKey.substring(0, 10) + "...",
             model: "gpt-4o-mini"
           },
-          metadata: { version: "1.2.0", engine: "inspection-intelligence" }
+          metadata: { version: "1.3.0", engine: "inspection-intelligence" }
         })
       };
     }
@@ -396,7 +401,7 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({
           error: "AI response was not valid JSON",
           raw_response: responseText.substring(0, 2000),
-          metadata: { version: "1.2.0", engine: "inspection-intelligence" }
+          metadata: { version: "1.3.0", engine: "inspection-intelligence" }
         })
       };
     }
@@ -414,7 +419,7 @@ export var handler: Handler = async function(event) {
     var finalOutput = {
       // Engine identification
       metadata: {
-        version: "1.2.0",
+        version: "1.3.0",
         engine: "inspection-intelligence",
         architecture: "dual-engine-physics-first",
         elapsed_ms: elapsed,
@@ -472,7 +477,7 @@ export var handler: Handler = async function(event) {
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
       body: JSON.stringify({
         error: err.message || "inspection-intelligence failed",
-        metadata: { version: "1.2.0", engine: "inspection-intelligence" }
+        metadata: { version: "1.3.0", engine: "inspection-intelligence" }
       })
     };
   }
