@@ -1,5 +1,9 @@
 // @ts-nocheck
-// DEPLOY193 -- inspection-intelligence.ts v1.1.0
+// DEPLOY194 -- inspection-intelligence.ts v1.2.0
+// v1.2.0: DEPLOY194 -- Strengthened Engine 2 system prompt. AI now has explicit mandate to extend
+//   beyond static catalog, identify cross-domain failures, recommend advanced techniques, and flag
+//   code authority collisions. Previous prompt was too deferential -- AI returned 0 extensions
+//   on complex multi-domain scenarios because it deferred entirely to Engine 1's limited catalog.
 // v1.1.0: DEPLOY193 -- Switched Engine 2 from Anthropic API (timeout issues) to OpenAI API (GPT-4o-mini).
 //   OpenAI proven fast in existing functions (observation-layer, parse-incident, voice-incident-plan).
 //   Engine 1 (Deterministic): decision-core proven physics state (41 mechanisms, precondition veto)
@@ -18,11 +22,23 @@ var openaiKey = process.env.OPENAI_API_KEY || "";
 // not independently. Physics has veto power over every suggestion.
 // ============================================================================
 
-var SYSTEM_PROMPT = "You are the AI engine for FORGED NDT Intelligence OS. You receive PROVEN physics facts from a deterministic engine. These are GROUND TRUTH -- never contradict them. Do not re-suggest REJECTED mechanisms."
+var SYSTEM_PROMPT = "You are the AI reasoning engine for FORGED NDT Intelligence OS. You work alongside a deterministic physics engine that evaluates a fixed catalog of 41 damage mechanisms. The physics engine's VALIDATED and REJECTED results are GROUND TRUTH for those specific mechanisms. Do not re-suggest REJECTED mechanisms."
+  + "\n\nCRITICAL MANDATE -- YOUR PRIMARY VALUE IS EXTENDING BEYOND THE STATIC CATALOG:"
+  + "\nThe static catalog only covers 41 mechanisms. Real-world assets face hundreds of possible damage mechanisms, failure modes, and coupled interactions. YOU MUST independently analyze the transcript and asset description to identify:"
+  + "\n1. Damage mechanisms NOT in the static catalog (e.g., HTHA, HIC, hydrogen embrittlement, resonance fatigue, foundation settlement, coupled failure modes)"
+  + "\n2. Cross-domain failure interactions (e.g., structural + metallurgical + chemical acting together)"
+  + "\n3. Mechanisms the static catalog may have missed due to keyword limitations or material misclassification"
+  + "\n4. Industry-specific mechanisms relevant to the described service conditions"
+  + "\nIf the transcript mentions specific mechanisms by name (HTHA, HIC, SCC, etc.) or describes conditions that imply them (hydrogen service + high temperature, cyclic loading + corrosive environment), you MUST include them in ai_extended_mechanisms even if the static catalog did not validate them."
+  + "\nIf the static catalog validated very few mechanisms relative to the scenario complexity, that is a signal to look harder for what it missed."
+  + "\n\nGOVERNING CODES -- Be thorough. Identify ALL applicable codes across ALL relevant domains:"
+  + "\nFor multi-domain scenarios (structural + pressure vessel + welding), list codes from EACH domain. Include API, ASME, AWS, AISC, ACI, IBC, DNV, and any other applicable standards. Flag when codes from different domains create conflicting requirements."
+  + "\n\nINSPECTION TECHNIQUES -- Go beyond basic UT/VT/MT/PT:"
+  + "\nRecommend advanced and specialized techniques when the scenario demands them: guided wave UT, acoustic emission monitoring, phased array UT, time-of-flight diffraction (TOFD), vibration analysis, metallurgical replication, strain measurement, digital radiography, eddy current, etc."
   + "\n\nReturn ONLY a JSON object (no markdown, no backticks) with these keys:"
   + "\n- domain_classification: {primary_domain, sub_domain, confidence (0-1), basis}"
   + "\n- governing_codes: [{code, edition, scope, primary (bool)}]"
-  + "\n- ai_extended_mechanisms: [{id, name, family, physical_basis, applicable_standard_reference, confidence (0-1)}] -- mechanisms the static catalog missed"
+  + "\n- ai_extended_mechanisms: [{id, name, family, physical_basis, applicable_standard_reference, confidence (0-1)}] -- mechanisms beyond the static catalog. THIS ARRAY SHOULD RARELY BE EMPTY for complex scenarios."
   + "\n- inspection_plan: {techniques: [{mechanism_id, mechanism_source (static_catalog|ai_extended), technique, coverage, interval, code_basis, acceptance_criteria, priority (critical|high|medium|routine)}]}"
   + "\n- temporal_projection: {remaining_life_estimate, remaining_life_basis, next_inspection_due, degradation_trajectory (linear|accelerating|decelerating|unknown), data_gaps: [], failure_progression: {current_state, six_months, one_year, three_years, five_years, failure_mode}, intervention_windows: [{window, urgency (immediate|urgent|planned|routine), action, consequence_of_inaction}]}"
   + "\n- confidence_assessment: {overall (0-1), limitations: []}"
@@ -266,7 +282,7 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({
           domain_not_supported: true,
           reason: "Decision core refused this domain. Inspection intelligence cannot extend a refused analysis.",
-          metadata: { version: "1.1.0", engine: "inspection-intelligence" }
+          metadata: { version: "1.2.0", engine: "inspection-intelligence" }
         })
       };
     }
@@ -335,7 +351,7 @@ export var handler: Handler = async function(event) {
             physics_context_length: physicsContext.length,
             timeout: isAbort
           },
-          metadata: { version: "1.1.0", engine: "inspection-intelligence" }
+          metadata: { version: "1.2.0", engine: "inspection-intelligence" }
         })
       };
     }
@@ -354,7 +370,7 @@ export var handler: Handler = async function(event) {
             key_prefix: openaiKey.substring(0, 10) + "...",
             model: "gpt-4o-mini"
           },
-          metadata: { version: "1.1.0", engine: "inspection-intelligence" }
+          metadata: { version: "1.2.0", engine: "inspection-intelligence" }
         })
       };
     }
@@ -380,7 +396,7 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({
           error: "AI response was not valid JSON",
           raw_response: responseText.substring(0, 2000),
-          metadata: { version: "1.1.0", engine: "inspection-intelligence" }
+          metadata: { version: "1.2.0", engine: "inspection-intelligence" }
         })
       };
     }
@@ -398,7 +414,7 @@ export var handler: Handler = async function(event) {
     var finalOutput = {
       // Engine identification
       metadata: {
-        version: "1.1.0",
+        version: "1.2.0",
         engine: "inspection-intelligence",
         architecture: "dual-engine-physics-first",
         elapsed_ms: elapsed,
@@ -456,7 +472,7 @@ export var handler: Handler = async function(event) {
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
       body: JSON.stringify({
         error: err.message || "inspection-intelligence failed",
-        metadata: { version: "1.1.0", engine: "inspection-intelligence" }
+        metadata: { version: "1.2.0", engine: "inspection-intelligence" }
       })
     };
   }
