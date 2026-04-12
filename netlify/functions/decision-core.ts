@@ -6,6 +6,8 @@
 //   3. mic: deposit_type_in ["biofilm_slime","sulfide_scale","unknown"] -> ["biofilm","sulfide","unspecified"].
 //   4. underdeposit_corrosion: deposit_type_in ["ammonium_salt","carbonate_scale","sulfide_scale","unknown"] -> ["salt","sulfide","scale","unspecified"].
 //   Plus: physics engine now emits flow_state="turbulent" when turbulence geometry is detected without explicit flow velocity.
+//   5. Flow detection reordered: "high" checked before "low" to prevent "flow rate" matching "low rate" substring.
+//   6. Phase detection: cooling water/sour water/water service/condensate now push liquid_water into phases_present.
 // v2.9.11: DEPLOY194 -- Two system bugs fixed:
 //   1. process_chemistry missing hydrogen_present/h2s_present/caustic_present flags.
 //      These lived in physics.chemical but catalog evaluator read from process_chemistry.
@@ -3185,7 +3187,12 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   var phasesNegated: string[] = [];
   var atmosphereClass: string | null = null;
 
-  if (hasWord(lt, "sweating") || hasWord(lt, "wet insulation") || hasWord(lt, "wet lagging") || hasWord(lt, "condensation") || hasWord(lt, "water ingress") || hasWord(lt, "moisture") || hasWord(lt, "wet jacket") || hasWord(lt, "damp") || hasWord(lt, "weeping water")) {
+  // DEPLOY197: Added "cooling water", "water service", "sour water", "boiler feedwater" as
+  // liquid_water sources. These services obviously contain liquid water but the original
+  // keyword list only caught CUI-style moisture language (sweating, wet insulation, etc.).
+  // Without this, MIC's phase_must_include precondition returned UNKNOWN for cooling water
+  // transcripts even though water is definitionally present.
+  if (hasWord(lt, "sweating") || hasWord(lt, "wet insulation") || hasWord(lt, "wet lagging") || hasWord(lt, "condensation") || hasWord(lt, "water ingress") || hasWord(lt, "moisture") || hasWord(lt, "wet jacket") || hasWord(lt, "damp") || hasWord(lt, "weeping water") || hasWord(lt, "cooling water") || hasWord(lt, "water service") || hasWord(lt, "sour water") || hasWord(lt, "boiler feedwater") || hasWord(lt, "bfw system") || hasWord(lt, "condensate return") || hasWord(lt, "condensate system")) {
     if (phasesPresent.indexOf("liquid_water") === -1) phasesPresent.push("liquid_water");
   }
   if (hasWord(lt, "humid") || hasWord(lt, "dew point") || hasWord(lt, "condensable")) {
@@ -3294,12 +3301,16 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   var deadlegPresent: boolean | null = null;
   var turbulenceGeometryPresent: boolean | null = null;
 
+  // DEPLOY197: Reordered -- check "high" BEFORE "low" to prevent substring collision
+  // where "flow rate" matched "low rate" (the substring "low rate" hides inside "flow rate").
+  // Also removed "low rate" keyword entirely -- "low flow", "low velocity", and "rate cuts"
+  // cover the intent without the false-positive risk.
   if (hasWord(lt, "dead leg") || hasWord(lt, "deadleg") || hasWord(lt, "stagnant") || hasWord(lt, "no flow") || hasWord(lt, "trapped fluid")) {
     flowState = "stagnant";
-  } else if (hasWord(lt, "low flow") || hasWord(lt, "low velocity") || hasWord(lt, "low rate") || hasWord(lt, "rate cuts") || hasWord(lt, "low-flow") || hasWord(lt, "intermittent flow") || hasWord(lt, "intermittent operation")) {
-    flowState = "low";
   } else if (hasWord(lt, "high velocity") || hasWord(lt, "high flow") || hasWord(lt, "high rate") || hasWord(lt, "fast flow")) {
     flowState = "high";
+  } else if (hasWord(lt, "low flow") || hasWord(lt, "low velocity") || hasWord(lt, "rate cuts") || hasWord(lt, "low-flow") || hasWord(lt, "intermittent flow") || hasWord(lt, "intermittent operation")) {
+    flowState = "low";
   } else if (hasWord(lt, "moderate velocity") || hasWord(lt, "continuous flow") || hasWord(lt, "normal flow") || hasWord(lt, "moderate flow")) {
     flowState = "moderate";
   }
