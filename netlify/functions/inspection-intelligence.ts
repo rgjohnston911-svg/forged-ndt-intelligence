@@ -1,6 +1,6 @@
 // @ts-nocheck
-// DEPLOY192 -- inspection-intelligence.ts v1.0.0
-// v1.0.0: DEPLOY192 -- AI-enhanced inspection intelligence. Dual-engine architecture:
+// DEPLOY192 -- inspection-intelligence.ts v1.0.1
+// v1.0.2: DEPLOY192 -- Sonnet with 6000 max_tokens on Netlify Pro (26s timeout).
 //   Engine 1 (Deterministic): decision-core proven physics state (41 mechanisms, precondition veto)
 //   Engine 2 (AI Reasoning): Claude extends analysis to ANY domain, ANY code, ANY mechanism
 //   Physics veto: AI suggestions validated against proven physics -- impossible mechanisms rejected
@@ -305,7 +305,7 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({
           domain_not_supported: true,
           reason: "Decision core refused this domain. Inspection intelligence cannot extend a refused analysis.",
-          metadata: { version: "1.0.0", engine: "inspection-intelligence" }
+          metadata: { version: "1.0.2", engine: "inspection-intelligence" }
         })
       };
     }
@@ -339,7 +339,7 @@ export var handler: Handler = async function(event) {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 8000,
+        max_tokens: 6000,
         temperature: 0.2,
         system: SYSTEM_PROMPT,
         messages: [
@@ -372,7 +372,7 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({
           error: "AI response was not valid JSON",
           raw_response: responseText.substring(0, 2000),
-          metadata: { version: "1.0.0", engine: "inspection-intelligence" }
+          metadata: { version: "1.0.2", engine: "inspection-intelligence" }
         })
       };
     }
@@ -390,7 +390,7 @@ export var handler: Handler = async function(event) {
     var finalOutput = {
       // Engine identification
       metadata: {
-        version: "1.0.0",
+        version: "1.0.2",
         engine: "inspection-intelligence",
         architecture: "dual-engine-physics-first",
         elapsed_ms: elapsed,
@@ -448,7 +448,7 @@ export var handler: Handler = async function(event) {
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
       body: JSON.stringify({
         error: err.message || "inspection-intelligence failed",
-        metadata: { version: "1.0.0", engine: "inspection-intelligence" }
+        metadata: { version: "1.0.2", engine: "inspection-intelligence" }
       })
     };
   }
