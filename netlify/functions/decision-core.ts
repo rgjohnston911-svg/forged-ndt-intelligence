@@ -1,5 +1,8 @@
 // @ts-nocheck
-// DEPLOY198 -- decision-core.ts v2.9.15
+// DEPLOY199 -- decision-core.ts v2.9.16
+// v2.9.16: DEPLOY199 -- fire_damage negation fix. hasWord is plain indexOf and matched
+//   "fire event" inside "No actual fire event". Switched all fire-event phrase checks from
+//   hasWord to hasWordNotNegated so negated fire references no longer trigger fire_damage.
 // v2.9.15: DEPLOY198 -- Two system-level bugs fixed from helideck elite scenario test:
 //   1. fire_damage false positive: bare hasWord(lt,"fire") matched inside "firefighting",
 //      "fireproofing", etc. Replaced with specific fire-event phrases (fire damage, fire
@@ -2630,7 +2633,8 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   // "fireproofing", "fire suppression", "fire extinguisher", "fire monitor", "fire watch",
   // "fire protection", "fire resistant", "fire retardant" -- none of which indicate an
   // actual fire event. Use specific fire-event phrases instead.
-  var fireExp = !!fl.fire_exposure || hasWord(lt, "fire damage") || hasWord(lt, "fire exposure") || hasWord(lt, "post-fire") || hasWord(lt, "post fire") || hasWord(lt, "caught fire") || hasWord(lt, "fire incident") || hasWord(lt, "fire event") || hasWord(lt, "fire impingement") || hasWord(lt, "jet fire") || hasWord(lt, "pool fire") || hasWord(lt, "flash fire") || hasWord(lt, "on fire") || hasWord(lt, "fire engulfed") || hasWord(lt, "fire hit") || hasWord(lt, "was in a fire") || hasWord(lt, "fire broke out") || hasWord(lt, "fire occurred") || hasWord(lt, "fire history") || hasWord(lt, "burned in fire") || hasWord(lt, "fire affected");
+  // DEPLOY198-fix: Use hasWordNotNegated so "No actual fire event" does not trigger.
+  var fireExp = !!fl.fire_exposure || hasWordNotNegated(lt, "fire damage") || hasWordNotNegated(lt, "fire exposure") || hasWordNotNegated(lt, "post-fire") || hasWordNotNegated(lt, "post fire") || hasWordNotNegated(lt, "caught fire") || hasWordNotNegated(lt, "fire incident") || hasWordNotNegated(lt, "fire event") || hasWordNotNegated(lt, "fire impingement") || hasWordNotNegated(lt, "jet fire") || hasWordNotNegated(lt, "pool fire") || hasWordNotNegated(lt, "flash fire") || hasWordNotNegated(lt, "on fire") || hasWordNotNegated(lt, "fire engulfed") || hasWordNotNegated(lt, "fire hit") || hasWordNotNegated(lt, "was in a fire") || hasWordNotNegated(lt, "fire broke out") || hasWordNotNegated(lt, "fire occurred") || hasWordNotNegated(lt, "fire history") || hasWordNotNegated(lt, "burned in fire") || hasWordNotNegated(lt, "fire affected");
   var fireDur = fl.fire_duration_minutes || nv.fire_duration_minutes || null;
   var creep = (tempF !== null && tempF > 700) || (tempC !== null && tempC > 370);
   var cryo = (tempF !== null && tempF < -20) || (tempC !== null && tempC < -29);
@@ -5565,7 +5569,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.15",
+            engine_version: "physics-first-decision-core-v2.9.16",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5678,7 +5682,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.15",
+          engine_version: "physics-first-decision-core-v2.9.16",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
