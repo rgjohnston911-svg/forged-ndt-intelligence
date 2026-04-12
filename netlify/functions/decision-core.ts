@@ -2463,7 +2463,7 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // Austenitic stainless -- overrides if found
-  if (hasWord(lt, "316l") || hasWord(lt, "type 304") || hasWord(lt, "type 316") || hasWord(lt, "tp304") || hasWord(lt, "tp316") || hasWord(lt, "ss304") || hasWord(lt, "ss316") || hasWord(lt, "austenitic") || hasWord(lt, "austenitic stainless") || hasWord(lt, "a312") || hasWord(lt, "a 312")) {
+  if (hasWord(lt, "316l") || hasWord(lt, "type 304") || hasWord(lt, "type 316") || hasWord(lt, "tp304") || hasWord(lt, "tp316") || hasWord(lt, "ss304") || hasWord(lt, "ss316") || hasWord(lt, "304 stainless") || hasWord(lt, "316 stainless") || hasWord(lt, "304l") || hasWord(lt, "304h") || hasWord(lt, "316h") || hasWord(lt, "321 stainless") || hasWord(lt, "347 stainless") || hasWord(lt, "austenitic") || hasWord(lt, "austenitic stainless") || hasWord(lt, "a312") || hasWord(lt, "a 312")) {
     materialClass = "austenitic_stainless";
     materialEvidence.push("austenitic stainless grade");
     materialConfidence = 0.85;
