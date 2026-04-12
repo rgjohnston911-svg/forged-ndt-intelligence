@@ -1,5 +1,16 @@
 // @ts-nocheck
-// DEPLOY197 -- decision-core.ts v2.9.14
+// DEPLOY198 -- decision-core.ts v2.9.15
+// v2.9.15: DEPLOY198 -- Two system-level bugs fixed from helideck elite scenario test:
+//   1. fire_damage false positive: bare hasWord(lt,"fire") matched inside "firefighting",
+//      "fireproofing", etc. Replaced with specific fire-event phrases (fire damage, fire
+//      exposure, jet fire, pool fire, post-fire, caught fire, etc.). Equipment with fire
+//      suppression/protection gear no longer triggers fire_damage validation.
+//   2. Missing marine/saltwater environment for offshore scenarios: Offshore platforms,
+//      splash zones, seawater, Gulf of Mexico had no saltwater phase detection. Added
+//      saltwater + liquid_water phase push for marine keywords and offshore_platform asset
+//      class. Added "marine" atmosphere_class (checked before generic "atmospheric").
+//      Added offshore_platform implied agents (atmospheric, chlorides, marine_environment)
+//      so atmospheric_corrosion and pitting validate correctly without explicit "outdoor" text.
 // v2.9.14: DEPLOY197 -- Four catalog vocabulary mismatches fixed:
 //   1. erosion: flow_state_in ["high_velocity","turbulent"] -> ["high","turbulent"] to match physics engine output.
 //   2. mic: flow_state_in ["stagnant","low_flow"] -> ["stagnant","low"] to match physics engine output.
@@ -2615,7 +2626,11 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     }
   }
 
-  var fireExp = !!fl.fire_exposure || hasWord(lt, "fire");
+  // DEPLOY198: Tighten fire detection. Bare "fire" matches inside "firefighting",
+  // "fireproofing", "fire suppression", "fire extinguisher", "fire monitor", "fire watch",
+  // "fire protection", "fire resistant", "fire retardant" -- none of which indicate an
+  // actual fire event. Use specific fire-event phrases instead.
+  var fireExp = !!fl.fire_exposure || hasWord(lt, "fire damage") || hasWord(lt, "fire exposure") || hasWord(lt, "post-fire") || hasWord(lt, "post fire") || hasWord(lt, "caught fire") || hasWord(lt, "fire incident") || hasWord(lt, "fire event") || hasWord(lt, "fire impingement") || hasWord(lt, "jet fire") || hasWord(lt, "pool fire") || hasWord(lt, "flash fire") || hasWord(lt, "on fire") || hasWord(lt, "fire engulfed") || hasWord(lt, "fire hit") || hasWord(lt, "was in a fire") || hasWord(lt, "fire broke out") || hasWord(lt, "fire occurred") || hasWord(lt, "fire history") || hasWord(lt, "burned in fire") || hasWord(lt, "fire affected");
   var fireDur = fl.fire_duration_minutes || nv.fire_duration_minutes || null;
   var creep = (tempF !== null && tempF > 700) || (tempC !== null && tempC > 370);
   var cryo = (tempF !== null && tempF < -20) || (tempC !== null && tempC < -29);
@@ -2667,6 +2682,15 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (hasWord(lt, "atmospheric") || hasWord(lt, "outdoor") || hasWord(lt, "exposed") || hasWord(lt, "weather")) { corrosive = true; agents.push("atmospheric"); }
   if (hasWord(lt, "pack rust") || hasWord(lt, "rust stain") || hasWord(lt, "rust bleed") || hasWord(lt, "rusting")) { corrosive = true; if (agents.indexOf("atmospheric") === -1) agents.push("atmospheric"); }
   if ((assetClass === "bridge" || assetClass === "rail_bridge") && !corrosive) { corrosive = true; agents.push("atmospheric_implied_for_bridge"); }
+  // DEPLOY198: Offshore platforms are definitionally in marine/atmospheric exposure.
+  // Push atmospheric + chlorides + marine agents so atmospheric_corrosion, pitting, etc.
+  // validate correctly even if the transcript doesn't say "outdoor" or "atmospheric".
+  if (assetClass === "offshore_platform") {
+    corrosive = true;
+    if (agents.indexOf("atmospheric") === -1) agents.push("atmospheric");
+    if (!negMarine && agents.indexOf("chlorides") === -1) { chlorides = true; agents.push("chlorides"); }
+    if (agents.indexOf("marine_environment") === -1) agents.push("marine_environment");
+  }
   if (hasEvent("corros") || hasEvent("rust") || hasEvent("oxide") || hasEvent("scale")) { corrosive = true; if (agents.indexOf("parsed_corrosion") === -1) agents.push("parsed_corrosion"); }
   if (hasEvent("flood") || hasEvent("water") || hasEvent("river") || hasEvent("rain") || hasEvent("weather") || hasEvent("atmospheric")) { corrosive = true; if (agents.indexOf("environmental_exposure") === -1) agents.push("environmental_exposure"); }
   if (hasEvent("marine") || hasEvent("salt") || hasEvent("seawater") || hasEvent("offshore")) { if (!negMarine) { chlorides = true; corrosive = true; if (agents.indexOf("chlorides") === -1) agents.push("chlorides"); } }
@@ -3212,6 +3236,20 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (hasWord(lt, "nitrogen blanket") || hasWord(lt, "dry nitrogen") || hasWord(lt, "n2 blanket") || hasWord(lt, "inert gas blanket") || hasWord(lt, "nitrogen purge") || hasWord(lt, "argon blanket")) {
     if (phasesPresent.indexOf("dry_inert_gas") === -1) phasesPresent.push("dry_inert_gas");
   }
+  // DEPLOY198: Marine/saltwater phase detection. Offshore platforms, splash zones,
+  // seawater services, and marine environments definitionally involve saltwater exposure.
+  // Without this, offshore scenarios show no water phases at all despite sitting in the ocean.
+  // Push both "saltwater" and "liquid_water" -- saltwater IS liquid water plus chlorides.
+  if (!negMarine && (hasWord(lt, "seawater") || hasWord(lt, "saltwater") || hasWord(lt, "salt water") || hasWord(lt, "salt spray") || hasWord(lt, "splash zone") || hasWord(lt, "marine growth") || hasWord(lt, "marine environment") || hasWord(lt, "gulf of mexico") || hasWord(lt, "north sea") || hasWord(lt, "offshore platform") || hasWord(lt, "tidal zone") || hasWord(lt, "wave zone") || hasWord(lt, "sea chest") || hasWord(lt, "ballast water"))) {
+    if (phasesPresent.indexOf("saltwater") === -1) phasesPresent.push("saltwater");
+    if (phasesPresent.indexOf("liquid_water") === -1) phasesPresent.push("liquid_water");
+  }
+  // Also infer saltwater for offshore_platform asset class even without explicit marine keywords --
+  // an offshore platform is by definition in a marine environment.
+  if (!negMarine && assetClass === "offshore_platform") {
+    if (phasesPresent.indexOf("saltwater") === -1) phasesPresent.push("saltwater");
+    if (phasesPresent.indexOf("liquid_water") === -1) phasesPresent.push("liquid_water");
+  }
 
   // Atmosphere classification
   if (!hasWord(lt, "no insulation") && !hasWord(lt, "uninsulated") && !hasWord(lt, "not insulated") && !hasWord(lt, "bare pipe") && !hasWord(lt, "bare line") && !hasWord(lt, "bare metal")) {
@@ -3222,6 +3260,11 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (hasWord(lt, "buried") || hasWord(lt, "underground")) atmosphereClass = "buried";
   if (hasWord(lt, "submerged") || hasWord(lt, "subsea") || hasWord(lt, "underwater")) atmosphereClass = "submerged";
   if (hasWord(lt, "vacuum") || hasWord(lt, "hard vacuum") || hasWord(lt, "space environment")) atmosphereClass = "vacuum";
+  // DEPLOY198: Marine atmosphere -- more specific than generic "atmospheric" for offshore.
+  // Checked before atmospheric so offshore scenarios get "marine" not "atmospheric".
+  if (atmosphereClass === null && !negMarine && (hasWord(lt, "marine") || hasWord(lt, "offshore") || hasWord(lt, "splash zone") || hasWord(lt, "seawater") || hasWord(lt, "gulf of mexico") || hasWord(lt, "north sea") || assetClass === "offshore_platform")) {
+    atmosphereClass = "marine";
+  }
   if (atmosphereClass === null && (hasWord(lt, "atmospheric") || hasWord(lt, "outdoor") || hasWord(lt, "exposed") || hasWord(lt, "weather"))) {
     atmosphereClass = "atmospheric";
   }
@@ -5522,7 +5565,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.14",
+            engine_version: "physics-first-decision-core-v2.9.15",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5635,7 +5678,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.14",
+          engine_version: "physics-first-decision-core-v2.9.15",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
