@@ -1,5 +1,5 @@
 // @ts-nocheck
-// DEPLOY194 -- decision-core.ts v2.9.11
+// DEPLOY195 -- decision-core.ts v2.9.12
 // v2.9.11: DEPLOY194 -- Two system bugs fixed:
 //   1. process_chemistry missing hydrogen_present/h2s_present/caustic_present flags.
 //      These lived in physics.chemical but catalog evaluator read from process_chemistry.
@@ -2530,6 +2530,45 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
 
   var tempC: number | null = nv.temperature_c || nv.operating_temperature_c || null;
   var tempF: number | null = nv.temperature_f || nv.operating_temperature_f || null;
+
+  // DEPLOY195: Transcript-based temperature extraction.
+  // If no numeric temp was passed, try to extract from transcript text.
+  // Handles: "850 degrees F", "minus 260 degrees F", "-260 F", "negative 320 degrees",
+  // "1200F", "500 degrees fahrenheit", "operating at 650 degrees"
+  if (tempF === null && tempC === null) {
+    // Pattern 1: "minus/negative N degrees" or "minus/negative N F"
+    var negTempMatch = lt.match(/(?:minus|negative)\s+(\d+\.?\d*)\s*(?:degrees?\s*(?:f|fahrenheit)?|f\b)/);
+    if (negTempMatch) {
+      tempF = -1 * parseFloat(negTempMatch[1]);
+    }
+    // Pattern 2: "-N degrees F" or "-NF" (with minus sign)
+    if (tempF === null) {
+      var dashNegMatch = lt.match(/-\s*(\d+\.?\d*)\s*(?:degrees?\s*(?:f|fahrenheit)?|f\b)/);
+      if (dashNegMatch) {
+        tempF = -1 * parseFloat(dashNegMatch[1]);
+      }
+    }
+    // Pattern 3: Positive temps -- "N degrees F" or "NF" or "N degrees fahrenheit"
+    if (tempF === null) {
+      var posTempMatch = lt.match(/(\d+\.?\d*)\s*(?:degrees?\s*(?:f|fahrenheit)|f\b(?!caw|eet|oot|ull|ail|at |ire|law|low|lan|rom|or |ound|eed|i\b))/);
+      if (posTempMatch) {
+        tempF = parseFloat(posTempMatch[1]);
+      }
+    }
+    // Pattern 4: Celsius temps -- "N degrees C" or "N celsius"
+    if (tempF === null && tempC === null) {
+      var celMatch = lt.match(/(?:minus|negative|-)\s*(\d+\.?\d*)\s*(?:degrees?\s*(?:c|celsius)|c\b)/);
+      if (celMatch) {
+        tempC = -1 * parseFloat(celMatch[1]);
+      } else {
+        var posCelMatch = lt.match(/(\d+\.?\d*)\s*(?:degrees?\s*(?:c|celsius))/);
+        if (posCelMatch) {
+          tempC = parseFloat(posCelMatch[1]);
+        }
+      }
+    }
+  }
+
   if (!tempC && tempF) tempC = Math.round((tempF - 32) * 5 / 9);
   if (!tempF && tempC) tempF = Math.round(tempC * 9 / 5 + 32);
   var thermalCyc = hasWord(lt, "thermal cycl") || (hasWord(lt, "startup") && hasWord(lt, "shutdown"));
@@ -2572,6 +2611,13 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   var fireDur = fl.fire_duration_minutes || nv.fire_duration_minutes || null;
   var creep = (tempF !== null && tempF > 700) || (tempC !== null && tempC > 370);
   var cryo = (tempF !== null && tempF < -20) || (tempC !== null && tempC < -29);
+  // DEPLOY195: Keyword-based cryogenic detection.
+  // Even without a parsed temperature, certain keywords conclusively indicate cryogenic service.
+  if (!cryo) {
+    if (hasWord(lt, "cryogenic") || hasWord(lt, "cryogen") || hasWord(lt, "lng service") || hasWord(lt, "lng storage") || hasWord(lt, "liquid nitrogen") || hasWord(lt, "liquid oxygen") || hasWord(lt, "liquid hydrogen") || hasWord(lt, "liquid helium") || hasWord(lt, "liquid methane") || hasWord(lt, "liquid natural gas") || hasWord(lt, "autorefrigerat") || hasWord(lt, "joule-thomson") || hasWord(lt, "joule thomson") || (hasWord(lt, "ethylene") && hasWord(lt, "liquid")) || (hasWord(lt, "propylene") && hasWord(lt, "liquid")) || hasWord(lt, "cold box") || hasWord(lt, "coldbox") || hasWord(lt, "liquefaction") || (hasWord(lt, "lng") && (hasWord(lt, "tank") || hasWord(lt, "vessel") || hasWord(lt, "pipe") || hasWord(lt, "spool")))) {
+      cryo = true;
+    }
+  }
   if (fireExp) conf += 0.05;
   if (tempC !== null) conf += 0.05;
 
@@ -2875,8 +2921,10 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   var cav = hasWord(lt, "cavitat");
 
   // FIELD SLANG -- vibration indicators
+  // DEPLOY195: Use root forms to catch conjugations (chatter/chatters/chattering, buzz/buzzes/buzzing, etc.)
+  // Also added: shudder, springy, sway, flutter, oscillat, resonan, pulsing, throbbing, bounce, tremble
   if (!vib) {
-    if (hasWord(lt, "singing") || hasWord(lt, "chattering") || hasWord(lt, "shaking") || hasWord(lt, "humming") || hasWord(lt, "buzzing") || hasWord(lt, "rattling")) {
+    if (hasWord(lt, "singing") || hasWord(lt, "chatter") || hasWord(lt, "shaking") || hasWord(lt, "humming") || hasWord(lt, "buzz") || hasWord(lt, "rattl") || hasWord(lt, "shudder") || hasWord(lt, "springy") || hasWord(lt, "sway") || hasWord(lt, "flutter") || hasWord(lt, "oscillat") || hasWord(lt, "resonan") || hasWord(lt, "pulsing") || hasWord(lt, "throb") || hasWord(lt, "bounc") || hasWord(lt, "trembl") || hasWord(lt, "feels dead") || hasWord(lt, "feels soft") || hasWord(lt, "feels mushy") || hasWord(lt, "second motion") || hasWord(lt, "answers back") || hasWord(lt, "structure answers")) {
       vib = true;
       if (!cyclic) { cyclic = true; cyclicSrc = cyclicSrc ? cyclicSrc + "+vibration_field_language" : "vibration_field_language"; }
     }
@@ -2890,8 +2938,9 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // FIELD SLANG -- impact indicators
+  // DEPLOY195: Added wave slam, storm/hurricane impact, got kissed, got worked, beat her up, scarring
   if (!impactEv) {
-    if (hasWord(lt, "got hit") || hasWord(lt, "took a hit") || hasWord(lt, "hammered") || hasWord(lt, "beat up") || hasWord(lt, "banged up") || hasWord(lt, "dented") || hasWord(lt, "dinged")) {
+    if (hasWord(lt, "got hit") || hasWord(lt, "took a hit") || hasWord(lt, "hammered") || hasWord(lt, "beat up") || hasWord(lt, "banged up") || hasWord(lt, "dented") || hasWord(lt, "dinged") || hasWord(lt, "wave slam") || hasWord(lt, "got kissed") || hasWord(lt, "got worked") || hasWord(lt, "beat her up") || hasWord(lt, "beat it up") || hasWord(lt, "scarring") || hasWord(lt, "impact scar") || hasWord(lt, "storm damage") || hasWord(lt, "hurricane damage") || hasWord(lt, "debris impact") || hasWord(lt, "ovalization") || hasWord(lt, "ovalized") || hasWord(lt, "bowed") || hasWord(lt, "buckled") || hasWord(lt, "crushed")) {
       impactEv = true;
     }
   }
@@ -2974,74 +3023,73 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   var materialEvidence: string[] = [];
   var materialConfidence = 0;
 
-  // Carbon steel -- most common refinery material
-  if (hasWord(lt, "carbon steel") || hasWord(lt, "c-mn") || hasWord(lt, "carbon-manganese") || hasWord(lt, "a106") || hasWord(lt, "a 106") || hasWord(lt, "a516") || hasWord(lt, "a 516") || hasWord(lt, "sa-106") || hasWord(lt, "sa 106") || hasWord(lt, "sa-516") || hasWord(lt, "sa516")) {
-    materialClass = "carbon_steel";
-    materialEvidence.push("carbon steel keyword or ASTM/ASME grade");
-    materialConfidence = 0.85;
+  // DEPLOY195: Multi-material tracking. Collect ALL matching materials, then pick
+  // the highest-priority (most specific) as primary. Secondary materials are tracked
+  // in evidence so Engine 2 and downstream consumers can see the full picture.
+  // Priority: nickel_alloy > titanium > duplex > ferritic > martensitic > austenitic > low_alloy > carbon_steel > aluminum > cmc
+  // Higher priority number wins. This fixes the cascade bug where plain if-statements
+  // let a less-specific material (carbon_steel) overwrite a more-specific one (austenitic).
+  var materialMatches: { cls: string; ev: string; priority: number }[] = [];
+
+  // Carbon steel -- most common refinery material (lowest priority among metals)
+  if (hasWord(lt, "carbon steel") || hasWord(lt, "c-mn") || hasWord(lt, "carbon-manganese") || hasWord(lt, "a106") || hasWord(lt, "a 106") || hasWord(lt, "a516") || hasWord(lt, "a 516") || hasWord(lt, "sa-106") || hasWord(lt, "sa 106") || hasWord(lt, "sa-516") || hasWord(lt, "sa516") || hasWord(lt, "a36") || hasWord(lt, "a572") || hasWord(lt, "a53") || hasWord(lt, "a333")) {
+    materialMatches.push({ cls: "carbon_steel", ev: "carbon steel keyword or ASTM/ASME grade", priority: 1 });
   }
 
-  // Low-alloy steel (Cr-Mo) -- overrides carbon steel if found
+  // Low-alloy steel (Cr-Mo)
   if (hasWord(lt, "1.25cr") || hasWord(lt, "1-1/4 cr") || hasWord(lt, "1.25 cr") || hasWord(lt, "2.25cr") || hasWord(lt, "2-1/4cr") || hasWord(lt, "2 1/4 cr") || hasWord(lt, "2.25 cr") || hasWord(lt, "9cr") || hasWord(lt, "9 cr") || hasWord(lt, "p11") || hasWord(lt, "p22") || hasWord(lt, "p91") || hasWord(lt, "1cr-1/2mo") || hasWord(lt, "c-1/2mo") || hasWord(lt, "low alloy steel") || hasWord(lt, "low-alloy steel") || hasWord(lt, "cr-mo") || hasWord(lt, "chrome moly") || hasWord(lt, "chrome-moly")) {
-    materialClass = "low_alloy_steel";
-    materialEvidence.push("low-alloy / Cr-Mo grade");
-    materialConfidence = 0.85;
+    materialMatches.push({ cls: "low_alloy_steel", ev: "low-alloy / Cr-Mo grade", priority: 3 });
   }
 
-  // Austenitic stainless -- overrides if found
-  if (hasWord(lt, "316l") || hasWord(lt, "type 304") || hasWord(lt, "type 316") || hasWord(lt, "tp304") || hasWord(lt, "tp316") || hasWord(lt, "ss304") || hasWord(lt, "ss316") || hasWord(lt, "304 stainless") || hasWord(lt, "316 stainless") || hasWord(lt, "304l") || hasWord(lt, "304h") || hasWord(lt, "316h") || hasWord(lt, "321 stainless") || hasWord(lt, "347 stainless") || hasWord(lt, "austenitic") || hasWord(lt, "austenitic stainless") || hasWord(lt, "a312") || hasWord(lt, "a 312")) {
-    materialClass = "austenitic_stainless";
-    materialEvidence.push("austenitic stainless grade");
-    materialConfidence = 0.85;
+  // Austenitic stainless -- DEPLOY195: Added bare grade numbers (304, 316, 321, 347)
+  if (hasWord(lt, "316l") || hasWord(lt, "type 304") || hasWord(lt, "type 316") || hasWord(lt, "tp304") || hasWord(lt, "tp316") || hasWord(lt, "ss304") || hasWord(lt, "ss316") || hasWord(lt, "304 stainless") || hasWord(lt, "316 stainless") || hasWord(lt, "304l") || hasWord(lt, "304h") || hasWord(lt, "316h") || hasWord(lt, "321 stainless") || hasWord(lt, "347 stainless") || hasWord(lt, "austenitic") || hasWord(lt, "austenitic stainless") || hasWord(lt, "a312") || hasWord(lt, "a 312") || hasWordBoundary(lt, "304") || hasWordBoundary(lt, "316") || hasWordBoundary(lt, "321") || hasWordBoundary(lt, "347")) {
+    materialMatches.push({ cls: "austenitic_stainless", ev: "austenitic stainless grade", priority: 4 });
   }
 
   // Duplex stainless
   if (hasWord(lt, "duplex stainless") || hasWord(lt, "duplex ss") || hasWord(lt, "2205") || hasWord(lt, "2507") || hasWord(lt, "super duplex")) {
-    materialClass = "duplex_stainless";
-    materialEvidence.push("duplex stainless grade");
-    materialConfidence = 0.85;
+    materialMatches.push({ cls: "duplex_stainless", ev: "duplex stainless grade", priority: 6 });
   }
 
   // DEPLOY187: Ferritic stainless (400-series, types 405, 409, 410S, 430, 446)
   if (hasWord(lt, "ferritic stainless") || hasWord(lt, "ferritic ss") || hasWord(lt, "type 405") || hasWord(lt, "type 409") || hasWord(lt, "type 430") || hasWord(lt, "type 446") || hasWord(lt, "405 stainless") || hasWord(lt, "409 stainless") || hasWord(lt, "430 stainless") || hasWord(lt, "446 stainless") || hasWord(lt, "410s") || hasWord(lt, "12 chrome") || hasWord(lt, "12cr") || hasWord(lt, "400 series stainless") || hasWord(lt, "400-series stainless")) {
-    materialClass = "ferritic_stainless";
-    materialEvidence.push("ferritic stainless grade (400-series)");
-    materialConfidence = 0.85;
+    materialMatches.push({ cls: "ferritic_stainless", ev: "ferritic stainless grade (400-series)", priority: 5 });
   }
 
   // DEPLOY187: Martensitic stainless (types 410, 420, 440)
   if (hasWord(lt, "martensitic stainless") || hasWord(lt, "martensitic ss") || hasWord(lt, "type 410 ") || hasWord(lt, "type 420") || hasWord(lt, "type 440") || hasWord(lt, "410 stainless") || hasWord(lt, "420 stainless") || hasWord(lt, "ca-6nm") || hasWord(lt, "ca6nm") || hasWord(lt, "13cr")) {
-    materialClass = "martensitic_stainless";
-    materialEvidence.push("martensitic stainless grade");
-    materialConfidence = 0.85;
+    materialMatches.push({ cls: "martensitic_stainless", ev: "martensitic stainless grade", priority: 5 });
   }
 
-  // Nickel alloy
+  // Nickel alloy (highest priority among metals)
   if (hasWord(lt, "inconel") || hasWord(lt, "hastelloy") || hasWord(lt, "monel") || hasWord(lt, "incoloy") || hasWord(lt, "alloy 625") || hasWord(lt, "alloy 825") || hasWord(lt, "alloy 800") || hasWord(lt, "alloy 718") || hasWord(lt, "nickel alloy") || hasWord(lt, "nickel-base") || hasWord(lt, "nickel base")) {
-    materialClass = "nickel_alloy";
-    materialEvidence.push("nickel-base alloy");
-    materialConfidence = 0.85;
+    materialMatches.push({ cls: "nickel_alloy", ev: "nickel-base alloy", priority: 8 });
   }
 
   // Titanium
   if (hasWord(lt, "titanium") || hasWord(lt, "ti-6al") || hasWord(lt, "ti6al") || hasWord(lt, "ti-6al-4v") || hasWord(lt, "grade 2 ti") || hasWord(lt, "grade 5 ti")) {
-    materialClass = "titanium_alloy";
-    materialEvidence.push("titanium alloy");
-    materialConfidence = 0.85;
+    materialMatches.push({ cls: "titanium_alloy", ev: "titanium alloy", priority: 7 });
   }
 
   // Aluminum
   if (hasWord(lt, "aluminum") || hasWord(lt, "aluminium") || hasWord(lt, "al-li") || hasWord(lt, "2195") || hasWord(lt, "6061") || hasWord(lt, "5083") || hasWord(lt, "7075")) {
-    materialClass = "aluminum_alloy";
-    materialEvidence.push("aluminum alloy");
-    materialConfidence = 0.85;
+    materialMatches.push({ cls: "aluminum_alloy", ev: "aluminum alloy", priority: 2 });
   }
 
   // Ceramic matrix composite
   if (hasWord(lt, "cmc") || hasWord(lt, "ceramic matrix composite") || hasWord(lt, "ceramic matrix") || hasWord(lt, "thermal tile") || hasWord(lt, "ceramic tile") || hasWord(lt, "rcc tile") || hasWord(lt, "reinforced carbon-carbon")) {
-    materialClass = "cmc";
-    materialEvidence.push("ceramic matrix composite");
+    materialMatches.push({ cls: "cmc", ev: "ceramic matrix composite", priority: 2 });
+  }
+
+  // DEPLOY195: Pick highest-priority material as primary, track all others as secondary
+  if (materialMatches.length > 0) {
+    materialMatches.sort(function(a, b) { return b.priority - a.priority; });
+    materialClass = materialMatches[0].cls;
+    materialEvidence.push(materialMatches[0].ev);
     materialConfidence = 0.85;
+    for (var mmi = 1; mmi < materialMatches.length; mmi++) {
+      materialEvidence.push("secondary_material: " + materialMatches[mmi].cls + " (" + materialMatches[mmi].ev + ")");
+    }
   }
 
   // Concrete -- DEPLOY194: Only classify as concrete if no metallic material already detected.
@@ -5386,7 +5434,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.11",
+            engine_version: "physics-first-decision-core-v2.9.12",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5499,7 +5547,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.11",
+          engine_version: "physics-first-decision-core-v2.9.12",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
