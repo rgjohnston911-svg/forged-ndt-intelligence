@@ -1,6 +1,7 @@
 // @ts-nocheck
-// DEPLOY183 -- decision-core.ts v2.9.3
-// v2.9.3: DEPLOY183 -- Fix hasEvent() crash on object events (500 on computation paths), remove duplicate energy key.
+// DEPLOY185 -- decision-core.ts v2.9.4
+// v2.9.4: DEPLOY185 -- Add naphthenic acid corrosion + polythionic acid SCC to mechanism catalog.
+// Previous: v2.9.3 -- DEPLOY183 -- Fix hasEvent() crash on object events (500 on computation paths), remove duplicate energy key.
 // Previous: v2.9.2 -- DEPLOY182 -- NPS nominal wall inference + RSR data-quality gate (clean rebuild).
 // Previous: v2.9.0 -- DEPLOY180 Consequence Reality fail-upward gate.
 // Previous: v2.8.1 -- DEPLOY174 INDETERMINATE mechanism escalation.
@@ -1112,13 +1113,42 @@ var MECHANISM_CATALOG_V1 = [
     },
     observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
     rejection_messages: { material: "CSCC requires austenitic/duplex stainless.", process_chemistry: "CSCC requires chlorides.", thermal: "CSCC requires >140F.", stress: "CSCC requires tensile stress." }
+  },
+  // DEPLOY185: Naphthenic Acid Corrosion
+  {
+    id: "naphthenic_acid_corrosion",
+    name: "Naphthenic Acid Corrosion",
+    family: "corrosion",
+    severity: "high",
+    description: "Aggressive localized/general corrosion in crude and vacuum units processing high-TAN crudes. Naphthenic acids become corrosive above ~430F, peaking 500-750F, declining above 800F as acids decompose. Carbon steel and low-alloy steels (5Cr and below) are susceptible; 316SS / 317SS with Mo content are resistant.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel"] },
+      process_chemistry: { naphthenic_acid_required: true },
+      thermal: { operating_temp_f_window: [400, 800] }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed", "localized_thinning"],
+    rejection_messages: { material: "Naphthenic acid corrosion primarily affects carbon steel and low-alloy steels (5Cr and below); higher alloys with Mo content are resistant.", process_chemistry_naphthenic: "Naphthenic acid corrosion requires naphthenic acid / high TAN environment; transcript does not indicate naphthenic acid service.", thermal: "Naphthenic acid corrosion is active in the 400-800F range (peak 500-750F); operating temperature is outside this window." }
+  },
+  // DEPLOY185: Polythionic Acid SCC
+  {
+    id: "polythionic_acid_scc",
+    name: "Polythionic Acid Stress Corrosion Cracking",
+    family: "cracking",
+    severity: "critical",
+    description: "Intergranular cracking of sensitized austenitic stainless steels during shutdown/turnaround when sulfide scale reacts with moisture and oxygen to form polythionic acid. Common in FCC, reformer, and hydroprocessing equipment after high-temperature sulfur service.",
+    preconditions: {
+      material: { class_in: ["austenitic_stainless", "duplex_stainless"] },
+      process_chemistry: { polythionic_acid_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking", "intergranular_cracking"],
+    rejection_messages: { material: "Polythionic acid SCC requires sensitized austenitic or duplex stainless steel.", process_chemistry_polythionic: "Polythionic acid SCC requires polythionic acid environment (sulfide scale + moisture + oxygen during shutdown); transcript does not indicate polythionic acid cracking context." }
   }
 ];
 
 // Mechanisms migrated to the catalog evaluator path. All other mechanisms
 // continue to use the MECH_DEFS predicate path. This list will grow as
 // DEPLOY172 and DEPLOY173 ship.
-var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride"];
+var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride", "naphthenic_acid_corrosion", "polythionic_acid_scc"];
 
 function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
   var satisfied: any[] = [];
@@ -1557,6 +1587,48 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
         unknown.push({
           bucket: "process_chemistry", field: "hydrogen_required", state: "UNKNOWN",
           detail: mech.name + " requires hydrogen in process stream; hydrogen presence not determined from transcript."
+        });
+      }
+    }
+
+    // DEPLOY185: Naphthenic acid required
+    if (pcp.naphthenic_acid_required === true) {
+      var nap = pc.naphthenic_acid_present;
+      if (nap === true) {
+        satisfied.push({
+          bucket: "process_chemistry", field: "naphthenic_acid_required", state: "SATISFIED",
+          detail: "Naphthenic acid / high TAN environment confirmed (crude unit, high acid crude, or explicit TAN language)."
+        });
+      } else if (nap === false) {
+        var rmNap = mech.rejection_messages && mech.rejection_messages.process_chemistry_naphthenic ? mech.rejection_messages.process_chemistry_naphthenic : (mech.name + " requires naphthenic acid / high TAN environment; transcript does not indicate naphthenic acid service.");
+        violated.push({
+          bucket: "process_chemistry", field: "naphthenic_acid_required", state: "VIOLATED", detail: rmNap
+        });
+      } else {
+        unknown.push({
+          bucket: "process_chemistry", field: "naphthenic_acid_required", state: "UNKNOWN",
+          detail: mech.name + " requires naphthenic acid / high TAN environment; naphthenic acid presence not determined from transcript."
+        });
+      }
+    }
+
+    // DEPLOY185: Polythionic acid required
+    if (pcp.polythionic_acid_required === true) {
+      var pta = pc.polythionic_acid_present;
+      if (pta === true) {
+        satisfied.push({
+          bucket: "process_chemistry", field: "polythionic_acid_required", state: "SATISFIED",
+          detail: "Polythionic acid environment confirmed (sensitized stainless, shutdown/turnaround cracking context)."
+        });
+      } else if (pta === false) {
+        var rmPta = mech.rejection_messages && mech.rejection_messages.process_chemistry_polythionic ? mech.rejection_messages.process_chemistry_polythionic : (mech.name + " requires polythionic acid environment; transcript does not indicate polythionic acid cracking context.");
+        violated.push({
+          bucket: "process_chemistry", field: "polythionic_acid_required", state: "VIOLATED", detail: rmPta
+        });
+      } else {
+        unknown.push({
+          bucket: "process_chemistry", field: "polythionic_acid_required", state: "UNKNOWN",
+          detail: mech.name + " requires polythionic acid environment; polythionic acid presence not determined from transcript."
         });
       }
     }
@@ -2246,8 +2318,16 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     if (agents.indexOf("active_leak_indicator") === -1) { agents.push("active_leak_indicator"); contextInferred.push("field leak language detected -> active corrosion/degradation likely"); }
   }
 
+  // DEPLOY185: NAPHTHENIC ACID DIRECT KEYWORD DETECTION
+  // Crude unit inference (above) already pushes naphthenic_acid for CDU/VDU context.
+  // This block catches explicit naphthenic acid / TAN language outside crude unit context.
+  if (hasWord(lt, "naphthenic acid") || hasWord(lt, "naphthenic") || hasWord(lt, "high tan") || hasWord(lt, "tan number") || hasWord(lt, "total acid number") || hasWord(lt, "tan crude") || hasWord(lt, "high acid crude") || hasWord(lt, "acid corrosion")) {
+    corrosive = true;
+    if (agents.indexOf("naphthenic_acid") === -1) { agents.push("naphthenic_acid"); contextInferred.push("naphthenic acid / high TAN language detected"); }
+  }
+
   // POLYTHIONIC ACID CRACKING CONTEXT
-  if (hasWord(lt, "polythionic") || (hasWord(lt, "sensitized") && hasWord(lt, "stainless")) || hasWord(lt, "pta crack")) {
+  if (hasWord(lt, "polythionic") || (hasWord(lt, "sensitized") && hasWord(lt, "stainless")) || hasWord(lt, "pta crack") || hasWord(lt, "polythionic acid") || hasWord(lt, "pta scc") || hasWord(lt, "intergranular") && hasWord(lt, "stainless")) {
     corrosive = true;
     if (agents.indexOf("polythionic_acid") === -1) { agents.push("polythionic_acid"); contextInferred.push("polythionic acid cracking context -> shutdown/turnaround risk for sensitized stainless"); }
   }
@@ -2628,7 +2708,7 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     context_inferred: contextInferred,
     material: { class: materialClass, class_confidence: materialConfidence, evidence: materialEvidence },
     environment: { phases_present: phasesPresent, phases_negated: phasesNegated, atmosphere_class: atmosphereClass },
-    process_chemistry: { chloride_band: chlorideBandPC, sulfur_class: sulfurClass, amine_type: amineTypePC, nh4_salt_potential: nh4SaltPotential },
+    process_chemistry: { chloride_band: chlorideBandPC, sulfur_class: sulfurClass, amine_type: amineTypePC, nh4_salt_potential: nh4SaltPotential, naphthenic_acid_present: agents.indexOf("naphthenic_acid") !== -1, polythionic_acid_present: agents.indexOf("polythionic_acid") !== -1 },
     flow_regime: { flow_state: flowState, deadleg: deadlegPresent, turbulence_geometry_present: turbulenceGeometryPresent },
     deposits: { deposits_present: depositsPresent, deposit_type: depositType, deposit_evidence: depositEvidence }
   };
@@ -2658,7 +2738,10 @@ var MECH_SCORING_TABLE = [
   { id: "brittle_fracture", name: "Brittle Fracture", sev: "critical", eKeys: ["crack_confirmed"], preLabels: ["Low temperature", "Pre-existing flaw"] },
   { id: "overload_buckling", name: "Mechanical Overload / Buckling", sev: "high", eKeys: ["visible_deformation", "dent_or_gouge_present"], preLabels: ["Compressive overload or impact energy"] },
   { id: "fire_damage", name: "Fire / Thermal Damage", sev: "high", eKeys: ["fire_exposure", "fire_property_degradation_confirmed"], preLabels: ["Fire or elevated temperature exposure"] },
-  { id: "hydrogen_damage", name: "High Temp Hydrogen Attack", sev: "critical", eKeys: [], preLabels: ["Hydrogen environment", "Elevated temperature (>400F)"] }
+  { id: "hydrogen_damage", name: "High Temp Hydrogen Attack", sev: "critical", eKeys: [], preLabels: ["Hydrogen environment", "Elevated temperature (>400F)"] },
+  // DEPLOY185: Naphthenic Acid Corrosion + Polythionic Acid SCC
+  { id: "naphthenic_acid_corrosion", name: "Naphthenic Acid Corrosion", sev: "high", eKeys: ["critical_wall_loss_confirmed", "localized_thinning"], preLabels: ["Naphthenic acid / high TAN service", "Temperature in NAC range (400-800F)"] },
+  { id: "polythionic_acid_scc", name: "Polythionic Acid SCC", sev: "critical", eKeys: ["crack_confirmed", "visible_cracking", "intergranular_cracking"], preLabels: ["Polythionic acid cracking context", "Susceptible material (austenitic/duplex)"] }
 ];
 
 function resolveDamageReality(physics: any, flags: any, transcript: string, provenance?: any) {
@@ -2706,7 +2789,11 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
     "Temperature in CUI range (0-350F)": t.operating_temp_f !== null && t.operating_temp_f >= 0 && t.operating_temp_f <= 350,
     "Insulated equipment": false,
     "Hydrogen environment": c.hydrogen_present,
-    "Elevated temperature (>400F)": t.operating_temp_f !== null && t.operating_temp_f > 400
+    "Elevated temperature (>400F)": t.operating_temp_f !== null && t.operating_temp_f > 400,
+    // DEPLOY185: Naphthenic acid + polythionic acid preChecks
+    "Naphthenic acid / high TAN service": c.environment_agents && c.environment_agents.indexOf("naphthenic_acid") !== -1,
+    "Temperature in NAC range (400-800F)": t.operating_temp_f !== null && t.operating_temp_f >= 400 && t.operating_temp_f <= 800,
+    "Polythionic acid cracking context": c.environment_agents && c.environment_agents.indexOf("polythionic_acid") !== -1
   };
 
   for (var i = 0; i < MECH_SCORING_TABLE.length; i++) {
@@ -4692,7 +4779,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.3",
+            engine_version: "physics-first-decision-core-v2.9.4",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -4805,7 +4892,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.3",
+          engine_version: "physics-first-decision-core-v2.9.4",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
