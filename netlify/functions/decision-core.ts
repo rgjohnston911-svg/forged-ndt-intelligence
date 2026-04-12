@@ -7,7 +7,8 @@
 //   New coating_protection precondition on 3 external-attack mechanisms:
 //   atmospheric_corrosion, soil_corrosion, galvanic_corrosion.
 //   Intact coating -> VIOLATED (physically blocks external corrosion cell).
-//   Degraded/absent -> SATISFIED (metal exposed). Unknown -> UNKNOWN.
+//   Degraded/absent -> SATISFIED (metal exposed). Unknown -> SATISFIED (assume
+//   unprotected -- intact coating is active protection that must be confirmed).
 //   Internal mechanisms (general_corrosion, pitting, MIC, CO2, erosion) NOT gated
 //   because external coatings do not protect internal surfaces.
 // v2.9.16: DEPLOY199 -- fire_damage negation fix. hasWord is plain indexOf and matched
@@ -1682,10 +1683,16 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
           bucket: "coating", field: "coating_protection", state: "VIOLATED", detail: rmCoat
         });
       } else {
-        // Coating condition unknown -- cannot confirm or rule out
-        unknown.push({
-          bucket: "coating", field: "coating_protection", state: "UNKNOWN",
-          detail: mech.name + " is suppressed by intact coatings; transcript does not state coating condition."
+        // Coating condition unknown -- default to SATISFIED (assume unprotected).
+        // Physics rationale: an intact coating is an ACTIVE protection that must be
+        // positively confirmed. If the inspector did not state coating condition,
+        // the safe assumption for damage assessment is that the metal surface MAY
+        // be exposed. Only an explicitly confirmed intact coating should suppress
+        // a mechanism. This avoids flooding INDETERMINATE on every transcript that
+        // doesn't mention coatings (which is most of them).
+        satisfied.push({
+          bucket: "coating", field: "coating_protection", state: "SATISFIED",
+          detail: "Coating condition not stated -- assuming metal surface may be exposed (conservative)."
         });
       }
     }
