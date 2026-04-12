@@ -1,5 +1,5 @@
 // @ts-nocheck
-// DEPLOY195 -- inspection-intelligence.ts v1.3.0
+// DEPLOY196 -- inspection-intelligence.ts v1.3.1
 // v1.2.0: DEPLOY194 -- Strengthened Engine 2 system prompt. AI now has explicit mandate to extend
 //   beyond static catalog, identify cross-domain failures, recommend advanced techniques, and flag
 //   code authority collisions. Previous prompt was too deferential -- AI returned 0 extensions
@@ -48,6 +48,12 @@ var SYSTEM_PROMPT = "You are the AI reasoning engine for FORGED NDT Intelligence
   + "\n- temporal_projection: {remaining_life_estimate, remaining_life_basis, next_inspection_due, degradation_trajectory (linear|accelerating|decelerating|unknown), data_gaps: [], failure_progression: {current_state, six_months, one_year, three_years, five_years, failure_mode}, intervention_windows: [{window, urgency (immediate|urgent|planned|routine), action, consequence_of_inaction}]}"
   + "\n- confidence_assessment: {overall (0-1), limitations: []} -- if access is limited, coverage is poor, or data gaps exist, confidence should be LOW (0.3-0.5), not high"
   + "\n- teaching_insight: string -- focus on the specific engineering lesson this scenario teaches, not generic advice"
+  + "\n\nFIELD LANGUAGE AWARENESS: The physics engine now detects field slang categories in the transcript. When the context_summary mentions these, use them as strong evidence signals:"
+  + "\n- 'Structural movement / instability detected': asset is dynamically active (dancing, walking, hunting, shifting, leaning, dog-legged, out of plumb, carrying funny). Implies cyclic loading, possible fatigue, overload, or foundation issues."
+  + "\n- 'Welding defect language detected': inspector described fabrication flaws (cold lap, porosity, undercut, burnthrough, slag, high cap). These are stress concentrators -- accelerate fatigue/cracking initiation."
+  + "\n- 'Fracture progression language detected': inspector used urgency language (about gone, coming apart, fixing to pop, letting go, tearing out). Indicates active damage advancement -- elevate severity and shorten intervention windows."
+  + "\n- Field corrosion terms (ate up, paper thin, shotgunned, peppered, hidden rust, insulation got it) indicate advanced wall loss even if no UT readings are provided."
+  + "\n- Temporary fix / repeat failure language (band-aided, cowboy repair, keeps coming back, same spot again) indicates unresolved root cause -- recommend root cause analysis in inspection plan."
   + "\n\nBe conservative. When uncertain, recommend MORE inspection. Cite specific code sections where possible.";
 
 // ============================================================================
