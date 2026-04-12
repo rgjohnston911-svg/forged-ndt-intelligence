@@ -1,6 +1,7 @@
 // @ts-nocheck
-// DEPLOY188 -- decision-core.ts v2.9.7
-// v2.9.7: DEPLOY188 -- Add carburization, metal dusting, high-temp oxidation, spheroidization, decarburization, graphitization. Batch 2 of API 571 sweep. Catalog now at 34 mechanisms.
+// DEPLOY189 -- decision-core.ts v2.9.8
+// v2.9.8: DEPLOY189 -- Add galvanic corrosion, atmospheric corrosion, soil-side corrosion, cavitation. Batch 3 of API 571 sweep. Catalog now at 38 mechanisms.
+// Previous: v2.9.7 -- DEPLOY188 -- Add carburization, metal dusting, high-temp oxidation, spheroidization, decarburization, graphitization. Batch 2 of API 571 sweep.
 // Previous: v2.9.6 -- DEPLOY187 -- 885F embrittlement, sigma phase, temper embrittlement + ferritic/martensitic stainless material classifier.
 // Previous: v2.9.5 -- DEPLOY186 -- Add amine cracking (amine SCC) + carbonate SCC to mechanism catalog. Harden austenitic stainless material classifier.
 // Previous: v2.9.4 -- DEPLOY185 -- Add naphthenic acid corrosion + polythionic acid SCC to mechanism catalog.
@@ -1299,13 +1300,69 @@ var MECHANISM_CATALOG_V1 = [
     },
     observation_evidence_keys: [],
     rejection_messages: { material: "Graphitization affects carbon steel and C-0.5Mo steel; Cr-Mo steels are resistant.", thermal: "Graphitization requires prolonged exposure above 800F; operating temperature is below this threshold." }
+  },
+  // DEPLOY189: Galvanic Corrosion
+  {
+    id: "galvanic_corrosion",
+    name: "Galvanic Corrosion",
+    family: "corrosion",
+    severity: "medium",
+    description: "Accelerated corrosion of the less noble (anodic) metal when two dissimilar metals are in electrical contact in the presence of an electrolyte. Rate depends on area ratio, potential difference, and electrolyte conductivity. API 571 Section 5.1.1.3.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel", "austenitic_stainless", "duplex_stainless", "ferritic_stainless", "martensitic_stainless", "nickel_alloy"] },
+      environment: { galvanic_context_required: true }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed", "localized_thinning"],
+    rejection_messages: { material: "Galvanic corrosion can affect most metallic materials when coupled to a more noble metal.", environment: "Galvanic corrosion requires dissimilar metal contact with an electrolyte present." }
+  },
+  // DEPLOY189: Atmospheric Corrosion
+  {
+    id: "atmospheric_corrosion",
+    name: "Atmospheric Corrosion",
+    family: "corrosion",
+    severity: "low",
+    description: "General or localized corrosion of metals exposed to the atmosphere, driven by moisture, oxygen, and contaminants (chlorides, SO2, industrial pollutants). Most common on uninsulated, uncoated carbon steel in outdoor service. API 571 Section 5.1.1.4.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel"] },
+      environment: { atmospheric_exposure_required: true }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed"],
+    rejection_messages: { material: "Atmospheric corrosion primarily affects carbon steel and low-alloy steels.", environment: "Atmospheric corrosion requires outdoor/weather exposure; no atmospheric exposure language detected." }
+  },
+  // DEPLOY189: Soil-Side Corrosion (Buried Piping)
+  {
+    id: "soil_corrosion",
+    name: "Soil-Side Corrosion",
+    family: "corrosion",
+    severity: "medium",
+    description: "External corrosion of buried or partially buried metallic piping and equipment driven by soil moisture, soil chemistry (pH, resistivity, chlorides, sulfates), stray currents, and microbiological activity. Coating condition and cathodic protection effectiveness are key mitigating factors. API 571 Section 5.1.1.5.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel"] },
+      environment: { soil_burial_required: true }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed", "localized_thinning"],
+    rejection_messages: { material: "Soil-side corrosion primarily affects carbon steel and low-alloy steel buried piping.", environment: "Soil-side corrosion requires buried or soil-contact conditions; no buried/soil language detected." }
+  },
+  // DEPLOY189: Cavitation
+  {
+    id: "cavitation",
+    name: "Cavitation Damage",
+    family: "corrosion",
+    severity: "medium",
+    description: "Material removal caused by formation and collapse of vapor bubbles in a liquid near a metal surface. Occurs at locations of sudden pressure drop such as pump impellers, valve seats, orifice plates, and restrictions. Produces characteristic rough, spongy or honeycomb surface damage. API 571 Section 5.1.2.3.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel", "austenitic_stainless", "duplex_stainless", "nickel_alloy"] },
+      energy: { cavitation_required: true }
+    },
+    observation_evidence_keys: ["critical_wall_loss_confirmed", "localized_thinning"],
+    rejection_messages: { material: "Cavitation can affect most metallic materials.", energy: "Cavitation requires evidence of vapor bubble collapse conditions (pumps, valves, restrictions); no cavitation language detected." }
   }
 ];
 
 // Mechanisms migrated to the catalog evaluator path. All other mechanisms
 // continue to use the MECH_DEFS predicate path. This list will grow as
 // DEPLOY172 and DEPLOY173 ship.
-var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride", "naphthenic_acid_corrosion", "polythionic_acid_scc", "amine_cracking", "carbonate_scc", "embrittlement_885f", "sigma_phase_embrittlement", "temper_embrittlement", "carburization", "metal_dusting", "high_temp_oxidation", "spheroidization", "decarburization", "graphitization"];
+var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride", "naphthenic_acid_corrosion", "polythionic_acid_scc", "amine_cracking", "carbonate_scc", "embrittlement_885f", "sigma_phase_embrittlement", "temper_embrittlement", "carburization", "metal_dusting", "high_temp_oxidation", "spheroidization", "decarburization", "graphitization", "galvanic_corrosion", "atmospheric_corrosion", "soil_corrosion", "cavitation"];
 
 function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
   var satisfied: any[] = [];
@@ -1435,6 +1492,54 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
         var rmAtm = mech.rejection_messages.environment_atmosphere || (mech.name + " requires atmosphere class in [" + ep.atmosphere_class_in.join(", ") + "]; observed: '" + atm + "'.");
         violated.push({
           bucket: "environment", field: "atmosphere_class_in", state: "VIOLATED", detail: rmAtm
+        });
+      }
+    }
+
+    // DEPLOY189: galvanic_context_required -- dissimilar metals in electrolyte
+    if (ep.galvanic_context_required === true) {
+      var envAgents = assetState.environment.agents_present || [];
+      if (envAgents.indexOf("galvanic") !== -1) {
+        satisfied.push({
+          bucket: "environment", field: "galvanic_context_required", state: "SATISFIED",
+          detail: "Galvanic / dissimilar metal contact language detected in transcript."
+        });
+      } else {
+        var rmGalv = mech.rejection_messages && mech.rejection_messages.environment ? mech.rejection_messages.environment : (mech.name + " requires dissimilar metal contact with electrolyte; no galvanic language detected.");
+        violated.push({
+          bucket: "environment", field: "galvanic_context_required", state: "VIOLATED", detail: rmGalv
+        });
+      }
+    }
+
+    // DEPLOY189: atmospheric_exposure_required -- outdoor/weather exposure
+    if (ep.atmospheric_exposure_required === true) {
+      var envAgents2 = assetState.environment.agents_present || [];
+      if (envAgents2.indexOf("atmospheric") !== -1 || envAgents2.indexOf("environmental_exposure") !== -1) {
+        satisfied.push({
+          bucket: "environment", field: "atmospheric_exposure_required", state: "SATISFIED",
+          detail: "Atmospheric / outdoor exposure language detected in transcript."
+        });
+      } else {
+        var rmAtmoCorr = mech.rejection_messages && mech.rejection_messages.environment ? mech.rejection_messages.environment : (mech.name + " requires atmospheric exposure; no outdoor/weather language detected.");
+        violated.push({
+          bucket: "environment", field: "atmospheric_exposure_required", state: "VIOLATED", detail: rmAtmoCorr
+        });
+      }
+    }
+
+    // DEPLOY189: soil_burial_required -- buried/underground piping
+    if (ep.soil_burial_required === true) {
+      var envAgents3 = assetState.environment.agents_present || [];
+      if (envAgents3.indexOf("soil_contact") !== -1) {
+        satisfied.push({
+          bucket: "environment", field: "soil_burial_required", state: "SATISFIED",
+          detail: "Buried / soil-contact conditions detected in transcript."
+        });
+      } else {
+        var rmSoil = mech.rejection_messages && mech.rejection_messages.environment ? mech.rejection_messages.environment : (mech.name + " requires buried or soil-contact conditions; no buried/soil language detected.");
+        violated.push({
+          bucket: "environment", field: "soil_burial_required", state: "VIOLATED", detail: rmSoil
         });
       }
     }
@@ -2104,6 +2209,27 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
         });
       }
     }
+
+    // DEPLOY189: cavitation_required handler
+    if (enp.cavitation_required === true) {
+      var cavSt = assetState.energy.cavitation;
+      if (cavSt === true) {
+        satisfied.push({
+          bucket: "energy", field: "cavitation_required", state: "SATISFIED",
+          detail: "Cavitation conditions confirmed in transcript."
+        });
+      } else if (cavSt === false) {
+        var rmCav = mech.rejection_messages && mech.rejection_messages.energy ? mech.rejection_messages.energy : (mech.name + " requires cavitation conditions; no cavitation language detected.");
+        violated.push({
+          bucket: "energy", field: "cavitation_required", state: "VIOLATED", detail: rmCav
+        });
+      } else {
+        unknown.push({
+          bucket: "energy", field: "cavitation_required", state: "UNKNOWN",
+          detail: mech.name + " requires cavitation conditions; cavitation presence not determined from transcript."
+        });
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -2187,7 +2313,8 @@ function buildAssetStateForCatalog(physics: any, transcript: string): any {
     process_chemistry: physics.process_chemistry || { chloride_band: null, sulfur_class: null, amine_type: null, nh4_salt_potential: null, h2s_present: false, caustic_present: false, hydrogen_present: false },
     energy: {
       vibration: physics.energy.vibration || false,
-      impact_event: physics.energy.impact_event || false
+      impact_event: physics.energy.impact_event || false,
+      cavitation: physics.energy.cavitation || false
     },
     flow_regime: physics.flow_regime || { flow_state: null, deadleg: null, turbulence_geometry_present: null },
     deposits: physics.deposits || { deposits_present: null, deposit_type: null, deposit_evidence: [] }
@@ -2600,6 +2727,18 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   // Graphitization -- graphite nodule formation in C and C-0.5Mo steels >800F long-term
   if (hasWord(lt, "graphitiz") || hasWord(lt, "graphitis") || hasWord(lt, "graphite nodule") || hasWord(lt, "graphite formation") || (hasWord(lt, "graphite") && (hasWord(lt, "steel") || hasWord(lt, "weld") || hasWord(lt, "haz")))) {
     if (agents.indexOf("graphitization") === -1) { agents.push("graphitization"); contextInferred.push("graphitization language detected -> graphite nodule formation in C/C-0.5Mo steel at elevated temperature long-term"); }
+  }
+
+  // DEPLOY189: GALVANIC CORROSION KEYWORD DETECTION
+  if (hasWord(lt, "galvanic") || hasWord(lt, "dissimilar metal") || hasWord(lt, "dissimilar metals") || hasWord(lt, "bimetallic") || hasWord(lt, "bi-metallic") || hasWord(lt, "galvanic couple") || hasWord(lt, "galvanic cell") || (hasWord(lt, "copper") && hasWord(lt, "steel") && (hasWord(lt, "contact") || hasWord(lt, "connection") || hasWord(lt, "joint") || hasWord(lt, "coupled"))) || (hasWord(lt, "brass") && hasWord(lt, "steel") && (hasWord(lt, "contact") || hasWord(lt, "connection"))) || (hasWord(lt, "stainless") && hasWord(lt, "carbon steel") && (hasWord(lt, "contact") || hasWord(lt, "junction") || hasWord(lt, "transition")))) {
+    corrosive = true;
+    if (agents.indexOf("galvanic") === -1) { agents.push("galvanic"); contextInferred.push("galvanic / dissimilar metal contact language detected -> accelerated corrosion of anodic member"); }
+  }
+
+  // DEPLOY189: SOIL-SIDE CORROSION KEYWORD DETECTION
+  if (hasWord(lt, "buried") || hasWord(lt, "underground") || hasWord(lt, "below grade") || hasWord(lt, "below-grade") || hasWord(lt, "soil side") || hasWord(lt, "soil-side") || hasWord(lt, "soil contact") || hasWord(lt, "soil corrosion") || hasWord(lt, "buried piping") || hasWord(lt, "underground piping") || hasWord(lt, "in soil") || hasWord(lt, "cathodic protection") || hasWord(lt, "cp system") || hasWord(lt, "soil resistivity") || (hasWord(lt, "external") && hasWord(lt, "buried"))) {
+    corrosive = true;
+    if (agents.indexOf("soil_contact") === -1) { agents.push("soil_contact"); contextInferred.push("buried / soil-contact language detected -> soil-side corrosion potential on external surface"); }
   }
 
   var suscept: string[] = [];
@@ -3039,7 +3178,12 @@ var MECH_SCORING_TABLE = [
   { id: "high_temp_oxidation", name: "High-Temp Oxidation", sev: "medium", eKeys: ["critical_wall_loss_confirmed"], preLabels: ["Temperature above 1000F"] },
   { id: "spheroidization", name: "Spheroidization", sev: "medium", eKeys: [], preLabels: ["Carbon steel", "Temperature above 850F"] },
   { id: "decarburization", name: "Decarburization", sev: "medium", eKeys: [], preLabels: ["Carbon/low-alloy steel", "Temperature above 800F"] },
-  { id: "graphitization", name: "Graphitization", sev: "high", eKeys: [], preLabels: ["Carbon steel", "Temperature above 800F long-term"] }
+  { id: "graphitization", name: "Graphitization", sev: "high", eKeys: [], preLabels: ["Carbon steel", "Temperature above 800F long-term"] },
+  // DEPLOY189: Remaining corrosion mechanisms
+  { id: "galvanic_corrosion", name: "Galvanic Corrosion", sev: "medium", eKeys: ["critical_wall_loss_confirmed", "localized_thinning"], preLabels: ["Dissimilar metal contact", "Electrolyte present"] },
+  { id: "atmospheric_corrosion", name: "Atmospheric Corrosion", sev: "low", eKeys: ["critical_wall_loss_confirmed"], preLabels: ["Outdoor / atmospheric exposure", "Carbon/low-alloy steel"] },
+  { id: "soil_corrosion", name: "Soil-Side Corrosion", sev: "medium", eKeys: ["critical_wall_loss_confirmed", "localized_thinning"], preLabels: ["Buried / soil contact", "Carbon/low-alloy steel"] },
+  { id: "cavitation", name: "Cavitation Damage", sev: "medium", eKeys: ["critical_wall_loss_confirmed", "localized_thinning"], preLabels: ["Cavitation conditions (pumps, valves, restrictions)"] }
 ];
 
 function resolveDamageReality(physics: any, flags: any, transcript: string, provenance?: any) {
@@ -3113,7 +3257,13 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
     "Temperature above 850F": t.operating_temp_f !== null && t.operating_temp_f >= 850,
     "Carbon/low-alloy steel": false,
     "Temperature above 800F": t.operating_temp_f !== null && t.operating_temp_f >= 800,
-    "Temperature above 800F long-term": t.operating_temp_f !== null && t.operating_temp_f >= 800
+    "Temperature above 800F long-term": t.operating_temp_f !== null && t.operating_temp_f >= 800,
+    // DEPLOY189: Remaining corrosion mechanism preChecks
+    "Dissimilar metal contact": c.environment_agents && c.environment_agents.indexOf("galvanic") !== -1,
+    "Electrolyte present": c.corrosive_environment,
+    "Outdoor / atmospheric exposure": c.environment_agents && (c.environment_agents.indexOf("atmospheric") !== -1 || c.environment_agents.indexOf("environmental_exposure") !== -1),
+    "Buried / soil contact": c.environment_agents && c.environment_agents.indexOf("soil_contact") !== -1,
+    "Cavitation conditions (pumps, valves, restrictions)": e.cavitation
   };
 
   for (var i = 0; i < MECH_SCORING_TABLE.length; i++) {
@@ -5099,7 +5249,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.7",
+            engine_version: "physics-first-decision-core-v2.9.8",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5212,7 +5362,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.7",
+          engine_version: "physics-first-decision-core-v2.9.8",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
