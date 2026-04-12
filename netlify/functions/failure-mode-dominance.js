@@ -312,7 +312,11 @@ var CATALOG_FAMILY_MAP = {
   "galvanic_corrosion": "corrosion",
   "atmospheric_corrosion": "corrosion",
   "soil_corrosion": "corrosion",
-  "cavitation": "corrosion"
+  "cavitation": "corrosion",
+  // DEPLOY190: Remaining cracking mechanisms
+  "ammonia_scc": "cracking",
+  "hydrogen_embrittlement": "cracking",
+  "wet_h2s_blister": "cracking"
 };
 
 var handler = async function(event) {
