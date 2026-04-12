@@ -1,5 +1,5 @@
 // @ts-nocheck
-// DEPLOY195 -- decision-core.ts v2.9.12
+// DEPLOY196 -- decision-core.ts v2.9.13
 // v2.9.11: DEPLOY194 -- Two system bugs fixed:
 //   1. process_chemistry missing hydrogen_present/h2s_present/caustic_present flags.
 //      These lived in physics.chemical but catalog evaluator read from process_chemistry.
@@ -2791,7 +2791,8 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
 
   // FIELD LEAK / SEEPAGE LANGUAGE -> flag corrosion + consequence
-  if (hasWord(lt, "sweating") || hasWord(lt, "weeping") || hasWord(lt, "seeping") || hasWord(lt, "leaker") || hasWord(lt, "dripping") || hasWord(lt, "active leak")) {
+  // DEPLOY196: Added dictionary leak terms: crying, dribbling, spitting
+  if (hasWord(lt, "sweating") || hasWord(lt, "weeping") || hasWord(lt, "seeping") || hasWord(lt, "leaker") || hasWord(lt, "dripping") || hasWord(lt, "active leak") || hasWord(lt, "crying") || hasWord(lt, "dribbling") || hasWord(lt, "spitting")) {
     corrosive = true;
     if (agents.indexOf("active_leak_indicator") === -1) { agents.push("active_leak_indicator"); contextInferred.push("field leak language detected -> active corrosion/degradation likely"); }
   }
@@ -2922,40 +2923,101 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
 
   // FIELD SLANG -- vibration indicators
   // DEPLOY195: Use root forms to catch conjugations (chatter/chatters/chattering, buzz/buzzes/buzzing, etc.)
-  // Also added: shudder, springy, sway, flutter, oscillat, resonan, pulsing, throbbing, bounce, tremble
+  // DEPLOY196: Added dictionary-sourced terms: ringing, talking (pipe/structure talking), wobbly, jumpy, lively, spongy
   if (!vib) {
-    if (hasWord(lt, "singing") || hasWord(lt, "chatter") || hasWord(lt, "shaking") || hasWord(lt, "humming") || hasWord(lt, "buzz") || hasWord(lt, "rattl") || hasWord(lt, "shudder") || hasWord(lt, "springy") || hasWord(lt, "sway") || hasWord(lt, "flutter") || hasWord(lt, "oscillat") || hasWord(lt, "resonan") || hasWord(lt, "pulsing") || hasWord(lt, "throb") || hasWord(lt, "bounc") || hasWord(lt, "trembl") || hasWord(lt, "feels dead") || hasWord(lt, "feels soft") || hasWord(lt, "feels mushy") || hasWord(lt, "second motion") || hasWord(lt, "answers back") || hasWord(lt, "structure answers")) {
+    if (hasWord(lt, "singing") || hasWord(lt, "chatter") || hasWord(lt, "shaking") || hasWord(lt, "humming") || hasWord(lt, "buzz") || hasWord(lt, "rattl") || hasWord(lt, "shudder") || hasWord(lt, "springy") || hasWord(lt, "sway") || hasWord(lt, "flutter") || hasWord(lt, "oscillat") || hasWord(lt, "resonan") || hasWord(lt, "pulsing") || hasWord(lt, "throb") || hasWord(lt, "bounc") || hasWord(lt, "trembl") || hasWord(lt, "feels dead") || hasWord(lt, "feels soft") || hasWord(lt, "feels mushy") || hasWord(lt, "second motion") || hasWord(lt, "answers back") || hasWord(lt, "structure answers") || hasWord(lt, "ringing") || hasWord(lt, "talking") || hasWord(lt, "wobbly") || hasWord(lt, "jumpy") || hasWord(lt, "lively") || hasWord(lt, "spongy")) {
       vib = true;
       if (!cyclic) { cyclic = true; cyclicSrc = cyclicSrc ? cyclicSrc + "+vibration_field_language" : "vibration_field_language"; }
     }
   }
 
+  // DEPLOY196: FIELD SLANG -- structural dynamic movement indicators (dictionary: dynamic_movement, instability, load_path_shift, lean_out_of_plumb)
+  // These indicate structural movement which implies cyclic loading and potential fatigue/overload
+  var dynamicMovement = false;
+  if (hasWord(lt, "dancing") || hasWord(lt, "walking") || hasWord(lt, "hunting") || hasWord(lt, "shifting") || hasWord(lt, "traveling") || hasWord(lt, "working") && (hasWord(lt, "beam") || hasWord(lt, "column") || hasWord(lt, "brace") || hasWord(lt, "structure") || hasWord(lt, "steel") || hasWord(lt, "joint") || hasWord(lt, "connection") || hasWord(lt, "support") || hasWord(lt, "base plate") || hasWord(lt, "pipe") || hasWord(lt, "leg")) || hasWord(lt, "not sitting right") || hasWord(lt, "carrying funny") || hasWord(lt, "loaded weird") || hasWord(lt, "taking load wrong") || hasWord(lt, "fighting itself") || hasWord(lt, "dragging load") || hasWord(lt, "load path") || hasWord(lt, "dog-legged") || hasWord(lt, "dog legged") || hasWord(lt, "kicked out") || hasWord(lt, "out of whack") || hasWord(lt, "racked") || hasWord(lt, "out of plumb") || hasWord(lt, "off plumb") || hasWord(lt, "listing") || hasWord(lt, "laying over") || hasWord(lt, "pitched over") || hasWord(lt, "cocked over") || hasWord(lt, "leaning")) {
+    dynamicMovement = true;
+    if (!cyclic) { cyclic = true; cyclicSrc = cyclicSrc ? cyclicSrc + "+structural_movement_field_language" : "structural_movement_field_language"; }
+    contextInferred.push("structural movement / instability field language detected -> dynamic loading, possible fatigue or overload");
+  }
+
   // FIELD SLANG -- erosion / flow damage indicators
+  // DEPLOY196: Added dictionary erosion_wear terms: cut away, worn a track, rubbing through, eaten in a line
   if (!flowEro) {
-    if (hasWord(lt, "eating the elbow") || (hasWord(lt, "chewed up") && (hasWord(lt, "elbow") || hasWord(lt, "bend") || hasWord(lt, "tee"))) || hasWord(lt, "washed out") || hasWord(lt, "channeling") || hasWord(lt, "grooved") || (hasWord(lt, "thinned out") && hasWord(lt, "elbow"))) {
+    if (hasWord(lt, "eating the elbow") || (hasWord(lt, "chewed up") && (hasWord(lt, "elbow") || hasWord(lt, "bend") || hasWord(lt, "tee"))) || hasWord(lt, "washed out") || hasWord(lt, "channeling") || hasWord(lt, "grooved") || (hasWord(lt, "thinned out") && hasWord(lt, "elbow")) || hasWord(lt, "cut away") || hasWord(lt, "worn a track") || hasWord(lt, "rubbing through") || hasWord(lt, "eaten in a line")) {
       flowEro = true;
     }
   }
 
   // FIELD SLANG -- impact indicators
   // DEPLOY195: Added wave slam, storm/hurricane impact, got kissed, got worked, beat her up, scarring
+  // DEPLOY196: Added water hammer/slugging terms from dictionary (banging, kicking, thumping, slugging)
   if (!impactEv) {
-    if (hasWord(lt, "got hit") || hasWord(lt, "took a hit") || hasWord(lt, "hammered") || hasWord(lt, "beat up") || hasWord(lt, "banged up") || hasWord(lt, "dented") || hasWord(lt, "dinged") || hasWord(lt, "wave slam") || hasWord(lt, "got kissed") || hasWord(lt, "got worked") || hasWord(lt, "beat her up") || hasWord(lt, "beat it up") || hasWord(lt, "scarring") || hasWord(lt, "impact scar") || hasWord(lt, "storm damage") || hasWord(lt, "hurricane damage") || hasWord(lt, "debris impact") || hasWord(lt, "ovalization") || hasWord(lt, "ovalized") || hasWord(lt, "bowed") || hasWord(lt, "buckled") || hasWord(lt, "crushed")) {
+    if (hasWord(lt, "got hit") || hasWord(lt, "took a hit") || hasWord(lt, "hammered") || hasWord(lt, "beat up") || hasWord(lt, "banged up") || hasWord(lt, "dented") || hasWord(lt, "dinged") || hasWord(lt, "wave slam") || hasWord(lt, "got kissed") || hasWord(lt, "got worked") || hasWord(lt, "beat her up") || hasWord(lt, "beat it up") || hasWord(lt, "scarring") || hasWord(lt, "impact scar") || hasWord(lt, "storm damage") || hasWord(lt, "hurricane damage") || hasWord(lt, "debris impact") || hasWord(lt, "ovalization") || hasWord(lt, "ovalized") || hasWord(lt, "bowed") || hasWord(lt, "buckled") || hasWord(lt, "crushed") || hasWord(lt, "water hammer") || hasWord(lt, "slugging") || hasWord(lt, "thumping") || hasWord(lt, "kicking") || hasWord(lt, "jumping when it hits")) {
       impactEv = true;
     }
   }
 
   // FIELD SLANG -- corrosion/damage descriptors -> wall loss confidence boost
-  if (hasWord(lt, "eaten up") || hasWord(lt, "rotted") || hasWord(lt, "eating away") || hasWord(lt, "rusted out") || hasWord(lt, "paper thin") || hasWord(lt, "necked down") || hasWord(lt, "metal loss")) {
+  // DEPLOY196: Expanded with dictionary general_corrosion + pitting + erosion_wear + CUI terms
+  if (hasWord(lt, "eaten up") || hasWord(lt, "rotted") || hasWord(lt, "eating away") || hasWord(lt, "rusted out") || hasWord(lt, "paper thin") || hasWord(lt, "necked down") || hasWord(lt, "metal loss") || hasWord(lt, "ate up") || hasWord(lt, "eaten alive") || hasWord(lt, "wore thin") || hasWord(lt, "wore through") || hasWord(lt, "dimpled") || hasWord(lt, "peppered") || hasWord(lt, "shotgunned") || hasWord(lt, "wormholed") || hasWord(lt, "pinholed") || hasWord(lt, "pitted up") || hasWord(lt, "cut away") || hasWord(lt, "grooved") || hasWord(lt, "worn a track") || hasWord(lt, "rubbing through") || hasWord(lt, "eaten in a line") || hasWord(lt, "flaking") || hasWord(lt, "scaled up") || hasWord(lt, "shelled") || hasWord(lt, "coming off in layers") || hasWord(lt, "delaminated") || hasWord(lt, "hidden rust") || hasWord(lt, "insulation got it") || hasWord(lt, "rusting under the lagging") || hasWord(lt, "sweating under the jacketing") || hasWord(lt, "wet under cover") || hasWord(lt, "wet under the wrap") || hasWord(lt, "bleeding rust") || hasWord(lt, "rust bleed") || hasWord(lt, "coating cracked") || hasWord(lt, "paint busted") || hasWord(lt, "paint line opened") || hasWord(lt, "line in the paint")) {
     corrosive = true;
     if (agents.indexOf("field_corrosion_language") === -1) agents.push("field_corrosion_language");
   }
+  // DEPLOY196: FIELD SLANG -- welding defect language (dictionary: poor_fusion, porosity, slag_inclusion, undercut, burnthrough, overweld)
+  // These indicate fabrication quality issues that can serve as stress concentrators -> fatigue/cracking initiation sites
+  var weldDefectLanguage = false;
+  if (hasWord(lt, "cold lap") || hasWord(lt, "cold lapped") || hasWord(lt, "didn't dig") || hasWord(lt, "didn't tie in") || hasWord(lt, "laid on top") || hasWord(lt, "no bite") || hasWord(lt, "sitting on top") || hasWord(lt, "bubbly weld") || hasWord(lt, "gassed up") || hasWord(lt, "porous") || hasWord(lt, "swiss cheese") || hasWord(lt, "worm tracks") || hasWord(lt, "dirty pass") || hasWord(lt, "junk in the weld") || hasWord(lt, "slag line") || hasWord(lt, "slag pocket") || hasWord(lt, "slagged up") || hasWord(lt, "trapped trash") || hasWord(lt, "bit the edge") || hasWord(lt, "cut the edge") || hasWord(lt, "grooved the toe") || hasWord(lt, "guttered") || hasWord(lt, "toed out") || hasWord(lt, "undercut") || hasWord(lt, "blew through") || hasWord(lt, "burned through") || hasWord(lt, "blew a hole") || hasWord(lt, "keyholed") || hasWord(lt, "dropped out") || hasWord(lt, "fell out") || hasWord(lt, "crowned up") || hasWord(lt, "fat bead") || hasWord(lt, "high cap") || hasWord(lt, "stacked too much") || hasWord(lt, "too proud") || hasWord(lt, "bird shit weld") || hasWord(lt, "booger weld") || hasWord(lt, "farmer weld") || hasWord(lt, "ugly but holding")) {
+    weldDefectLanguage = true;
+    if (!stressConc) { stressConc = true; stressConcLocs.push("weld_defect_field_language"); }
+    contextInferred.push("welding defect field language detected -> fabrication flaw acts as stress concentrator for fatigue/cracking");
+  }
+
+  // DEPLOY196: FIELD SLANG -- fracture progression language (dictionary: fracture_progression)
+  // These indicate advancing damage that raises severity and urgency
+  var fractureProgression = false;
+  if (hasWord(lt, "about gone") || hasWord(lt, "coming apart") || hasWord(lt, "fixing to pop") || hasWord(lt, "letting go") || hasWord(lt, "pulling apart") || hasWord(lt, "tearing out") || hasWord(lt, "opened up") || hasWord(lt, "split") || hasWord(lt, "checking")) {
+    fractureProgression = true;
+    contextInferred.push("fracture progression field language detected -> active damage advancement, elevated urgency");
+  }
+
+  // DEPLOY196: FIELD SLANG -- overheating / thermal damage language (dictionary: overheating, thermal_warp)
+  // These indicate thermal exposure history even when no numeric temperature is given
+  if (!fireExp) {
+    if (hasWord(lt, "blued up") || hasWord(lt, "burnt up") || hasWord(lt, "cooked") || hasWord(lt, "got hot") || hasWord(lt, "heat checked") || hasWord(lt, "saw too much heat") || hasWord(lt, "banana'd") || hasWord(lt, "bananad") || hasWord(lt, "drew up") || hasWord(lt, "heat bent") || hasWord(lt, "pulled over") || hasWord(lt, "shrunk funny") || hasWord(lt, "warped from heat")) {
+      fireExp = true;
+      contextInferred.push("overheating / thermal damage field language detected -> material may have seen elevated temperature exposure");
+    }
+  }
+
+  // DEPLOY196: FIELD SLANG -- restraint / binding language (dictionary: restraint)
+  // Restraint + thermal cycling = thermal fatigue risk
+  if (hasWord(lt, "bound up") || hasWord(lt, "can't move") || hasWord(lt, "fighting expansion") || hasWord(lt, "held tight") || hasWord(lt, "locked up") || hasWord(lt, "pinched")) {
+    if (!stressConc) { stressConc = true; stressConcLocs.push("restraint_field_language"); }
+    contextInferred.push("restraint / binding field language detected -> locked thermal expansion creates stress concentration");
+  }
+
+  // DEPLOY196: FIELD SLANG -- temporary fix / repeat failure language (dictionary: temporary_fix, repeat_failure)
+  // These indicate maintenance history that raises inspection priority
+  if (hasWord(lt, "band-aided") || hasWord(lt, "band aided") || hasWord(lt, "cowboy repair") || hasWord(lt, "field fix") || hasWord(lt, "held with a prayer") || hasWord(lt, "patch job") || hasWord(lt, "temporary that stayed") || hasWord(lt, "keeps coming back") || hasWord(lt, "never stays fixed") || hasWord(lt, "recurring issue") || hasWord(lt, "same old wound") || hasWord(lt, "same spot again") || hasWord(lt, "back in the same place")) {
+    contextInferred.push("temporary fix / repeat failure field language detected -> maintenance history suggests unresolved root cause");
+  }
+
+  // DEPLOY196: FIELD SLANG -- fitup / geometry issues (dictionary: fitup_issue, high_low_mismatch, out_of_round)
+  // These are fabrication geometry issues that create stress concentration
+  if (hasWord(lt, "hi-lo") || hasWord(lt, "hi lo") || hasWord(lt, "high-low") || hasWord(lt, "mismatch") || hasWord(lt, "not flush") || hasWord(lt, "offset joint") || hasWord(lt, "stepped off") || hasWord(lt, "egg-shaped") || hasWord(lt, "egg shaped") || hasWord(lt, "lop-sided") || hasWord(lt, "out of round") || hasWord(lt, "ovaled") || hasWord(lt, "chasing the gap") || hasWord(lt, "fighting the fit") || hasWord(lt, "won't come home") || hasWord(lt, "won't line out")) {
+    if (!stressConc) { stressConc = true; stressConcLocs.push("fitup_geometry_field_language"); }
+    contextInferred.push("fitup / geometry field language detected -> misalignment creates stress concentration at weld joints");
+  }
+
   var storedE = assetClass === "pressure_vessel" || assetClass === "piping" || assetClass === "pipeline" || assetClass === "offshore_platform" || hasWord(lt, "pressur") || hasWord(lt, "production platform") || hasWord(lt, "hydrocarbon");
 
   var svcYears: number | null = nv.service_years || null;
   var cyclesEst: string | null = cyclic ? (nv.cycle_count ? String(nv.cycle_count) : "cyclic_but_unknown_count") : null;
   var timeSinceInsp: number | null = nv.years_since_inspection || null;
   if (svcYears) conf += 0.05;
+  if (dynamicMovement) conf += 0.05;
+  if (weldDefectLanguage) conf += 0.05;
+  if (fractureProgression) conf += 0.05;
   if (conf > 1) conf = 1;
 
   var parts: string[] = [];
@@ -2964,6 +3026,9 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   if (stressConc) parts.push("Stress concentrations: " + stressConcLocs.join(", "));
   if (fireExp) parts.push("Fire exposure" + (fireDur ? " (" + fireDur + "min)" : ""));
   if (corrosive) parts.push("Corrosive (" + agents.join(", ") + ")");
+  if (dynamicMovement) parts.push("Structural movement / instability detected");
+  if (weldDefectLanguage) parts.push("Welding defect language detected");
+  if (fractureProgression) parts.push("Fracture progression language detected");
   if (suscept.length) parts.push("Susceptible: " + suscept.join(", "));
   if (storedE) parts.push("Stored pressure energy");
   if (contextInferred.length > 0) parts.push("Context inferred: " + contextInferred.join("; "));
@@ -5434,7 +5499,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.12",
+            engine_version: "physics-first-decision-core-v2.9.13",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5547,7 +5612,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.12",
+          engine_version: "physics-first-decision-core-v2.9.13",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
