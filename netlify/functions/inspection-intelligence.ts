@@ -329,32 +329,71 @@ export var handler: Handler = async function(event) {
       physicsContext = physicsContext + "\n=== ASSET DESCRIPTION ===\n" + assetDescription + "\n";
     }
 
-    // Call Claude -- Engine 2
-    var claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 4096,
-        temperature: 0.2,
-        system: SYSTEM_PROMPT,
-        messages: [
-          {
-            role: "user",
-            content: "Analyze this inspection case. Generate a complete, code-referenced inspection plan with temporal projections.\n\n" + physicsContext
-          }
-        ]
-      })
-    });
+    // Call Claude -- Engine 2 (with 20s timeout to stay within Netlify gateway limit)
+    var abortController = new AbortController();
+    var fetchTimeout = setTimeout(function() { abortController.abort(); }, 20000);
 
-    var claudeJson = await claudeResp.json();
+    var claudeResp;
+    var claudeJson;
+    try {
+      claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        signal: abortController.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": anthropicKey,
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 4096,
+          temperature: 0.2,
+          system: SYSTEM_PROMPT,
+          messages: [
+            {
+              role: "user",
+              content: "Analyze this inspection case. Generate a complete, code-referenced inspection plan with temporal projections.\n\n" + physicsContext
+            }
+          ]
+        })
+      });
+      clearTimeout(fetchTimeout);
+    } catch (fetchErr: any) {
+      clearTimeout(fetchTimeout);
+      var isAbort = fetchErr.name === "AbortError";
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify({
+          error: isAbort ? "Claude API call timed out after 20 seconds" : "Claude API fetch failed: " + fetchErr.message,
+          debug: {
+            key_present: anthropicKey.length > 0,
+            key_prefix: anthropicKey.substring(0, 10) + "...",
+            physics_context_length: physicsContext.length,
+            timeout: isAbort
+          },
+          metadata: { version: "1.0.3", engine: "inspection-intelligence" }
+        })
+      };
+    }
+
+    claudeJson = await claudeResp.json();
 
     if (!claudeResp.ok) {
-      throw new Error("Claude API error: " + JSON.stringify(claudeJson));
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify({
+          error: "Claude API returned error",
+          status: claudeResp.status,
+          claude_error: claudeJson,
+          debug: {
+            key_prefix: anthropicKey.substring(0, 10) + "...",
+            model: "claude-haiku-4-5-20251001"
+          },
+          metadata: { version: "1.0.3", engine: "inspection-intelligence" }
+        })
+      };
     }
 
     var responseText = (claudeJson.content && claudeJson.content[0]) ? claudeJson.content[0].text : "";
