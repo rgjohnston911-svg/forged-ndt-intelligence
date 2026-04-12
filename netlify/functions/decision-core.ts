@@ -1,6 +1,7 @@
 // @ts-nocheck
-// DEPLOY185 -- decision-core.ts v2.9.4
-// v2.9.4: DEPLOY185 -- Add naphthenic acid corrosion + polythionic acid SCC to mechanism catalog.
+// DEPLOY186 -- decision-core.ts v2.9.5
+// v2.9.5: DEPLOY186 -- Add amine cracking (amine SCC) + carbonate SCC to mechanism catalog. Harden austenitic stainless material classifier (304/316/321/347 bare patterns).
+// Previous: v2.9.4 -- DEPLOY185 -- Add naphthenic acid corrosion + polythionic acid SCC to mechanism catalog.
 // Previous: v2.9.3 -- DEPLOY183 -- Fix hasEvent() crash on object events (500 on computation paths), remove duplicate energy key.
 // Previous: v2.9.2 -- DEPLOY182 -- NPS nominal wall inference + RSR data-quality gate (clean rebuild).
 // Previous: v2.9.0 -- DEPLOY180 Consequence Reality fail-upward gate.
@@ -1142,13 +1143,41 @@ var MECHANISM_CATALOG_V1 = [
     },
     observation_evidence_keys: ["crack_confirmed", "visible_cracking", "intergranular_cracking"],
     rejection_messages: { material: "Polythionic acid SCC requires sensitized austenitic or duplex stainless steel.", process_chemistry_polythionic: "Polythionic acid SCC requires polythionic acid environment (sulfide scale + moisture + oxygen during shutdown); transcript does not indicate polythionic acid cracking context." }
+  },
+  // DEPLOY186: Amine Cracking (Amine SCC)
+  {
+    id: "amine_cracking",
+    name: "Amine Stress Corrosion Cracking",
+    family: "cracking",
+    severity: "high",
+    description: "Intergranular cracking of carbon steel and low-alloy steel in lean amine service (MEA, DEA, MDEA). Occurs at or near welds, particularly in non-PWHT'd components. Most common in amine absorbers, regenerators, and lean/rich amine piping. API 571 Section 5.1.2.2.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel"] },
+      process_chemistry: { amine_cracking_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: { material: "Amine SCC affects carbon steel and low-alloy steel; austenitic stainless and higher alloys are resistant.", process_chemistry_amine_cracking: "Amine SCC requires amine service environment (MEA, DEA, MDEA); transcript does not indicate amine service." }
+  },
+  // DEPLOY186: Carbonate SCC
+  {
+    id: "carbonate_scc",
+    name: "Carbonate Stress Corrosion Cracking",
+    family: "cracking",
+    severity: "high",
+    description: "Intergranular cracking of carbon steel in carbonate-rich alkaline sour water environments. Common in FCC main fractionator overhead systems, sour water strippers, and amine systems where CO2 absorption creates carbonate species. Occurs at welds and HAZ in non-PWHT'd equipment. API 571 Section 5.1.2.5.",
+    preconditions: {
+      material: { class_in: ["carbon_steel", "low_alloy_steel"] },
+      process_chemistry: { carbonate_scc_required: true }
+    },
+    observation_evidence_keys: ["crack_confirmed", "visible_cracking"],
+    rejection_messages: { material: "Carbonate SCC affects carbon steel and low-alloy steel.", process_chemistry_carbonate: "Carbonate SCC requires carbonate/alkaline sour water environment; transcript does not indicate carbonate cracking context." }
   }
 ];
 
 // Mechanisms migrated to the catalog evaluator path. All other mechanisms
 // continue to use the MECH_DEFS predicate path. This list will grow as
 // DEPLOY172 and DEPLOY173 ship.
-var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride", "naphthenic_acid_corrosion", "polythionic_acid_scc"];
+var MIGRATED_TO_CATALOG = ["cui", "general_corrosion", "pitting", "co2_corrosion", "erosion", "cscc", "mic", "sulfidation", "underdeposit_corrosion", "fatigue_mechanical", "fatigue_thermal", "fatigue_vibration", "scc_caustic", "ssc_sulfide", "hic", "creep", "brittle_fracture", "overload_buckling", "fire_damage", "hydrogen_damage", "scc_chloride", "naphthenic_acid_corrosion", "polythionic_acid_scc", "amine_cracking", "carbonate_scc"];
 
 function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
   var satisfied: any[] = [];
@@ -1629,6 +1658,56 @@ function evaluateMechanismFromCatalog(mech: any, assetState: any): any {
         unknown.push({
           bucket: "process_chemistry", field: "polythionic_acid_required", state: "UNKNOWN",
           detail: mech.name + " requires polythionic acid environment; polythionic acid presence not determined from transcript."
+        });
+      }
+    }
+
+    // DEPLOY186: Amine cracking required
+    if (pcp.amine_cracking_required === true) {
+      var amCrk = pc.amine_cracking_context;
+      var amType = pc.amine_type;
+      if (amCrk === true) {
+        satisfied.push({
+          bucket: "process_chemistry", field: "amine_cracking_required", state: "SATISFIED",
+          detail: "Amine cracking context confirmed (amine service with cracking language" + (amType ? ", amine type: " + amType : "") + ")."
+        });
+      } else if (amType !== null && amType !== undefined) {
+        // Amine service detected but no explicit cracking language -- still SATISFIED
+        // because amine_present means the environment exists even without crack keywords
+        satisfied.push({
+          bucket: "process_chemistry", field: "amine_cracking_required", state: "SATISFIED",
+          detail: "Amine service confirmed (" + amType + "); amine cracking environment present."
+        });
+      } else if (amCrk === false && (amType === null || amType === undefined)) {
+        var rmAmCrk = mech.rejection_messages && mech.rejection_messages.process_chemistry_amine_cracking ? mech.rejection_messages.process_chemistry_amine_cracking : (mech.name + " requires amine service environment; transcript does not indicate amine service.");
+        violated.push({
+          bucket: "process_chemistry", field: "amine_cracking_required", state: "VIOLATED", detail: rmAmCrk
+        });
+      } else {
+        unknown.push({
+          bucket: "process_chemistry", field: "amine_cracking_required", state: "UNKNOWN",
+          detail: mech.name + " requires amine service environment; amine presence not determined from transcript."
+        });
+      }
+    }
+
+    // DEPLOY186: Carbonate SCC required
+    if (pcp.carbonate_scc_required === true) {
+      var carbCtx = pc.carbonate_scc_context;
+      if (carbCtx === true) {
+        satisfied.push({
+          bucket: "process_chemistry", field: "carbonate_scc_required", state: "SATISFIED",
+          detail: "Carbonate SCC environment confirmed (carbonate/alkaline sour water language detected)."
+        });
+      } else if (carbCtx === false) {
+        var rmCarb = mech.rejection_messages && mech.rejection_messages.process_chemistry_carbonate ? mech.rejection_messages.process_chemistry_carbonate : (mech.name + " requires carbonate/alkaline sour water environment; transcript does not indicate carbonate SCC context.");
+        violated.push({
+          bucket: "process_chemistry", field: "carbonate_scc_required", state: "VIOLATED", detail: rmCarb
+        });
+      } else {
+        unknown.push({
+          bucket: "process_chemistry", field: "carbonate_scc_required", state: "UNKNOWN",
+          detail: mech.name + " requires carbonate/alkaline sour water environment; carbonate presence not determined from transcript."
         });
       }
     }
@@ -2332,6 +2411,22 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     if (agents.indexOf("polythionic_acid") === -1) { agents.push("polythionic_acid"); contextInferred.push("polythionic acid cracking context -> shutdown/turnaround risk for sensitized stainless"); }
   }
 
+  // DEPLOY186: AMINE CRACKING DIRECT KEYWORD DETECTION
+  // Amine unit detection (above) already pushes H2S + caustic for amine service.
+  // This block specifically flags amine_cracking agent for amine SCC mechanism.
+  if (hasWord(lt, "amine crack") || hasWord(lt, "amine scc") || hasWord(lt, "amine stress corrosion") || hasWord(lt, "lean amine crack") || hasWord(lt, "rich amine crack") || (hasWord(lt, "amine") && (hasWord(lt, "cracking") || hasWord(lt, "crack"))) || (hasWord(lt, "amine service") && (hasWord(lt, "crack") || hasWord(lt, "cracking") || hasWord(lt, "intergranular")))) {
+    corrosive = true;
+    if (agents.indexOf("amine_cracking") === -1) { agents.push("amine_cracking"); contextInferred.push("amine cracking language detected -> amine SCC risk for carbon steel in lean amine service"); }
+  }
+
+  // DEPLOY186: CARBONATE SCC DIRECT KEYWORD DETECTION
+  // Carbonate SCC occurs in carbon steel exposed to carbonate-rich alkaline sour water
+  // environments, common in FCC main fractionator overhead, sour water strippers.
+  if (hasWord(lt, "carbonate crack") || hasWord(lt, "carbonate scc") || hasWord(lt, "carbonate stress") || hasWord(lt, "alkaline sour") || hasWord(lt, "carbonate environment") || hasWord(lt, "carbonate corrosion") || (hasWord(lt, "carbonate") && (hasWord(lt, "cracking") || hasWord(lt, "scc"))) || (hasWord(lt, "sour water") && hasWord(lt, "alkaline")) || (hasWord(lt, "fcc") && hasWord(lt, "carbonate"))) {
+    corrosive = true;
+    if (agents.indexOf("carbonate_scc") === -1) { agents.push("carbonate_scc"); contextInferred.push("carbonate SCC language detected -> carbonate stress corrosion cracking risk in alkaline sour water"); }
+  }
+
   var suscept: string[] = [];
   if (h2s && tensile) suscept.push("SSC");
   if (h2s) suscept.push("HIC");
@@ -2708,7 +2803,7 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     context_inferred: contextInferred,
     material: { class: materialClass, class_confidence: materialConfidence, evidence: materialEvidence },
     environment: { phases_present: phasesPresent, phases_negated: phasesNegated, atmosphere_class: atmosphereClass },
-    process_chemistry: { chloride_band: chlorideBandPC, sulfur_class: sulfurClass, amine_type: amineTypePC, nh4_salt_potential: nh4SaltPotential, naphthenic_acid_present: agents.indexOf("naphthenic_acid") !== -1, polythionic_acid_present: agents.indexOf("polythionic_acid") !== -1 },
+    process_chemistry: { chloride_band: chlorideBandPC, sulfur_class: sulfurClass, amine_type: amineTypePC, nh4_salt_potential: nh4SaltPotential, naphthenic_acid_present: agents.indexOf("naphthenic_acid") !== -1, polythionic_acid_present: agents.indexOf("polythionic_acid") !== -1, amine_cracking_context: agents.indexOf("amine_cracking") !== -1, carbonate_scc_context: agents.indexOf("carbonate_scc") !== -1 },
     flow_regime: { flow_state: flowState, deadleg: deadlegPresent, turbulence_geometry_present: turbulenceGeometryPresent },
     deposits: { deposits_present: depositsPresent, deposit_type: depositType, deposit_evidence: depositEvidence }
   };
@@ -2741,7 +2836,10 @@ var MECH_SCORING_TABLE = [
   { id: "hydrogen_damage", name: "High Temp Hydrogen Attack", sev: "critical", eKeys: [], preLabels: ["Hydrogen environment", "Elevated temperature (>400F)"] },
   // DEPLOY185: Naphthenic Acid Corrosion + Polythionic Acid SCC
   { id: "naphthenic_acid_corrosion", name: "Naphthenic Acid Corrosion", sev: "high", eKeys: ["critical_wall_loss_confirmed", "localized_thinning"], preLabels: ["Naphthenic acid / high TAN service", "Temperature in NAC range (400-800F)"] },
-  { id: "polythionic_acid_scc", name: "Polythionic Acid SCC", sev: "critical", eKeys: ["crack_confirmed", "visible_cracking", "intergranular_cracking"], preLabels: ["Polythionic acid cracking context", "Susceptible material (austenitic/duplex)"] }
+  { id: "polythionic_acid_scc", name: "Polythionic Acid SCC", sev: "critical", eKeys: ["crack_confirmed", "visible_cracking", "intergranular_cracking"], preLabels: ["Polythionic acid cracking context", "Susceptible material (austenitic/duplex)"] },
+  // DEPLOY186: Amine Cracking + Carbonate SCC
+  { id: "amine_cracking", name: "Amine SCC", sev: "high", eKeys: ["crack_confirmed", "visible_cracking"], preLabels: ["Amine service environment", "Carbon steel / low-alloy steel"] },
+  { id: "carbonate_scc", name: "Carbonate SCC", sev: "high", eKeys: ["crack_confirmed", "visible_cracking"], preLabels: ["Carbonate / alkaline sour water environment", "Carbon steel / low-alloy steel"] }
 ];
 
 function resolveDamageReality(physics: any, flags: any, transcript: string, provenance?: any) {
@@ -2793,7 +2891,11 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
     // DEPLOY185: Naphthenic acid + polythionic acid preChecks
     "Naphthenic acid / high TAN service": c.environment_agents && c.environment_agents.indexOf("naphthenic_acid") !== -1,
     "Temperature in NAC range (400-800F)": t.operating_temp_f !== null && t.operating_temp_f >= 400 && t.operating_temp_f <= 800,
-    "Polythionic acid cracking context": c.environment_agents && c.environment_agents.indexOf("polythionic_acid") !== -1
+    "Polythionic acid cracking context": c.environment_agents && c.environment_agents.indexOf("polythionic_acid") !== -1,
+    // DEPLOY186: Amine cracking + carbonate SCC preChecks
+    "Amine service environment": c.environment_agents && (c.environment_agents.indexOf("amine_cracking") !== -1 || c.caustic_present),
+    "Carbon steel / low-alloy steel": true,
+    "Carbonate / alkaline sour water environment": c.environment_agents && c.environment_agents.indexOf("carbonate_scc") !== -1
   };
 
   for (var i = 0; i < MECH_SCORING_TABLE.length; i++) {
@@ -4779,7 +4881,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.9.4",
+            engine_version: "physics-first-decision-core-v2.9.5",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -4892,7 +4994,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.9.4",
+          engine_version: "physics-first-decision-core-v2.9.5",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 6,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
