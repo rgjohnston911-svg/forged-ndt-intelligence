@@ -1,5 +1,11 @@
 // @ts-nocheck
-// DEPLOY206 -- decision-core.ts v2.12.1
+// DEPLOY207 -- decision-core.ts v2.12.2
+// v2.12.2: DEPLOY207 -- Atmosphere + sulfur fixes. (1) Atmosphere classifier: "subsea" on
+//   offshore_platform no longer forces "submerged" -- the platform is in marine atmosphere even
+//   if it has subsea components. Only "submerged"/"underwater" force submerged atmosphere.
+//   (2) Sulfur detection: Added "sulfur compounds", "sulfur species", "sulfur content",
+//   "sulfidic", "sulfide scale" as nominal-band sulfur_class triggers. These are common field
+//   phrases indicating sulfur presence at unquantified concentration.
 // v2.12.1: DEPLOY206 -- DMW material pair fix. Material pair detection (carbon_steel, stainless_steel,
 //   cr_mo_steel, nickel_alloy) now runs unconditionally so dmw_materials is populated even when
 //   DMW was detected by explicit keywords (transition weld, bimetallic, etc.). Previously the
@@ -3418,7 +3424,11 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     }
   }
   if (hasWord(lt, "buried") || hasWord(lt, "underground")) atmosphereClass = "buried";
-  if (hasWord(lt, "submerged") || hasWord(lt, "subsea") || hasWord(lt, "underwater")) atmosphereClass = "submerged";
+  // DEPLOY207: "subsea" on offshore_platform means the platform HAS subsea components,
+  // not that the platform itself is submerged. Only set "submerged" for subsea if NOT
+  // an offshore platform. "submerged" and "underwater" are always submerged regardless.
+  if (hasWord(lt, "submerged") || hasWord(lt, "underwater")) atmosphereClass = "submerged";
+  if (assetClass !== "offshore_platform" && hasWord(lt, "subsea")) atmosphereClass = "submerged";
   if (hasWord(lt, "vacuum") || hasWord(lt, "hard vacuum") || hasWord(lt, "space environment")) atmosphereClass = "vacuum";
   // DEPLOY198: Marine atmosphere -- more specific than generic "atmospheric" for offshore.
   // Checked before atmospheric so offshore scenarios get "marine" not "atmospheric".
@@ -3456,7 +3466,10 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   }
   if (sulfurClass === null) {
     if (hasWord(lt, "high sulfur") || hasWord(lt, "sour crude") || hasWord(lt, "sulfur-rich") || hasWord(lt, "sulfur rich")) sulfurClass = "high";
-    else if (hasWord(lt, "sulfur-bearing") || hasWord(lt, "sulfur bearing")) sulfurClass = "nominal";
+    // DEPLOY207: Added "sulfur compounds", "sulfur species", "sulfur content", "sulfur in" as
+    // nominal-band triggers. These are common field phrases indicating sulfur presence at
+    // unquantified concentration. Also added "sulfidic" and "sulfide scale" as nominal indicators.
+    else if (hasWord(lt, "sulfur-bearing") || hasWord(lt, "sulfur bearing") || hasWord(lt, "sulfur compounds") || hasWord(lt, "sulfur species") || hasWord(lt, "sulfur content") || hasWord(lt, "sulfidic") || hasWord(lt, "sulfide scale")) sulfurClass = "nominal";
     else if (hasWord(lt, "low sulfur")) sulfurClass = "low";
     else if (hasWord(lt, "trace sulfur") || hasWord(lt, "sweet crude")) sulfurClass = "trace";
     else if (h2s && (hasWord(lt, "crude unit") || hasWord(lt, "vacuum tower") || hasWord(lt, "atmospheric tower") || hasWord(lt, "fired heater") || hasWord(lt, "transfer line") || hasWord(lt, "coker") || hasWord(lt, "delayed coker"))) sulfurClass = "nominal";
@@ -6208,7 +6221,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.12.1",
+            engine_version: "physics-first-decision-core-v2.12.2",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -6331,7 +6344,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.12.1",
+          engine_version: "physics-first-decision-core-v2.12.2",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 8,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
