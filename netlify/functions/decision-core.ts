@@ -1,5 +1,25 @@
 // @ts-nocheck
-// DEPLOY203 -- decision-core.ts v2.11.0
+// DEPLOY205 -- decision-core.ts v2.12.0
+// v2.12.0: DEPLOY205 -- Weld-specific mechanism intelligence. New extractWeldContext() function
+//   extracts structured weld data from transcript: joint types (butt, fillet, socket, branch,
+//   overlay, repair, circumferential, longitudinal, attachment), weld zones (HAZ, fusion_line,
+//   weld_metal, base_metal, root, toe, cap), PWHT status (done/not_done/unknown), dissimilar
+//   metal weld detection with material pair identification, repair weld detection, weld process
+//   identification (SMAW/GTAW/GMAW/FCAW/SAW/ESW/EBW), and weld quality concerns (LOF, porosity,
+//   slag, undercut, IP, burnthrough, cracking, planar defects, misalignment, overweld).
+//   New applyWeldMechanismModifiers() post-processes validated mechanisms with weld-aware
+//   severity escalation and localization context: SSC/HIC at non-PWHT welds escalated to
+//   critical, amine cracking and carbonate SCC get PWHT-aware severity, fatigue at weld
+//   toe/root gets 5-10x life reduction context, creep gets Type IV HAZ cracking context for
+//   Cr-Mo, hydrogen damage localized to HAZ, graphitization localized to HAZ, preferential
+//   weld corrosion context, SOHIC context for wet H2S at welds, and DMW-specific failure modes.
+//   New weld_reality output block. Klein bottle states: 8 (was 7).
+// v2.11.1: DEPLOY204 -- Aluminum material priority fix. Aluminum demoted from priority 2 to 0
+//   (below carbon steel). In industrial inspection, aluminum appears as grating, cladding,
+//   or secondary components -- never the primary structural/pressure-boundary material when
+//   steel is also present. Fixes cascading mechanism rejection bug where aluminum_alloy
+//   classification caused general_corrosion, pitting, atmospheric_corrosion, sulfidation,
+//   erosion, and chloride SCC to be incorrectly rejected on multi-material assets.
 // v2.11.0: DEPLOY203 -- Global jurisdiction router. 9 jurisdictions (US, EU, UK, NO, AU, BR, CA, ME, SG)
 //   each mapped to asset-type-specific code stacks. Jurisdiction detected from asset.jurisdiction
 //   field (explicit) or inferred from transcript keywords (geography, company names, code references).
@@ -3255,7 +3275,10 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
   // DEPLOY195: Multi-material tracking. Collect ALL matching materials, then pick
   // the highest-priority (most specific) as primary. Secondary materials are tracked
   // in evidence so Engine 2 and downstream consumers can see the full picture.
-  // Priority: nickel_alloy > titanium > duplex > ferritic > martensitic > austenitic > low_alloy > carbon_steel > aluminum > cmc
+  // Priority: nickel_alloy > titanium > duplex > ferritic > martensitic > austenitic > low_alloy > carbon_steel > cmc > aluminum
+  // DEPLOY204: Aluminum demoted below carbon_steel (priority 0). In industrial inspection,
+  // aluminum is grating/cladding/secondary -- never the primary structural or pressure-boundary
+  // material when steel is also present. Same treatment as concrete: steel always wins.
   // Higher priority number wins. This fixes the cascade bug where plain if-statements
   // let a less-specific material (carbon_steel) overwrite a more-specific one (austenitic).
   var materialMatches: { cls: string; ev: string; priority: number }[] = [];
@@ -3302,7 +3325,7 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
 
   // Aluminum
   if (hasWord(lt, "aluminum") || hasWord(lt, "aluminium") || hasWord(lt, "al-li") || hasWord(lt, "2195") || hasWord(lt, "6061") || hasWord(lt, "5083") || hasWord(lt, "7075")) {
-    materialMatches.push({ cls: "aluminum_alloy", ev: "aluminum alloy", priority: 2 });
+    materialMatches.push({ cls: "aluminum_alloy", ev: "aluminum alloy", priority: 0 });
   }
 
   // Ceramic matrix composite
@@ -3577,6 +3600,246 @@ function resolvePhysicalReality(transcript: string, events: string[], numVals: a
     // DEPLOY200: Coatings bucket -- 10th precondition domain
     coating: { coating_condition: coatingCondition, coating_type: coatingType, coating_evidence: coatingEvidence }
   };
+}
+
+// ============================================================================
+// DEPLOY205: WELD-SPECIFIC MECHANISM INTELLIGENCE
+// Extracts structured weld context from transcript, then applies weld-aware
+// mechanism modifiers to validated damage mechanisms. Most real-world failures
+// initiate at welds -- HAZ embrittlement, toe cracking, root corrosion, lack
+// of fusion, residual stress. This layer makes the system reason about WHY
+// weld locations change mechanism severity and failure mode.
+// ============================================================================
+
+function extractWeldContext(transcript: any): any {
+  var lt = (transcript || "").toLowerCase();
+  var jointTypes: string[] = [];
+  var weldZones: string[] = [];
+  var qualityConcerns: string[] = [];
+  var weldProcesses: string[] = [];
+  var fieldSlangMatched: string[] = [];
+
+  // -- JOINT TYPES --
+  if (hasWord(lt, "butt weld") || hasWord(lt, "butt joint") || hasWord(lt, "full penetration") || hasWord(lt, "full pen") || hasWord(lt, "cwjp") || hasWord(lt, "complete joint penetration") || hasWord(lt, "cjp")) { jointTypes.push("butt"); }
+  if (hasWord(lt, "fillet weld") || hasWord(lt, "fillet") || hasWord(lt, "tee joint") || hasWord(lt, "t-joint") || hasWord(lt, "lap joint") || hasWord(lt, "corner joint")) { jointTypes.push("fillet"); }
+  if (hasWord(lt, "socket weld") || hasWord(lt, "socket joint") || hasWord(lt, "sw fitting")) { jointTypes.push("socket"); }
+  if (hasWord(lt, "branch weld") || hasWord(lt, "branch connection") || hasWord(lt, "welded branch") || hasWord(lt, "set-on") || hasWord(lt, "set-in") || hasWord(lt, "weldolet") || hasWord(lt, "sockolet") || hasWord(lt, "threadolet")) { jointTypes.push("branch"); }
+  if (hasWord(lt, "weld overlay") || hasWord(lt, "cladding weld") || hasWord(lt, "clad overlay") || hasWord(lt, "strip clad") || hasWord(lt, "weld deposit")) { jointTypes.push("overlay"); }
+  if (hasWord(lt, "seal weld") || hasWord(lt, "back weld") || hasWord(lt, "backing weld")) { jointTypes.push("seal"); }
+  if (hasWord(lt, "tack weld") || hasWord(lt, "tack")) { jointTypes.push("tack"); }
+  if (hasWord(lt, "repair weld") || hasWord(lt, "weld repair") || hasWord(lt, "ground out and reweld") || hasWord(lt, "excavated and reweld") || hasWord(lt, "gouged and reweld")) { jointTypes.push("repair"); }
+  if (hasWord(lt, "circumferential weld") || hasWord(lt, "girth weld") || hasWord(lt, "circ weld")) { jointTypes.push("circumferential"); }
+  if (hasWord(lt, "longitudinal weld") || hasWord(lt, "long seam") || hasWord(lt, "long weld") || hasWord(lt, "seam weld")) { jointTypes.push("longitudinal"); }
+  if (hasWord(lt, "attachment weld") || hasWord(lt, "clip") || hasWord(lt, "lug") || hasWord(lt, "pad weld") || hasWord(lt, "trunnion weld")) { jointTypes.push("attachment"); }
+
+  // -- WELD ZONES --
+  if (hasWord(lt, "heat affected zone") || hasWord(lt, "heat-affected zone") || hasWord(lt, "haz") || hasWord(lt, "coarse grain") || hasWord(lt, "grain coarsened") || hasWord(lt, "cghaz") || hasWord(lt, "fghaz") || hasWord(lt, "ichaz") || hasWord(lt, "intercritical")) { weldZones.push("HAZ"); }
+  if (hasWord(lt, "fusion line") || hasWord(lt, "fusion boundary") || hasWord(lt, "bond line") || hasWord(lt, "weld interface")) { weldZones.push("fusion_line"); }
+  if (hasWord(lt, "weld metal") || hasWord(lt, "weld deposit") || hasWord(lt, "filler metal") || hasWord(lt, "fill pass") || hasWord(lt, "cap pass") || hasWord(lt, "root pass")) { weldZones.push("weld_metal"); }
+  if (hasWord(lt, "base metal") || hasWord(lt, "parent metal") || hasWord(lt, "base material") || hasWord(lt, "parent material")) { weldZones.push("base_metal"); }
+  if (hasWord(lt, "weld root") || hasWord(lt, "root side") || hasWord(lt, "root region") || hasWord(lt, "id root")) { weldZones.push("root"); }
+  if (hasWord(lt, "weld toe") || hasWord(lt, "toe region") || hasWord(lt, "toe crack") || hasWord(lt, "toe of weld")) { weldZones.push("toe"); }
+  if (hasWord(lt, "weld cap") || hasWord(lt, "cap reinforcement") || hasWord(lt, "crown")) { weldZones.push("cap"); }
+
+  // -- PWHT STATUS --
+  var pwhtStatus = "unknown";
+  if (hasWord(lt, "pwht") || hasWord(lt, "post weld heat treat") || hasWord(lt, "post-weld heat treat") || hasWord(lt, "stress reliev") || hasWord(lt, "stress-reliev")) {
+    if (hasWord(lt, "no pwht") || hasWord(lt, "not pwht") || hasWord(lt, "without pwht") || hasWord(lt, "non-pwht") || hasWord(lt, "non pwht") || hasWord(lt, "pwht not performed") || hasWord(lt, "pwht waived") || hasWord(lt, "no stress relief") || hasWord(lt, "not stress reliev")) {
+      pwhtStatus = "not_done";
+    } else {
+      pwhtStatus = "done";
+    }
+  }
+  // Infer non-PWHT from context: amine cracking and carbonate SCC descriptions often imply non-PWHT
+  if (pwhtStatus === "unknown") {
+    if (hasWord(lt, "as-welded") || hasWord(lt, "as welded") || hasWord(lt, "no heat treatment") || hasWord(lt, "unrelieved")) {
+      pwhtStatus = "not_done";
+    }
+  }
+
+  // -- DISSIMILAR METAL WELD --
+  var dissimilarMetal = false;
+  var dmwMaterials: string[] = [];
+  if (hasWord(lt, "dissimilar metal") || hasWord(lt, "dmw") || hasWord(lt, "dissimilar weld") || hasWord(lt, "bimetallic") || hasWord(lt, "transition joint") || hasWord(lt, "transition weld")) {
+    dissimilarMetal = true;
+  }
+  // Infer DMW from material combinations
+  if (!dissimilarMetal) {
+    var hasCS = hasWord(lt, "carbon steel") || hasWord(lt, "a106") || hasWord(lt, "a516") || hasWord(lt, "a36");
+    var hasSS = hasWord(lt, "stainless") || hasWord(lt, "austenitic") || hasWord(lt, "304") || hasWord(lt, "316") || hasWord(lt, "321");
+    var hasCrMo = hasWord(lt, "cr-mo") || hasWord(lt, "chrome moly") || hasWord(lt, "p11") || hasWord(lt, "p22") || hasWord(lt, "p91");
+    var hasNi = hasWord(lt, "inconel") || hasWord(lt, "alloy 82") || hasWord(lt, "alloy 182") || hasWord(lt, "alloy 625") || hasWord(lt, "nickel alloy");
+    var matCount = 0;
+    if (hasCS) { matCount++; dmwMaterials.push("carbon_steel"); }
+    if (hasSS) { matCount++; dmwMaterials.push("stainless_steel"); }
+    if (hasCrMo) { matCount++; dmwMaterials.push("cr_mo_steel"); }
+    if (hasNi) { matCount++; dmwMaterials.push("nickel_alloy"); }
+    if (matCount >= 2 && (hasWord(lt, "weld") || hasWord(lt, "joint") || hasWord(lt, "transition"))) {
+      dissimilarMetal = true;
+    }
+  }
+
+  // -- REPAIR WELD --
+  var repairWeld = jointTypes.indexOf("repair") !== -1 || hasWord(lt, "weld repair") || hasWord(lt, "repair weld") || hasWord(lt, "excavation repair") || hasWord(lt, "gouge and re-weld") || hasWord(lt, "ground out") || hasWord(lt, "back-gouged") || hasWord(lt, "re-welded") || hasWord(lt, "rewelded");
+
+  // -- WELD PROCESS --
+  if (hasWord(lt, "smaw") || hasWord(lt, "stick weld") || hasWord(lt, "manual arc")) { weldProcesses.push("SMAW"); }
+  if (hasWord(lt, "gtaw") || hasWord(lt, "tig") || hasWord(lt, "gas tungsten")) { weldProcesses.push("GTAW"); }
+  if (hasWord(lt, "gmaw") || hasWord(lt, "mig") || hasWord(lt, "gas metal arc")) { weldProcesses.push("GMAW"); }
+  if (hasWord(lt, "fcaw") || hasWord(lt, "flux core") || hasWord(lt, "flux-core")) { weldProcesses.push("FCAW"); }
+  if (hasWord(lt, "saw") && (hasWord(lt, "submerged arc") || hasWord(lt, "weld"))) { weldProcesses.push("SAW"); }
+  if (hasWord(lt, "esw") || hasWord(lt, "electroslag")) { weldProcesses.push("ESW"); }
+  if (hasWord(lt, "ewm") || hasWord(lt, "electron beam") || hasWord(lt, "ebw")) { weldProcesses.push("EBW"); }
+
+  // -- WELD QUALITY CONCERNS --
+  if (hasWord(lt, "lack of fusion") || hasWord(lt, "lof") || hasWord(lt, "cold lap") || hasWord(lt, "didn't tie in") || hasWord(lt, "no bite") || hasWord(lt, "sitting on top") || hasWord(lt, "laid on top")) { qualityConcerns.push("lack_of_fusion"); fieldSlangMatched.push("LOF"); }
+  if (hasWord(lt, "porosity") || hasWord(lt, "porous") || hasWord(lt, "gassed up") || hasWord(lt, "bubbly weld") || hasWord(lt, "swiss cheese") || hasWord(lt, "worm tracks") || hasWord(lt, "scattered porosity") || hasWord(lt, "cluster porosity")) { qualityConcerns.push("porosity"); fieldSlangMatched.push("porosity"); }
+  if (hasWord(lt, "slag inclusion") || hasWord(lt, "slag line") || hasWord(lt, "slag pocket") || hasWord(lt, "slagged up") || hasWord(lt, "trapped trash") || hasWord(lt, "dirty pass") || hasWord(lt, "junk in the weld")) { qualityConcerns.push("slag_inclusion"); fieldSlangMatched.push("slag"); }
+  if (hasWord(lt, "undercut") || hasWord(lt, "bit the edge") || hasWord(lt, "cut the edge") || hasWord(lt, "guttered") || hasWord(lt, "grooved the toe") || hasWord(lt, "toed out")) { qualityConcerns.push("undercut"); fieldSlangMatched.push("undercut"); }
+  if (hasWord(lt, "incomplete penetration") || hasWord(lt, "lack of penetration") || hasWord(lt, "ip") || hasWord(lt, "lop") || hasWord(lt, "didn't dig") || hasWord(lt, "short root")) { qualityConcerns.push("incomplete_penetration"); fieldSlangMatched.push("IP"); }
+  if (hasWord(lt, "burn through") || hasWord(lt, "burnthrough") || hasWord(lt, "blew through") || hasWord(lt, "burned through") || hasWord(lt, "blew a hole") || hasWord(lt, "keyholed")) { qualityConcerns.push("burnthrough"); fieldSlangMatched.push("burnthrough"); }
+  if (hasWord(lt, "crack") && (hasWord(lt, "weld") || hasWord(lt, "haz") || hasWord(lt, "toe") || hasWord(lt, "root"))) { qualityConcerns.push("cracking"); fieldSlangMatched.push("weld_cracking"); }
+  if (hasWord(lt, "linear indication") || hasWord(lt, "planar") || hasWord(lt, "planar defect") || hasWord(lt, "planar indication")) { qualityConcerns.push("planar_defect"); fieldSlangMatched.push("planar"); }
+  if (hasWord(lt, "misalignment") || hasWord(lt, "hi-lo") || hasWord(lt, "hi lo") || hasWord(lt, "high-low") || hasWord(lt, "offset") || hasWord(lt, "mismatch")) { qualityConcerns.push("misalignment"); fieldSlangMatched.push("misalignment"); }
+  if (hasWord(lt, "excessive reinforcement") || hasWord(lt, "too proud") || hasWord(lt, "fat bead") || hasWord(lt, "high cap") || hasWord(lt, "crowned up") || hasWord(lt, "stacked too much") || hasWord(lt, "overweld")) { qualityConcerns.push("excessive_reinforcement"); fieldSlangMatched.push("overweld"); }
+
+  // -- DETERMINE IF WELD CONTEXT IS MEANINGFUL --
+  var weldDetected = hasWord(lt, "weld") || hasWord(lt, "welded") || hasWord(lt, "welding") || hasWord(lt, "haz") || hasWord(lt, "heat affected") || jointTypes.length > 0 || weldZones.length > 0 || qualityConcerns.length > 0;
+
+  return {
+    weld_context_detected: weldDetected,
+    joint_types: jointTypes,
+    weld_zones: weldZones,
+    pwht_status: pwhtStatus,
+    dissimilar_metal_weld: dissimilarMetal,
+    dmw_materials: dmwMaterials,
+    repair_weld: repairWeld,
+    weld_processes: weldProcesses,
+    quality_concerns: qualityConcerns,
+    field_slang_matched: fieldSlangMatched
+  };
+}
+
+function applyWeldMechanismModifiers(damage: any, weldCtx: any, physics: any): any {
+  if (!weldCtx.weld_context_detected) return { modifiers_applied: [], damage: damage };
+
+  var modifiers: any[] = [];
+  var validated = damage.validated || [];
+  var matClass = (physics.material && physics.material.class) || "";
+  var h2s = physics.chemical && physics.chemical.h2s_present;
+  var hasHAZ = weldCtx.weld_zones.indexOf("HAZ") !== -1;
+  var hasToe = weldCtx.weld_zones.indexOf("toe") !== -1;
+  var hasRoot = weldCtx.weld_zones.indexOf("root") !== -1;
+  var noPWHT = weldCtx.pwht_status === "not_done";
+  var hasPlanar = weldCtx.quality_concerns.indexOf("planar_defect") !== -1 || weldCtx.quality_concerns.indexOf("cracking") !== -1;
+  var hasLOF = weldCtx.quality_concerns.indexOf("lack_of_fusion") !== -1;
+  var hasIP = weldCtx.quality_concerns.indexOf("incomplete_penetration") !== -1;
+
+  for (var vi = 0; vi < validated.length; vi++) {
+    var mech = validated[vi];
+
+    // SSC/HIC at welds: HAZ hardness is #1 driver of SSC in sour service
+    if ((mech.id === "ssc_sulfide" || mech.id === "hic") && h2s) {
+      if (noPWHT) {
+        mech.severity = "critical";
+        mech.weld_context = "Non-PWHT weld in sour service -- HAZ hardness likely exceeds NACE MR0175 limits. SSC/HIC initiation at HAZ is the dominant failure mode in sour welded joints.";
+        modifiers.push({ mechanism: mech.id, modifier: "severity_escalated_to_critical", reason: "Non-PWHT weld in H2S service -- HAZ hardness susceptible to SSC/HIC per NACE MR0175/ISO 15156" });
+      } else if (weldCtx.weld_context_detected) {
+        mech.weld_context = "Weld present in sour service -- HAZ and weld root are preferential SSC/HIC initiation sites. Verify hardness per NACE MR0175.";
+        modifiers.push({ mechanism: mech.id, modifier: "weld_localization", reason: "Weld in H2S service -- HAZ is preferential SSC/HIC site" });
+      }
+    }
+
+    // Amine cracking: almost exclusively weld-related, PWHT is the primary mitigation
+    if (mech.id === "amine_cracking") {
+      if (noPWHT) {
+        mech.severity = "critical";
+        mech.weld_context = "Amine cracking occurs at or near welds in non-PWHT components. PWHT is the primary mitigation per API 945. Without PWHT, wet fluorescent MT at all welds is required.";
+        modifiers.push({ mechanism: mech.id, modifier: "severity_escalated_to_critical", reason: "Non-PWHT weld in amine service -- amine cracking is almost exclusively weld-related" });
+      } else {
+        mech.weld_context = "Amine cracking is weld-centric. If PWHT was performed per API 945, susceptibility is significantly reduced but not eliminated at high stress locations.";
+        modifiers.push({ mechanism: mech.id, modifier: "weld_localization", reason: "Amine cracking localizes at welds and HAZ" });
+      }
+    }
+
+    // Carbonate SCC: occurs at welds and HAZ in non-PWHT equipment
+    if (mech.id === "carbonate_scc") {
+      if (noPWHT) {
+        mech.severity = "critical";
+        mech.weld_context = "Carbonate SCC occurs at welds and HAZ in non-PWHT carbon steel in alkaline sour water. PWHT to minimum 1150F per API RP 945 is the primary mitigation.";
+        modifiers.push({ mechanism: mech.id, modifier: "severity_escalated_to_critical", reason: "Non-PWHT weld in carbonate environment -- carbonate SCC is weld-centric" });
+      } else {
+        mech.weld_context = "Carbonate SCC localizes at welds. PWHT significantly reduces susceptibility.";
+        modifiers.push({ mechanism: mech.id, modifier: "weld_localization", reason: "Carbonate SCC localizes at welds and HAZ" });
+      }
+    }
+
+    // Fatigue at welds: toe/root dramatically reduce fatigue life
+    if (mech.id === "fatigue_mechanical" || mech.id === "fatigue_thermal" || mech.id === "fatigue_vibration") {
+      if (hasToe || hasRoot || hasPlanar || hasLOF || hasIP) {
+        if (mech.severity !== "critical") mech.severity = "high";
+        var fatigueZone = hasToe ? "weld toe" : hasRoot ? "weld root" : "weld defect zone";
+        mech.weld_context = "Fatigue life at " + fatigueZone + " is 5-10x shorter than base metal. " + (hasPlanar ? "Planar defect present -- crack-like flaw accelerates fatigue initiation. " : "") + (hasLOF ? "Lack of fusion acts as embedded crack -- immediate fatigue concern. " : "") + (hasIP ? "Incomplete penetration at root creates stress riser for fatigue initiation. " : "") + "DNV-RP-C203 and BS 7910 provide weld-specific fatigue classification.";
+        modifiers.push({ mechanism: mech.id, modifier: "severity_escalated", reason: "Weld " + fatigueZone + " is preferential fatigue initiation site -- 5-10x life reduction vs base metal" });
+      } else if (weldCtx.weld_context_detected) {
+        mech.weld_context = "Welds are preferential fatigue initiation sites due to stress concentration, residual stress, and potential embedded defects.";
+        modifiers.push({ mechanism: mech.id, modifier: "weld_localization", reason: "Weld geometry creates stress concentration for fatigue initiation" });
+      }
+    }
+
+    // Creep at welds: Type IV cracking in Cr-Mo steels
+    if (mech.id === "creep") {
+      if (matClass === "low_alloy_steel" || matClass === "carbon_steel") {
+        if (hasHAZ || weldCtx.weld_context_detected) {
+          mech.weld_context = "Type IV creep cracking occurs in the fine-grained or intercritical HAZ of Cr-Mo weldments. This is the dominant creep failure mode in welded Cr-Mo piping and vessels. HAZ creep life can be 50% shorter than base metal. API 579-1 Part 10 and EPRI guidelines address weld-specific creep assessment.";
+          modifiers.push({ mechanism: mech.id, modifier: "type_iv_cracking_context", reason: "Weld HAZ in " + matClass + " -- Type IV creep cracking is dominant creep failure mode in welded Cr-Mo" });
+        }
+      }
+    }
+
+    // Hydrogen damage at welds: weld metal and HAZ are preferential paths
+    if (mech.id === "hydrogen_damage" || mech.id === "hydrogen_embrittlement") {
+      if (weldCtx.weld_context_detected) {
+        mech.weld_context = "Hydrogen preferentially accumulates at weld HAZ due to residual stress and microstructural susceptibility. " + (noPWHT ? "Non-PWHT condition increases hydrogen trapping at HAZ. " : "") + "High-hardness HAZ zones are most susceptible.";
+        modifiers.push({ mechanism: mech.id, modifier: "weld_localization", reason: "Weld HAZ is preferential hydrogen accumulation site" });
+      }
+    }
+
+    // Graphitization: preferentially forms at weld HAZ
+    if (mech.id === "graphitization") {
+      if (weldCtx.weld_context_detected) {
+        mech.weld_context = "Graphite nodules form preferentially at weld HAZ in carbon steel and C-0.5Mo steels. HAZ graphitization creates planes of weakness that can lead to sudden brittle failure at welds.";
+        modifiers.push({ mechanism: mech.id, modifier: "weld_localization", reason: "Graphitization preferentially forms at weld HAZ -- creates planes of weakness" });
+      }
+    }
+
+    // General/pitting corrosion at welds: preferential attack at HAZ and weld metal
+    if (mech.id === "general_corrosion" || mech.id === "pitting") {
+      if (weldCtx.weld_context_detected && (hasHAZ || weldCtx.weld_zones.length > 0)) {
+        mech.weld_context = "Preferential weld corrosion occurs when weld metal or HAZ has different electrochemical potential than base metal. " + (weldCtx.dissimilar_metal_weld ? "Dissimilar metal weld amplifies galvanic corrosion at fusion line. " : "") + "Weld root corrosion on process side is often undetectable until leak.";
+        modifiers.push({ mechanism: mech.id, modifier: "preferential_weld_corrosion", reason: "Weld metal/HAZ electrochemical difference drives preferential corrosion" });
+      }
+    }
+
+    // Wet H2S blistering: weld residual stress creates SOHIC path
+    if (mech.id === "wet_h2s_blister") {
+      if (weldCtx.weld_context_detected) {
+        mech.weld_context = "Stress-oriented hydrogen-induced cracking (SOHIC) occurs along through-thickness residual stress fields adjacent to welds in wet H2S service. " + (noPWHT ? "Non-PWHT condition maintains high residual stress -- SOHIC risk elevated. " : "PWHT reduces but does not eliminate residual stress in heavy-wall sections. ") + "SOHIC is often undetectable by conventional UT until advanced through-thickness scanning is employed.";
+        modifiers.push({ mechanism: mech.id, modifier: "sohic_weld_context", reason: "Weld residual stress drives SOHIC path in wet H2S -- " + (noPWHT ? "non-PWHT escalates risk" : "PWHT reduces risk") });
+      }
+    }
+
+    // Dissimilar metal weld: unique failure modes
+    if (weldCtx.dissimilar_metal_weld && (mech.id === "general_corrosion" || mech.id === "fatigue_mechanical" || mech.id === "creep" || mech.id === "scc_chloride")) {
+      if (!mech.weld_context || mech.weld_context.indexOf("dissimilar") === -1) {
+        var dmwNote = "Dissimilar metal weld (DMW) present" + (weldCtx.dmw_materials.length > 0 ? " (" + weldCtx.dmw_materials.join(" / ") + ")" : "") + ". DMW introduces: preferential corrosion at fusion line due to galvanic mismatch, differential thermal expansion stress under cycling, and potential carbon migration zone at interface.";
+        mech.weld_context = mech.weld_context ? mech.weld_context + " " + dmwNote : dmwNote;
+        modifiers.push({ mechanism: mech.id, modifier: "dmw_context", reason: "Dissimilar metal weld -- galvanic mismatch + differential expansion + carbon migration risk" });
+      }
+    }
+  }
+
+  return { modifiers_applied: modifiers, damage: damage };
 }
 
 // ============================================================================
@@ -5941,7 +6204,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.11.0",
+            engine_version: "physics-first-decision-core-v2.12.0",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5971,6 +6234,11 @@ var handler: Handler = async function(event: HandlerEvent) {
 
     var physics = resolvePhysicalReality(transcript, events, numVals, confirmedFlags, assetClass);
     var damage = resolveDamageReality(physics, confirmedFlags, transcript, evidenceProvenance);
+
+    // DEPLOY205: Weld-specific mechanism intelligence
+    var weldContext = extractWeldContext(transcript);
+    var weldModResult = applyWeldMechanismModifiers(damage, weldContext, physics);
+
     var consequence = resolveConsequenceReality(physics, damage, assetClass, transcript, confirmedFlags);
 
     // DEPLOY203: Jurisdiction detection
@@ -6059,9 +6327,9 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.11.0",
+          engine_version: "physics-first-decision-core-v2.12.0",
           elapsed_ms: elapsedMs,
-          klein_bottle_states: 7,
+          klein_bottle_states: 8,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
           physical_reality: {
             stress: physics.stress, thermal: physics.thermal, chemical: physics.chemical,
@@ -6133,6 +6401,19 @@ var handler: Handler = async function(event: HandlerEvent) {
             keyword_matches: jurisdictionResult.keyword_matches,
             code_stack_applied: authority.jurisdiction_applied || false,
             supported_jurisdictions: ["US", "EU", "UK", "NO", "AU", "BR", "CA", "ME", "SG"]
+          },
+          weld_reality: {
+            weld_context_detected: weldContext.weld_context_detected,
+            joint_types: weldContext.joint_types,
+            weld_zones_at_risk: weldContext.weld_zones,
+            pwht_status: weldContext.pwht_status,
+            dissimilar_metal_weld: weldContext.dissimilar_metal_weld,
+            dmw_materials: weldContext.dmw_materials,
+            repair_weld: weldContext.repair_weld,
+            weld_processes: weldContext.weld_processes,
+            quality_concerns: weldContext.quality_concerns,
+            field_slang_matched: weldContext.field_slang_matched,
+            mechanism_modifiers_applied: weldModResult.modifiers_applied
           },
           inspection_reality: {
             proposed_methods: inspection.proposed_methods,
