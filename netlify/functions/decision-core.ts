@@ -1,5 +1,12 @@
 // @ts-nocheck
-// DEPLOY200 -- decision-core.ts v2.10.0
+// DEPLOY203 -- decision-core.ts v2.11.0
+// v2.11.0: DEPLOY203 -- Global jurisdiction router. 9 jurisdictions (US, EU, UK, NO, AU, BR, CA, ME, SG)
+//   each mapped to asset-type-specific code stacks. Jurisdiction detected from asset.jurisdiction
+//   field (explicit) or inferred from transcript keywords (geography, company names, code references).
+//   US jurisdiction or undetected = current AUTHORITY_MAP behavior (backward compatible).
+//   Non-US jurisdiction overlays correct primary/secondary/conditional authorities from
+//   JURISDICTION_CODE_STACKS. New output block: jurisdiction_reality with detected jurisdiction,
+//   detection method, code stack applied, and confidence.
 // v2.10.0: DEPLOY200 -- Coatings as 10th precondition bucket in Engine 1 catalog evaluator.
 //   Coating condition detection: "intact", "degraded", "absent", or null (unknown).
 //   Coating type detection: FBE, epoxy, polyurethane, zinc/galvanized, TSA, coal tar,
@@ -4549,6 +4556,192 @@ function runPhysicsComputations(physics: any, numVals: any, assetClass: string, 
 // ============================================================================
 // STATE 4: AUTHORITY REALITY ENGINE
 // ============================================================================
+
+// ============================================================================
+// DEPLOY203: GLOBAL JURISDICTION ROUTER
+// 9 jurisdictions, each mapped to asset-type-specific code stacks.
+// ============================================================================
+var JURISDICTION_CODE_STACKS: any = {
+  US: {
+    label: "United States (ASME/API)",
+    pressure_vessel: { pri: "API 510 + ASME Section VIII", sec: ["ASME Section V", "API 579-1"], overlay: [] },
+    piping: { pri: "API 570 + ASME B31.3", sec: ["ASME Section V", "API 579-1"], overlay: [] },
+    pipeline: { pri: "ASME B31.4/B31.8 + 49 CFR 192/195", sec: ["API 1160", "ASME B31G"], overlay: [] },
+    storage_tank: { pri: "API 653", sec: ["API 650", "API 579-1"], overlay: [] },
+    tank: { pri: "API 653", sec: ["API 650", "API 579-1"], overlay: [] },
+    boiler: { pri: "ASME Section I", sec: ["NB-23", "API 510"], overlay: [] },
+    offshore_platform: { pri: "API RP 2A", sec: ["API 579-1", "NACE SP0176"], overlay: [{ code: "BSEE", cond: "US federal waters" }] },
+    bridge: { pri: "AASHTO MBE + AWS D1.5", sec: ["AASHTO LRFD", "FHWA NBIS"], overlay: [] },
+    rail_bridge: { pri: "AASHTO MBE + AWS D1.5", sec: ["AASHTO LRFD", "FHWA NBIS"], overlay: [] },
+    heat_exchanger: { pri: "API 510 + ASME Section VIII", sec: ["ASME Section V", "API 579-1", "TEMA"], overlay: [] }
+  },
+  EU: {
+    label: "European Union (PED/EN)",
+    pressure_vessel: { pri: "PED 2014/68/EU + EN 13445", sec: ["EN 13445-5 (inspection)", "EN ISO 9712 (NDE personnel)"], overlay: [] },
+    piping: { pri: "PED 2014/68/EU + EN 13480", sec: ["EN 13480-5 (inspection/testing)", "EN ISO 9712"], overlay: [] },
+    pipeline: { pri: "EN 1594 (gas) / EN 14161 (petroleum)", sec: ["DNV-ST-F101 (submarine)", "EN ISO 13623"], overlay: [] },
+    storage_tank: { pri: "EN 14015 (atmospheric)", sec: ["EEMUA 159 (in-service)", "EN 1993 (steel structures)"], overlay: [] },
+    tank: { pri: "EN 14015 (atmospheric)", sec: ["EEMUA 159 (in-service)"], overlay: [] },
+    boiler: { pri: "EN 12952 (water-tube) / EN 12953 (shell)", sec: ["EN 12952-6 (inspection)"], overlay: [] },
+    offshore_platform: { pri: "EU Offshore Safety Directive 2013/30/EU", sec: ["DNV-OS-C101", "NORSOK N-004"], overlay: [] },
+    bridge: { pri: "Eurocode 3 (EN 1993) + EN 1090", sec: ["EN 1993-1-9 (fatigue)", "EN ISO 5817 (weld quality)"], overlay: [] },
+    rail_bridge: { pri: "Eurocode 3 (EN 1993) + EN 1090", sec: ["EN 1993-1-9 (fatigue)"], overlay: [] },
+    heat_exchanger: { pri: "PED 2014/68/EU + EN 13445", sec: ["EN 13445-5", "TEMA (referenced)"], overlay: [] }
+  },
+  UK: {
+    label: "United Kingdom (PSSR/BS)",
+    pressure_vessel: { pri: "PSSR 2000 + PD 5500 / BS EN 13445", sec: ["SAFed Guidelines", "UKAS accredited inspection"], overlay: [{ code: "Written Scheme of Examination (WSE)", cond: "all in-service pressure systems" }] },
+    piping: { pri: "PSSR 2000 + BS EN 13480", sec: ["SAFed Guidelines"], overlay: [{ code: "Written Scheme of Examination (WSE)", cond: "all in-service pressure systems" }] },
+    pipeline: { pri: "Pipeline Safety Regulations 1996 + PD 8010", sec: ["IGEM/TD/1 (gas)", "DNV-ST-F101 (submarine)"], overlay: [] },
+    storage_tank: { pri: "EEMUA 159 + HSG176", sec: ["BS EN 14015"], overlay: [] },
+    tank: { pri: "EEMUA 159 + HSG176", sec: ["BS EN 14015"], overlay: [] },
+    boiler: { pri: "PSSR 2000 + BS EN 12952/12953", sec: ["SAFed BG01"], overlay: [{ code: "Written Scheme of Examination (WSE)", cond: "all in-service pressure systems" }] },
+    offshore_platform: { pri: "SCR 2005 + PSSR 2000 (topsides)", sec: ["DNV-RP-G101", "DNV-RP-G103 (non-intrusive)"], overlay: [{ code: "HSE Safety Case", cond: "UKCS operations" }] },
+    bridge: { pri: "CS 454 (DMRB) + BS EN 1993", sec: ["BS EN 1090", "BS EN ISO 5817"], overlay: [] },
+    rail_bridge: { pri: "NR/L2/CIV/006 (Network Rail) + BS EN 1993", sec: ["BS EN 1090"], overlay: [] },
+    heat_exchanger: { pri: "PSSR 2000 + PD 5500 / BS EN 13445", sec: ["SAFed Guidelines", "TEMA"], overlay: [{ code: "Written Scheme of Examination (WSE)", cond: "all in-service pressure systems" }] }
+  },
+  NO: {
+    label: "Norway (NORSOK/PSA/DNV)",
+    pressure_vessel: { pri: "NORSOK R-001 + DNV-RP-G101", sec: ["NORSOK M-001 (materials)", "DNV-RP-G103 (non-intrusive)"], overlay: [{ code: "PSA Activity Regulations", cond: "NCS operations" }] },
+    piping: { pri: "NORSOK M-601 + NORSOK L-001", sec: ["DNV-RP-G103", "NORSOK M-001"], overlay: [{ code: "PSA Activity Regulations", cond: "NCS operations" }] },
+    pipeline: { pri: "DNV-ST-F101 + NORSOK Y-002", sec: ["DNV-RP-F116 (integrity mgmt)", "DNV-RP-F101 (corroded pipelines)"], overlay: [] },
+    storage_tank: { pri: "NORSOK R-001 + EN 14015", sec: ["EEMUA 159"], overlay: [] },
+    tank: { pri: "NORSOK R-001 + EN 14015", sec: ["EEMUA 159"], overlay: [] },
+    boiler: { pri: "EN 12952 + NORSOK R-001", sec: ["DNV-RP-G101"], overlay: [] },
+    offshore_platform: { pri: "NORSOK N-001/N-004 + PSA regulations", sec: ["DNV-OS-C101", "NORSOK M-001", "DNV-RP-G101"], overlay: [{ code: "PSA Activity Regulations", cond: "NCS operations" }] },
+    bridge: { pri: "Eurocode 3 (NS-EN 1993) + Statens Vegvesen", sec: ["NS-EN 1090"], overlay: [] },
+    rail_bridge: { pri: "Eurocode 3 (NS-EN 1993)", sec: ["NS-EN 1090"], overlay: [] },
+    heat_exchanger: { pri: "NORSOK R-001 + DNV-RP-G101", sec: ["NORSOK M-001", "DNV-RP-G103"], overlay: [] }
+  },
+  AU: {
+    label: "Australia / New Zealand (AS/NZS)",
+    pressure_vessel: { pri: "AS/NZS 3788 + AS 1210", sec: ["AS 4037 (FFS)", "AS/NZS ISO 9712 (NDE)"], overlay: [] },
+    piping: { pri: "AS/NZS 3788 + AS 4041", sec: ["AS 4037"], overlay: [] },
+    pipeline: { pri: "AS 2885", sec: ["AS 2885.3 (operations/maintenance)", "AS 4037"], overlay: [] },
+    storage_tank: { pri: "AS 1692 + AS/NZS 3788", sec: ["API 653 (referenced)", "AS 4037"], overlay: [] },
+    tank: { pri: "AS 1692 + AS/NZS 3788", sec: ["AS 4037"], overlay: [] },
+    boiler: { pri: "AS/NZS 3788 + AS 1228", sec: ["AS 4037"], overlay: [] },
+    offshore_platform: { pri: "NOPSEMA + AS/NZS 3788", sec: ["DNV-OS-C101", "API RP 2A (referenced)"], overlay: [{ code: "OPGGS Act", cond: "Commonwealth waters" }] },
+    bridge: { pri: "AS 5100 + AS/NZS 1554", sec: ["AS 5100.6 (steel/composite)"], overlay: [] },
+    rail_bridge: { pri: "AS 5100 + AS/NZS 1554", sec: ["AS 5100.6"], overlay: [] },
+    heat_exchanger: { pri: "AS/NZS 3788 + AS 1210", sec: ["AS 4037", "TEMA"], overlay: [] }
+  },
+  BR: {
+    label: "Brazil (NR-13/ABNT)",
+    pressure_vessel: { pri: "NR-13 + ABNT NBR 15417", sec: ["ABNT NBR 14842 (NDE)", "API 579-1 (FFS, referenced)"], overlay: [{ code: "CREA-licensed Profissional Habilitado", cond: "all inspections" }] },
+    piping: { pri: "NR-13 + ASME B31.3 (adopted)", sec: ["ABNT NBR 15218", "ABNT NBR 14842"], overlay: [{ code: "CREA-licensed Profissional Habilitado", cond: "all inspections" }] },
+    pipeline: { pri: "ABNT NBR 12712 + ANP regulations", sec: ["ASME B31.4/B31.8 (referenced)", "DNV-ST-F101 (submarine)"], overlay: [] },
+    storage_tank: { pri: "NR-13 + ABNT NBR 7821", sec: ["API 653 (referenced)"], overlay: [] },
+    tank: { pri: "NR-13 + ABNT NBR 7821", sec: ["API 653 (referenced)"], overlay: [] },
+    boiler: { pri: "NR-13 (Cat. A/B/C intervals)", sec: ["ABNT NBR 12177", "ABNT NBR 14842"], overlay: [{ code: "CREA-licensed Profissional Habilitado", cond: "all inspections" }] },
+    offshore_platform: { pri: "ANP regulations + NR-13", sec: ["ABNT NBR 15218", "API RP 2A (referenced)"], overlay: [{ code: "IBAMA environmental clearance", cond: "offshore operations" }] },
+    bridge: { pri: "ABNT NBR 7187/7188 + ABNT NBR 16694", sec: ["ABNT NBR 8800 (steel structures)"], overlay: [] },
+    rail_bridge: { pri: "ABNT NBR 7187 + ABNT NBR 8800", sec: [], overlay: [] },
+    heat_exchanger: { pri: "NR-13 + ABNT NBR 15417", sec: ["ABNT NBR 14842", "TEMA"], overlay: [] }
+  },
+  CA: {
+    label: "Canada (CSA/Provincial)",
+    pressure_vessel: { pri: "CSA B51 + ASME Section VIII", sec: ["ASME Section V", "API 579-1"], overlay: [{ code: "Provincial jurisdiction (TSSA/ABSA/TSASK)", cond: "province-specific registration" }] },
+    piping: { pri: "CSA B51 + ASME B31.3", sec: ["ASME Section V", "API 579-1"], overlay: [{ code: "Provincial jurisdiction", cond: "province-specific" }] },
+    pipeline: { pri: "CSA Z662 + CER (federal)", sec: ["CSA Z245.1 (line pipe)", "ASME B31G"], overlay: [] },
+    storage_tank: { pri: "CSA B51 + API 653", sec: ["API 650", "API 579-1"], overlay: [] },
+    tank: { pri: "CSA B51 + API 653", sec: ["API 650"], overlay: [] },
+    boiler: { pri: "CSA B51 + ASME Section I", sec: ["NB-23", "Provincial boiler codes"], overlay: [{ code: "Provincial jurisdiction (TSSA/ABSA/TSASK)", cond: "province-specific" }] },
+    offshore_platform: { pri: "CSA S473 + Atlantic Accord", sec: ["CSA S471/S472", "API RP 2A (referenced)"], overlay: [{ code: "C-NLOPB / C-NSOPB", cond: "Atlantic offshore" }] },
+    bridge: { pri: "CSA S6 + CSA W59", sec: ["CSA S6.1 (commentary)", "CSA W178.2 (welding inspection)"], overlay: [] },
+    rail_bridge: { pri: "CSA S6 + CSA W59", sec: ["CSA S6.1"], overlay: [] },
+    heat_exchanger: { pri: "CSA B51 + ASME Section VIII", sec: ["ASME Section V", "TEMA"], overlay: [] }
+  },
+  ME: {
+    label: "Middle East (API/ASME + NOC overlay)",
+    pressure_vessel: { pri: "API 510 + ASME Section VIII", sec: ["ASME Section V", "API 579-1"], overlay: [{ code: "SAES/ADNOC company standards", cond: "NOC assets" }] },
+    piping: { pri: "API 570 + ASME B31.3", sec: ["ASME Section V", "API 579-1"], overlay: [{ code: "SAES/ADNOC company standards", cond: "NOC assets" }] },
+    pipeline: { pri: "ASME B31.4/B31.8", sec: ["API 1160", "ASME B31G"], overlay: [{ code: "SAES/ADNOC company standards", cond: "NOC assets" }] },
+    storage_tank: { pri: "API 653", sec: ["API 650", "API 579-1"], overlay: [] },
+    tank: { pri: "API 653", sec: ["API 650"], overlay: [] },
+    boiler: { pri: "ASME Section I", sec: ["NB-23"], overlay: [] },
+    offshore_platform: { pri: "API RP 2A", sec: ["API 579-1", "NACE SP0176"], overlay: [] },
+    bridge: { pri: "AASHTO MBE + AWS D1.5", sec: ["AASHTO LRFD"], overlay: [] },
+    rail_bridge: { pri: "AASHTO MBE + AWS D1.5", sec: ["AASHTO LRFD"], overlay: [] },
+    heat_exchanger: { pri: "API 510 + ASME Section VIII", sec: ["ASME Section V", "TEMA"], overlay: [] }
+  },
+  SG: {
+    label: "Singapore (MOM WSH + ASME/BS)",
+    pressure_vessel: { pri: "WSH Act + SS 545 / ASME Section VIII", sec: ["ASME Section V", "API 579-1"], overlay: [{ code: "MOM Authorised Examiner", cond: "all registered vessels" }] },
+    piping: { pri: "WSH Act + ASME B31.1/B31.3", sec: ["ASME Section V"], overlay: [{ code: "MOM registration", cond: "steam piping" }] },
+    pipeline: { pri: "ASME B31.4/B31.8 + EMA regulations", sec: ["DNV-ST-F101 (submarine)"], overlay: [] },
+    storage_tank: { pri: "SS CP 37 + API 653", sec: ["API 650"], overlay: [] },
+    tank: { pri: "SS CP 37 + API 653", sec: ["API 650"], overlay: [] },
+    boiler: { pri: "WSH Act + ASME Section I / BS EN 12953", sec: ["SS 545"], overlay: [{ code: "MOM Authorised Examiner", cond: "all registered boilers" }] },
+    offshore_platform: { pri: "MPA regulations + API RP 2A", sec: ["DNV-OS-C101"], overlay: [] },
+    bridge: { pri: "LTA bridge code + BS EN 1993", sec: ["BS EN 1090"], overlay: [] },
+    rail_bridge: { pri: "LTA bridge code + BS EN 1993", sec: ["BS EN 1090"], overlay: [] },
+    heat_exchanger: { pri: "WSH Act + ASME Section VIII", sec: ["ASME Section V", "TEMA"], overlay: [{ code: "MOM Authorised Examiner", cond: "all registered vessels" }] }
+  }
+};
+
+var JURISDICTION_KEYWORDS: any[] = [
+  { j: "NO", kw: ["norsok", "norwegian", "norway", "north sea norway", "ekofisk", "troll field", "oseberg", "stavanger", "norwegian continental shelf", "ncs operations", "psa regulations", "equinor", "statoil", "hammerfest", "mongstad"] },
+  { j: "UK", kw: ["pssr", "ukcs", "uk continental shelf", "aberdeen", "hse uk", "safed", "pd 5500", "written scheme of examination", "uk sector", "forties field", "brent field", "north sea uk", "grangemouth", "fawley", "stanlow", "milford haven", "teesside", "humber"] },
+  { j: "EU", kw: ["ped directive", "en 13445", "en 13480", "eurocode", "rotterdam", "antwerp", "hamburg", "marseille", "tarragona", "augusta", "europoort", "pernis", "leuna", "schwedt", "stenungsund", "sines", "thessaloniki"] },
+  { j: "AU", kw: ["as 3788", "as 1210", "as 2885", "nopsema", "australian standard", "queensland", "western australia", "victoria australia", "new south wales", "gladstone lng", "darwin lng", "wheatstone", "gorgon", "karratha", "perth australia", "new zealand", "taranaki"] },
+  { j: "BR", kw: ["nr-13", "nr 13", "abnt", "petrobras", "crea licensed", "santos basin", "campos basin", "tupi field", "pre-salt", "buzios", "comperj", "paulinia", "cubatao", "duque de caxias"] },
+  { j: "CA", kw: ["csa b51", "csa z662", "tssa", "absa", "tsask", "alberta energy", "cer pipeline", "trans mountain", "nova gas", "hibernia", "c-nlopb", "enbridge canada", "tc energy", "fort mcmurray", "edmonton refinery", "sarnia", "saint john nb", "come by chance"] },
+  { j: "ME", kw: ["aramco", "saudi aramco", "saes standard", "adnoc", "abu dhabi", "dubai", "qatar", "qatargas", "rasgas", "sabic", "knpc", "kuwait", "bahrain", "bapco", "oman", "pdo oman", "uae", "jubail", "yanbu", "ras tanura", "jeddah", "ruwais", "das island"] },
+  { j: "SG", kw: ["singapore", "mom wsh", "jurong island", "singapore mom", "keppel", "sembcorp", "tuas", "bukom", "pulau bukom", "shell singapore"] }
+];
+
+function detectJurisdiction(assetJurisdiction: string, transcript: string): any {
+  // EXPLICIT: asset.jurisdiction field takes priority
+  if (assetJurisdiction) {
+    var explicit = assetJurisdiction.toUpperCase().replace(/[^A-Z]/g, "");
+    // Map common aliases
+    if (explicit === "USA" || explicit === "UNITEDSTATES") explicit = "US";
+    if (explicit === "EUROPE" || explicit === "EUROPEANUNION") explicit = "EU";
+    if (explicit === "UNITEDKINGDOM" || explicit === "GREATBRITAIN" || explicit === "GB") explicit = "UK";
+    if (explicit === "NORWAY" || explicit === "NORGE") explicit = "NO";
+    if (explicit === "AUSTRALIA" || explicit === "NEWZEALAND" || explicit === "NZ") explicit = "AU";
+    if (explicit === "BRAZIL" || explicit === "BRASIL") explicit = "BR";
+    if (explicit === "CANADA") explicit = "CA";
+    if (explicit === "MIDDLEEAST" || explicit === "SAUDIARABIA" || explicit === "SAUDI" || explicit === "KSA" || explicit === "KUWAIT" || explicit === "QATAR" || explicit === "BAHRAIN" || explicit === "OMAN") explicit = "ME";
+    if (explicit === "SINGAPORE") explicit = "SG";
+    if (JURISDICTION_CODE_STACKS[explicit]) {
+      return { jurisdiction: explicit, method: "explicit", confidence: 0.95, label: JURISDICTION_CODE_STACKS[explicit].label, keyword_matches: [] };
+    }
+  }
+
+  // INFERRED: scan transcript for jurisdiction keywords
+  var lt = transcript.toLowerCase();
+  var bestJ = "";
+  var bestCount = 0;
+  var bestMatches: string[] = [];
+  for (var ji = 0; ji < JURISDICTION_KEYWORDS.length; ji++) {
+    var jEntry = JURISDICTION_KEYWORDS[ji];
+    var matchCount = 0;
+    var matches: string[] = [];
+    for (var ki = 0; ki < jEntry.kw.length; ki++) {
+      if (lt.indexOf(jEntry.kw[ki]) !== -1) {
+        matchCount++;
+        matches.push(jEntry.kw[ki]);
+      }
+    }
+    if (matchCount > bestCount) {
+      bestCount = matchCount;
+      bestJ = jEntry.j;
+      bestMatches = matches;
+    }
+  }
+
+  if (bestCount >= 1 && bestJ) {
+    var jConf = bestCount >= 3 ? 0.9 : (bestCount >= 2 ? 0.8 : 0.65);
+    return { jurisdiction: bestJ, method: "inferred", confidence: jConf, label: JURISDICTION_CODE_STACKS[bestJ].label, keyword_matches: bestMatches };
+  }
+
+  // DEFAULT: US (backward compatible)
+  return { jurisdiction: "US", method: "default", confidence: 0.5, label: JURISDICTION_CODE_STACKS["US"].label, keyword_matches: [] };
+}
+
 var AUTHORITY_MAP = [
   { kw: ["decompression chamber", "hyperbaric", "dive system", "diving bell", "human occupancy", "pvho", "double lock", "saturation div", "recompression", "treatment chamber", "man-rated"],
     ac: ["pressure_vessel"], pri: "ASME PVHO-1",
@@ -4577,47 +4770,97 @@ var AUTHORITY_MAP = [
     ac: ["rail"], pri: "AREMA Manual", sec: ["AAR Field Manual", "49 CFR 213"], cond: [], dw: null }
 ];
 
-function resolveAuthorityReality(assetClass: string, transcript: string, consequence: any, physics: any) {
+function resolveAuthorityReality(assetClass: string, transcript: string, consequence: any, physics: any, jurisdictionResult: any) {
   var lt = transcript.toLowerCase();
   var matched: any = null;
 
-  var keywordClassMatch: any = null;
-  var genericClassMatch: any = null;
-
-  for (var ai = 0; ai < AUTHORITY_MAP.length; ai++) {
-    var entry = AUTHORITY_MAP[ai];
-    var classMatches = false;
-    for (var asi = 0; asi < entry.ac.length; asi++) {
-      if (assetClass === entry.ac[asi]) { classMatches = true; break; }
-    }
-    if (classMatches) {
-      var kwMatches = false;
-      for (var ki = 0; ki < entry.kw.length; ki++) {
-        if (hasWord(lt, entry.kw[ki])) { kwMatches = true; break; }
+  // DEPLOY203: JURISDICTION OVERLAY
+  // If non-US jurisdiction detected with sufficient confidence, use JURISDICTION_CODE_STACKS
+  // instead of the US-centric AUTHORITY_MAP. PVHO and specialty entries still use AUTHORITY_MAP
+  // because they have no international equivalent mapping.
+  var jurisdictionApplied = false;
+  var jurisdictionStack: any = null;
+  if (jurisdictionResult && jurisdictionResult.jurisdiction !== "US" && jurisdictionResult.confidence >= 0.6) {
+    var jStack = JURISDICTION_CODE_STACKS[jurisdictionResult.jurisdiction];
+    if (jStack) {
+      // Normalize asset class for lookup (bridge_steel, bridge_concrete -> bridge)
+      var lookupClass = assetClass;
+      if (lookupClass === "bridge_steel" || lookupClass === "bridge_concrete") lookupClass = "bridge";
+      if (jStack[lookupClass]) {
+        jurisdictionStack = jStack[lookupClass];
+        // Check if this is a specialty entry (PVHO, hyperbaric) -- AUTHORITY_MAP handles those
+        var isPVHO = false;
+        for (var pi = 0; pi < AUTHORITY_MAP.length; pi++) {
+          var pe = AUTHORITY_MAP[pi];
+          var peClassMatch = false;
+          for (var pci = 0; pci < pe.ac.length; pci++) { if (assetClass === pe.ac[pci]) { peClassMatch = true; break; } }
+          if (peClassMatch) {
+            for (var pki = 0; pki < pe.kw.length; pki++) {
+              if (hasWord(lt, pe.kw[pki]) && pe.pri.indexOf("PVHO") !== -1) { isPVHO = true; break; }
+            }
+          }
+          if (isPVHO) break;
+        }
+        if (!isPVHO) {
+          // Apply jurisdiction stack
+          var jCond: any[] = [];
+          for (var oi = 0; oi < jurisdictionStack.overlay.length; oi++) {
+            jCond.push(jurisdictionStack.overlay[oi]);
+          }
+          matched = { pri: jurisdictionStack.pri, sec: jurisdictionStack.sec, cond: jCond, dw: null, kw: [], ac: [assetClass] };
+          jurisdictionApplied = true;
+        }
       }
-      if (kwMatches && !keywordClassMatch) {
-        keywordClassMatch = entry;
-      }
-      genericClassMatch = entry;
     }
   }
 
-  matched = keywordClassMatch || genericClassMatch;
-
+  // STANDARD US AUTHORITY_MAP RESOLUTION (original logic, used when no jurisdiction override)
   if (!matched) {
-    for (var ri = 0; ri < AUTHORITY_MAP.length; ri++) {
-      var r = AUTHORITY_MAP[ri];
-      for (var ki2 = 0; ki2 < r.kw.length; ki2++) { if (hasWord(lt, r.kw[ki2])) { matched = r; break; } }
-      if (matched) break;
+    var keywordClassMatch: any = null;
+    var genericClassMatch: any = null;
+
+    for (var ai = 0; ai < AUTHORITY_MAP.length; ai++) {
+      var entry = AUTHORITY_MAP[ai];
+      var classMatches = false;
+      for (var asi = 0; asi < entry.ac.length; asi++) {
+        if (assetClass === entry.ac[asi]) { classMatches = true; break; }
+      }
+      if (classMatches) {
+        var kwMatches = false;
+        for (var ki = 0; ki < entry.kw.length; ki++) {
+          if (hasWord(lt, entry.kw[ki])) { kwMatches = true; break; }
+        }
+        if (kwMatches && !keywordClassMatch) {
+          keywordClassMatch = entry;
+        }
+        genericClassMatch = entry;
+      }
+    }
+
+    matched = keywordClassMatch || genericClassMatch;
+
+    if (!matched) {
+      for (var ri = 0; ri < AUTHORITY_MAP.length; ri++) {
+        var r = AUTHORITY_MAP[ri];
+        for (var ki2 = 0; ki2 < r.kw.length; ki2++) { if (hasWord(lt, r.kw[ki2])) { matched = r; break; } }
+        if (matched) break;
+      }
     }
   }
+
   if (!matched) {
     return { primary_authority: "UNRESOLVED", secondary_authorities: [], conditional_authorities: [],
       physics_code_alignment: "No authority matched -- engineering review required",
-      code_gaps: ["No authority rule matched"], design_state_warning: null, authority_confidence: 0.3 };
+      code_gaps: ["No authority rule matched"], design_state_warning: null, authority_confidence: 0.3,
+      jurisdiction_applied: false };
   }
   var gaps: string[] = [];
   var alignment = "CONSISTENT -- " + matched.pri + " provides framework for " + assetClass;
+
+  // DEPLOY203: Jurisdiction-specific alignment narrative
+  if (jurisdictionApplied && jurisdictionResult) {
+    alignment = "JURISDICTION ROUTED (" + jurisdictionResult.jurisdiction + ") -- " + matched.pri + " is the governing code stack for " + assetClass + " in " + jurisdictionResult.label + ". Detection: " + jurisdictionResult.method + " (confidence " + jurisdictionResult.confidence + ").";
+  }
 
   var hasCrackIndication = hasWordNotNegated(lt, "crack") || hasWordNotNegated(lt, "indication") || hasWordNotNegated(lt, "flaw") || hasWordNotNegated(lt, "linear");
   if (consequence.consequence_tier === "CRITICAL" && matched.pri.indexOf("PVHO") !== -1) {
@@ -4631,10 +4874,15 @@ function resolveAuthorityReality(assetClass: string, transcript: string, consequ
   if ((physics.stress.cyclic_loading || physics.chemical.corrosive_environment) && consequence.consequence_tier !== "LOW") {
     var hasFFS = false;
     for (var si = 0; si < matched.sec.length; si++) {
-      if (matched.sec[si].indexOf("579") !== -1 || matched.sec[si].indexOf("FFS") !== -1) { hasFFS = true; }
+      if (matched.sec[si].indexOf("579") !== -1 || matched.sec[si].indexOf("FFS") !== -1 || matched.sec[si].indexOf("4037") !== -1) { hasFFS = true; }
     }
     if (!hasFFS) {
-      gaps.push("Fitness-for-service assessment (ASME FFS-1 / API 579) recommended but not in authority chain");
+      // DEPLOY203: Jurisdiction-aware FFS gap message
+      if (jurisdictionApplied && jurisdictionResult && jurisdictionResult.jurisdiction === "AU") {
+        gaps.push("Fitness-for-service assessment (AS 4037) recommended but not in authority chain");
+      } else {
+        gaps.push("Fitness-for-service assessment (ASME FFS-1 / API 579) recommended but not in authority chain");
+      }
     }
   }
   if (matched.pri.indexOf("PVHO") !== -1 && hasCrackIndication) {
@@ -4647,7 +4895,8 @@ function resolveAuthorityReality(assetClass: string, transcript: string, consequ
   if (conf < 0.3) conf = 0.3;
   return { primary_authority: matched.pri, secondary_authorities: matched.sec,
     conditional_authorities: matched.cond, physics_code_alignment: alignment,
-    code_gaps: gaps, design_state_warning: matched.dw, authority_confidence: roundN(conf, 2) };
+    code_gaps: gaps, design_state_warning: matched.dw, authority_confidence: roundN(conf, 2),
+    jurisdiction_applied: jurisdictionApplied };
 }
 
 // ============================================================================
@@ -5692,7 +5941,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.10.0",
+            engine_version: "physics-first-decision-core-v2.11.0",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -5723,7 +5972,12 @@ var handler: Handler = async function(event: HandlerEvent) {
     var physics = resolvePhysicalReality(transcript, events, numVals, confirmedFlags, assetClass);
     var damage = resolveDamageReality(physics, confirmedFlags, transcript, evidenceProvenance);
     var consequence = resolveConsequenceReality(physics, damage, assetClass, transcript, confirmedFlags);
-    var authority = resolveAuthorityReality(assetClass, transcript, consequence, physics);
+
+    // DEPLOY203: Jurisdiction detection
+    var assetJurisdiction = asset.jurisdiction || "";
+    var jurisdictionResult = detectJurisdiction(assetJurisdiction, transcript);
+
+    var authority = resolveAuthorityReality(assetClass, transcript, consequence, physics, jurisdictionResult);
     var inspection = resolveInspectionReality(damage, consequence, physics, transcript, confirmedFlags);
     var computations = runPhysicsComputations(physics, numVals, assetClass, consequence);
     var contradictions = detectContradictions(physics, damage, consequence, authority, inspection, transcript, evidenceProvenance);
@@ -5805,9 +6059,9 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.10.0",
+          engine_version: "physics-first-decision-core-v2.11.0",
           elapsed_ms: elapsedMs,
-          klein_bottle_states: 6,
+          klein_bottle_states: 7,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
           physical_reality: {
             stress: physics.stress, thermal: physics.thermal, chemical: physics.chemical,
@@ -5868,7 +6122,17 @@ var handler: Handler = async function(event: HandlerEvent) {
             physics_code_alignment: authority.physics_code_alignment,
             code_gaps: authority.code_gaps,
             design_state_warning: authority.design_state_warning,
-            authority_confidence: authority.authority_confidence
+            authority_confidence: authority.authority_confidence,
+            jurisdiction_applied: authority.jurisdiction_applied || false
+          },
+          jurisdiction_reality: {
+            jurisdiction: jurisdictionResult.jurisdiction,
+            jurisdiction_label: jurisdictionResult.label,
+            detection_method: jurisdictionResult.method,
+            detection_confidence: jurisdictionResult.confidence,
+            keyword_matches: jurisdictionResult.keyword_matches,
+            code_stack_applied: authority.jurisdiction_applied || false,
+            supported_jurisdictions: ["US", "EU", "UK", "NO", "AU", "BR", "CA", "ME", "SG"]
           },
           inspection_reality: {
             proposed_methods: inspection.proposed_methods,
