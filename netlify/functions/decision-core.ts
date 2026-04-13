@@ -1,5 +1,10 @@
 // @ts-nocheck
-// DEPLOY205 -- decision-core.ts v2.12.0
+// DEPLOY206 -- decision-core.ts v2.12.1
+// v2.12.1: DEPLOY206 -- DMW material pair fix. Material pair detection (carbon_steel, stainless_steel,
+//   cr_mo_steel, nickel_alloy) now runs unconditionally so dmw_materials is populated even when
+//   DMW was detected by explicit keywords (transition weld, bimetallic, etc.). Previously the
+//   material inference block was guarded by !dissimilarMetal, skipping pair detection when explicit
+//   DMW keywords already matched.
 // v2.12.0: DEPLOY205 -- Weld-specific mechanism intelligence. New extractWeldContext() function
 //   extracts structured weld data from transcript: joint types (butt, fillet, socket, branch,
 //   overlay, repair, circumferential, longitudinal, attachment), weld zones (HAZ, fusion_line,
@@ -3663,20 +3668,19 @@ function extractWeldContext(transcript: any): any {
   if (hasWord(lt, "dissimilar metal") || hasWord(lt, "dmw") || hasWord(lt, "dissimilar weld") || hasWord(lt, "bimetallic") || hasWord(lt, "transition joint") || hasWord(lt, "transition weld")) {
     dissimilarMetal = true;
   }
-  // Infer DMW from material combinations
-  if (!dissimilarMetal) {
-    var hasCS = hasWord(lt, "carbon steel") || hasWord(lt, "a106") || hasWord(lt, "a516") || hasWord(lt, "a36");
-    var hasSS = hasWord(lt, "stainless") || hasWord(lt, "austenitic") || hasWord(lt, "304") || hasWord(lt, "316") || hasWord(lt, "321");
-    var hasCrMo = hasWord(lt, "cr-mo") || hasWord(lt, "chrome moly") || hasWord(lt, "p11") || hasWord(lt, "p22") || hasWord(lt, "p91");
-    var hasNi = hasWord(lt, "inconel") || hasWord(lt, "alloy 82") || hasWord(lt, "alloy 182") || hasWord(lt, "alloy 625") || hasWord(lt, "nickel alloy");
-    var matCount = 0;
-    if (hasCS) { matCount++; dmwMaterials.push("carbon_steel"); }
-    if (hasSS) { matCount++; dmwMaterials.push("stainless_steel"); }
-    if (hasCrMo) { matCount++; dmwMaterials.push("cr_mo_steel"); }
-    if (hasNi) { matCount++; dmwMaterials.push("nickel_alloy"); }
-    if (matCount >= 2 && (hasWord(lt, "weld") || hasWord(lt, "joint") || hasWord(lt, "transition"))) {
-      dissimilarMetal = true;
-    }
+  // Detect DMW material pairs (always runs -- populates dmwMaterials even when DMW already explicit)
+  var hasCS = hasWord(lt, "carbon steel") || hasWord(lt, "a106") || hasWord(lt, "a516") || hasWord(lt, "a36");
+  var hasSS = hasWord(lt, "stainless") || hasWord(lt, "austenitic") || hasWord(lt, "304") || hasWord(lt, "316") || hasWord(lt, "321");
+  var hasCrMo = hasWord(lt, "cr-mo") || hasWord(lt, "chrome moly") || hasWord(lt, "p11") || hasWord(lt, "p22") || hasWord(lt, "p91");
+  var hasNi = hasWord(lt, "inconel") || hasWord(lt, "alloy 82") || hasWord(lt, "alloy 182") || hasWord(lt, "alloy 625") || hasWord(lt, "nickel alloy");
+  var matCount = 0;
+  if (hasCS) { matCount++; dmwMaterials.push("carbon_steel"); }
+  if (hasSS) { matCount++; dmwMaterials.push("stainless_steel"); }
+  if (hasCrMo) { matCount++; dmwMaterials.push("cr_mo_steel"); }
+  if (hasNi) { matCount++; dmwMaterials.push("nickel_alloy"); }
+  // Infer DMW from material combinations if not already detected by explicit keywords
+  if (!dissimilarMetal && matCount >= 2 && (hasWord(lt, "weld") || hasWord(lt, "joint") || hasWord(lt, "transition"))) {
+    dissimilarMetal = true;
   }
 
   // -- REPAIR WELD --
@@ -6204,7 +6208,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
         body: JSON.stringify({
           decision_core: {
-            engine_version: "physics-first-decision-core-v2.12.0",
+            engine_version: "physics-first-decision-core-v2.12.1",
             elapsed_ms: elapsedMsRefusal,
             domain_not_supported: true,
             asset_class_received: assetClass,
@@ -6327,7 +6331,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
       body: JSON.stringify({
         decision_core: {
-          engine_version: "physics-first-decision-core-v2.12.0",
+          engine_version: "physics-first-decision-core-v2.12.1",
           elapsed_ms: elapsedMs,
           klein_bottle_states: 8,
           asset_correction: assetCorrected ? { corrected: true, original: asset.asset_class || "unknown", corrected_to: assetClass, reason: assetCorrectionReason, assessment: correctionAssessment } : { corrected: false },
