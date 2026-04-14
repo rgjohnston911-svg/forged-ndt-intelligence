@@ -1,11 +1,16 @@
 // @ts-nocheck
 /**
- * DEPLOY210 - ThicknessGridUpload.tsx
+ * DEPLOY214 - ThicknessGridUpload.tsx
  * src/components/ThicknessGridUpload.tsx
  *
  * Evidence-tab widget: upload a CSV, POST it to /api/parse-thickness-csv,
  * display parsed grid + stats (min/max/avg, min-of-grid highlight, nominal
  * comparison + remaining thickness percent).
+ *
+ * DEPLOY214: after a successful parse, auto-POST to /api/run-authority
+ * so the inspector does not have to click Run Authority Lock manually.
+ * Emits optional onAuthorityRerun() callback so the parent page can
+ * reload the case record + decision card after the lock re-runs.
  *
  * Reads back existing thickness_readings for the case on mount so
  * re-entering the tab shows prior uploads.
@@ -21,9 +26,12 @@ function fmt(n, d) {
 
 export default function ThicknessGridUpload(props) {
   var caseId = props.caseId;
+  var onAuthorityRerun = props.onAuthorityRerun;
   var [readings, setReadings] = useState([]);
   var [loading, setLoading] = useState(false);
   var [uploading, setUploading] = useState(false);
+  var [rerunning, setRerunning] = useState(false);
+  var [rerunNote, setRerunNote] = useState("");
   var [error, setError] = useState("");
   var [lastStats, setLastStats] = useState(null);
   var fileRef = useRef(null);
@@ -71,12 +79,42 @@ export default function ThicknessGridUpload(props) {
       } else {
         setLastStats(json);
         await load();
+        // DEPLOY214: auto re-run authority lock so the disposition reflects
+        // the new thickness data without the inspector having to click.
+        await autoRunAuthority();
       }
     } catch (err) {
       setError("Upload error: " + String(err));
     }
     setUploading(false);
     if (fileRef.current) fileRef.current.value = "";
+  }
+
+  async function autoRunAuthority() {
+    if (!caseId) return;
+    setRerunning(true);
+    setRerunNote("Re-running authority lock with new thickness data...");
+    try {
+      var resp2 = await fetch("/api/run-authority", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ case_id: caseId })
+      });
+      var j2 = null;
+      try { j2 = await resp2.json(); } catch (e) { j2 = null; }
+      if (!resp2.ok) {
+        setRerunNote("Authority re-run failed (" + resp2.status + "). Click Run Authority Lock manually.");
+      } else {
+        var disp = j2 && j2.disposition ? j2.disposition : (j2 && j2.final_decision ? j2.final_decision : "updated");
+        setRerunNote("Authority lock re-ran automatically. Disposition: " + String(disp));
+        if (typeof onAuthorityRerun === "function") {
+          try { onAuthorityRerun(j2); } catch (cbErr) { console.error("onAuthorityRerun callback error:", cbErr); }
+        }
+      }
+    } catch (err2) {
+      setRerunNote("Authority re-run error: " + String(err2) + ". Click Run Authority Lock manually.");
+    }
+    setRerunning(false);
   }
 
   // Aggregate stats from all readings shown
@@ -162,6 +200,12 @@ export default function ThicknessGridUpload(props) {
       {lastStats && (
         <div style={{ padding: "8px 12px", backgroundColor: "#14532d44", border: "1px solid #22c55e", borderRadius: "6px", color: "#bbf7d0", fontSize: "12px", marginBottom: "12px" }}>
           Parsed {lastStats.count} readings from {lastStats.filename} (format: {lastStats.format}, units declared: {lastStats.units_declared})
+        </div>
+      )}
+
+      {(rerunning || rerunNote) && (
+        <div style={{ padding: "8px 12px", backgroundColor: "#1e3a8a44", border: "1px solid #3b82f6", borderRadius: "6px", color: "#bfdbfe", fontSize: "12px", marginBottom: "12px" }}>
+          {rerunning ? "Re-running authority lock with new thickness data..." : rerunNote}
         </div>
       )}
 
