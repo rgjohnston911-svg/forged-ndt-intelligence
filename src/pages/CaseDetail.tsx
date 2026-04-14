@@ -60,6 +60,7 @@ export default function CaseDetail() {
   var [conflicts, setConflicts] = useState<any[]>([]);
   var [activeTab, setActiveTab] = useState<TabName>("overview");
   var [loading, setLoading] = useState(true);
+  var [loadError, setLoadError] = useState<string>("");
 
   // Evidence upload -- DEPLOY208: method-tagged
   var [uploading, setUploading] = useState(false);
@@ -78,7 +79,18 @@ export default function CaseDetail() {
 
   async function loadCase() {
     setLoading(true);
-    var cRes = await supabase.from("inspection_cases").select("*").eq("id", id).single();
+    setLoadError("");
+    var cRes = await supabase.from("inspection_cases").select("*").eq("id", id).maybeSingle();
+    if (cRes.error) {
+      setLoadError("Failed to load case: " + (cRes.error.message || String(cRes.error)));
+      setLoading(false);
+      return;
+    }
+    if (!cRes.data) {
+      setLoadError("Case not found in inspection_cases (id: " + id + "). This may be an orphan case from an older schema.");
+      setLoading(false);
+      return;
+    }
     setCaseData(cRes.data);
     var fRes = await supabase.from("findings").select("*").eq("case_id", id).order("created_at", { ascending: true });
     setFindings(fRes.data || []);
@@ -255,6 +267,15 @@ export default function CaseDetail() {
     return { status: "PASS", detail: "Within code limits" };
   }
 
+  if (loadError) {
+    return (
+      <div style={{ padding: "40px", maxWidth: "700px", margin: "40px auto", backgroundColor: "#1e293b", border: "1px solid #ef444444", borderRadius: "12px", color: "#fca5a5", fontFamily: "'Inter', sans-serif" }}>
+        <h2 style={{ color: "#ef4444", marginTop: 0 }}>Case load failed</h2>
+        <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#fecaca", whiteSpace: "pre-wrap" }}>{loadError}</div>
+        <button onClick={function() { window.location.href = "/cases"; }} style={{ marginTop: "20px", padding: "8px 20px", backgroundColor: "#3b82f6", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer" }}>&larr; Back to Cases</button>
+      </div>
+    );
+  }
   if (loading || !caseData) return <div className="page-loading">Loading case...</div>;
 
   // Use label (e.g. "undercut", "slag_inclusion") not finding_type (e.g. "Discontinuity")
