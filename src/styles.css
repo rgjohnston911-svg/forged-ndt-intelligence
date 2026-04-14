@@ -792,6 +792,91 @@ input, textarea, select {
   color: #8b949e;
 }
 
+/* DEPLOY208: Method-tagged evidence upload */
+.evidence-method-selector {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.evidence-method-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.evidence-group-label {
+  color: #8b949e;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  min-width: 100px;
+  padding-top: 7px;
+  flex-shrink: 0;
+}
+
+.evidence-method-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.evidence-method-chip {
+  padding: 6px 12px;
+  border: 1px solid;
+  border-radius: 16px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.evidence-method-chip:hover {
+  opacity: 0.85;
+  transform: scale(1.02);
+}
+
+.evidence-method-chip:disabled {
+  opacity: 0.4;
+  cursor: wait;
+}
+
+.method-chip-active {
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(88, 166, 255, 0.3);
+}
+
+.evidence-method-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.evidence-data-placeholder {
+  width: 100%;
+  height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #0d1117;
+  border-bottom: 2px solid;
+  gap: 4px;
+}
+
+.evidence-info {
+  padding: 10px;
+  font-size: 13px;
+  color: #8b949e;
+}
+
 /* Findings tab */
 .findings-list {
   display: flex;
