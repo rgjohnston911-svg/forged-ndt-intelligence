@@ -16,6 +16,7 @@ import { useParams } from "react-router-dom";
 import NewCase from "./NewCase";
 import { supabase } from "../lib/supabase";
 import MethodBadge from "../components/MethodBadge";
+import ThicknessGridUpload from "../components/ThicknessGridUpload";
 import { EVIDENCE_METHODS, EVIDENCE_METHOD_GROUPS } from "../lib/constants";
 import { DISPOSITION_COLORS } from "../lib/constants";
 
@@ -413,6 +414,10 @@ export default function CaseDetail() {
               </button>
             </div>
 
+            {/* DEPLOY210: Thickness grid / CML CSV uploader */}
+            {/* DEPLOY214: pass callback so an auto-rerun of run-authority refreshes the case */}
+            {id && <ThicknessGridUpload caseId={id} onAuthorityRerun={function() { loadCase(); }} />}
+
             {/* Evidence display with method tags */}
             {evidence.length > 0 && (
               <div className="evidence-grid">
@@ -754,36 +759,17 @@ export default function CaseDetail() {
                       <span className="stat stat-fail">Failed: {caseData.authority_evidence.rules_failed}</span>
                       <span className="stat">N/A: {caseData.authority_evidence.rules_na}</span>
                       <span className="stat">Measurements: {caseData.authority_evidence.measurements_provided}</span>
+                      {caseData.authority_evidence.thickness_readings_count > 0 && (
+                        <span className="stat">Thickness Readings: {caseData.authority_evidence.thickness_readings_count}</span>
+                      )}
                     </div>
                   </div>
                 )}
-                {caseData.ai_openai_summary && (
-                  <div className="detail-section" style={{ marginTop: "16px" }}>
-                    <h3>GPT-4o Observation Summary</h3>
-                    <p>{caseData.ai_openai_summary}</p>
-                  </div>
-                )}
-                {caseData.ai_claude_summary && (
-                  <div className="detail-section" style={{ marginTop: "16px" }}>
-                    <h3>Claude Reasoning Summary</h3>
-                    <p>{caseData.ai_claude_summary}</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="empty-state">
-                <p>Decision not yet generated. Upload evidence and run the AI analysis, then enter measurements and lock the decision.</p>
-              </div>
-            )}
-          </div>
-        )}
 
-        {/* ========== TEACHING ========== */}
-        {activeTab === "teaching" && (
-          <div className="empty-state"><p>Teaching intelligence coming in Phase 2.</p></div>
-        )}
-
-      </div>
-    </div>
-  );
-}
+                {/* DEPLOY212: Wall Thickness Summary card */}
+                {caseData.authority_evidence && caseData.authority_evidence.thickness_summary && (function() {
+                  var ts = caseData.authority_evidence.thickness_summary;
+                  var pct = ts.pct_min != null ? Math.round(ts.pct_min * 1000) / 10 : null;
+                  var tone = pct == null ? "#8b949e" : pct < 50 ? "#ef4444" : pct < 80 ? "#f59e0b" : "#22c55e";
+                  var bg = pct == null ? "#161b22" : pct < 50 ? "#7f1d1d44" : pct < 80 ? "#78350f44" : "#14532d44";
+                  var verdictLabel = pct == null ? "INFORMATIONAL" : pct < 50 ? 
