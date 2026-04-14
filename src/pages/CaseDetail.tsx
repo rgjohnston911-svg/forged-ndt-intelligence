@@ -12,7 +12,8 @@
  */
 
 import { useEffect, useState, useRef } from "react";
-import { useParams, Navigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import NewCase from "./NewCase";
 import { supabase } from "../lib/supabase";
 import MethodBadge from "../components/MethodBadge";
 import { EVIDENCE_METHODS, EVIDENCE_METHOD_GROUPS } from "../lib/constants";
@@ -273,10 +274,11 @@ export default function CaseDetail() {
   }
 
   // Defensive guard: if route delivered a non-UUID (e.g. "/cases/new" caught
-  // by the :id route), bounce to the NewCase form. Placed after all hooks
-  // so React's hook-order rules stay satisfied.
+  // by the :id route due to a stale bundle), render NewCase directly. This
+  // avoids an infinite redirect loop when the /cases/new static route isn't
+  // being matched by the deployed router.
   if (isNonUuid) {
-    return <Navigate to="/cases/new" replace />;
+    return <NewCase />;
   }
 
   if (loadError) {
