@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Navigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import MethodBadge from "../components/MethodBadge";
 import { EVIDENCE_METHODS, EVIDENCE_METHOD_GROUPS } from "../lib/constants";
@@ -50,8 +50,16 @@ var CODE_LIMITS: Record<string, Array<{ code: string; rule: string; limit: numbe
   "porosity:diameter": [{ code: "AWS D1.1", rule: "Individual", limit: 0.09375 }],
 };
 
+// UUID sanity check -- prevents "new" (or any non-UUID fragment) from being
+// passed to supabase as a uuid query, which returns a hard postgres error.
+var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default function CaseDetail() {
   var { id } = useParams<{ id: string }>();
+  // If the route somehow delivered a non-UUID (e.g. "new"), bounce to NewCase.
+  if (id && !UUID_RE.test(id)) {
+    return <Navigate to="/cases/new" replace />;
+  }
   var [caseData, setCaseData] = useState<any | null>(null);
   var [findings, setFindings] = useState<any[]>([]);
   var [rules, setRules] = useState<any[]>([]);
