@@ -138,7 +138,99 @@ var AUTHORITY_RULES = [
   { id: "TH_POR_D11", rule_name: "AWS D1.1 - Porosity Size", code_family: "AWS_D1_1", rule_class: "threshold", finding_type: "porosity", measurement_key: "diameter", threshold_imperial: 0.09375, threshold_metric: 2.4, operator: "lte", engineering_basis: "Spherical void SCF ~2.0 vs infinite for crack. 3/32 in limit." }
 ];
 
-function runAuthority(findingsArr: any[], measurements: any[]) {
+// DEPLOY211: thickness grid evaluator
+// Consumes thickness_readings rows and appends wall-loss rule evaluations.
+function evaluateThicknessGrid(readings: any[], evaluations: any[], counters: any, hardRejects: string[], thresholdFailures: string[]) {
+  if (!readings || readings.length === 0) return null;
+
+  var nominal: number | null = null;
+  var minT = Number(readings[0].thickness_in);
+  var sumT = 0;
+  var minReading = readings[0];
+  for (var ti = 0; ti < readings.length; ti++) {
+    var tr = readings[ti];
+    var v = Number(tr.thickness_in);
+    if (isNaN(v) || v <= 0) continue;
+    if (tr.nominal_in && !nominal) nominal = Number(tr.nominal_in);
+    if (v < minT) { minT = v; minReading = tr; }
+    sumT += v;
+  }
+  var avgT = sumT / readings.length;
+  var loc = minReading.location_ref || "unknown";
+
+  // If no nominal declared in the CSV, we cannot compute % wall loss.
+  // Emit an informational row and skip pass/fail.
+  if (!nominal || nominal <= 0) {
+    counters.na++;
+    evaluations.push({
+      rule_id: "INFO_GRID_NO_NOMINAL",
+      rule_name: "API 510/570 - Wall Thickness Grid",
+      code_family: "API_510",
+      rule_class: "informational",
+      passed: null,
+      measured_value_imperial: avgT,
+      threshold_imperial: null,
+      explanation: readings.length + " readings. Min=" + minT.toFixed(4) + " in @ " + loc + ". Avg=" + avgT.toFixed(4) + " in. No nominal declared; % wall loss not computed.",
+      engineering_basis: "Wall loss evaluation requires declared nominal thickness. Add '# nominal: <value>' to CSV header to enable API 510/570 checks.",
+      evidence_chain: readings.length + " readings -> nominal missing -> N/A"
+    });
+    return { min_in: minT, avg_in: avgT, nominal_in: null, pct_min: null, min_location: loc, count: readings.length };
+  }
+
+  var pctMin = minT / nominal;
+  var thr50 = nominal * 0.5;
+  var thr80 = nominal * 0.8;
+
+  if (pctMin < 0.5) {
+    counters.failed++;
+    hardRejects.push("API 510/570 - Critical Wall Loss");
+    evaluations.push({
+      rule_id: "HR_WALL_LOSS_CRIT",
+      rule_name: "API 510/570 - Critical Wall Loss",
+      code_family: "API_510",
+      rule_class: "hard_reject",
+      passed: false,
+      measured_value_imperial: minT,
+      threshold_imperial: thr50,
+      explanation: "Min wall thickness " + minT.toFixed(4) + " in at " + loc + " is " + (pctMin * 100).toFixed(1) + "% of nominal " + nominal.toFixed(4) + " in. Below 50% of nominal triggers critical wall-loss rejection.",
+      engineering_basis: "API 510/570: wall loss below 50% of nominal indicates loss of structural integrity margin. Stress in pressure boundary scales with remaining wall; design pressure cannot be assumed.",
+      evidence_chain: "Grid min " + minT.toFixed(4) + " in / nominal " + nominal.toFixed(4) + " in -> " + (pctMin * 100).toFixed(1) + "% -> REJECT"
+    });
+  } else if (pctMin < 0.8) {
+    counters.failed++;
+    thresholdFailures.push("API 510/570 - Wall Loss Warning");
+    evaluations.push({
+      rule_id: "TH_WALL_LOSS_WARN",
+      rule_name: "API 510/570 - Wall Loss Warning",
+      code_family: "API_510",
+      rule_class: "threshold",
+      passed: false,
+      measured_value_imperial: minT,
+      threshold_imperial: thr80,
+      explanation: "Min wall thickness " + minT.toFixed(4) + " in at " + loc + " is " + (pctMin * 100).toFixed(1) + "% of nominal " + nominal.toFixed(4) + " in. Between 50-80% of nominal requires engineering review (FFS assessment or T-min calculation).",
+      engineering_basis: "API 510/570: wall loss below 80% of nominal warrants Fitness-For-Service evaluation. Determine if measured thickness exceeds design minimum (T-min) accounting for corrosion allowance and future corrosion rate.",
+      evidence_chain: "Grid min " + minT.toFixed(4) + " in / nominal " + nominal.toFixed(4) + " in -> " + (pctMin * 100).toFixed(1) + "% -> REVIEW"
+    });
+  } else {
+    counters.passed++;
+    evaluations.push({
+      rule_id: "TH_WALL_LOSS_OK",
+      rule_name: "API 510/570 - Wall Thickness",
+      code_family: "API_510",
+      rule_class: "threshold",
+      passed: true,
+      measured_value_imperial: minT,
+      threshold_imperial: thr80,
+      explanation: "Min wall thickness " + minT.toFixed(4) + " in at " + loc + " is " + (pctMin * 100).toFixed(1) + "% of nominal " + nominal.toFixed(4) + " in. At or above 80% of nominal, PASS.",
+      engineering_basis: "API 510/570: wall loss below 20% is within typical operating margin; no FFS required.",
+      evidence_chain: "Grid min " + minT.toFixed(4) + " in / nominal " + nominal.toFixed(4) + " in -> " + (pctMin * 100).toFixed(1) + "% -> PASS"
+    });
+  }
+
+  return { min_in: minT, avg_in: avgT, nominal_in: nominal, pct_min: pctMin, min_location: loc, count: readings.length };
+}
+
+function runAuthority(findingsArr: any[], measurements: any[], thicknessReadings?: any[]) {
   var evaluations: any[] = [];
   var hardRejects: string[] = [];
   var thresholdFailures: string[] = [];
@@ -209,6 +301,13 @@ function runAuthority(findingsArr: any[], measurements: any[]) {
     }
   }
 
+  // DEPLOY211: evaluate thickness grid readings (runs regardless of AI findings)
+  var tCounters = { passed: 0, failed: 0, na: 0 };
+  var thicknessSummary = evaluateThicknessGrid(thicknessReadings || [], evaluations, tCounters, hardRejects, thresholdFailures);
+  rulesPassed += tCounters.passed;
+  rulesFailed += tCounters.failed;
+  rulesNA += tCounters.na;
+
   // FINAL DECISION
   var disposition = "accept";
   var locked = false;
@@ -237,9 +336,10 @@ function runAuthority(findingsArr: any[], measurements: any[]) {
     locked: locked, disposition: disposition, confidence: confidence,
     reason: reason, what: whatText, why: whyText, how: howText,
     evaluations: evaluations,
-    evidence: { rules_evaluated: evaluations.length, rules_passed: rulesPassed, rules_failed: rulesFailed, rules_na: rulesNA, hard_rejects: hardRejects, threshold_failures: thresholdFailures, measurements_provided: measurements.length, measurements_needed: missingMeasurements.length },
+    evidence: { rules_evaluated: evaluations.length, rules_passed: rulesPassed, rules_failed: rulesFailed, rules_na: rulesNA, hard_rejects: hardRejects, threshold_failures: thresholdFailures, measurements_provided: measurements.length, measurements_needed: missingMeasurements.length, thickness_readings_count: (thicknessReadings || []).length, thickness_summary: thicknessSummary },
     missing_measurements: missingMeasurements,
-    measurement_count: measurements.length
+    measurement_count: measurements.length,
+    thickness_summary: thicknessSummary
   };
 }
 
@@ -279,6 +379,10 @@ var handler: Handler = async function(event) {
     var measResult = await supabase.from("case_measurements").select("*").eq("case_id", caseId);
     var measurements = measResult.data || [];
 
+    // DEPLOY211: Load thickness grid readings
+    var thicknessResult = await supabase.from("thickness_readings").select("*").eq("case_id", caseId);
+    var thicknessReadings = thicknessResult.data || [];
+
     // Separate by source for conflict resolution
     var oaiFindings = allFindings.filter(function(f) { return f.source === "openai"; });
     var cldFindings = allFindings.filter(function(f) { return f.source === "claude"; });
@@ -305,8 +409,45 @@ var handler: Handler = async function(event) {
       }
     }
 
-    // Run authority engine
-    var authority = runAuthority(allFindings, measurements);
+    // Run authority engine (DEPLOY211: now includes thickness grid)
+    var authority = runAuthority(allFindings, measurements, thicknessReadings);
+
+    // DEPLOY213: sync a synthetic wall_loss finding so the Findings tab
+    // reflects what actually drove the disposition. Idempotent — we delete
+    // prior authority-sourced wall_loss rows before inserting the fresh one.
+    await supabase.from("findings").delete().eq("case_id", caseId).eq("source", "authority").eq("label", "wall_loss");
+    var ts = authority.thickness_summary;
+    if (ts && ts.pct_min != null) {
+      var sev = ts.pct_min < 0.5 ? "critical" : ts.pct_min < 0.8 ? "high" : "low";
+      var wlConfidence = 1.0; // direct measurement, not inference
+      var wlReasoning = "Grid survey: min wall thickness " + (ts.min_in != null ? ts.min_in.toFixed(4) : "-") + " in at " + (ts.min_location || "unknown") + " is " + (ts.pct_min * 100).toFixed(1) + "% of nominal " + (ts.nominal_in != null ? ts.nominal_in.toFixed(4) : "-") + " in across " + (ts.count || 0) + " readings.";
+      var wlCauses = sev === "critical"
+        ? "General or localized corrosion, erosion, mechanical wear. At <50% of nominal the remaining ligament cannot be assumed to contain design pressure."
+        : sev === "high"
+        ? "Corrosion or erosion-driven wall loss. Requires Fitness-For-Service assessment (API 579) or T-min verification before accepting."
+        : "Normal service wear within allowable margin.";
+      await supabase.from("findings").insert({
+        case_id: caseId,
+        source: "authority",
+        finding_type: "wall_loss",
+        label: "wall_loss",
+        location_ref: ts.min_location || null,
+        severity: sev,
+        confidence: wlConfidence,
+        structured_json: {
+          min_in: ts.min_in,
+          avg_in: ts.avg_in,
+          nominal_in: ts.nominal_in,
+          pct_of_nominal: ts.pct_min,
+          min_location: ts.min_location,
+          readings_count: ts.count,
+          reasoning: wlReasoning,
+          possible_causes: wlCauses,
+          generated_by: "authority_engine",
+          rule_source: "API_510_570"
+        }
+      });
+    }
 
     // Store authority evaluations
     await supabase.from("rule_evaluations").delete().eq("case_id", caseId);
