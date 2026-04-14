@@ -772,4 +772,33 @@ export default function CaseDetail() {
                   var pct = ts.pct_min != null ? Math.round(ts.pct_min * 1000) / 10 : null;
                   var tone = pct == null ? "#8b949e" : pct < 50 ? "#ef4444" : pct < 80 ? "#f59e0b" : "#22c55e";
                   var bg = pct == null ? "#161b22" : pct < 50 ? "#7f1d1d44" : pct < 80 ? "#78350f44" : "#14532d44";
-                  var verdictLabel = pct == null ? "INFORMATIONAL" : pct < 50 ? 
+                  var verdictLabel = pct == null ? "INFORMATIONAL" : pct < 50 ? "REJECT" : pct < 80 ? "FFS REVIEW" : "PASS";
+                  return (
+                    <div style={{ marginTop: "16px", padding: "12px", backgroundColor: bg, border: "1px solid " + tone, borderRadius: "8px" }}>
+                      <h3 style={{ margin: "0 0 8px 0", color: tone, fontSize: "14px" }}>
+                        {"Wall Thickness Summary \u2014 " + verdictLabel}
+                      </h3>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "12px", color: "#c9d1d9" }}>
+                        <span>Readings: {ts.count}</span>
+                        {ts.min_in != null && <span>Min: {Number(ts.min_in).toFixed(4)} in</span>}
+                        {ts.avg_in != null && <span>Avg: {Number(ts.avg_in).toFixed(4)} in</span>}
+                        {ts.nominal_in != null && <span>Nominal: {Number(ts.nominal_in).toFixed(4)} in</span>}
+                        {pct != null && <span style={{ color: tone, fontWeight: 600 }}>{"Min/Nominal: " + pct + "%"}</span>}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div className="decision-empty">
+                <p>No authority decision on record yet. Enter measurements in the Evidence tab, then click Run Authority Lock.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+ 
