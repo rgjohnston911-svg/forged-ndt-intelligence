@@ -56,10 +56,7 @@ var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default function CaseDetail() {
   var { id } = useParams<{ id: string }>();
-  // If the route somehow delivered a non-UUID (e.g. "new"), bounce to NewCase.
-  if (id && !UUID_RE.test(id)) {
-    return <Navigate to="/cases/new" replace />;
-  }
+  var isNonUuid = !!(id && !UUID_RE.test(id));
   var [caseData, setCaseData] = useState<any | null>(null);
   var [findings, setFindings] = useState<any[]>([]);
   var [rules, setRules] = useState<any[]>([]);
@@ -83,7 +80,7 @@ export default function CaseDetail() {
   var [measSaved, setMeasSaved] = useState(false);
   var [savingMeas, setSavingMeas] = useState(false);
 
-  useEffect(function() { if (id) loadCase(); }, [id]);
+  useEffect(function() { if (id && !isNonUuid) loadCase(); }, [id, isNonUuid]);
 
   async function loadCase() {
     setLoading(true);
@@ -273,6 +270,13 @@ export default function CaseDetail() {
       }
     }
     return { status: "PASS", detail: "Within code limits" };
+  }
+
+  // Defensive guard: if route delivered a non-UUID (e.g. "/cases/new" caught
+  // by the :id route), bounce to the NewCase form. Placed after all hooks
+  // so React's hook-order rules stay satisfied.
+  if (isNonUuid) {
+    return <Navigate to="/cases/new" replace />;
   }
 
   if (loadError) {
