@@ -18,6 +18,8 @@ import { supabase } from "../lib/supabase";
 import MethodBadge from "../components/MethodBadge";
 import ThicknessGridUpload from "../components/ThicknessGridUpload";
 import SimilarCasesPanel from "../components/SimilarCasesPanel";
+import DecisionSpineCard from "../components/DecisionSpineCard";
+import PlannerAgentCard from "../components/PlannerAgentCard";
 import { EVIDENCE_METHODS, EVIDENCE_METHOD_GROUPS } from "../lib/constants";
 import { DISPOSITION_COLORS } from "../lib/constants";
 
@@ -725,6 +727,8 @@ export default function CaseDetail() {
           <div>
             {/* DEPLOY215: Similar prior cases retrieval (case library compounding) */}
             {id && <SimilarCasesPanel caseId={id} k={5} />}
+            {id && <DecisionSpineCard caseId={id} />}
+            {id && <PlannerAgentCard caseId={id} />}
             {caseData.authority_locked && (
               <div className="authority-locked-banner">
                 <span className="lock-icon">{"\uD83D\uDD12"}</span>
