@@ -20,6 +20,7 @@ import ThicknessGridUpload from "../components/ThicknessGridUpload";
 import SimilarCasesPanel from "../components/SimilarCasesPanel";
 import DecisionSpineCard from "../components/DecisionSpineCard";
 import PlannerAgentCard from "../components/PlannerAgentCard";
+import CompositeRepairCard from "../components/CompositeRepairCard";
 import { EVIDENCE_METHODS, EVIDENCE_METHOD_GROUPS } from "../lib/constants";
 import { DISPOSITION_COLORS } from "../lib/constants";
 
