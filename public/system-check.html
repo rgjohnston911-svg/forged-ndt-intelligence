@@ -127,7 +127,8 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY167: Truth Engine", "/api/truth-engine", { case_id: fakeId });
   await testEndpoint("DEPLOY167: Planner Agent", "/api/planner-agent", { case_id: fakeId });
   await testEndpoint("DEPLOY074: Governance Matrix", "/api/governance-matrix", { case_id: fakeId });
-
+await testEndpoint("DEPLOY227: Case Search", "/api/case-search", { action: "filter_options" });
+  await testEndpoint("DEPLOY228: Escalation Workflow", "/api/escalation-workflow", { action: "get_stats" });
   document.getElementById("runBtn").disabled = false;
   document.getElementById("runBtn").textContent = "Run Full System Check";
 }
