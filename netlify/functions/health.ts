@@ -63,7 +63,11 @@ var ENGINE_REGISTRY = [
   { name: "trend-analytics", deploy: "DEPLOY229", mode: "deterministic", path: "/api/trend-analytics" },
   { name: "notifications", deploy: "DEPLOY230", mode: "deterministic", path: "/api/notifications" },
   { name: "compliance-matrix", deploy: "DEPLOY231", mode: "deterministic", path: "/api/compliance-matrix" },
-  { name: "risk-scoring", deploy: "DEPLOY232", mode: "deterministic", path: "/api/risk-scoring" }
+  { name: "risk-scoring", deploy: "DEPLOY232", mode: "deterministic", path: "/api/risk-scoring" },
+  { name: "inspection-report", deploy: "DEPLOY233", mode: "deterministic", path: "/api/inspection-report" },
+  { name: "rbac", deploy: "DEPLOY234", mode: "deterministic", path: "/api/rbac" },
+  { name: "validation-engine", deploy: "DEPLOY235", mode: "deterministic", path: "/api/validation-engine" },
+  { name: "data-ingestion", deploy: "DEPLOY236", mode: "deterministic", path: "/api/data-ingestion" }
 ];
 
 function countByMode(mode) {
