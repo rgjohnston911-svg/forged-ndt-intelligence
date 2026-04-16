@@ -4,17 +4,6 @@
  *
  * Bonded Composite Repair Authority Pack.
  *
- * Purpose: extend FORGED's physics-first decision stack to cover
- * carbon-fiber / FRP / bonded composite repair systems. The bare-metal
- * ruleset alone misses the wrap itself — which, once installed, is a
- * structural element with its own failure modes (disbond, matrix
- * cracking, fiber breakage, water ingress, UV degradation) and its
- * own code basis (ASME PCC-2 Article 4.1, ISO 24817).
- *
- * This function reads the case transcript + findings, detects composite-
- * repair signals, emits a deterministic mechanism list, a composite-
- * specific inspection plan, and a pass/suspect/failed status.
- *
  * Endpoint: POST /api/composite-repair-authority { case_id }
  * Writes:   composite_repair_assessment (jsonb),
  *           composite_repair_generated_at (timestamptz),
@@ -29,7 +18,6 @@ var PACK_VERSION = "composite-repair-authority/1.0.0";
 
 // -------- Signal dictionaries -------------------------------------------
 
-// Presence signals: does a bonded composite repair exist on this asset?
 var PRESENCE_KEYWORDS = [
   "composite wrap", "composite repair", "carbon fiber", "carbon-fiber",
   "fiberglass wrap", "glass fiber wrap", "frp wrap", "frp repair",
@@ -38,7 +26,6 @@ var PRESENCE_KEYWORDS = [
   "asme pcc-2", "iso 24817"
 ];
 
-// Disbond signals (tap test, edge lifting, rust bleed)
 var DISBOND_KEYWORDS = [
   "tap test soft", "soft sounding zone", "hollow sound", "hollow zone",
   "edge lifting", "lifting at the edge", "lifted edge", "debond", "disbond",
@@ -46,25 +33,21 @@ var DISBOND_KEYWORDS = [
   "rust at overlap", "staining at seam", "bleed through"
 ];
 
-// Matrix / resin degradation
 var MATRIX_KEYWORDS = [
   "matrix cracking", "resin cracking", "surface craze", "crazing",
   "discoloration", "yellowing", "uv degradation", "chalking"
 ];
 
-// Fiber breakage / impact
 var FIBER_DAMAGE_KEYWORDS = [
   "fiber break", "broken fiber", "fiber pull-out", "impact damage on wrap",
   "dent on wrap", "cut in wrap", "gouge on wrap"
 ];
 
-// Water ingress
 var WATER_INGRESS_KEYWORDS = [
   "blistering on wrap", "blister in laminate", "moisture under wrap",
   "water ingress", "saturated laminate"
 ];
 
-// General blister signals (adjacent substrate rather than wrap itself)
 var ADJACENT_COATING_KEYWORDS = [
   "coating blistering", "coating breakdown", "paint blister"
 ];
@@ -209,20 +192,17 @@ function assessCompositeRepair(transcript, findings) {
     });
   }
 
-  // Status resolution
   var status = "repair_intact";
   var hasHigh = mechanisms.some(function(m) { return m.severity === "high"; });
   var hasAny = mechanisms.length > 0;
   if (hasHigh) status = "repair_failed";
   else if (hasAny) status = "repair_suspect";
 
-  // Authority codes are always invoked once a repair is detected.
   var authority_codes = [
     { code: "ASME PCC-2 Art. 4.1", title: "Non-metallic Composite Repair Systems — High-Risk Applications", role: "primary_repair_authority" },
     { code: "ISO 24817", title: "Composite Repairs for Pipework — Qualification, Design, Installation, Testing and Inspection", role: "supplemental_repair_authority" }
   ];
 
-  // Composite-specific inspection plan (always returned when repair present)
   var required_inspection_plan = [
     {
       method: "Tap test grid",
@@ -251,13 +231,9 @@ function assessCompositeRepair(transcript, findings) {
     }
   ];
 
-  // Evidence gate: for HIGH/CRITICAL consequence assets with a repair,
-  // the inspection plan must include at least one disbond-detection method.
   var gate_gaps = [];
-  // Caller can augment this logic against authority_lock.consequence tier.
   var evidence_gate = { passes: true, gaps: gate_gaps };
 
-  // Narrative summary
   var summary_lines = [];
   summary_lines.push("Bonded composite repair detected. ASME PCC-2 Art. 4.1 and ISO 24817 authority invoked.");
   if (disbondHits.length > 0) summary_lines.push("Disbond signatures present (" + disbondHits.length + "): " + disbondHits.slice(0, 4).join("; ") + ".");
@@ -310,10 +286,10 @@ export async function handler(event) {
   var caseId = body.case_id;
   if (!caseId) return { statusCode: 400, body: JSON.stringify({ error: "case_id_required" }) };
 
-  // Load case transcript + findings
+  // Load case (select * — schema on inspection_cases varies) + findings from its own table
   var caseQ = await supabase
     .from("inspection_cases")
-    .select("id, org_id, transcript, narrative, description, findings")
+    .select("*")
     .eq("id", caseId)
     .single();
 
@@ -322,8 +298,35 @@ export async function handler(event) {
   }
 
   var c = caseQ.data;
-  var transcript = (c.transcript || "") + " " + (c.narrative || "") + " " + (c.description || "");
-  var findings = c.findings || [];
+
+  // Build a free-text blob from every plausible narrative field on the row.
+  var textParts = [];
+  var textFieldNames = [
+    "transcript", "narrative", "description", "summary", "notes",
+    "title", "inspector_notes", "observations", "remarks", "background",
+    "context", "history", "asset_description", "inspection_context"
+  ];
+  for (var tf = 0; tf < textFieldNames.length; tf++) {
+    var v = c[textFieldNames[tf]];
+    if (typeof v === "string" && v.length > 0) textParts.push(v);
+  }
+
+  // Pull findings from the findings table (same pattern as similar-cases / truth-engine).
+  var findings = [];
+  try {
+    var fRes = await supabase.from("findings").select("*").eq("case_id", caseId);
+    if (!fRes.error && Array.isArray(fRes.data)) {
+      findings = fRes.data;
+      for (var fi = 0; fi < findings.length; fi++) {
+        var fRow = findings[fi];
+        if (fRow && typeof fRow.label === "string") textParts.push(fRow.label);
+        if (fRow && typeof fRow.description === "string") textParts.push(fRow.description);
+        if (fRow && typeof fRow.notes === "string") textParts.push(fRow.notes);
+      }
+    }
+  } catch (eFind) { /* non-fatal */ }
+
+  var transcript = textParts.join(" ");
 
   var assessment = assessCompositeRepair(transcript, findings);
   var generatedAt = new Date().toISOString();
