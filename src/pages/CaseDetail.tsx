@@ -742,6 +742,7 @@ export default function CaseDetail() {
             {id && <UniversalCodeAuthorityCard caseId={id} />}
             {id && <EnterpriseAuditCard caseId={id} />}
             {id && <InspectorAdjudicationCard caseId={id} />}
+            {id && <EscalationQueueCard caseId={id} />}
             {caseData.authority_locked && (
               <div className="authority-locked-banner">
                 <span className="lock-icon">{"\uD83D\uDD12"}</span>
