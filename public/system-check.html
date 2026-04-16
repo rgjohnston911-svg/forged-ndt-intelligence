@@ -27,7 +27,7 @@
 <body>
 
 <h1>FORGED NDT Intelligence OS — System Check</h1>
-<p class="subtitle">FORGED-NDT/2.0.0 — All 25 engines — Full endpoint verification</p>
+<p class="subtitle">FORGED-NDT/2.0.0 — All 29 engines — Full endpoint verification</p>
 
 <div class="summary-bar">
   <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
@@ -138,6 +138,10 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY200: Similar Cases", "/api/similar-cases", { case_id: fakeId });
   await testEndpoint("Core: Run Analysis", "/api/run-analysis", { case_id: fakeId });
   await testEndpoint("Core: Observation Layer", "/api/observation-layer", { case_id: fakeId });
+  await testEndpoint("DEPLOY233: Inspection Report", "/api/inspection-report", { action: "get_templates" });
+  await testEndpoint("DEPLOY234: RBAC", "/api/rbac", { action: "get_permissions_matrix" });
+  await testEndpoint("DEPLOY235: Validation Engine", "/api/validation-engine", { action: "get_scenarios" });
+  await testEndpoint("DEPLOY236: Data Ingestion", "/api/data-ingestion", { action: "get_field_map" });
 
   document.getElementById("runBtn").disabled = false;
   document.getElementById("runBtn").textContent = "Run Full System Check";
