@@ -67,7 +67,9 @@ var ENGINE_REGISTRY = [
   { name: "inspection-report", deploy: "DEPLOY233", mode: "deterministic", path: "/api/inspection-report" },
   { name: "rbac", deploy: "DEPLOY234", mode: "deterministic", path: "/api/rbac" },
   { name: "validation-engine", deploy: "DEPLOY235", mode: "deterministic", path: "/api/validation-engine" },
-  { name: "data-ingestion", deploy: "DEPLOY236", mode: "deterministic", path: "/api/data-ingestion" }
+  { name: "data-ingestion", deploy: "DEPLOY236", mode: "deterministic", path: "/api/data-ingestion" },
+  { name: "chemical-process", deploy: "DEPLOY237", mode: "deterministic", path: "/api/chemical-process" },
+  { name: "nuclear-vertical", deploy: "DEPLOY238", mode: "deterministic", path: "/api/nuclear-vertical" }
 ];
 
 function countByMode(mode) {
