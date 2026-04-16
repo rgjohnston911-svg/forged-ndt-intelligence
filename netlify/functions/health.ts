@@ -69,7 +69,11 @@ var ENGINE_REGISTRY = [
   { name: "validation-engine", deploy: "DEPLOY235", mode: "deterministic", path: "/api/validation-engine" },
   { name: "data-ingestion", deploy: "DEPLOY236", mode: "deterministic", path: "/api/data-ingestion" },
   { name: "chemical-process", deploy: "DEPLOY237", mode: "deterministic", path: "/api/chemical-process" },
-  { name: "nuclear-vertical", deploy: "DEPLOY238", mode: "deterministic", path: "/api/nuclear-vertical" }
+  { name: "nuclear-vertical", deploy: "DEPLOY238", mode: "deterministic", path: "/api/nuclear-vertical" },
+  { name: "aerospace-vertical", deploy: "DEPLOY239", mode: "deterministic", path: "/api/aerospace-vertical" },
+  { name: "power-generation", deploy: "DEPLOY240", mode: "deterministic", path: "/api/power-generation" },
+  { name: "maritime-offshore", deploy: "DEPLOY241", mode: "deterministic", path: "/api/maritime-offshore" },
+  { name: "civil-infrastructure", deploy: "DEPLOY242", mode: "deterministic", path: "/api/civil-infrastructure" }
 ];
 
 function countByMode(mode) {
