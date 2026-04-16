@@ -177,3 +177,4 @@ export var handler: Handler = async function(event) {
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
   }
 };
+{ name: "case-search", deploy: "DEPLOY227", mode: "deterministic", path: "/api/case-search" }
