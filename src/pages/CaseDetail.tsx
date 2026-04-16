@@ -26,6 +26,7 @@ import OutcomeSimulationCard from "../components/OutcomeSimulationCard";
 import UniversalCodeAuthorityCard from "../components/UniversalCodeAuthorityCard";
 import EnterpriseAuditCard from "../components/EnterpriseAuditCard";
 import InspectorAdjudicationCard from "../components/InspectorAdjudicationCard";
+import EscalationQueueCard from "../components/EscalationQueueCard";
 import { EVIDENCE_METHODS, EVIDENCE_METHOD_GROUPS } from "../lib/constants";
 import { DISPOSITION_COLORS } from "../lib/constants";
 
