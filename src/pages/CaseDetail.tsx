@@ -730,6 +730,7 @@ export default function CaseDetail() {
             {id && <SimilarCasesPanel caseId={id} k={5} />}
             {id && <DecisionSpineCard caseId={id} />}
             {id && <PlannerAgentCard caseId={id} />}
+            {id && <CompositeRepairCard caseId={id} />}
             {caseData.authority_locked && (
               <div className="authority-locked-banner">
                 <span className="lock-icon">{"\uD83D\uDD12"}</span>
