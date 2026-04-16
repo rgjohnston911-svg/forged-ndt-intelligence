@@ -22,6 +22,7 @@ import DecisionSpineCard from "../components/DecisionSpineCard";
 import PlannerAgentCard from "../components/PlannerAgentCard";
 import CompositeRepairCard from "../components/CompositeRepairCard";
 import MaterialAuthorityCard from "../components/MaterialAuthorityCard";
+import OutcomeSimulationCard from "../components/OutcomeSimulationCard";
 import { EVIDENCE_METHODS, EVIDENCE_METHOD_GROUPS } from "../lib/constants";
 import { DISPOSITION_COLORS } from "../lib/constants";
 
@@ -733,6 +734,7 @@ export default function CaseDetail() {
             {id && <PlannerAgentCard caseId={id} />}
             {id && <CompositeRepairCard caseId={id} />}
             {id && <MaterialAuthorityCard caseId={id} />}
+            {id && <OutcomeSimulationCard caseId={id} />}
             {caseData.authority_locked && (
               <div className="authority-locked-banner">
                 <span className="lock-icon">{"\uD83D\uDD12"}</span>
