@@ -27,7 +27,7 @@
 <body>
 
 <h1>FORGED NDT Intelligence OS — System Check</h1>
-<p class="subtitle">Automated endpoint verification for DEPLOY220-226 + legacy engines</p>
+<p class="subtitle">Automated endpoint verification for DEPLOY220-229 + legacy engines</p>
 
 <div class="summary-bar">
   <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
@@ -70,34 +70,39 @@ function renderResults() {
 
 function esc(s) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
-async function testEndpoint(name, path, body) {
-  var start = Date.now();
-  try {
-    var resp = await fetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-    var ms = Date.now() - start;
-    var text = await resp.text();
+function testEndpoint(name, path, body) {
+  return new Promise(function(resolve) {
+    var start = Date.now();
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", path, true);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        var ms = Date.now() - start;
+        var text = xhr.responseText || "";
+        var status = xhr.status;
 
-    // Check if response is JSON
-    if (text.charAt(0) === '{' || text.charAt(0) === '[') {
-      var json = JSON.parse(text);
-      // 404 = function works, case not found (expected)
-      // 200 = function works, returned data
-      // 400 = function works, bad input (expected for missing params)
-      // 500 = function works but errored internally
-      var isOk = resp.status !== 502 && resp.status !== 503;
-      var detail = "HTTP " + resp.status + "\n" + JSON.stringify(json, null, 2).substring(0, 500);
-      addResult(name, isOk ? "pass" : "fail", ms, detail);
-    } else {
-      // Got HTML back — function not found or not deployed
-      addResult(name, "fail", ms, "HTTP " + resp.status + " — Got HTML instead of JSON.\nFunction may not be deployed or has a build error.\nFirst 100 chars: " + text.substring(0, 100));
-    }
-  } catch(e) {
-    addResult(name, "fail", Date.now() - start, "Error: " + String(e));
-  }
+        if (text.length > 0 && (text.charAt(0) === "{" || text.charAt(0) === "[")) {
+          try {
+            var json = JSON.parse(text);
+            var isOk = status !== 502 && status !== 503;
+            var detail = "HTTP " + status + "\n" + JSON.stringify(json, null, 2).substring(0, 500);
+            addResult(name, isOk ? "pass" : "fail", ms, detail);
+          } catch(e) {
+            addResult(name, "warn", ms, "HTTP " + status + " - JSON parse error\n" + text.substring(0, 200));
+          }
+        } else {
+          addResult(name, "fail", ms, "HTTP " + status + " — Got HTML instead of JSON.\nFunction may not be deployed or has a build error.\nFirst 100 chars: " + text.substring(0, 100));
+        }
+        resolve();
+      }
+    };
+    xhr.onerror = function() {
+      addResult(name, "fail", Date.now() - start, "Network error");
+      resolve();
+    };
+    xhr.send(JSON.stringify(body));
+  });
 }
 
 async function runAllChecks() {
@@ -108,14 +113,17 @@ async function runAllChecks() {
 
   var fakeId = "00000000-0000-0000-0000-000000000000";
 
-  // DEPLOY220-226 endpoints
+  // DEPLOY220-229 endpoints
+  await testEndpoint("DEPLOY225: Health", "/api/health", {});
   await testEndpoint("DEPLOY220: Decision Spine", "/api/decision-spine", { case_id: fakeId });
   await testEndpoint("DEPLOY221: Outcome Simulation", "/api/outcome-simulation", { case_id: fakeId });
   await testEndpoint("DEPLOY222: Universal Code Authority", "/api/universal-code-authority", { case_id: fakeId });
   await testEndpoint("DEPLOY223: Enterprise Audit", "/api/enterprise-audit", { action: "get_history", case_id: fakeId });
   await testEndpoint("DEPLOY223: Verify Audit Chain", "/api/verify-audit-chain", { case_id: fakeId });
-  await testEndpoint("DEPLOY225: Health", "/api/health", {});
   await testEndpoint("DEPLOY226: Inspector Adjudication", "/api/inspector-adjudication", { action: "get_history", case_id: fakeId });
+  await testEndpoint("DEPLOY227: Case Search", "/api/case-search", { action: "filter_options" });
+  await testEndpoint("DEPLOY228: Escalation Workflow", "/api/escalation-workflow", { action: "get_stats" });
+  await testEndpoint("DEPLOY229: Trend Analytics", "/api/trend-analytics", { action: "executive_summary" });
 
   // Legacy engines
   await testEndpoint("DEPLOY216: Run Authority", "/api/run-authority", { case_id: fakeId });
@@ -127,8 +135,7 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY167: Truth Engine", "/api/truth-engine", { case_id: fakeId });
   await testEndpoint("DEPLOY167: Planner Agent", "/api/planner-agent", { case_id: fakeId });
   await testEndpoint("DEPLOY074: Governance Matrix", "/api/governance-matrix", { case_id: fakeId });
-await testEndpoint("DEPLOY227: Case Search", "/api/case-search", { action: "filter_options" });
-  await testEndpoint("DEPLOY228: Escalation Workflow", "/api/escalation-workflow", { action: "get_stats" });
+
   document.getElementById("runBtn").disabled = false;
   document.getElementById("runBtn").textContent = "Run Full System Check";
 }
