@@ -25,6 +25,7 @@ import MaterialAuthorityCard from "../components/MaterialAuthorityCard";
 import OutcomeSimulationCard from "../components/OutcomeSimulationCard";
 import UniversalCodeAuthorityCard from "../components/UniversalCodeAuthorityCard";
 import EnterpriseAuditCard from "../components/EnterpriseAuditCard";
+import InspectorAdjudicationCard from "../components/InspectorAdjudicationCard";
 import { EVIDENCE_METHODS, EVIDENCE_METHOD_GROUPS } from "../lib/constants";
 import { DISPOSITION_COLORS } from "../lib/constants";
 
@@ -739,6 +740,7 @@ export default function CaseDetail() {
             {id && <OutcomeSimulationCard caseId={id} />}
             {id && <UniversalCodeAuthorityCard caseId={id} />}
             {id && <EnterpriseAuditCard caseId={id} />}
+            {id && <InspectorAdjudicationCard caseId={id} />}
             {caseData.authority_locked && (
               <div className="authority-locked-banner">
                 <span className="lock-icon">{"\uD83D\uDD12"}</span>
