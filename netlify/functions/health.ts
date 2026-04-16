@@ -30,7 +30,7 @@ var BUILD_DATE = "2026-04-16";
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Content-Type": "application/json"
 };
 
@@ -80,10 +80,17 @@ var ERROR_CODES = {
 
 export var handler: Handler = async function(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
-  if (event.httpMethod !== "GET") return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "GET only" }) };
 
   var startTime = Date.now();
-  var quick = event.queryStringParameters && event.queryStringParameters.quick === "1";
+  var quick = false;
+  if (event.httpMethod === "GET") {
+    quick = event.queryStringParameters && event.queryStringParameters.quick === "1";
+  } else if (event.httpMethod === "POST") {
+    try {
+      var reqBody = JSON.parse(event.body || "{}");
+      quick = reqBody.quick === true;
+    } catch(pe) {}
+  }
 
   var checks = [];
   var errors = [];
