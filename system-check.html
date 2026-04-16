@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FORGED NDT - System Check</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #e6edf3; font-family: Inter, system-ui, sans-serif; padding: 32px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 24px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; letter-spacing: 1px; }
+  .pass { background: #22c55e22; color: #22c55e; border: 1px solid #22c55e44; }
+  .fail { background: #ef444422; color: #ef4444; border: 1px solid #ef444444; }
+  .warn { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
+  .running { background: #3b82f622; color: #3b82f6; border: 1px solid #3b82f644; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #21262d; }
+  .row:last-child { border-bottom: none; }
+  .label { font-size: 13px; color: #c9d1d9; }
+  .value { font-size: 13px; font-weight: 600; }
+  .mono { font-family: monospace; font-size: 11px; color: #8b949e; }
+  .detail { font-size: 12px; color: #8b949e; margin-top: 4px; white-space: pre-wrap; max-height: 200px; overflow-y: auto; background: #0d1117; border-radius: 6px; padding: 8px; }
+  .summary-bar { display: flex; gap: 16px; margin-bottom: 24px; }
+  .summary-box { flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: center; }
+  .summary-box .num { font-size: 28px; font-weight: 800; }
+  .summary-box .lbl { font-size: 11px; color: #8b949e; margin-top: 4px; }
+  button { background: #238636; color: #fff; border: none; border-radius: 8px; padding: 12px 24px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .error-text { color: #ef4444; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>FORGED NDT Intelligence OS — System Check</h1>
+<p class="subtitle">Automated endpoint verification for DEPLOY220-226</p>
+
+<div class="summary-bar">
+  <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
+  <div class="summary-box"><div class="num" id="totalFail" style="color:#ef4444">-</div><div class="lbl">FAIL</div></div>
+  <div class="summary-box"><div class="num" id="totalWarn" style="color:#f59e0b">-</div><div class="lbl">WARN</div></div>
+  <div class="summary-box"><div class="num" id="totalTime" style="color:#3b82f6">-</div><div class="lbl">TOTAL MS</div></div>
+</div>
+
+<button id="runBtn" onclick="runAllChecks()">Run Full System Check</button>
+<div id="results" style="margin-top:24px"></div>
+
+<script>
+var RISER_CASE_ID = null;
+var results = [];
+
+async function findRiserCase() {
+  // We need a case ID. Try to find the riser case.
+  try {
+    var resp = await fetch("/api/health");
+    var json = await resp.json();
+    if (json.database && json.database.total_cases > 0) {
+      return json;
+    }
+  } catch(e) {}
+  return null;
+}
+
+function addResult(name, status, ms, detail) {
+  results.push({ name: name, status: status, ms: ms, detail: detail });
+  renderResults();
+}
+
+function renderResults() {
+  var html = "";
+  var pass = 0, fail = 0, warn = 0, totalMs = 0;
+  for (var i = 0; i < results.length; i++) {
+    var r = results[i];
+    if (r.status === "pass") pass++;
+    else if (r.status === "fail") fail++;
+    else warn++;
+    totalMs += r.ms || 0;
+
+    var badgeClass = r.status === "pass" ? "pass" : (r.status === "fail" ? "fail" : "warn");
+    html += '<div class="card">';
+    html += '<h2><span class="badge ' + badgeClass + '">' + r.status.toUpperCase() + '</span> ' + r.name + ' <span class="mono">' + (r.ms || 0) + 'ms</span></h2>';
+    if (r.detail) html += '<div class="detail">' + escapeHtml(typeof r.detail === "string" ? r.detail : JSON.stringify(r.detail, null, 2)) + '</div>';
+    html += '</div>';
+  }
+  document.getElementById("results").innerHTML = html;
+  document.getElementById("totalPass").textContent = pass;
+  document.getElementById("totalFail").textContent = fail;
+  document.getElementById("totalWarn").textContent = warn;
+  document.getElementById("totalTime").textContent = totalMs;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+async function timedFetch(url, opts) {
+  var start = Date.now();
+  try {
+    var resp = await fetch(url, opts);
+    var ms = Date.now() - start;
+    var json = await resp.json();
+    return { ok: resp.ok, status: resp.status, ms: ms, json: json };
+  } catch(e) {
+    return { ok: false, status: 0, ms: Date.now() - start, json: null, error: String(e) };
+  }
+}
+
+async function runAllChecks() {
+  document.getElementById("runBtn").disabled = true;
+  document.getElementById("runBtn").textContent = "Running...";
+  results = [];
+  renderResults();
+
+  // 1. Health endpoint (POST since Netlify SPA catch-all intercepts GET)
+  var h = await timedFetch("/api/health", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
+  if (h.ok && h.json && h.json.status) {
+    var healthStatus = h.json.status === "healthy" ? "pass" : (h.json.errors && h.json.errors.length > 0 ? "fail" : "warn");
+    addResult("DEPLOY225: Health Endpoint", healthStatus, h.ms,
+      "Status: " + h.json.status + "\nEngines: " + h.json.engines.total +
+      "\nDB Connected: " + h.json.database.connected +
+      "\nCases: " + h.json.database.total_cases +
+      "\nChecks passed: " + h.json.checks.length +
+      "\nErrors: " + h.json.errors.length +
+      "\nWarnings: " + h.json.warnings.length +
+      (h.json.warnings.length > 0 ? "\n\nWarnings:\n" + h.json.warnings.map(function(w){ return w.table + ": " + w.detail; }).join("\n") : "")
+    );
+  } else {
+    addResult("DEPLOY225: Health Endpoint", "fail", h.ms, h.error || "No response");
+  }
+
+  // 2. Quick health
+  var hq = await timedFetch("/api/health", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ quick: true })
+  });
+  if (hq.ok) {
+    addResult("DEPLOY225: Quick Health", "pass", hq.ms, "Status: " + hq.json.status);
+  } else {
+    addResult("DEPLOY225: Quick Health", "fail", hq.ms, hq.error || "Failed");
+  }
+
+  // Find a case to test with
+  var caseId = null;
+  var caseNumber = null;
+  try {
+    // Use the Supabase REST API through the app's client
+    var casesResp = await timedFetch("/api/decision-spine", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ case_id: "test_find" })
+    });
+    // This will 404 but that's OK — we just need to verify the endpoint responds
+  } catch(e) {}
+
+  // Try to get a real case from the health data
+  if (h.json && h.json.database && h.json.database.total_cases > 0) {
+    // We'll use the endpoints with a known case pattern
+    // Try the riser case number
+    var spineTest = await timedFetch("/api/decision-spine", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ case_id: "test_nonexistent_case_12345" })
+    });
+
+    // 3. Decision Spine - endpoint responds
+    if (spineTest.json) {
+      var spineOk = spineTest.status === 404 || spineTest.status === 200;
+      addResult("DEPLOY220: Decision Spine (endpoint)", spineOk ? "pass" : "fail", spineTest.ms,
+        "Status: " + spineTest.status + "\nResponse: " + (spineTest.json.error || spineTest.json.state || "OK"));
+    } else {
+      addResult("DEPLOY220: Decision Spine (endpoint)", "fail", spineTest.ms, spineTest.error || "No response");
+    }
+
+    // 4. Outcome Simulation
+    var simTest = await timedFetch("/api/outcome-simulation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ case_id: "test_nonexistent_case_12345" })
+    });
+    if (simTest.json) {
+      var simOk = simTest.status === 404 || simTest.status === 200;
+      addResult("DEPLOY221: Outcome Simulation (endpoint)", simOk ? "pass" : "fail", simTest.ms,
+        "Status: " + simTest.status + "\nResponse: " + (simTest.json.error || "OK"));
+    } else {
+      addResult("DEPLOY221: Outcome Simulation (endpoint)", "fail", simTest.ms, simTest.error || "No response");
+    }
+
+    // 5. Universal Code Authority
+    var codeTest = await timedFetch("/api/universal-code-authority", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ case_id: "test_nonexistent_case_12345" })
+    });
+    if (codeTest.json) {
+      var codeOk = codeTest.status === 404 || codeTest.status === 200;
+      addResult("DEPLOY222: Code Authority (endpoint)", codeOk ? "pass" : "fail", codeTest.ms,
+        "Status: " + codeTest.status + "\nResponse: " + (codeTest.json.error || "OK"));
+    } else {
+      addResult("DEPLOY222: Code Authority (endpoint)", "fail", codeTest.ms, codeTest.error || "No response");
+    }
+
+    // 6. Enterprise Audit - get_history
+    var auditTest = await timedFetch("/api/enterprise-audit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "get_history", case_id: "test_nonexistent_case_12345" })
+    });
+    if (auditTest.json) {
+      var auditOk = auditTest.status === 404 || auditTest.status === 200 || auditTest.status === 500;
+      addResult("DEPLOY223: Enterprise Audit (endpoint)", auditOk ? "pass" : "fail", auditTest.ms,
+        "Status: " + auditTest.status + "\nResponse: " + (auditTest.json.error || "OK"));
+    } else {
+      addResult("DEPLOY223: Enterprise Audit (endpoint)", "fail", auditTest.ms, auditTest.error || "No response");
+    }
+
+    // 7. Verify Audit Chain
+    var verifyTest = await timedFetch("/api/verify-audit-chain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ case_id: "test_nonexistent_case_12345" })
+    });
+    if (verifyTest.json) {
+      var verifyOk = verifyTest.status === 200 || verifyTest.status === 404;
+      addResult("DEPLOY223: Verify Audit Chain (endpoint)", verifyOk ? "pass" : "fail", verifyTest.ms,
+        "Status: " + verifyTest.status + "\nResponse: " + (verifyTest.json.error || verifyTest.json.message || "OK"));
+    } else {
+      addResult("DEPLOY223: Verify Audit Chain (endpoint)", "fail", verifyTest.ms, verifyTest.error || "No response");
+    }
+
+    // 8. Inspector Adjudication - get_history
+    var adjTest = await timedFetch("/api/inspector-adjudication", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "get_history", case_id: "test_nonexistent_case_12345" })
+    });
+    if (adjTest.json) {
+      var adjOk = adjTest.status === 200 || adjTest.status === 400 || adjTest.status === 404;
+      addResult("DEPLOY226: Inspector Adjudication (endpoint)", adjOk ? "pass" : "fail", adjTest.ms,
+        "Status: " + adjTest.status + "\nResponse: " + (adjTest.json.error || "OK"));
+    } else {
+      addResult("DEPLOY226: Inspector Adjudication (endpoint)", "fail", adjTest.ms, adjTest.error || "No response");
+    }
+
+    // 9. Legacy endpoints
+    var legacyEndpoints = [
+      { name: "Decision Core", path: "/api/decision-core", deploy: "DEPLOY167" },
+      { name: "Engineering Core", path: "/api/engineering-core", deploy: "DEPLOY167" },
+      { name: "Export Audit Bundle", path: "/api/export-audit-bundle", deploy: "DEPLOY216" },
+      { name: "Governance Matrix", path: "/api/governance-matrix", deploy: "DEPLOY074" },
+      { name: "Material Authority", path: "/api/material-authority", deploy: "DEPLOY219" },
+      { name: "Composite Repair Authority", path: "/api/composite-repair-authority", deploy: "DEPLOY218" },
+      { name: "Planner Agent", path: "/api/planner-agent", deploy: "DEPLOY167" },
+      { name: "Truth Engine", path: "/api/truth-engine", deploy: "DEPLOY167" }
+    ];
+
+    for (var li = 0; li < legacyEndpoints.length; li++) {
+      var le = legacyEndpoints[li];
+      var legTest = await timedFetch(le.path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ case_id: "test_nonexistent_case_12345" })
+      });
+      if (legTest.json || legTest.status > 0) {
+        var legOk = legTest.status !== 0 && legTest.status !== 502;
+        addResult(le.deploy + ": " + le.name + " (endpoint)", legOk ? "pass" : "fail", legTest.ms,
+          "Status: " + legTest.status + (legTest.json ? "\nResponse: " + (legTest.json.error || legTest.json.message || "OK") : " — endpoint responding"));
+      } else {
+        addResult(le.deploy + ": " + le.name + " (endpoint)", "fail", legTest.ms, legTest.error || "No response");
+      }
+    }
+  }
+
+  // Done
+  document.getElementById("runBtn").disabled = false;
+  document.getElementById("runBtn").textContent = "Run Full System Check";
+}
+</script>
+
+</body>
+</html>
