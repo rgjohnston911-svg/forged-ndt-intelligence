@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FORGED NDT - System Check</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #e6edf3; font-family: Inter, system-ui, sans-serif; padding: 32px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 24px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; margin-bottom: 12px; }
+  .card h2 { font-size: 15px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; letter-spacing: 1px; display: inline-block; }
+  .pass { background: #22c55e22; color: #22c55e; border: 1px solid #22c55e44; }
+  .fail { background: #ef444422; color: #ef4444; border: 1px solid #ef444444; }
+  .warn { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
+  .detail { font-size: 12px; color: #8b949e; white-space: pre-wrap; max-height: 200px; overflow-y: auto; background: #0d1117; border-radius: 6px; padding: 8px; }
+  .summary-bar { display: flex; gap: 16px; margin-bottom: 24px; }
+  .summary-box { flex: 1; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: center; }
+  .summary-box .num { font-size: 28px; font-weight: 800; }
+  .summary-box .lbl { font-size: 11px; color: #8b949e; margin-top: 4px; }
+  button { background: #238636; color: #fff; border: none; border-radius: 8px; padding: 12px 24px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  button:disabled { opacity: 0.5; }
+  .mono { font-family: monospace; font-size: 11px; color: #6e7681; }
+</style>
+</head>
+<body>
+
+<h1>FORGED NDT Intelligence OS — System Check</h1>
+<p class="subtitle">Automated endpoint verification for DEPLOY220-229 + legacy engines</p>
+
+<div class="summary-bar">
+  <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
+  <div class="summary-box"><div class="num" id="totalFail" style="color:#ef4444">-</div><div class="lbl">FAIL</div></div>
+  <div class="summary-box"><div class="num" id="totalWarn" style="color:#f59e0b">-</div><div class="lbl">WARN</div></div>
+  <div class="summary-box"><div class="num" id="totalTime" style="color:#3b82f6">-</div><div class="lbl">TOTAL MS</div></div>
+</div>
+
+<button id="runBtn" onclick="runAllChecks()">Run Full System Check</button>
+<div id="results" style="margin-top:24px"></div>
+
+<script>
+var results = [];
+
+function addResult(name, status, ms, detail) {
+  results.push({ name: name, status: status, ms: ms, detail: detail });
+  renderResults();
+}
+
+function renderResults() {
+  var html = "";
+  var pass = 0, fail = 0, warn = 0, totalMs = 0;
+  for (var i = 0; i < results.length; i++) {
+    var r = results[i];
+    if (r.status === "pass") pass++;
+    else if (r.status === "fail") fail++;
+    else warn++;
+    totalMs += r.ms || 0;
+    var bc = r.status === "pass" ? "pass" : (r.status === "fail" ? "fail" : "warn");
+    html += '<div class="card"><h2><span class="badge ' + bc + '">' + r.status.toUpperCase() + '</span> ' + r.name + ' <span class="mono">' + (r.ms || 0) + 'ms</span></h2>';
+    if (r.detail) html += '<div class="detail">' + esc(r.detail) + '</div>';
+    html += '</div>';
+  }
+  document.getElementById("results").innerHTML = html;
+  document.getElementById("totalPass").textContent = pass;
+  document.getElementById("totalFail").textContent = fail;
+  document.getElementById("totalWarn").textContent = warn;
+  document.getElementById("totalTime").textContent = totalMs;
+}
+
+function esc(s) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+function testEndpoint(name, path, body) {
+  return new Promise(function(resolve) {
+    var start = Date.now();
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", path, true);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        var ms = Date.now() - start;
+        var text = xhr.responseText || "";
+        var status = xhr.status;
+
+        if (text.length > 0 && (text.charAt(0) === "{" || text.charAt(0) === "[")) {
+          try {
+            var json = JSON.parse(text);
+            var isOk = status !== 502 && status !== 503;
+            var detail = "HTTP " + status + "\n" + JSON.stringify(json, null, 2).substring(0, 500);
+            addResult(name, isOk ? "pass" : "fail", ms, detail);
+          } catch(e) {
+            addResult(name, "warn", ms, "HTTP " + status + " - JSON parse error\n" + text.substring(0, 200));
+          }
+        } else {
+          addResult(name, "fail", ms, "HTTP " + status + " — Got HTML instead of JSON.\nFunction may not be deployed or has a build error.\nFirst 100 chars: " + text.substring(0, 100));
+        }
+        resolve();
+      }
+    };
+    xhr.onerror = function() {
+      addResult(name, "fail", Date.now() - start, "Network error");
+      resolve();
+    };
+    xhr.send(JSON.stringify(body));
+  });
+}
+
+async function runAllChecks() {
+  document.getElementById("runBtn").disabled = true;
+  document.getElementById("runBtn").textContent = "Running...";
+  results = [];
+  renderResults();
+
+  var fakeId = "00000000-0000-0000-0000-000000000000";
+
+  // DEPLOY220-229 endpoints
+  await testEndpoint("DEPLOY225: Health", "/api/health", {});
+  await testEndpoint("DEPLOY220: Decision Spine", "/api/decision-spine", { case_id: fakeId });
+  await testEndpoint("DEPLOY221: Outcome Simulation", "/api/outcome-simulation", { case_id: fakeId });
+  await testEndpoint("DEPLOY222: Universal Code Authority", "/api/universal-code-authority", { case_id: fakeId });
+  await testEndpoint("DEPLOY223: Enterprise Audit", "/api/enterprise-audit", { action: "get_history", case_id: fakeId });
+  await testEndpoint("DEPLOY223: Verify Audit Chain", "/api/verify-audit-chain", { case_id: fakeId });
+  await testEndpoint("DEPLOY226: Inspector Adjudication", "/api/inspector-adjudication", { action: "get_history", case_id: fakeId });
+  await testEndpoint("DEPLOY227: Case Search", "/api/case-search", { action: "filter_options" });
+  await testEndpoint("DEPLOY228: Escalation Workflow", "/api/escalation-workflow", { action: "get_stats" });
+  await testEndpoint("DEPLOY229: Trend Analytics", "/api/trend-analytics", { action: "executive_summary" });
+
+  // Legacy engines
+  await testEndpoint("DEPLOY216: Run Authority", "/api/run-authority", { case_id: fakeId });
+  await testEndpoint("DEPLOY216: Export Audit Bundle", "/api/export-audit-bundle", { case_id: fakeId });
+  await testEndpoint("DEPLOY219: Material Authority", "/api/material-authority", { case_id: fakeId });
+  await testEndpoint("DEPLOY218: Composite Repair", "/api/composite-repair-authority", { case_id: fakeId });
+  await testEndpoint("DEPLOY167: Decision Core", "/api/decision-core", { case_id: fakeId });
+  await testEndpoint("DEPLOY167: Engineering Core", "/api/engineering-core", { case_id: fakeId });
+  await testEndpoint("DEPLOY167: Truth Engine", "/api/truth-engine", { case_id: fakeId });
+  await testEndpoint("DEPLOY167: Planner Agent", "/api/planner-agent", { case_id: fakeId });
+  await testEndpoint("DEPLOY074: Governance Matrix", "/api/governance-matrix", { case_id: fakeId });
+
+  document.getElementById("runBtn").disabled = false;
+  document.getElementById("runBtn").textContent = "Run Full System Check";
+}
+</script>
+
+</body>
+</html>
