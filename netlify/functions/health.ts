@@ -5,15 +5,8 @@
  *
  * PRODUCTION HEALTH CHECK
  *
- * Smoke-tests every critical subsystem:
- *   1. Database connectivity (Supabase)
- *   2. Critical tables exist and are queryable
- *   3. Function registry (which engines are deployed)
- *   4. Signing key availability (for audit)
- *   5. System uptime and version info
- *
- * GET /api/health          -> full health check
- * GET /api/health?quick=1  -> fast DB-only check
+ * POST /api/health {}         -> full health check
+ * POST /api/health {quick:true} -> fast DB-only check
  *
  * var only. String concatenation only. No backticks.
  */
@@ -30,11 +23,10 @@ var BUILD_DATE = "2026-04-16";
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json"
 };
 
-// All critical tables the system depends on
 var CRITICAL_TABLES = [
   { name: "inspection_cases", deploy: "core", critical: true },
   { name: "findings", deploy: "core", critical: true },
@@ -46,7 +38,6 @@ var CRITICAL_TABLES = [
   { name: "inspector_adjudications", deploy: "DEPLOY226", critical: false }
 ];
 
-// All engine functions with their deploy versions
 var ENGINE_REGISTRY = [
   { name: "decision-spine", deploy: "DEPLOY220", mode: "deterministic", path: "/api/decision-spine" },
   { name: "run-authority", deploy: "DEPLOY216", mode: "hybrid", path: "/api/run-authority" },
@@ -69,167 +60,120 @@ var ENGINE_REGISTRY = [
   { name: "observation-layer", deploy: "core", mode: "ai_assisted", path: "/api/observation-layer" }
 ];
 
-// Structured error codes
-var ERROR_CODES = {
-  DB_CONNECTION_FAILED: { code: "E001", severity: "critical", message: "Database connection failed" },
-  TABLE_MISSING: { code: "E002", severity: "warning", message: "Expected table not found" },
-  TABLE_QUERY_FAILED: { code: "E003", severity: "warning", message: "Table query failed" },
-  SIGNING_KEY_MISSING: { code: "E010", severity: "warning", message: "No active signing key found" },
-  ENV_VAR_MISSING: { code: "E020", severity: "critical", message: "Required environment variable missing" }
-};
+function countByMode(mode) {
+  var c = 0;
+  for (var i = 0; i < ENGINE_REGISTRY.length; i++) {
+    if (ENGINE_REGISTRY[i].mode === mode) c++;
+  }
+  return c;
+}
 
 export var handler: Handler = async function(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
+  if (event.httpMethod !== "POST") return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "POST only" }) };
 
-  var startTime = Date.now();
-  var quick = false;
-  if (event.httpMethod === "GET") {
-    quick = event.queryStringParameters && event.queryStringParameters.quick === "1";
-  } else if (event.httpMethod === "POST") {
-    try {
-      var reqBody = JSON.parse(event.body || "{}");
-      quick = reqBody.quick === true;
-    } catch(pe) {}
-  }
-
-  var checks = [];
-  var errors = [];
-  var warnings = [];
-  var overallStatus = "healthy";
-
-  // Check 1: Environment variables
-  if (!supabaseUrl) {
-    errors.push({ code: ERROR_CODES.ENV_VAR_MISSING.code, detail: "SUPABASE_URL not set" });
-    overallStatus = "critical";
-  }
-  if (!supabaseKey) {
-    errors.push({ code: ERROR_CODES.ENV_VAR_MISSING.code, detail: "SUPABASE_SERVICE_ROLE_KEY not set" });
-    overallStatus = "critical";
-  }
-
-  if (overallStatus === "critical") {
-    return {
-      statusCode: 503,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        status: "critical",
-        system: SYSTEM_VERSION,
-        errors: errors,
-        checked_at: new Date().toISOString(),
-        response_ms: Date.now() - startTime
-      }, null, 2)
-    };
-  }
-
-  var sb = createClient(supabaseUrl, supabaseKey);
-
-  // Check 2: Database connectivity
   try {
+    var body = JSON.parse(event.body || "{}");
+    var quick = body.quick === true;
+    var startTime = Date.now();
+
+    var checks = [];
+    var errors = [];
+    var warnings = [];
+    var overallStatus = "healthy";
+
+    // Check 1: Environment variables
+    if (!supabaseUrl) {
+      errors.push({ code: "E020", detail: "SUPABASE_URL not set" });
+      overallStatus = "critical";
+    }
+    if (!supabaseKey) {
+      errors.push({ code: "E020", detail: "SUPABASE_SERVICE_ROLE_KEY not set" });
+      overallStatus = "critical";
+    }
+
+    if (overallStatus === "critical") {
+      return {
+        statusCode: 503,
+        headers: corsHeaders,
+        body: JSON.stringify({ status: "critical", system: SYSTEM_VERSION, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime })
+      };
+    }
+
+    var sb = createClient(supabaseUrl, supabaseKey);
+
+    // Check 2: Database connectivity
     var dbCheck = await sb.from("inspection_cases").select("id").limit(1);
     if (dbCheck.error) {
-      errors.push({ code: ERROR_CODES.DB_CONNECTION_FAILED.code, detail: dbCheck.error.message });
+      errors.push({ code: "E001", detail: dbCheck.error.message });
       overallStatus = "critical";
     } else {
       checks.push({ name: "database_connection", status: "pass", detail: "Supabase connected" });
     }
-  } catch (dbErr) {
-    errors.push({ code: ERROR_CODES.DB_CONNECTION_FAILED.code, detail: String(dbErr) });
-    overallStatus = "critical";
-  }
 
-  // Quick mode: return after DB check
-  if (quick) {
+    // Quick mode: return after DB check
+    if (quick) {
+      return {
+        statusCode: overallStatus === "critical" ? 503 : 200,
+        headers: corsHeaders,
+        body: JSON.stringify({ status: overallStatus, system: SYSTEM_VERSION, checks: checks, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime })
+      };
+    }
+
+    // Check 3: Critical tables
+    for (var ti = 0; ti < CRITICAL_TABLES.length; ti++) {
+      var tbl = CRITICAL_TABLES[ti];
+      var tblCheck = await sb.from(tbl.name).select("*").limit(1);
+      if (tblCheck.error) {
+        if (tbl.critical) {
+          errors.push({ code: "E002", table: tbl.name, deploy: tbl.deploy, detail: tblCheck.error.message });
+          if (overallStatus === "healthy") overallStatus = "degraded";
+        } else {
+          warnings.push({ code: "E002", table: tbl.name, deploy: tbl.deploy, detail: "Table not found - run " + tbl.deploy + " migration" });
+        }
+      } else {
+        checks.push({ name: "table_" + tbl.name, status: "pass", deploy: tbl.deploy });
+      }
+    }
+
+    // Check 4: Signing key
+    var keyCheck = await sb.from("org_signing_keys").select("id").eq("is_active", true).limit(1);
+    if (keyCheck.error || !keyCheck.data || keyCheck.data.length === 0) {
+      warnings.push({ code: "E010", detail: "No active signing key" });
+    } else {
+      checks.push({ name: "signing_key", status: "pass", detail: "Active key: " + keyCheck.data[0].id });
+    }
+
+    // Check 5: Case count
+    var caseCount = 0;
+    var recentCases = 0;
+    var countCheck = await sb.from("inspection_cases").select("id", { count: "exact", head: true });
+    caseCount = countCheck.count || 0;
+    var sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    var recentCheck = await sb.from("inspection_cases").select("id", { count: "exact", head: true }).gte("created_at", sevenDaysAgo);
+    recentCases = recentCheck.count || 0;
+
+    // Final status
+    if (errors.length > 0 && overallStatus !== "critical") overallStatus = "degraded";
+    if (errors.length === 0 && warnings.length > 0) overallStatus = "healthy_with_warnings";
+
     return {
       statusCode: overallStatus === "critical" ? 503 : 200,
       headers: corsHeaders,
       body: JSON.stringify({
         status: overallStatus,
         system: SYSTEM_VERSION,
+        build_date: BUILD_DATE,
+        checked_at: new Date().toISOString(),
+        response_ms: Date.now() - startTime,
+        database: { connected: true, total_cases: caseCount, cases_last_7_days: recentCases },
+        engines: { total: ENGINE_REGISTRY.length, deterministic: countByMode("deterministic"), ai_assisted: countByMode("ai_assisted"), hybrid: countByMode("hybrid"), registry: ENGINE_REGISTRY },
         checks: checks,
         errors: errors,
-        checked_at: new Date().toISOString(),
-        response_ms: Date.now() - startTime
+        warnings: warnings
       }, null, 2)
     };
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
   }
-
-  // Check 3: Critical tables
-  for (var ti = 0; ti < CRITICAL_TABLES.length; ti++) {
-    var table = CRITICAL_TABLES[ti];
-    try {
-      var tableCheck = await sb.from(table.name).select("*").limit(1);
-      if (tableCheck.error) {
-        if (table.critical) {
-          errors.push({ code: ERROR_CODES.TABLE_MISSING.code, table: table.name, deploy: table.deploy, detail: tableCheck.error.message });
-          overallStatus = "degraded";
-        } else {
-          warnings.push({ code: ERROR_CODES.TABLE_MISSING.code, table: table.name, deploy: table.deploy, detail: "Table not found - run " + table.deploy + " migration" });
-        }
-      } else {
-        checks.push({ name: "table_" + table.name, status: "pass", deploy: table.deploy });
-      }
-    } catch (tErr) {
-      warnings.push({ code: ERROR_CODES.TABLE_QUERY_FAILED.code, table: table.name, detail: String(tErr) });
-    }
-  }
-
-  // Check 4: Signing key availability
-  try {
-    var keyCheck = await sb.from("org_signing_keys").select("id").eq("is_active", true).limit(1);
-    if (keyCheck.error || !keyCheck.data || keyCheck.data.length === 0) {
-      warnings.push({ code: ERROR_CODES.SIGNING_KEY_MISSING.code, detail: "No active signing key. Audit bundle signing will fail." });
-    } else {
-      checks.push({ name: "signing_key", status: "pass", detail: "Active signing key found: " + keyCheck.data[0].id });
-    }
-  } catch (kErr) {
-    warnings.push({ code: ERROR_CODES.SIGNING_KEY_MISSING.code, detail: String(kErr) });
-  }
-
-  // Check 5: Case count + recent activity
-  var caseCount = 0;
-  var recentCases = 0;
-  try {
-    var countCheck = await sb.from("inspection_cases").select("id", { count: "exact", head: true });
-    caseCount = countCheck.count || 0;
-
-    var sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    var recentCheck = await sb.from("inspection_cases").select("id", { count: "exact", head: true }).gte("created_at", sevenDaysAgo);
-    recentCases = recentCheck.count || 0;
-  } catch (cErr) {
-    // Non-critical
-  }
-
-  // Determine final status
-  if (errors.length > 0 && overallStatus !== "critical") overallStatus = "degraded";
-  if (errors.length === 0 && warnings.length > 0) overallStatus = "healthy_with_warnings";
-
-  var responseMs = Date.now() - startTime;
-
-  return {
-    statusCode: overallStatus === "critical" ? 503 : 200,
-    headers: corsHeaders,
-    body: JSON.stringify({
-      status: overallStatus,
-      system: SYSTEM_VERSION,
-      build_date: BUILD_DATE,
-      checked_at: new Date().toISOString(),
-      response_ms: responseMs,
-      database: {
-        connected: overallStatus !== "critical",
-        total_cases: caseCount,
-        cases_last_7_days: recentCases
-      },
-      engines: {
-        total: ENGINE_REGISTRY.length,
-        deterministic: ENGINE_REGISTRY.filter(function(e) { return e.mode === "deterministic"; }).length,
-        ai_assisted: ENGINE_REGISTRY.filter(function(e) { return e.mode === "ai_assisted"; }).length,
-        hybrid: ENGINE_REGISTRY.filter(function(e) { return e.mode === "hybrid"; }).length,
-        registry: ENGINE_REGISTRY
-      },
-      checks: checks,
-      errors: errors,
-      warnings: warnings,
-      error_codes: ERROR_CODES
-    }, null, 2)
-  };
 };
