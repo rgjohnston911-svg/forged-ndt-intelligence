@@ -4,7 +4,65 @@
  * netlify/functions/health.ts
  *
  * PRODUCTION HEALTH CHECK
+ *// @ts-nocheck
+/**
+ * DEPLOY225 - health.ts
+ * netlify/functions/health.ts
  *
+ * PRODUCTION HEALTH CHECK
+ *
+ * POST /api/health {}         -> full health check
+ * POST /api/health {quick:true} -> fast DB-only check
+ *
+ * var only. String concatenation only. No backticks.
+ */
+
+import type { Handler } from "@netlify/functions";
+import { createClient } from "@supabase/supabase-js";
+
+var supabaseUrl = process.env.SUPABASE_URL || "";
+var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+var SYSTEM_VERSION = "FORGED-NDT/2.0.0";
+var BUILD_DATE = "2026-04-16";
+
+var corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json"
+};
+
+var CRITICAL_TABLES = [
+  { name: "inspection_cases", deploy: "core", critical: true },
+  { name: "findings", deploy: "core", critical: true },
+  { name: "evidence", deploy: "core", critical: true },
+  { name: "code_sets", deploy: "DEPLOY222", critical: false },
+  { name: "audit_events", deploy: "DEPLOY223", critical: false },
+  { name: "audit_bundles", deploy: "DEPLOY223", critical: false },
+  { name: "org_signing_keys", deploy: "DEPLOY223", critical: false },
+  { name: "inspector_adjudications", deploy: "DEPLOY226", critical: false }
+];
+
+var ENGINE_REGISTRY = [
+  { name: "decision-spine", deploy: "DEPLOY220", mode: "deterministic", path: "/api/decision-spine" },
+  { name: "run-authority", deploy: "DEPLOY216", mode: "hybrid", path: "/api/run-authority" },
+  { name: "outcome-simulation", deploy: "DEPLOY221", mode: "deterministic", path: "/api/outcome-simulation" },
+  { name: "universal-code-authority", deploy: "DEPLOY222", mode: "deterministic", path: "/api/universal-code-authority" },
+  { name: "enterprise-audit", deploy: "DEPLOY223", mode: "deterministic", path: "/api/enterprise-audit" },
+  { name: "verify-audit-chain", deploy: "DEPLOY223", mode: "deterministic", path: "/api/verify-audit-chain" },
+  { name: "inspector-adjudication", deploy: "DEPLOY226", mode: "deterministic", path: "/api/inspector-adjudication" },
+  { name: "health", deploy: "DEPLOY225", mode: "deterministic", path: "/api/health" },
+  { name: "decision-core", deploy: "DEPLOY167", mode: "deterministic", path: "/api/decision-core" },
+  { name: "engineering-core", deploy: "DEPLOY167", mode: "deterministic", path: "/api/engineering-core" },
+  { name: "truth-engine", deploy: "DEPLOY167", mode: "deterministic", path: "/api/truth-engine" },
+  { name: "planner-agent", deploy: "DEPLOY167", mode: "deterministic", path: "/api/planner-agent" },
+  { name: "material-authority", deploy: "DEPLOY219", mode: "deterministic", path: "/api/material-authority" },
+  { name: "composite-repair-authority", deploy: "DEPLOY218", mode: "deterministic", path: "/api/composite-repair-authority" },
+  { name: "governance-matrix", deploy: "DEPLOY074", mode: "deterministic", path: "/api/governance-matrix" },
+  { name: "export-audit-bundle", deploy: "DEPLOY216", mode: "deterministic", path: "/api/export-audit-bundle" },
+  { name: "similar-cases", deploy: "DEPLOY200", mode: "ai_assisted", path: "/api/similar-cases" },
+  { name: "run-analysis", deploy
  * POST /api/health {}         -> full health check
  * POST /api/health {quick:true} -> fast DB-only check
  *
