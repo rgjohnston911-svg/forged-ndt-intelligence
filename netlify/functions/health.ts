@@ -60,7 +60,10 @@ var ENGINE_REGISTRY = [
   { name: "observation-layer", deploy: "core", mode: "ai_assisted", path: "/api/observation-layer" },
   { name: "case-search", deploy: "DEPLOY227", mode: "deterministic", path: "/api/case-search" },
   { name: "escalation-workflow", deploy: "DEPLOY228", mode: "deterministic", path: "/api/escalation-workflow" },
-  { name: "trend-analytics", deploy: "DEPLOY229", mode: "deterministic", path: "/api/trend-analytics" }
+  { name: "trend-analytics", deploy: "DEPLOY229", mode: "deterministic", path: "/api/trend-analytics" },
+  { name: "notifications", deploy: "DEPLOY230", mode: "deterministic", path: "/api/notifications" },
+  { name: "compliance-matrix", deploy: "DEPLOY231", mode: "deterministic", path: "/api/compliance-matrix" },
+  { name: "risk-scoring", deploy: "DEPLOY232", mode: "deterministic", path: "/api/risk-scoring" }
 ];
 
 function countByMode(mode) {
