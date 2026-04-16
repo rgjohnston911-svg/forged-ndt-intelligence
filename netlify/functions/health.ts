@@ -58,7 +58,9 @@ var ENGINE_REGISTRY = [
   { name: "similar-cases", deploy: "DEPLOY200", mode: "ai_assisted", path: "/api/similar-cases" },
   { name: "run-analysis", deploy: "core", mode: "ai_assisted", path: "/api/run-analysis" },
   { name: "observation-layer", deploy: "core", mode: "ai_assisted", path: "/api/observation-layer" },
-  { name: "case-search", deploy: "DEPLOY227", mode: "deterministic", path: "/api/case-search" }
+  { name: "case-search", deploy: "DEPLOY227", mode: "deterministic", path: "/api/case-search" },
+  { name: "escalation-workflow", deploy: "DEPLOY228", mode: "deterministic", path: "/api/escalation-workflow" },
+  { name: "trend-analytics", deploy: "DEPLOY229", mode: "deterministic", path: "/api/trend-analytics" }
 ];
 
 function countByMode(mode) {
