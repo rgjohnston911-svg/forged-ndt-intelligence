@@ -76,7 +76,8 @@ var ENGINE_REGISTRY = [
   { name: "civil-infrastructure", deploy: "DEPLOY242", mode: "deterministic", path: "/api/civil-infrastructure" },
   { name: "space-systems", deploy: "DEPLOY243", mode: "deterministic", path: "/api/space-systems" },
   { name: "robotics-automation", deploy: "DEPLOY244", mode: "deterministic", path: "/api/robotics-automation" },
-  { name: "human-intelligence", deploy: "DEPLOY245", mode: "deterministic", path: "/api/human-intelligence" }
+  { name: "human-intelligence", deploy: "DEPLOY245", mode: "deterministic", path: "/api/human-intelligence" },
+  { name: "medical-bio", deploy: "DEPLOY246", mode: "deterministic", path: "/api/medical-bio" }
 ];
 
 function countByMode(mode) {
