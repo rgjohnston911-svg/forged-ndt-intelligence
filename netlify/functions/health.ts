@@ -83,7 +83,8 @@ var ENGINE_REGISTRY = [
   { name: "rules-version-control", deploy: "DEPLOY249", mode: "deterministic", path: "/api/rules-version-control" },
   { name: "evidence-integrity", deploy: "DEPLOY250", mode: "deterministic", path: "/api/evidence-integrity" },
   { name: "enterprise-operations", deploy: "DEPLOY251", mode: "deterministic", path: "/api/enterprise-operations" },
-  { name: "concept-intelligence-core", deploy: "DEPLOY252", mode: "deterministic", path: "/api/concept-intelligence-core" }
+  { name: "concept-intelligence-core", deploy: "DEPLOY252", mode: "deterministic", path: "/api/concept-intelligence-core" },
+  { name: "concept-intelligence-v21", deploy: "DEPLOY253", mode: "deterministic", path: "/api/concept-intelligence-v21" }
 ];
 
 function countByMode(mode) {
