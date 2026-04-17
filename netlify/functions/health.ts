@@ -74,7 +74,9 @@ var ENGINE_REGISTRY = [
   { name: "power-generation", deploy: "DEPLOY240", mode: "deterministic", path: "/api/power-generation" },
   { name: "maritime-offshore", deploy: "DEPLOY241", mode: "deterministic", path: "/api/maritime-offshore" },
   { name: "civil-infrastructure", deploy: "DEPLOY242", mode: "deterministic", path: "/api/civil-infrastructure" },
-  { name: "space-systems", deploy: "DEPLOY243", mode: "deterministic", path: "/api/space-systems" }
+  { name: "space-systems", deploy: "DEPLOY243", mode: "deterministic", path: "/api/space-systems" },
+  { name: "robotics-automation", deploy: "DEPLOY244", mode: "deterministic", path: "/api/robotics-automation" },
+  { name: "human-intelligence", deploy: "DEPLOY245", mode: "deterministic", path: "/api/human-intelligence" }
 ];
 
 function countByMode(mode) {
