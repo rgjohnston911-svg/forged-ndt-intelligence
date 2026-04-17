@@ -77,7 +77,12 @@ var ENGINE_REGISTRY = [
   { name: "space-systems", deploy: "DEPLOY243", mode: "deterministic", path: "/api/space-systems" },
   { name: "robotics-automation", deploy: "DEPLOY244", mode: "deterministic", path: "/api/robotics-automation" },
   { name: "human-intelligence", deploy: "DEPLOY245", mode: "deterministic", path: "/api/human-intelligence" },
-  { name: "medical-bio", deploy: "DEPLOY246", mode: "deterministic", path: "/api/medical-bio" }
+  { name: "medical-bio", deploy: "DEPLOY246", mode: "deterministic", path: "/api/medical-bio" },
+  { name: "validation-benchmark", deploy: "DEPLOY247", mode: "deterministic", path: "/api/validation-benchmark" },
+  { name: "decision-traceability", deploy: "DEPLOY248", mode: "deterministic", path: "/api/decision-traceability" },
+  { name: "rules-version-control", deploy: "DEPLOY249", mode: "deterministic", path: "/api/rules-version-control" },
+  { name: "evidence-integrity", deploy: "DEPLOY250", mode: "deterministic", path: "/api/evidence-integrity" },
+  { name: "enterprise-operations", deploy: "DEPLOY251", mode: "deterministic", path: "/api/enterprise-operations" }
 ];
 
 function countByMode(mode) {
