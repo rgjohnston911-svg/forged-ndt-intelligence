@@ -94,7 +94,8 @@ var ENGINE_REGISTRY = [
   { name: "weld-acceptance-authority", deploy: "DEPLOY260", mode: "deterministic", path: "/api/weld-acceptance-authority" },
   { name: "authority-lock-system", deploy: "DEPLOY261", mode: "deterministic", path: "/api/authority-lock-system" },
   { name: "contradiction-engine", deploy: "DEPLOY262", mode: "deterministic", path: "/api/contradiction-engine" },
-  { name: "repair-pathway-engine", deploy: "DEPLOY263", mode: "deterministic", path: "/api/repair-pathway-engine" }
+  { name: "repair-pathway-engine", deploy: "DEPLOY263", mode: "deterministic", path: "/api/repair-pathway-engine" },
+  { name: "reality-lock-domain", deploy: "DEPLOY264", mode: "deterministic", path: "/api/reality-lock-domain" }
 ];
 
 function countByMode(mode) {
