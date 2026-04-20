@@ -91,7 +91,8 @@ var ENGINE_REGISTRY = [
   { name: "process-data-integration", deploy: "DEPLOY257", mode: "deterministic", path: "/api/process-data-integration" },
   { name: "predictive-remaining-life", deploy: "DEPLOY258", mode: "deterministic", path: "/api/predictive-remaining-life" },
   { name: "physics-sufficiency-engine", deploy: "DEPLOY259", mode: "deterministic", path: "/api/physics-sufficiency-engine" },
-  { name: "weld-acceptance-authority", deploy: "DEPLOY260", mode: "deterministic", path: "/api/weld-acceptance-authority" }
+  { name: "weld-acceptance-authority", deploy: "DEPLOY260", mode: "deterministic", path: "/api/weld-acceptance-authority" },
+  { name: "authority-lock-system", deploy: "DEPLOY261", mode: "deterministic", path: "/api/authority-lock-system" }
 ];
 
 function countByMode(mode) {
