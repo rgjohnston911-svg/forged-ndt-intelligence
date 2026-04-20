@@ -27,7 +27,7 @@
 <body>
 
 <h1>FORGED NDT Intelligence OS — System Check</h1>
-<p class="subtitle">FORGED-NDT/2.0.0 — All 47 engines — Full endpoint verification</p>
+<p class="subtitle">FORGED-NDT/2.0.0 — All 48 engines — Full endpoint verification</p>
 
 <div class="summary-bar">
   <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
@@ -160,6 +160,7 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY252: Concept Intelligence Core", "/api/concept-intelligence-core", { action: "get_registry" });
   await testEndpoint("DEPLOY253: Concept Intelligence v2.1", "/api/concept-intelligence-v21", { action: "get_registry" });
   await testEndpoint("DEPLOY254: Cost Reasoning Engine", "/api/cost-reasoning-engine", { action: "get_registry" });
+  await testEndpoint("DEPLOY255: Outcome Tracking", "/api/outcome-tracking", { action: "get_registry" });
 
   document.getElementById("runBtn").disabled = false;
   document.getElementById("runBtn").textContent = "Run Full System Check";
