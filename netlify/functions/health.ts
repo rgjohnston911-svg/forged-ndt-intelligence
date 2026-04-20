@@ -86,7 +86,8 @@ var ENGINE_REGISTRY = [
   { name: "concept-intelligence-core", deploy: "DEPLOY252", mode: "deterministic", path: "/api/concept-intelligence-core" },
   { name: "concept-intelligence-v21", deploy: "DEPLOY253", mode: "deterministic", path: "/api/concept-intelligence-v21" },
   { name: "cost-reasoning-engine", deploy: "DEPLOY254", mode: "deterministic", path: "/api/cost-reasoning-engine" },
-  { name: "outcome-tracking", deploy: "DEPLOY255", mode: "deterministic", path: "/api/outcome-tracking" }
+  { name: "outcome-tracking", deploy: "DEPLOY255", mode: "deterministic", path: "/api/outcome-tracking" },
+  { name: "cross-case-patterns", deploy: "DEPLOY256", mode: "deterministic", path: "/api/cross-case-patterns" }
 ];
 
 function countByMode(mode) {
