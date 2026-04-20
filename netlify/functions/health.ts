@@ -88,7 +88,8 @@ var ENGINE_REGISTRY = [
   { name: "cost-reasoning-engine", deploy: "DEPLOY254", mode: "deterministic", path: "/api/cost-reasoning-engine" },
   { name: "outcome-tracking", deploy: "DEPLOY255", mode: "deterministic", path: "/api/outcome-tracking" },
   { name: "cross-case-patterns", deploy: "DEPLOY256", mode: "deterministic", path: "/api/cross-case-patterns" },
-  { name: "process-data-integration", deploy: "DEPLOY257", mode: "deterministic", path: "/api/process-data-integration" }
+  { name: "process-data-integration", deploy: "DEPLOY257", mode: "deterministic", path: "/api/process-data-integration" },
+  { name: "predictive-remaining-life", deploy: "DEPLOY258", mode: "deterministic", path: "/api/predictive-remaining-life" }
 ];
 
 function countByMode(mode) {
