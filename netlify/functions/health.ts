@@ -18,7 +18,7 @@ var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 var SYSTEM_VERSION = "FORGED-NDT/2.0.0";
-var BUILD_DATE = "2026-04-16";
+var BUILD_DATE = "2026-04-19";
 
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -87,7 +87,8 @@ var ENGINE_REGISTRY = [
   { name: "concept-intelligence-v21", deploy: "DEPLOY253", mode: "deterministic", path: "/api/concept-intelligence-v21" },
   { name: "cost-reasoning-engine", deploy: "DEPLOY254", mode: "deterministic", path: "/api/cost-reasoning-engine" },
   { name: "outcome-tracking", deploy: "DEPLOY255", mode: "deterministic", path: "/api/outcome-tracking" },
-  { name: "cross-case-patterns", deploy: "DEPLOY256", mode: "deterministic", path: "/api/cross-case-patterns" }
+  { name: "cross-case-patterns", deploy: "DEPLOY256", mode: "deterministic", path: "/api/cross-case-patterns" },
+  { name: "process-data-integration", deploy: "DEPLOY257", mode: "deterministic", path: "/api/process-data-integration" }
 ];
 
 function countByMode(mode) {
