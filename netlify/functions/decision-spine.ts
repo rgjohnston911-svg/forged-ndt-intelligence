@@ -113,10 +113,18 @@ function scoreOOD(neighbors) {
 function assessPhysicsCoverage(caseRow, findings, thickness) {
   var checks = [];
 
+  // ---- Industry-aware gating ----
+  // Some verticals (space, aerospace, defense, medical) use "shell" in component
+  // names (capsule shell, fuselage shell, implant shell) but do NOT use traditional
+  // UT thickness grids governed by API 510/570. Forcing wall_thickness_vs_nominal
+  // on these cases creates an impossible requirement that blocks the spine forever.
+  var caseIndustry = (caseRow.industry || caseRow.sector || "").toLowerCase();
+  var isNonTraditionalVertical = /space|aerospace|defense|military|medical|bio|electronics|semiconductor|additive/i.test(caseIndustry);
+
   // ---- Wall thickness / general corrosion (API 510/570) ----
   var hasThickness = thickness && thickness.length > 0;
   var thkRequired = caseRow.method === "ut" || caseRow.method === "UT" || hasThickness ||
-    (caseRow.component_name && /pipe|vessel|tank|shell|header|riser|column|drum/i.test(caseRow.component_name));
+    (!isNonTraditionalVertical && caseRow.component_name && /pipe|vessel|tank|shell|header|riser|column|drum/i.test(caseRow.component_name));
   var thkCheck = {
     check_id: "wall_thickness_vs_nominal",
     code_ref: "API 510 / API 570",
