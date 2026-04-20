@@ -26,7 +26,6 @@ import OutcomeSimulationCard from "../components/OutcomeSimulationCard";
 import UniversalCodeAuthorityCard from "../components/UniversalCodeAuthorityCard";
 import EnterpriseAuditCard from "../components/EnterpriseAuditCard";
 import InspectorAdjudicationCard from "../components/InspectorAdjudicationCard";
-import EscalationQueueCard from "../components/EscalationQueueCard";
 import { EVIDENCE_METHODS, EVIDENCE_METHOD_GROUPS } from "../lib/constants";
 import { DISPOSITION_COLORS } from "../lib/constants";
 
@@ -113,8 +112,8 @@ export default function CaseDetail() {
     setFindings(fRes.data || []);
     var rRes = await supabase.from("rule_evaluations").select("*").eq("case_id", id).order("created_at", { ascending: true });
     setRules(rRes.data || []);
-    var pRes = await supabase.from("physics_reality_models").select("*").eq("case_id", id).single();
-    setPhysics(pRes.data);
+    var pRes = await supabase.from("physics_reality_models").select("*").eq("case_id", id).maybeSingle();
+    setPhysics(pRes.data || null);
     var eRes = await supabase.from("evidence").select("*").eq("case_id", id).order("created_at", { ascending: true });
     setEvidence(eRes.data || []);
     // Load conflicts
@@ -648,7 +647,7 @@ export default function CaseDetail() {
                 <h3>Dual AI Conflict Resolution</h3>
                 {conflicts.map(function(c, idx) {
                   return (
-                    <div key={idx} className={"conflict-card conflict-" + c.resolution_method.toLowerCase()}>
+                    <div key={idx} className={"conflict-card conflict-" + (c.resolution_method || "unknown").toLowerCase()}>
                       <div className="conflict-header">
                         <span className="conflict-type">{(c.finding_type || "").replace(/_/g, " ")}</span>
                         <span className="conflict-method">{(c.resolution_method || "").replace(/_/g, " ")}</span>
@@ -672,8 +671,8 @@ export default function CaseDetail() {
                   return (
                     <div key={f.id} className="finding-card">
                       <div className="finding-header">
-                        <span className={"finding-source finding-source-" + f.source}>{f.source.toUpperCase()}</span>
-                        <span className="finding-type">{f.finding_type.replace(/_/g, " ")}</span>
+                        <span className={"finding-source finding-source-" + (f.source || "unknown")}>{(f.source || "unknown").toUpperCase()}</span>
+                        <span className="finding-type">{(f.finding_type || "unknown").replace(/_/g, " ")}</span>
                         {f.severity && <span className={"severity-badge severity-" + f.severity}>{f.severity.toUpperCase()}</span>}
                       </div>
                       <div className="finding-label">{f.label}</div>
@@ -705,8 +704,8 @@ export default function CaseDetail() {
                     <div key={r.id} className={"rule-card rule-" + (r.passed === true ? "pass" : r.passed === false ? "fail" : "na")}>
                       <div className="rule-header">
                         <span className="rule-status-icon">{r.passed === true ? "\u2713" : r.passed === false ? "\u2717" : "\u2014"}</span>
-                        <span className="rule-name">{r.rule_name}</span>
-                        <span className="rule-class">{r.rule_class.replace(/_/g, " ")}</span>
+                        <span className="rule-name">{r.rule_name || "Unnamed rule"}</span>
+                        <span className="rule-class">{(r.rule_class || "").replace(/_/g, " ")}</span>
                       </div>
                       <div className="rule-explanation">{r.explanation}</div>
                       {r.engineering_basis_cited && <div className="rule-basis"><strong>Engineering basis:</strong> {r.engineering_basis_cited}</div>}
@@ -742,7 +741,6 @@ export default function CaseDetail() {
             {id && <UniversalCodeAuthorityCard caseId={id} />}
             {id && <EnterpriseAuditCard caseId={id} />}
             {id && <InspectorAdjudicationCard caseId={id} />}
-            {id && <EscalationQueueCard caseId={id} />}
             {caseData.authority_locked && (
               <div className="authority-locked-banner">
                 <span className="lock-icon">{"\uD83D\uDD12"}</span>
