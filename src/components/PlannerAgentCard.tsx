@@ -63,7 +63,7 @@ export default function PlannerAgentCard(props) {
       .from("inspection_cases")
       .select("action_plan, action_plan_generated_at, action_plan_status")
       .eq("id", caseId)
-      .single();
+      .maybeSingle();
     if (!res.error && res.data && res.data.action_plan) {
       setPlan(res.data.action_plan);
       setGeneratedAt(res.data.action_plan_generated_at);
