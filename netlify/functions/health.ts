@@ -90,7 +90,8 @@ var ENGINE_REGISTRY = [
   { name: "cross-case-patterns", deploy: "DEPLOY256", mode: "deterministic", path: "/api/cross-case-patterns" },
   { name: "process-data-integration", deploy: "DEPLOY257", mode: "deterministic", path: "/api/process-data-integration" },
   { name: "predictive-remaining-life", deploy: "DEPLOY258", mode: "deterministic", path: "/api/predictive-remaining-life" },
-  { name: "physics-sufficiency-engine", deploy: "DEPLOY259", mode: "deterministic", path: "/api/physics-sufficiency-engine" }
+  { name: "physics-sufficiency-engine", deploy: "DEPLOY259", mode: "deterministic", path: "/api/physics-sufficiency-engine" },
+  { name: "weld-acceptance-authority", deploy: "DEPLOY260", mode: "deterministic", path: "/api/weld-acceptance-authority" }
 ];
 
 function countByMode(mode) {
