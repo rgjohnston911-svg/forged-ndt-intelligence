@@ -916,9 +916,77 @@ input, textarea, select {
 }
 
 .finding-source {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #1f6feb22;
+  color: #58a6ff;
+  border: 1px solid #1f6feb44;
+}
+
+.findings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.finding-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.finding-card .finding-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.finding-type {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e6edf3;
+  text-transform: capitalize;
+}
+
+.severity-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.severity-REJECTABLE, .severity-rejectable { background: #ef444422; color: #ef4444; border: 1px solid #ef444444; }
+.severity-MAJOR, .severity-major { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
+.severity-RECORDABLE, .severity-recordable { background: #3b82f622; color: #3b82f6; border: 1px solid #3b82f644; }
+.severity-MINOR, .severity-minor { background: #22c55e22; color: #22c55e; border: 1px solid #22c55e44; }
+.severity-high { background: #ef444422; color: #ef4444; border: 1px solid #ef444444; }
+.severity-medium { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
+.severity-low { background: #3b82f622; color: #3b82f6; border: 1px solid #3b82f644; }
+
+.finding-location {
   font-size: 12px;
-  color: #484f58;
+  color: #8b949e;
+  margin-top: 4px;
+}
+
+.finding-reasoning {
+  font-size: 13px;
+  color: #c9d1d9;
   margin-top: 6px;
+  line-height: 1.5;
+}
+
+.finding-causes {
+  font-size: 12px;
+  color: #8b949e;
+  margin-top: 4px;
+  font-style: italic;
 }
 
 /* Rules tab */
