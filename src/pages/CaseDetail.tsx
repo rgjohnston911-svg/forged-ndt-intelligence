@@ -668,14 +668,18 @@ export default function CaseDetail() {
             ) : (
               <div className="findings-list">
                 {findings.map(function(f) {
+                  var displayType = f.finding_type ? f.finding_type.replace(/_/g, " ") : (f.label || "Finding");
+                  var displaySource = f.source ? f.source.toUpperCase() : null;
+                  var displayLabel = f.label || "";
+                  var displaySeverity = f.severity || null;
                   return (
                     <div key={f.id} className="finding-card">
                       <div className="finding-header">
-                        <span className={"finding-source finding-source-" + (f.source || "unknown")}>{(f.source || "unknown").toUpperCase()}</span>
-                        <span className="finding-type">{(f.finding_type || "unknown").replace(/_/g, " ")}</span>
-                        {f.severity && <span className={"severity-badge severity-" + f.severity}>{f.severity.toUpperCase()}</span>}
+                        {displaySource && <span className={"finding-source finding-source-" + f.source}>{displaySource}</span>}
+                        {displaySeverity && <span className={"severity-badge severity-" + displaySeverity}>{displaySeverity.toUpperCase()}</span>}
+                        <span className="finding-type">{displayType}</span>
                       </div>
-                      <div className="finding-label">{f.label}</div>
+                      {displayLabel && displayLabel !== displayType && <div className="finding-label">{displayLabel}</div>}
                       {f.location_ref && <div className="finding-location">Location: {f.location_ref.replace(/_/g, " ")}</div>}
                       {f.confidence != null && <div className="finding-confidence">Confidence: {Math.round(f.confidence * 100)}%</div>}
                       {f.structured_json && f.structured_json.reasoning && (
