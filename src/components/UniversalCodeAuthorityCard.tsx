@@ -70,7 +70,7 @@ export default function UniversalCodeAuthorityCard(props) {
       .from("inspection_cases")
       .select("code_authority_result, code_authority_generated_at")
       .eq("id", caseId)
-      .single();
+      .maybeSingle();
     if (!res.error && res.data && res.data.code_authority_result) {
       setResult(res.data.code_authority_result);
     }
