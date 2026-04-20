@@ -89,7 +89,8 @@ var ENGINE_REGISTRY = [
   { name: "outcome-tracking", deploy: "DEPLOY255", mode: "deterministic", path: "/api/outcome-tracking" },
   { name: "cross-case-patterns", deploy: "DEPLOY256", mode: "deterministic", path: "/api/cross-case-patterns" },
   { name: "process-data-integration", deploy: "DEPLOY257", mode: "deterministic", path: "/api/process-data-integration" },
-  { name: "predictive-remaining-life", deploy: "DEPLOY258", mode: "deterministic", path: "/api/predictive-remaining-life" }
+  { name: "predictive-remaining-life", deploy: "DEPLOY258", mode: "deterministic", path: "/api/predictive-remaining-life" },
+  { name: "physics-sufficiency-engine", deploy: "DEPLOY259", mode: "deterministic", path: "/api/physics-sufficiency-engine" }
 ];
 
 function countByMode(mode) {
