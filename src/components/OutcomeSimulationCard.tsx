@@ -41,7 +41,7 @@ export default function OutcomeSimulationCard(props) {
       .from("inspection_cases")
       .select("outcome_simulation, outcome_simulation_generated_at")
       .eq("id", caseId)
-      .single();
+      .maybeSingle();
     if (!res.error && res.data && res.data.outcome_simulation) {
       setSim(res.data.outcome_simulation);
     }
