@@ -44,7 +44,7 @@ export default function CompositeRepairCard(props) {
       .from("inspection_cases")
       .select("composite_repair_assessment, composite_repair_generated_at, composite_repair_status")
       .eq("id", caseId)
-      .single();
+      .maybeSingle();
     if (!res.error && res.data && res.data.composite_repair_assessment) {
       setAssessment(res.data.composite_repair_assessment);
       setGeneratedAt(res.data.composite_repair_generated_at);
