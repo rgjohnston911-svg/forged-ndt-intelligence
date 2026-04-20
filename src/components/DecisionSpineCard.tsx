@@ -83,7 +83,7 @@ export default function DecisionSpineCard(props) {
       .from("inspection_cases")
       .select("decision_bundle_hash, decision_bundle_version, decision_bundle_signed_at, ood_score, ood_flag, physics_coverage, decision_state, decision_state_reason, unified_confidence, confidence_components, conceptual_reasoning")
       .eq("id", caseId)
-      .single();
+      .maybeSingle();
     if (!res.error && res.data && res.data.decision_bundle_hash) {
       setBundleInfo(res.data);
     }
