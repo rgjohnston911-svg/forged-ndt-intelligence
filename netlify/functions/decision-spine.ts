@@ -113,28 +113,29 @@ function scoreOOD(neighbors) {
 function assessPhysicsCoverage(caseRow, findings, thickness) {
   var checks = [];
 
-  // ---- Industry-aware gating ----
-  // Some verticals (space, aerospace, defense, medical) use "shell" in component
-  // names (capsule shell, fuselage shell, implant shell) but do NOT use traditional
-  // UT thickness grids governed by API 510/570. Forcing wall_thickness_vs_nominal
-  // on these cases creates an impossible requirement that blocks the spine forever.
-  var caseIndustry = (caseRow.industry || caseRow.sector || "").toLowerCase();
-  var isNonTraditionalVertical = /space|aerospace|defense|military|medical|bio|electronics|semiconductor|additive/i.test(caseIndustry);
-
   // ---- Wall thickness / general corrosion (API 510/570) ----
+  // HARD required: method is UT, or thickness data already uploaded.
+  // RECOMMENDED: component name matches a pressure-component pattern.
+  // Only hard-required checks count toward coverage_pct and can block.
+  // Recommended checks produce warnings but never block the spine.
   var hasThickness = thickness && thickness.length > 0;
-  var thkRequired = caseRow.method === "ut" || caseRow.method === "UT" || hasThickness ||
-    (!isNonTraditionalVertical && caseRow.component_name && /pipe|vessel|tank|shell|header|riser|column|drum/i.test(caseRow.component_name));
+  var hardRequired = caseRow.method === "ut" || caseRow.method === "UT" || hasThickness;
+  var recommended = !hardRequired && caseRow.component_name &&
+    /pipe|vessel|tank|shell|header|riser|column|drum/i.test(caseRow.component_name);
   var thkCheck = {
     check_id: "wall_thickness_vs_nominal",
     code_ref: "API 510 / API 570",
-    required: !!thkRequired,
+    required: !!hardRequired,
+    recommended: !!recommended,
     runnable: hasThickness,
     missing_inputs: [],
     result: null
   };
-  if (thkRequired && !hasThickness) {
+  if (hardRequired && !hasThickness) {
     thkCheck.missing_inputs.push("thickness_readings (upload UT grid or CML CSV on Evidence tab)");
+  }
+  if (recommended && !hasThickness) {
+    thkCheck.missing_inputs.push("thickness_readings recommended for this component type (upload UT grid or CML CSV on Evidence tab)");
   }
   if (hasThickness) {
     var vals = [];
@@ -245,25 +246,56 @@ function assessPhysicsCoverage(caseRow, findings, thickness) {
   checks.push(wallLossCheck);
 
   // ---- Coverage summary ----
-  var required = 0, runnable = 0;
+  // Only hard-required checks count toward coverage_pct and the blocking gate.
+  // Recommended checks are advisory — they surface as warnings but never block.
+  var required = 0, runnable = 0, recommendedCount = 0;
   for (var ci = 0; ci < checks.length; ci++) {
     if (checks[ci].required) {
       required++;
       if (checks[ci].runnable) runnable++;
     }
+    if (checks[ci].recommended) recommendedCount++;
   }
   var coveragePct = required === 0 ? 1.0 : runnable / required;
+
+  var summaryText = "";
+  if (required === 0 && recommendedCount === 0) {
+    summaryText = "No physics checks required for this case type.";
+  } else if (required === 0 && recommendedCount > 0) {
+    summaryText = "No physics checks required, but " + recommendedCount +
+      " recommended check(s) could improve confidence. See advisory items.";
+  } else {
+    summaryText = runnable + " of " + required + " required checks runnable with current data (" +
+      Math.round(coveragePct * 100) + "% coverage).";
+    if (recommendedCount > 0) {
+      summaryText = summaryText + " " + recommendedCount + " additional recommended check(s) available.";
+    }
+  }
 
   return {
     checks: checks,
     required_count: required,
     runnable_count: runnable,
+    recommended_count: recommendedCount,
     coverage_pct: coveragePct,
-    summary: required === 0
-      ? "No physics checks required for this case type."
-      : (runnable + " of " + required + " required checks runnable with current data (" +
-         Math.round(coveragePct * 100) + "% coverage).")
+    summary: summaryText
   };
+}
+
+// ================================================================
+// COLLECT RECOMMENDED ADVISORIES
+// Recommended checks don't block, but inspectors should see them.
+// ================================================================
+function collectAdvisories(physics) {
+  var advisories = [];
+  for (var i = 0; i < physics.checks.length; i++) {
+    if (physics.checks[i].recommended && physics.checks[i].missing_inputs.length > 0) {
+      for (var j = 0; j < physics.checks[i].missing_inputs.length; j++) {
+        advisories.push(physics.checks[i].check_id + ": " + physics.checks[i].missing_inputs[j]);
+      }
+    }
+  }
+  return advisories;
 }
 
 // ================================================================
@@ -273,6 +305,7 @@ function resolveDecisionState(caseRow, ood, physics, hasAiFindings) {
   var state = "pending";
   var reason = "";
   var blockers = [];
+  var advisories = collectAdvisories(physics);
 
   // Gate 1: Physics sufficiency
   if (physics.required_count > 0 && physics.coverage_pct < PHYSICS_BLOCKED_THRESHOLD) {
@@ -288,7 +321,7 @@ function resolveDecisionState(caseRow, ood, physics, hasAiFindings) {
         }
       }
     }
-    return { state: state, reason: reason, blockers: blockers, gate_detail: {
+    return { state: state, reason: reason, blockers: blockers, advisories: advisories, gate_detail: {
       gate: "physics_sufficiency",
       threshold: PHYSICS_BLOCKED_THRESHOLD,
       actual: physics.coverage_pct
@@ -300,7 +333,7 @@ function resolveDecisionState(caseRow, ood, physics, hasAiFindings) {
     state = "advisory";
     reason = "Findings are AI-classified but no engineering measurements confirm them. " +
       "Decision is informational only. Collect measurements to upgrade to a code-authoritative state.";
-    return { state: state, reason: reason, blockers: [], gate_detail: {
+    return { state: state, reason: reason, blockers: [], advisories: advisories, gate_detail: {
       gate: "ai_boundary",
       note: "AI-sourced findings present without measurement confirmation"
     }};
@@ -312,7 +345,7 @@ function resolveDecisionState(caseRow, ood, physics, hasAiFindings) {
     reason = "Physics coverage " + Math.round(physics.coverage_pct * 100) +
       "% is below " + Math.round(PHYSICS_PROVISIONAL_THRESHOLD * 100) +
       "%. Decision issued with mandatory human review. Cannot be authority-locked until coverage improves.";
-    return { state: state, reason: reason, blockers: [], gate_detail: {
+    return { state: state, reason: reason, blockers: [], advisories: advisories, gate_detail: {
       gate: "physics_sufficiency",
       threshold: PHYSICS_PROVISIONAL_THRESHOLD,
       actual: physics.coverage_pct
@@ -323,7 +356,7 @@ function resolveDecisionState(caseRow, ood, physics, hasAiFindings) {
     state = "provisional";
     reason = "Case is out-of-distribution (no close prior in case library). " +
       "Decision issued but requires human authority review before locking.";
-    return { state: state, reason: reason, blockers: [], gate_detail: {
+    return { state: state, reason: reason, blockers: [], advisories: advisories, gate_detail: {
       gate: "ood_distribution",
       ood_flag: ood.ood_flag,
       ood_score: ood.ood_score
@@ -344,7 +377,7 @@ function resolveDecisionState(caseRow, ood, physics, hasAiFindings) {
       "% meets threshold. Run Authority Lock to finalize the decision.";
   }
 
-  return { state: state, reason: reason, blockers: [], gate_detail: {
+  return { state: state, reason: reason, blockers: [], advisories: advisories, gate_detail: {
     gate: authorityLocked ? "all_passed" : "awaiting_authority_lock",
     physics_pct: physics.coverage_pct,
     ood_flag: ood.ood_flag
