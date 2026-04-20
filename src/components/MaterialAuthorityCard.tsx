@@ -58,7 +58,7 @@ export default function MaterialAuthorityCard(props) {
       .from("inspection_cases")
       .select("material_authority_assessment, material_authority_generated_at, material_authority_status")
       .eq("id", caseId)
-      .single();
+      .maybeSingle();
     if (!res.error && res.data && res.data.material_authority_assessment) {
       setAssessment(res.data.material_authority_assessment);
       setGeneratedAt(res.data.material_authority_generated_at);
