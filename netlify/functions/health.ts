@@ -40,7 +40,18 @@ var CRITICAL_TABLES = [
   { name: "learning_records", deploy: "DEPLOY265", critical: false },
   { name: "hypothesis_tracking", deploy: "DEPLOY265", critical: false },
   { name: "calibration_scores", deploy: "DEPLOY265", critical: false },
-  { name: "adversarial_challenges", deploy: "DEPLOY265", critical: false }
+  { name: "adversarial_challenges", deploy: "DEPLOY265", critical: false },
+  { name: "inspection_plans", deploy: "DEPLOY266", critical: false },
+  { name: "workpack_items", deploy: "DEPLOY266", critical: false },
+  { name: "corrosion_loops", deploy: "DEPLOY267", critical: false },
+  { name: "corrosion_rate_history", deploy: "DEPLOY267", critical: false },
+  { name: "fatigue_assessments", deploy: "DEPLOY268", critical: false },
+  { name: "vibration_assessments", deploy: "DEPLOY268", critical: false },
+  { name: "asset_graphs", deploy: "DEPLOY269", critical: false },
+  { name: "cascade_scenarios", deploy: "DEPLOY269", critical: false },
+  { name: "asset_interactions", deploy: "DEPLOY269", critical: false },
+  { name: "code_authority_registry", deploy: "DEPLOY270", critical: false },
+  { name: "code_authority_lookups", deploy: "DEPLOY270", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -101,7 +112,12 @@ var ENGINE_REGISTRY = [
   { name: "contradiction-engine", deploy: "DEPLOY262", mode: "deterministic", path: "/api/contradiction-engine" },
   { name: "repair-pathway-engine", deploy: "DEPLOY263", mode: "deterministic", path: "/api/repair-pathway-engine" },
   { name: "reality-lock-domain", deploy: "DEPLOY264", mode: "deterministic", path: "/api/reality-lock-domain" },
-  { name: "tri-model-reasoning", deploy: "DEPLOY265", mode: "ai_assisted", path: "/api/tri-model-reasoning" }
+  { name: "tri-model-reasoning", deploy: "DEPLOY265", mode: "ai_assisted", path: "/api/tri-model-reasoning" },
+  { name: "inspection-planning-proof", deploy: "DEPLOY266", mode: "deterministic", path: "/api/inspection-planning-proof" },
+  { name: "corrosion-loop-engine", deploy: "DEPLOY267", mode: "deterministic", path: "/api/corrosion-loop-engine" },
+  { name: "fatigue-vibration-proof", deploy: "DEPLOY268", mode: "deterministic", path: "/api/fatigue-vibration-proof" },
+  { name: "multi-asset-cascade", deploy: "DEPLOY269", mode: "deterministic", path: "/api/multi-asset-cascade" },
+  { name: "live-code-authority", deploy: "DEPLOY270", mode: "deterministic", path: "/api/live-code-authority" }
 ];
 
 function countByMode(mode) {
