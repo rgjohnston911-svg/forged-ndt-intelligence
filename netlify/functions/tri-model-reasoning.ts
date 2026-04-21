@@ -772,7 +772,7 @@ function callOpenAI(systemPrompt, userMessage) {
     body: JSON.stringify({
       model: "gpt-4o",
       temperature: 0.3,
-      max_tokens: 8000,
+      max_tokens: 4000,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
@@ -792,7 +792,7 @@ function callClaude(systemPrompt, userMessage) {
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 8000,
+      max_tokens: 4000,
       temperature: 0.3,
       system: systemPrompt,
       messages: [
@@ -956,7 +956,10 @@ function buildDirectContext(input) {
 }
 
 // ================================================================
-// MAIN HANDLER
+// MAIN HANDLER — LIGHTWEIGHT ROUTER
+// Handles: get_registry (instant), get_result (polls DB),
+//          reason/case_id (creates session, fires background function)
+// The heavy pipeline runs in tri-model-reasoning-background.ts (15min timeout)
 // ================================================================
 export var handler: Handler = async function(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
@@ -965,7 +968,6 @@ export var handler: Handler = async function(event) {
   try {
     var body = JSON.parse(event.body || "{}");
     var action = body.action || "";
-    var startTime = Date.now();
 
     // --- Registry action (for system-check compatibility) ---
     if (action === "get_registry") {
@@ -1068,213 +1070,126 @@ export var handler: Handler = async function(event) {
       };
     }
 
-    // --- Validate API keys ---
-    if (!openaiKey) return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "OPENAI_API_KEY not configured" }) };
-    if (!anthropicKey) return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "ANTHROPIC_API_KEY not configured" }) };
+    // --- Poll for result ---
+    if (action === "get_result") {
+      var sessionId = body.session_id;
+      if (!sessionId) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "session_id required" }) };
 
-    var sb = createClient(supabaseUrl, supabaseKey);
-    var caseContext = "";
+      var sb = createClient(supabaseUrl, supabaseKey);
+      var sessionRes = await sb.from("reasoning_sessions").select("*").eq("id", sessionId).single();
+
+      if (sessionRes.error || !sessionRes.data) {
+        return { statusCode: 404, headers: corsHeaders, body: JSON.stringify({ error: "Session not found", session_id: sessionId }) };
+      }
+
+      var session = sessionRes.data;
+      var isComplete = session.pipeline_status === "complete" || session.pipeline_status === "error";
+
+      if (!isComplete) {
+        return {
+          statusCode: 200,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            session_id: sessionId,
+            status: session.pipeline_status || "processing",
+            pipeline_step: session.pipeline_step || "queued",
+            started_at: session.created_at,
+            message: "Pipeline is running. Poll again in 5 seconds."
+          })
+        };
+      }
+
+      // Pipeline complete — return full result
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          engine: "tri-model-reasoning",
+          version: ENGINE_VERSION,
+          architecture: "superbrain-v5-proof-engine",
+          session_id: sessionId,
+          case_id: session.case_id,
+          generated_at: session.updated_at || session.created_at,
+          total_ms: session.total_duration_ms,
+          timing: {
+            model_a_ms: session.model_a_duration_ms,
+            model_b_ms: session.model_b_duration_ms,
+            model_c_ms: session.model_c_duration_ms,
+            resolution_ms: session.resolution_duration_ms
+          },
+          pipeline: {
+            model_a: session.model_a_output,
+            model_b: session.model_b_output,
+            model_c: session.model_c_output,
+            resolution: session.resolution_output
+          },
+          final_output: session.final_output || session.resolution_output,
+          pipeline_status: session.pipeline_status,
+          error: session.pipeline_error || null
+        }, null, 2)
+      };
+    }
+
+    // --- Start reasoning pipeline (async via background function) ---
+    if (!supabaseUrl || !supabaseKey) return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "SUPABASE not configured" }) };
+
+    var sb2 = createClient(supabaseUrl, supabaseKey);
     var caseId = body.case_id || null;
 
-    // --- Build context from case_id or direct input ---
-    if (caseId) {
-      var caseRes = await sb.from("inspection_cases").select("*").eq("id", caseId).single();
-      if (caseRes.error || !caseRes.data) {
-        return { statusCode: 404, headers: corsHeaders, body: JSON.stringify({ error: "Case not found" }) };
-      }
-      var findingsRes = await sb.from("findings").select("*").eq("case_id", caseId);
-      var thkRes = await sb.from("thickness_readings").select("*").eq("case_id", caseId);
-      var evidenceRes = await sb.from("evidence").select("*").eq("case_id", caseId);
-      caseContext = buildCaseContext(caseRes.data, findingsRes.data || [], thkRes.data || [], evidenceRes.data || []);
-    } else if (action === "reason" && body.input) {
-      caseContext = buildDirectContext(body.input);
-    } else {
+    // Validate input
+    if (!caseId && !(action === "reason" && body.input)) {
       return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "case_id or {action:'reason', input:{...}} required" }) };
     }
 
-    // ================================================================
-    // STEP 1: MODEL A — Physics + Proof Chain Engine (GPT-4o)
-    // ================================================================
-    var modelAMessage = "Analyze this inspection case using physics-first reasoning AND proof chain construction."
-      + " Build the complete reality topology with proof-critical zones."
-      + " Construct the CLAIM GRAPH with typed claim nodes and status."
-      + " Build COMPONENT-LEVEL PROOF CHAINS for every critical component."
-      + " Produce CASE-DERIVED CALCULATIONS with input quality tracking."
-      + " Produce METHOD OBSERVABILITY PROOFS for every method/damage-mode/component combination."
-      + " Identify ALL active mechanisms with physics reasoning."
-      + " Reason backward from evidence to constrain history."
-      + " Identify what evidence is absent that should be present."
-      + " Fuse multiple methods into unified pictures."
-      + " CRITICAL: Every claim must be provable, not merely plausible."
-      + "\n\n" + caseContext;
+    // If case_id, verify it exists
+    if (caseId) {
+      var caseCheck = await sb2.from("inspection_cases").select("id").eq("id", caseId).single();
+      if (caseCheck.error || !caseCheck.data) {
+        return { statusCode: 404, headers: corsHeaders, body: JSON.stringify({ error: "Case not found" }) };
+      }
+    }
 
-    var modelAResp = await callOpenAI(MODEL_A_PROMPT, modelAMessage);
-    var modelAOutput = parseAIResponse(modelAResp, "openai");
-    var modelATime = Date.now() - startTime;
-
-    // ================================================================
-    // STEP 2: MODEL B — Engineering + Standards + Assumptions (Claude)
-    // ================================================================
-    var modelBMessage = "You have the physics analysis and proof chains from Model A."
-      + " Now determine consequences, validate EVERY standards claim to source authority level,"
-      + " map EVERY assumption to the claims it carries, produce PROOF-LEVEL repair validation,"
-      + " enforce unknowns as constraints, and simulate temporal futures."
-      + " CRITICAL: Every standard must trace to body/edition/status."
-      + " Every assumption must map to its dependent claims and calculations."
-      + " Every repair must have proof-level validation."
-      + "\n\n=== MODEL A PHYSICS + PROOF CHAIN OUTPUT ===\n"
-      + JSON.stringify(modelAOutput, null, 2)
-      + "\n\n=== ORIGINAL CASE CONTEXT ===\n"
-      + caseContext;
-
-    var modelBStart = Date.now();
-    var modelBResp = await callClaude(MODEL_B_PROMPT, modelBMessage);
-    var modelBOutput = parseAIResponse(modelBResp, "claude");
-    var modelBTime = Date.now() - modelBStart;
-
-    // ================================================================
-    // STEP 3: MODEL C — Adversarial + Proof Attack (GPT-4o)
-    // ================================================================
-    var modelCMessage = "You have the outputs of Model A (Physics + Proof Chains) and Model B (Engineering + Standards + Assumptions)."
-      + " ATTACK their PROOF CHAINS. Run PROOF BREAK DETECTION on every critical claim."
-      + " Build DISPROOF PATHS for every major conclusion."
-      + " COMPUTE confidence from weighted factors, not intuition."
-      + " Find where conclusions LOOK strong in narrative but are BROKEN in proof."
-      + " Attack assumptions, find contradictions, inject phantom scenarios."
-      + " Rate consensus fragility. Flag hallucinated content."
-      + " CRITICAL: A well-written paragraph is not proof. A traceable chain IS proof."
-      + "\n\n=== MODEL A PHYSICS + PROOF CHAIN OUTPUT ===\n"
-      + JSON.stringify(modelAOutput, null, 2)
-      + "\n\n=== MODEL B ENGINEERING + STANDARDS + ASSUMPTIONS OUTPUT ===\n"
-      + JSON.stringify(modelBOutput, null, 2)
-      + "\n\n=== ORIGINAL CASE CONTEXT ===\n"
-      + caseContext;
-
-    var modelCStart = Date.now();
-    var modelCResp = await callOpenAI(MODEL_C_PROMPT, modelCMessage);
-    var modelCOutput = parseAIResponse(modelCResp, "openai");
-    var modelCTime = Date.now() - modelCStart;
-
-    // ================================================================
-    // STEP 4: RESOLUTION — Decision Proof + Governance Lock v3 (Claude)
-    // ================================================================
-    var resolutionMessage = "DECISION DOMINANCE MODE with PROOF AUTHORITY."
-      + " Synthesize all three models into a decision-forcing, PROOF-VALIDATED output."
-      + " Run DECISION PROOF ENGINE: prove why the final status is what it is."
-      + " Run REGULATORY DEFENSIBILITY: test whether the decision survives regulator/litigation/peer review."
-      + " Apply GOVERNANCE LOCK V3: only allow conclusions that survive ALL 12 proof conditions."
-      + " Define hard IF/THEN decision boundaries. Define escalation triggers."
-      + " Apply burden-of-proof inversion. Produce method sufficiency verdict."
-      + " Preserve dangerous alternatives. Apply uncertainty discipline (9 categories)."
-      + " Use COMPUTED confidence from Model C, not intuitive scores."
-      + " Propagate proof breaks to governance lock."
-      + " End with final_line: one sentence capturing the governing reality."
-      + " CRITICAL: The final status is a PROOF RESULT, not a judgment call."
-      + "\n\n=== MODEL A (PHYSICS + PROOF CHAINS) ===\n"
-      + JSON.stringify(modelAOutput, null, 2)
-      + "\n\n=== MODEL B (ENGINEERING + STANDARDS + ASSUMPTIONS) ===\n"
-      + JSON.stringify(modelBOutput, null, 2)
-      + "\n\n=== MODEL C (ADVERSARIAL + PROOF ATTACKS) ===\n"
-      + JSON.stringify(modelCOutput, null, 2)
-      + "\n\n=== ORIGINAL CASE CONTEXT ===\n"
-      + caseContext;
-
-    var resStart = Date.now();
-    var resolutionResp = await callClaude(RESOLUTION_PROMPT, resolutionMessage);
-    var resolutionOutput = parseAIResponse(resolutionResp, "claude");
-    var resolutionTime = Date.now() - resStart;
-
-    // ================================================================
-    // STEP 5: STORE REASONING SESSION
-    // ================================================================
-    var totalTime = Date.now() - startTime;
-
-    var sessionRecord = {
+    // Create a session record with status "processing"
+    var sessionInsert = await sb2.from("reasoning_sessions").insert({
       case_id: caseId,
-      engine_version: ENGINE_VERSION,
-      model_a_output: modelAOutput,
-      model_b_output: modelBOutput,
-      model_c_output: modelCOutput,
-      resolution_output: resolutionOutput,
-      model_a_ms: modelATime,
-      model_b_ms: modelBTime,
-      model_c_ms: modelCTime,
-      resolution_ms: resolutionTime,
-      total_ms: totalTime,
-      final_status: resolutionOutput.final_status || "UNKNOWN",
-      severity: resolutionOutput.severity || "UNKNOWN",
+      session_type: "case_reasoning",
+      pipeline_version: ENGINE_VERSION,
+      input_summary: body.input || null,
+      pipeline_status: "processing",
+      pipeline_step: "queued",
       created_at: new Date().toISOString()
-    };
+    }).select("id").single();
 
-    // Try to store (table may not exist yet — don't fail the response)
-    var storeRes = await sb.from("reasoning_sessions").insert(sessionRecord);
-    var stored = !storeRes.error;
+    if (sessionInsert.error || !sessionInsert.data) {
+      return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to create session", detail: sessionInsert.error }) };
+    }
 
-    // ================================================================
-    // STEP 6: BUILD RESPONSE
-    // ================================================================
+    var newSessionId = sessionInsert.data.id;
+
+    // Fire the background function (fire-and-forget)
+    var siteUrl = process.env.URL || "https://4dndt.netlify.app";
+    fetch(siteUrl + "/.netlify/functions/tri-model-reasoning-background", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: newSessionId,
+        case_id: caseId,
+        action: action,
+        input: body.input || null
+      })
+    }).catch(function() {});
+
+    // Return session_id immediately
     return {
-      statusCode: 200,
+      statusCode: 202,
       headers: corsHeaders,
       body: JSON.stringify({
-        engine: "tri-model-reasoning",
-        version: ENGINE_VERSION,
-        architecture: "superbrain-v5-proof-engine",
-        case_id: caseId,
-        generated_at: new Date().toISOString(),
-        total_ms: totalTime,
-        timing: {
-          model_a_ms: modelATime,
-          model_b_ms: modelBTime,
-          model_c_ms: modelCTime,
-          resolution_ms: resolutionTime
-        },
-        pipeline: {
-          model_a: modelAOutput,
-          model_b: modelBOutput,
-          model_c: modelCOutput,
-          resolution: resolutionOutput
-        },
-        final_output: {
-          summary: resolutionOutput.reality_summary || "",
-          dominant_hypothesis: resolutionOutput.dominant_hypothesis || null,
-          dangerous_alternative: resolutionOutput.dangerous_alternative || null,
-          data_deficiency: resolutionOutput.data_deficiency_hypothesis || null,
-          severity: resolutionOutput.severity || "UNKNOWN",
-          status: resolutionOutput.final_status || "UNKNOWN",
-          // Proof chain outputs (v5)
-          claim_graph_integrity: resolutionOutput.claim_graph_integrity || [],
-          component_proof_summary: resolutionOutput.component_proof_summary || [],
-          derived_calculations_verified: resolutionOutput.derived_calculations_verified || [],
-          method_sufficiency_verdict: resolutionOutput.method_sufficiency_verdict || null,
-          standards_authority_verified: resolutionOutput.standards_authority_verified || [],
-          assumption_status: resolutionOutput.assumption_status_synthesized || [],
-          repair_proof: resolutionOutput.repair_proof_synthesized || [],
-          proof_breaks: resolutionOutput.proof_breaks_synthesized || [],
-          confidence_records: resolutionOutput.confidence_records || [],
-          disproof_paths: resolutionOutput.disproof_paths_synthesized || [],
-          decision_proof: resolutionOutput.decision_proof || null,
-          regulatory_defensibility: resolutionOutput.regulatory_defensibility || null,
-          // Existing outputs
-          uncertainty_profile: resolutionOutput.uncertainty_profile || null,
-          uncertainty_operational_behavior: resolutionOutput.uncertainty_operational_behavior || "UNKNOWN",
-          casualty_chain: resolutionOutput.casualty_chain || null,
-          temporal_projection: resolutionOutput.temporal_projection || null,
-          temporal_scenarios_synthesized: resolutionOutput.temporal_scenarios_synthesized || null,
-          unknown_constraints: resolutionOutput.unknown_constraints_synthesized || [],
-          hard_decision_boundaries: resolutionOutput.hard_decision_boundaries || [],
-          escalation_triggers: resolutionOutput.escalation_triggers || [],
-          constraint_dominance: resolutionOutput.constraint_dominance || null,
-          required_actions: resolutionOutput.required_actions || [],
-          code_references: resolutionOutput.code_references || [],
-          governance_lock: resolutionOutput.governance_lock || null,
-          consensus_fragility: resolutionOutput.consensus_fragility || "UNKNOWN",
-          key_assumptions: resolutionOutput.key_assumptions || [],
-          contradiction_resolution: resolutionOutput.contradiction_resolution || [],
-          final_line: resolutionOutput.final_line || ""
-        },
-        stored: stored
-      }, null, 2)
+        status: "accepted",
+        session_id: newSessionId,
+        message: "Pipeline started. Poll GET /api/tri-model-reasoning with {action:'get_result', session_id:'" + newSessionId + "'} to retrieve results.",
+        poll_interval_seconds: 5,
+        estimated_duration_seconds: 60
+      })
     };
 
   } catch (err) {
