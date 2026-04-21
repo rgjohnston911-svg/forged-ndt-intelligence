@@ -5,8 +5,10 @@
  *
  * BACKGROUND FUNCTION — 15 minute timeout (Netlify Pro)
  *
- * This runs the full Superbrain v5 Proof Engine pipeline:
- *   Model A (GPT-4o) -> Model B (Claude) -> Model C (GPT-4o) -> Resolution (Claude)
+ * This runs the full Superbrain v6 Integrated Engine pipeline:
+ *   Code Authority Pre-flight (DEPLOY270) -> Domain Enrichment (DEPLOY267/268)
+ *   -> Model A (GPT-4o) -> Model B (Claude) -> Cascade Analysis (DEPLOY269)
+ *   -> Model C (GPT-4o) -> Resolution (Claude) -> Inspection Planning (DEPLOY266)
  *
  * Called by tri-model-reasoning.ts (the lightweight router).
  * Reads session_id from the request, runs the pipeline, stores results in Supabase.
@@ -26,7 +28,9 @@ var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 var openaiKey = process.env.OPENAI_API_KEY || "";
 var anthropicKey = process.env.ANTHROPIC_API_KEY || "";
 
-var ENGINE_VERSION = "tri-model-reasoning/5.0.0";
+var ENGINE_VERSION = "tri-model-reasoning/6.0.0";
+
+var siteUrl = process.env.URL || process.env.DEPLOY_URL || "https://4dndt.netlify.app";
 
 // ================================================================
 // IMPORT PROMPTS — same prompts as the main file
@@ -247,6 +251,101 @@ function callClaude(systemPrompt, userMessage) {
   }).then(function(r) { return r.json(); });
 }
 
+// ================================================================
+// INTERNAL ENGINE CALL HELPER
+// Calls DEPLOY266-270 engines via internal HTTP
+// ================================================================
+function callEngine(enginePath, payload) {
+  return fetch(siteUrl + "/.netlify/functions/" + enginePath, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }).then(function(r) { return r.json(); }).catch(function(err) {
+    return { engine_call_error: String(err), engine: enginePath };
+  });
+}
+
+// ================================================================
+// DOMAIN DETECTION — determines which engines to activate
+// ================================================================
+function detectDomains(caseContext) {
+  var ctx = (caseContext || "").toLowerCase();
+  var domains = { corrosion: false, fatigue: false, vibration: false, multi_asset: false };
+
+  // Corrosion keywords
+  var corrWords = ["corrosion", "corroded", "rust", "pitting", "wall loss", "thinning",
+    "cui", "cuf", "co2", "h2s", "mic", "erosion", "galvanic", "fac", "splash zone",
+    "atmospheric", "general corrosion", "localised", "localized", "metal loss"];
+  for (var ci = 0; ci < corrWords.length; ci++) {
+    if (ctx.indexOf(corrWords[ci]) !== -1) { domains.corrosion = true; break; }
+  }
+
+  // Fatigue keywords
+  var fatWords = ["fatigue", "crack", "fracture", "cyclic", "s-n curve", "miner",
+    "weld toe", "stress range", "notch", "haz crack", "propagation", "growth rate"];
+  for (var fi = 0; fi < fatWords.length; fi++) {
+    if (ctx.indexOf(fatWords[fi]) !== -1) { domains.fatigue = true; break; }
+  }
+
+  // Vibration keywords
+  var vibWords = ["vibration", "viv", "vortex", "resonance", "natural frequency",
+    "oscillation", "amplitude", "velocity rms", "displacement"];
+  for (var vi = 0; vi < vibWords.length; vi++) {
+    if (ctx.indexOf(vibWords[vi]) !== -1) { domains.vibration = true; break; }
+  }
+
+  // Multi-asset keywords
+  var maWords = ["adjacent", "cascade", "propagat", "connected", "downstream",
+    "upstream", "common cause", "blast", "fire", "dropped object", "platform",
+    "multiple assets", "process unit", "train"];
+  for (var mi = 0; mi < maWords.length; mi++) {
+    if (ctx.indexOf(maWords[mi]) !== -1) { domains.multi_asset = true; break; }
+  }
+
+  return domains;
+}
+
+// ================================================================
+// EXTRACT CODE REFERENCES FROM CASE CONTEXT
+// ================================================================
+function extractCodeReferences(caseContext) {
+  var refs = [];
+  var ctx = caseContext || "";
+  // Match common code patterns: API XXX, ASME XXX, DNV-XX-XXXX, BS XXXX, ISO XXXX, NACE XXX, etc.
+  var patterns = [
+    /API\s+[\w\-\.]+[\s]*[\w\-\.]*/g,
+    /ASME\s+[\w\-\.]+[\s]*[\w\-\.]*/g,
+    /DNV[\-\s]+[\w\-\.]+[\s]*[\w\-\.]*/g,
+    /BS\s+[\w\-\.]+/g,
+    /ISO\s+[\w\-\.]+/g,
+    /NACE\s+[\w\-\.]+/g,
+    /AMPP\s+[\w\-\.]+/g,
+    /AWS\s+[\w\-\.]+/g,
+    /NORSOK\s+[\w\-\.]+/g
+  ];
+  for (var pi = 0; pi < patterns.length; pi++) {
+    var matches = ctx.match(patterns[pi]);
+    if (matches) {
+      for (var mi = 0; mi < matches.length; mi++) {
+        var trimmed = matches[mi].trim();
+        if (refs.indexOf(trimmed) === -1) refs.push(trimmed);
+      }
+    }
+  }
+  // Also check code_family / code_edition fields
+  var cfMatch = ctx.match(/Code family:\s*([^\n]+)/i);
+  if (cfMatch && cfMatch[1] && cfMatch[1].trim() !== "unknown") {
+    var cf = cfMatch[1].trim();
+    if (refs.indexOf(cf) === -1) refs.push(cf);
+  }
+  var ceMatch = ctx.match(/Code edition:\s*([^\n]+)/i);
+  if (ceMatch && ceMatch[1] && ceMatch[1].trim() !== "unknown") {
+    var ce = ceMatch[1].trim();
+    if (refs.indexOf(ce) === -1) refs.push(ce);
+  }
+  return refs;
+}
+
 function parseAIResponse(resp, provider) {
   try {
     if (provider === "openai") {
@@ -429,6 +528,121 @@ export var handler: Handler = async function(event) {
     }
 
     // ================================================================
+    // STEP 0A: LIVE CODE AUTHORITY PRE-FLIGHT (DEPLOY270)
+    // Validate all standards references before any model runs
+    // ================================================================
+    await updateSession({ pipeline_step: "code_authority_preflight" });
+
+    var engineEnrichment = {
+      code_authority: null,
+      corrosion_loop: null,
+      fatigue_assessment: null,
+      vibration_assessment: null,
+      cascade_analysis: null,
+      inspection_plan: null
+    };
+
+    var codeRefs = extractCodeReferences(caseContext);
+    if (codeRefs.length > 0) {
+      try {
+        var codeResult = await callEngine("live-code-authority", {
+          action: "validate_references",
+          references: codeRefs
+        });
+        if (codeResult && !codeResult.engine_call_error) {
+          engineEnrichment.code_authority = codeResult;
+          // Append validated standards to case context
+          caseContext = caseContext + "\n\n=== LIVE CODE AUTHORITY (DEPLOY270 — AUTOMATED PRE-FLIGHT) ===";
+          var validations = codeResult.validations || codeResult.results || [];
+          if (validations.length > 0) {
+            for (var cv = 0; cv < validations.length; cv++) {
+              var v = validations[cv];
+              caseContext = caseContext + "\n" + (v.input_reference || v.reference || "unknown")
+                + " -> " + (v.resolved_code || v.current_edition || "unresolved")
+                + " | status: " + (v.currency_status || v.status || "unknown");
+            }
+          }
+          caseContext = caseContext + "\nNOTE: All standards references validated against DEPLOY270 Live Code Authority."
+            + " Models MUST use verified editions, not assumed editions.";
+        }
+      } catch (codeErr) {
+        // Non-fatal — pipeline continues without code validation
+        engineEnrichment.code_authority = { error: String(codeErr), note: "non-fatal, pipeline continues" };
+      }
+    }
+
+    // ================================================================
+    // STEP 0B: DOMAIN ENRICHMENT (DEPLOY267 + DEPLOY268)
+    // Auto-detect damage domains and run specialized engines
+    // ================================================================
+    await updateSession({ pipeline_step: "domain_enrichment" });
+
+    var domains = detectDomains(caseContext);
+
+    // Corrosion Loop Engine (DEPLOY267)
+    if (domains.corrosion) {
+      try {
+        var corrResult = await callEngine("corrosion-loop-engine", {
+          action: "identify_mechanism",
+          case_id: caseId || null,
+          context: caseContext.substring(0, 3000)
+        });
+        if (corrResult && !corrResult.engine_call_error) {
+          engineEnrichment.corrosion_loop = corrResult;
+          caseContext = caseContext + "\n\n=== CORROSION LOOP ENGINE (DEPLOY267 — AUTOMATED ENRICHMENT) ==="
+            + "\nPrimary mechanism: " + (corrResult.mechanism || corrResult.primary_mechanism || "unknown")
+            + "\nRate method: " + (corrResult.rate_method || "unknown")
+            + "\nCorrosion rate: " + (corrResult.corrosion_rate_mmpy || corrResult.rate || "not calculated") + " mm/yr"
+            + "\nRemaining life: " + (corrResult.remaining_life_years || "not calculated") + " years"
+            + "\nRecommended interval: " + (corrResult.interval_years || "not calculated") + " years"
+            + "\nProof status: " + (corrResult.proof_status || "unknown");
+        }
+      } catch (corrErr) {
+        engineEnrichment.corrosion_loop = { error: String(corrErr), note: "non-fatal" };
+      }
+    }
+
+    // Fatigue & Vibration Proof Engine (DEPLOY268)
+    if (domains.fatigue) {
+      try {
+        var fatResult = await callEngine("fatigue-vibration-proof", {
+          action: "assess_fatigue",
+          case_id: caseId || null,
+          context: caseContext.substring(0, 3000)
+        });
+        if (fatResult && !fatResult.engine_call_error) {
+          engineEnrichment.fatigue_assessment = fatResult;
+          caseContext = caseContext + "\n\n=== FATIGUE PROOF ENGINE (DEPLOY268 — AUTOMATED ENRICHMENT) ==="
+            + "\nJoint class: " + (fatResult.joint_class || "unknown")
+            + "\nS-N curve: " + (fatResult.sn_curve || "unknown")
+            + "\nMiner sum: " + (fatResult.miner_sum || "not calculated")
+            + "\nFatigue life status: " + (fatResult.fatigue_status || fatResult.proof_status || "unknown");
+        }
+      } catch (fatErr) {
+        engineEnrichment.fatigue_assessment = { error: String(fatErr), note: "non-fatal" };
+      }
+    }
+
+    if (domains.vibration) {
+      try {
+        var vibResult = await callEngine("fatigue-vibration-proof", {
+          action: "assess_vibration",
+          case_id: caseId || null,
+          context: caseContext.substring(0, 3000)
+        });
+        if (vibResult && !vibResult.engine_call_error) {
+          engineEnrichment.vibration_assessment = vibResult;
+          caseContext = caseContext + "\n\n=== VIBRATION PROOF ENGINE (DEPLOY268 — AUTOMATED ENRICHMENT) ==="
+            + "\nSeverity zone: " + (vibResult.severity_zone || "unknown")
+            + "\nVelocity RMS: " + (vibResult.velocity_rms || "unknown") + " mm/s"
+            + "\nVIV risk: " + (vibResult.viv_risk || "unknown");
+        }
+      } catch (vibErr) {
+        engineEnrichment.vibration_assessment = { error: String(vibErr), note: "non-fatal" };
+      }
+    }
+
+    // ================================================================
     // STEP 1: MODEL A — Physics + Proof Chain Engine (GPT-4o)
     // ================================================================
     await updateSession({ pipeline_step: "model_a_physics" });
@@ -475,6 +689,40 @@ export var handler: Handler = async function(event) {
     await updateSession({ pipeline_step: "model_b_complete", model_b_output: modelBOutput, model_b_duration_ms: modelBTime });
 
     // ================================================================
+    // STEP 2B: MULTI-ASSET CASCADE (DEPLOY269)
+    // If multi-asset context detected, run cascade analysis
+    // ================================================================
+    var cascadeContext = "";
+    if (domains.multi_asset) {
+      await updateSession({ pipeline_step: "cascade_analysis" });
+      try {
+        var cascadeResult = await callEngine("multi-asset-cascade", {
+          action: "run_cascade",
+          case_id: caseId || null,
+          context: caseContext.substring(0, 2000),
+          model_b_output: JSON.stringify(modelBOutput).substring(0, 2000)
+        });
+        if (cascadeResult && !cascadeResult.engine_call_error) {
+          engineEnrichment.cascade_analysis = cascadeResult;
+          cascadeContext = "\n\n=== MULTI-ASSET CASCADE ENGINE (DEPLOY269 — AUTOMATED) ==="
+            + "\nCascade paths found: " + (cascadeResult.cascade_paths ? cascadeResult.cascade_paths.length : 0)
+            + "\nSPOF count: " + (cascadeResult.spof_count || 0)
+            + "\nCommon cause groups: " + (cascadeResult.common_cause_groups || 0)
+            + "\nMax cascade depth: " + (cascadeResult.max_depth || "unknown")
+            + "\nCascade risk: " + (cascadeResult.cascade_risk || cascadeResult.overall_risk || "unknown");
+          if (cascadeResult.cascade_paths) {
+            for (var cp = 0; cp < Math.min(cascadeResult.cascade_paths.length, 5); cp++) {
+              var path = cascadeResult.cascade_paths[cp];
+              cascadeContext = cascadeContext + "\nPath " + (cp + 1) + ": " + (path.description || path.path || JSON.stringify(path).substring(0, 200));
+            }
+          }
+        }
+      } catch (cascErr) {
+        engineEnrichment.cascade_analysis = { error: String(cascErr), note: "non-fatal" };
+      }
+    }
+
+    // ================================================================
     // STEP 3: MODEL C — Adversarial + Proof Attack (GPT-4o)
     // ================================================================
     await updateSession({ pipeline_step: "model_c_adversarial" });
@@ -489,6 +737,7 @@ export var handler: Handler = async function(event) {
       + JSON.stringify(modelAOutput, null, 2)
       + "\n\n=== MODEL B ENGINEERING + STANDARDS + ASSUMPTIONS OUTPUT ===\n"
       + JSON.stringify(modelBOutput, null, 2)
+      + (cascadeContext ? "\n\n=== MULTI-ASSET CASCADE ANALYSIS (DEPLOY269) ===" + cascadeContext : "")
       + "\n\n=== ORIGINAL CASE CONTEXT ===\n"
       + caseContext;
 
@@ -519,6 +768,7 @@ export var handler: Handler = async function(event) {
       + JSON.stringify(modelBOutput, null, 2)
       + "\n\n=== MODEL C (ADVERSARIAL + PROOF ATTACKS) ===\n"
       + JSON.stringify(modelCOutput, null, 2)
+      + (cascadeContext ? "\n\n=== MULTI-ASSET CASCADE ANALYSIS (DEPLOY269) ===" + cascadeContext : "")
       + "\n\n=== ORIGINAL CASE CONTEXT ===\n"
       + caseContext;
 
@@ -528,7 +778,59 @@ export var handler: Handler = async function(event) {
     var resolutionTime = Date.now() - resStart;
 
     // ================================================================
-    // STEP 5: STORE COMPLETE RESULT
+    // STEP 5: INSPECTION PLANNING PROOF (DEPLOY266)
+    // Generate workpack from proof gaps identified by Resolution
+    // ================================================================
+    await updateSession({ pipeline_step: "inspection_planning" });
+
+    try {
+      var proofBreaks = resolutionOutput.proof_breaks_synthesized || resolutionOutput.proof_breaks || [];
+      var componentSummary = resolutionOutput.component_proof_summary || [];
+      var requiredActions = resolutionOutput.required_actions || [];
+      var missingEvidence = [];
+
+      // Extract missing evidence from proof breaks
+      for (var pbi = 0; pbi < proofBreaks.length; pbi++) {
+        var pb = proofBreaks[pbi];
+        if (pb && (pb.type || pb.break_type || pb.description)) {
+          missingEvidence.push(pb.description || pb.type || pb.break_type || JSON.stringify(pb).substring(0, 200));
+        }
+      }
+
+      // Extract components with weak/broken proof
+      var weakComponents = [];
+      for (var csi = 0; csi < componentSummary.length; csi++) {
+        var comp = componentSummary[csi];
+        if (comp) {
+          var compStatus = (comp.status || comp.component_status || comp.proof_strength || "").toUpperCase();
+          if (compStatus === "BROKEN" || compStatus === "NO_PROOF" || compStatus === "PROVISIONAL" || compStatus === "LOW" || compStatus === "WEAK") {
+            weakComponents.push(comp.component || comp.name || "component_" + csi);
+          }
+        }
+      }
+
+      if (missingEvidence.length > 0 || weakComponents.length > 0 || requiredActions.length > 0) {
+        var planResult = await callEngine("inspection-planning-proof", {
+          action: "generate_plan",
+          case_id: caseId || null,
+          proof_breaks: proofBreaks,
+          component_proof_summary: componentSummary,
+          missing_evidence: missingEvidence,
+          weak_components: weakComponents,
+          required_actions: requiredActions,
+          severity: resolutionOutput.severity || "UNKNOWN",
+          final_status: resolutionOutput.final_status || "UNKNOWN"
+        });
+        if (planResult && !planResult.engine_call_error) {
+          engineEnrichment.inspection_plan = planResult;
+        }
+      }
+    } catch (planErr) {
+      engineEnrichment.inspection_plan = { error: String(planErr), note: "non-fatal" };
+    }
+
+    // ================================================================
+    // STEP 6: STORE COMPLETE RESULT
     // ================================================================
     var totalTime = Date.now() - startTime;
 
@@ -566,7 +868,8 @@ export var handler: Handler = async function(event) {
       consensus_fragility: resolutionOutput.consensus_fragility || "UNKNOWN",
       key_assumptions: resolutionOutput.key_assumptions || [],
       contradiction_resolution: resolutionOutput.contradiction_resolution || [],
-      final_line: resolutionOutput.final_line || ""
+      final_line: resolutionOutput.final_line || "",
+      engine_enrichment: engineEnrichment
     };
 
     await updateSession({

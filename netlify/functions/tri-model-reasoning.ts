@@ -3,22 +3,29 @@
  * DEPLOY265 - tri-model-reasoning.ts
  * netlify/functions/tri-model-reasoning.ts
  *
- * TRI-MODEL ADVERSARIAL REASONING ENGINE v5.0
- * SUPERBRAIN V5 — PROOF ENGINE ARCHITECTURE
+ * TRI-MODEL ADVERSARIAL REASONING ENGINE v6.0
+ * SUPERBRAIN V6 — INTEGRATED ENGINE ARCHITECTURE
  *
- * Three AI models that THINK, ARGUE, PROVE, and RESOLVE.
- * This is the proof brain. The 57 existing engines are the governance skeleton.
+ * Three AI models that THINK, ARGUE, PROVE, and RESOLVE,
+ * backed by five deterministic engines that VALIDATE, CALCULATE, and PLAN.
+ * This is the proof brain. The 62 other engines are the governance skeleton.
  *
- * v5 transforms the system from "expert-level inferred truth" to
- * "component-level provable truth." No conclusion without proof lineage.
- * No threshold without derivation basis. No final decision if the proof chain
- * is broken.
+ * v6 integrates DEPLOY266-270 directly into the pipeline:
+ *   - Live Code Authority validates all standards BEFORE models run
+ *   - Corrosion Loop / Fatigue-Vibration engines enrich domain-specific cases
+ *   - Multi-Asset Cascade identifies failure propagation after Model B
+ *   - Inspection Planning generates workpacks from proof gaps after Resolution
  *
  * Pipeline:
- *   INPUT -> NORMALIZE -> MODEL A (Physics + Proof Chain Build)
+ *   INPUT -> NORMALIZE
+ *   -> CODE AUTHORITY PRE-FLIGHT (DEPLOY270)
+ *   -> DOMAIN ENRICHMENT (DEPLOY267 corrosion + DEPLOY268 fatigue/vibration)
+ *   -> MODEL A (Physics + Proof Chain Build)
  *   -> MODEL B (Engineering + Standards Authority + Assumption Mapping)
+ *   -> CASCADE ANALYSIS (DEPLOY269 multi-asset)
  *   -> MODEL C (Adversarial + Proof Break Detection + Disproof Paths)
  *   -> RESOLUTION (Decision Proof + Regulatory Defensibility + Governance Lock v3)
+ *   -> INSPECTION PLANNING (DEPLOY266 workpack generation)
  *   -> OUTPUT
  *
  * Model A (GPT-4o): Physics + Claim Graph + Component Proof + Calculations + Observability
@@ -56,7 +63,7 @@ var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 var openaiKey = process.env.OPENAI_API_KEY || "";
 var anthropicKey = process.env.ANTHROPIC_API_KEY || "";
 
-var ENGINE_VERSION = "tri-model-reasoning/5.0.0";
+var ENGINE_VERSION = "tri-model-reasoning/6.0.0";
 
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -977,12 +984,21 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({
           engine: "tri-model-reasoning",
           version: ENGINE_VERSION,
-          architecture: "superbrain-v5-proof-engine",
+          architecture: "superbrain-v6-integrated-engine",
           models: {
             A: { role: "physics_proof_chain_engine", provider: "openai", model: "gpt-4o" },
             B: { role: "engineering_standards_assumption_engine", provider: "anthropic", model: "claude-sonnet-4" },
             C: { role: "adversarial_proof_attack_engine", provider: "openai", model: "gpt-4o" },
             resolution: { role: "decision_proof_governance", provider: "anthropic", model: "claude-sonnet-4" }
+          },
+          integrated_engines: {
+            pre_flight: { engine: "live-code-authority", deploy: "DEPLOY270", phase: "before_model_a", purpose: "validate all standards references" },
+            domain_enrichment: [
+              { engine: "corrosion-loop-engine", deploy: "DEPLOY267", trigger: "corrosion keywords detected", purpose: "mechanism + rate + remaining life" },
+              { engine: "fatigue-vibration-proof", deploy: "DEPLOY268", trigger: "fatigue/vibration keywords detected", purpose: "S-N curves + VIV screening" }
+            ],
+            cascade_analysis: { engine: "multi-asset-cascade", deploy: "DEPLOY269", phase: "after_model_b", trigger: "multi-asset keywords detected", purpose: "failure propagation paths + SPOF" },
+            post_resolution: { engine: "inspection-planning-proof", deploy: "DEPLOY266", phase: "after_resolution", purpose: "proof gaps to inspection workpacks" }
           },
           proof_modules: [
             "CLAIM_GRAPH_ENGINE_V1",
@@ -1106,7 +1122,7 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({
           engine: "tri-model-reasoning",
           version: ENGINE_VERSION,
-          architecture: "superbrain-v5-proof-engine",
+          architecture: "superbrain-v6-integrated-engine",
           session_id: sessionId,
           case_id: session.case_id,
           generated_at: session.updated_at || session.created_at,
@@ -1179,32 +1195,4 @@ export var handler: Handler = async function(event) {
           input: body.input || null
         })
       });
-      // Background function returns 202 immediately — we just need the request to land
-      console.log("Background function invoked, status: " + bgResp.status);
-    } catch (bgErr) {
-      // If background invocation fails, mark session as error
-      await sb2.from("reasoning_sessions").update({ pipeline_status: "error", pipeline_error: "Failed to invoke background function: " + String(bgErr) }).eq("id", newSessionId);
-      return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to start pipeline", detail: String(bgErr) }) };
-    }
-
-    // Return session_id immediately
-    return {
-      statusCode: 202,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        status: "accepted",
-        session_id: newSessionId,
-        message: "Pipeline started. Poll GET /api/tri-model-reasoning with {action:'get_result', session_id:'" + newSessionId + "'} to retrieve results.",
-        poll_interval_seconds: 5,
-        estimated_duration_seconds: 60
-      })
-    };
-
-  } catch (err) {
-    return {
-      statusCode: 500,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: String(err && err.message ? err.message : err) })
-    };
-  }
-};
+      // Backg
