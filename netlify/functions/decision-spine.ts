@@ -108,145 +108,229 @@ function scoreOOD(neighbors) {
 }
 
 // ================================================================
-// PHYSICS SUFFICIENCY (same checks as DEPLOY216, now with wall-loss check)
+// PHYSICS SUFFICIENCY — DEPLOY265 REGISTRY-DRIVEN
+// Replaces hardcoded checks with data-driven registry lookups.
 // ================================================================
-function assessPhysicsCoverage(caseRow, findings, thickness) {
-  var checks = [];
+// ================================================================
+// TRIGGER EVALUATION
+// Evaluates whether a trigger condition fires for a given case.
+// Triggers are data-driven: each one names a case field and a match rule.
+// ================================================================
+function evaluateTrigger(triggerName, caseRow, findings, thickness) {
+  // Hard-coded trigger evaluations that map to the physics_check_triggers table.
+  // These run in the function to avoid an extra DB round-trip per check.
+  // The table exists so the registry is self-documenting and queryable.
+  if (triggerName === "method_is_ut") {
+    return caseRow.method === "ut" || caseRow.method === "UT";
+  }
+  if (triggerName === "has_thickness_data") {
+    return thickness && thickness.length > 0;
+  }
+  if (triggerName === "component_is_pressure") {
+    return caseRow.component_name && /pipe|vessel|tank|shell|header|riser|column|drum/i.test(caseRow.component_name);
+  }
+  if (triggerName === "finding_has_crack") {
+    if (!findings || findings.length === 0) return false;
+    for (var i = 0; i < findings.length; i++) {
+      var ft = (findings[i].indication_type || findings[i].finding_type || findings[i].label || "").toLowerCase();
+      if (ft.indexOf("crack") >= 0) return true;
+    }
+    return false;
+  }
+  if (triggerName === "load_is_cyclic") {
+    return caseRow.load_condition && /cyclic|fatigue|pulsat|vibration/i.test(String(caseRow.load_condition));
+  }
+  if (triggerName === "temp_above_370c") {
+    var t370 = num(caseRow.service_temperature_c);
+    return t370 !== null && t370 > 370;
+  }
+  if (triggerName === "temp_above_200c") {
+    var t200 = num(caseRow.service_temperature_c);
+    return t200 !== null && t200 > 200;
+  }
+  if (triggerName === "temp_below_minus20c") {
+    var tLow = num(caseRow.service_temperature_c);
+    return tLow !== null && tLow < -20;
+  }
+  if (triggerName === "has_coating") {
+    return caseRow.component_name && /coat|lined|lining|clad|overlay/i.test(caseRow.component_name);
+  }
+  if (triggerName === "environment_is_corrosive") {
+    return caseRow.load_condition && /acid|chloride|sulfide|caustic|sour|amine|wet.*h2s/i.test(String(caseRow.load_condition));
+  }
+  if (triggerName === "has_refractory") {
+    return caseRow.component_name && /refractory|kiln|furnace|incinerator|duct.*hot|flue/i.test(caseRow.component_name);
+  }
+  if (triggerName === "is_composite") {
+    return caseRow.material_class && /composite|frp|grp|gfrp|cfrp|fiber.*reinf/i.test(caseRow.material_class);
+  }
+  if (triggerName === "is_polymer_lined") {
+    return caseRow.material_class && /rubber|ptfe|pvc|hdpe|pp.*lined|polymer|ebonite|flake.*glass/i.test(caseRow.material_class);
+  }
+  if (triggerName === "has_insulation") {
+    return caseRow.component_name && /insul|blanket|lagging|jacketed|cryogenic/i.test(caseRow.component_name);
+  }
+  if (triggerName === "is_glass_lined") {
+    return caseRow.material_class && /glass.*lined|enamel|porcelain/i.test(caseRow.material_class);
+  }
+  // Unknown trigger — don't fire it (safe default)
+  return false;
+}
 
-  // ---- Wall thickness / general corrosion (API 510/570) ----
-  // HARD required: method is UT, or thickness data already uploaded.
-  // RECOMMENDED: component name matches a pressure-component pattern.
-  // Only hard-required checks count toward coverage_pct and can block.
-  // Recommended checks produce warnings but never block the spine.
-  var hasThickness = thickness && thickness.length > 0;
-  var hardRequired = caseRow.method === "ut" || caseRow.method === "UT" || hasThickness;
-  var recommended = !hardRequired && caseRow.component_name &&
-    /pipe|vessel|tank|shell|header|riser|column|drum/i.test(caseRow.component_name);
-  var thkCheck = {
-    check_id: "wall_thickness_vs_nominal",
-    code_ref: "API 510 / API 570",
-    required: !!hardRequired,
-    recommended: !!recommended,
-    runnable: hasThickness,
-    missing_inputs: [],
-    result: null
+// ================================================================
+// WALL THICKNESS EVALUATION (preserved from original)
+// Runs the actual min/nominal/verdict calculation when thickness data exists.
+// ================================================================
+function evaluateThicknessData(thickness) {
+  var vals = [];
+  var nominal = null;
+  for (var i = 0; i < thickness.length; i++) {
+    var tv = num(thickness[i].thickness_in);
+    if (tv !== null && tv > 0) vals.push(tv);
+    if (!nominal) {
+      var nv = num(thickness[i].nominal_in);
+      if (nv !== null && nv > 0) nominal = nv;
+    }
+  }
+  if (vals.length === 0) return { result: null, missingNominal: false };
+  var minT = Math.min.apply(null, vals);
+  var pct = nominal ? minT / nominal : null;
+  return {
+    result: {
+      reading_count: vals.length,
+      min_in: minT,
+      nominal_in: nominal,
+      pct_of_nominal: pct,
+      verdict: pct === null ? "informational" :
+        (pct < 0.50 ? "reject" : (pct < 0.80 ? "ffs_review" : "pass"))
+    },
+    missingNominal: !nominal
   };
-  if (hardRequired && !hasThickness) {
-    thkCheck.missing_inputs.push("thickness_readings (upload UT grid or CML CSV on Evidence tab)");
+}
+
+// ================================================================
+// PHYSICS SUFFICIENCY — DATA-DRIVEN (DEPLOY265)
+//
+// Queries the physics_check_registry for the case's material_class.
+// Falls back to 'unknown' if no rows match (generic safety checks).
+// Trigger conditions determine which conditional checks fire.
+// Return shape is identical to the original for downstream compatibility.
+// ================================================================
+async function assessPhysicsCoverage(sb, caseRow, findings, thickness) {
+  var checks = [];
+  var hasThickness = thickness && thickness.length > 0;
+  var thicknessEval = hasThickness ? evaluateThicknessData(thickness) : null;
+
+  // Normalize material class for lookup
+  var matClass = (caseRow.material_class || "").toLowerCase().replace(/[\s-]+/g, "_");
+
+  // Query registry for this material class
+  var regRes = await sb.from("physics_check_registry")
+    .select("*")
+    .eq("material_class", matClass)
+    .eq("active", true)
+    .order("display_order", { ascending: true });
+
+  var registryRows = (regRes.data && regRes.data.length > 0) ? regRes.data : null;
+
+  // Fallback: if no material-specific rows, try 'unknown' (generic checks)
+  if (!registryRows) {
+    var fallbackRes = await sb.from("physics_check_registry")
+      .select("*")
+      .eq("material_class", "unknown")
+      .eq("active", true)
+      .order("display_order", { ascending: true });
+    registryRows = (fallbackRes.data && fallbackRes.data.length > 0) ? fallbackRes.data : [];
   }
-  if (recommended && !hasThickness) {
-    thkCheck.missing_inputs.push("thickness_readings recommended for this component type (upload UT grid or CML CSV on Evidence tab)");
-  }
-  if (hasThickness) {
-    var vals = [];
-    var nominal = null;
-    for (var i = 0; i < thickness.length; i++) {
-      var tv = num(thickness[i].thickness_in);
-      if (tv !== null && tv > 0) vals.push(tv);
-      if (!nominal) {
-        var nv = num(thickness[i].nominal_in);
-        if (nv !== null && nv > 0) nominal = nv;
+
+  // Evaluate each registry row
+  for (var ri = 0; ri < registryRows.length; ri++) {
+    var row = registryRows[ri];
+    var isRequired = false;
+    var isRecommended = false;
+    var triggerFired = true;
+
+    // Determine if this check applies
+    if (row.requirement_level === "required") {
+      // Always required for this material — no trigger needed
+      isRequired = true;
+    } else if (row.requirement_level === "conditional") {
+      // Only required if trigger condition fires
+      if (row.trigger_condition) {
+        triggerFired = evaluateTrigger(row.trigger_condition, caseRow, findings, thickness);
+      }
+      isRequired = triggerFired;
+    } else if (row.requirement_level === "recommended") {
+      // Advisory only — check trigger but mark as recommended, not required
+      if (row.trigger_condition) {
+        triggerFired = evaluateTrigger(row.trigger_condition, caseRow, findings, thickness);
+      }
+      isRecommended = triggerFired;
+      isRequired = false;
+    }
+
+    // Skip checks that don't apply
+    if (!isRequired && !isRecommended) continue;
+
+    // Build the check object
+    var missingInputs = [];
+    var checkRunnable = false;
+    var checkResult = null;
+
+    // Special handling for wall thickness checks — run the actual evaluation
+    if (row.check_id === "wall_thickness_vs_nominal" || row.check_id === "wall_thickness_recommended") {
+      checkRunnable = hasThickness;
+      if (!hasThickness) {
+        var templates = row.missing_inputs_template || [];
+        for (var mi = 0; mi < templates.length; mi++) {
+          missingInputs.push(templates[mi]);
+        }
+      } else if (thicknessEval) {
+        checkResult = thicknessEval.result;
+        if (thicknessEval.missingNominal) {
+          missingInputs.push("nominal thickness");
+        }
+      }
+    } else {
+      // For all other checks: not yet runnable (solver is stub or planned)
+      // Missing inputs come from the registry template
+      if (isRequired || isRecommended) {
+        checkRunnable = (row.solver_status === "active");
+        var inputTemplates = row.missing_inputs_template || [];
+        for (var ti = 0; ti < inputTemplates.length; ti++) {
+          missingInputs.push(inputTemplates[ti]);
+        }
+        if (row.solver_status === "stub" || row.solver_status === "planned") {
+          checkResult = { solver: row.solver_status, note: row.solver_note || "Solver slot reserved." };
+        }
       }
     }
-    if (vals.length > 0) {
-      var minT = Math.min.apply(null, vals);
-      var pct = nominal ? minT / nominal : null;
-      thkCheck.result = {
-        reading_count: vals.length,
-        min_in: minT,
-        nominal_in: nominal,
-        pct_of_nominal: pct,
-        verdict: pct === null ? "informational" :
-          (pct < 0.50 ? "reject" : (pct < 0.80 ? "ffs_review" : "pass"))
-      };
+
+    // Special: wall_loss_severity triggers only when thickness shows non-pass
+    if (row.check_id === "wall_loss_severity") {
+      if (!hasThickness || !thicknessEval || !thicknessEval.result || thicknessEval.result.verdict === "pass") {
+        isRequired = false;
+        isRecommended = false;
+        continue;
+      }
     }
-    if (!nominal) thkCheck.missing_inputs.push("nominal thickness");
-  }
-  checks.push(thkCheck);
 
-  // ---- Crack-like flaw FFS (API 579 Part 9) ----
-  var hasCrack = false;
-  if (findings && findings.length > 0) {
-    for (var j = 0; j < findings.length; j++) {
-      var ft = (findings[j].indication_type || findings[j].finding_type || findings[j].label || "").toLowerCase();
-      if (ft.indexOf("crack") >= 0) hasCrack = true;
-    }
+    checks.push({
+      check_id: row.check_id,
+      code_ref: row.code_ref,
+      description: row.check_description,
+      required: isRequired,
+      recommended: isRecommended,
+      runnable: checkRunnable,
+      missing_inputs: missingInputs,
+      result: checkResult,
+      source: "registry",
+      material_class: row.material_class
+    });
   }
-  var crackCheck = {
-    check_id: "crack_like_flaw_ffs",
-    code_ref: "API 579 Part 9",
-    required: hasCrack,
-    runnable: false,
-    missing_inputs: [],
-    result: null
-  };
-  if (hasCrack) {
-    crackCheck.missing_inputs.push("crack length measurement");
-    crackCheck.missing_inputs.push("crack depth measurement");
-    if (!caseRow.load_condition) crackCheck.missing_inputs.push("operating stress / load condition");
-    crackCheck.missing_inputs.push("material fracture toughness (KIC or CVN -> KIC)");
-    crackCheck.runnable = false;
-    crackCheck.result = { solver: "stub", note: "Solver slot reserved for FFS integration." };
-  }
-  checks.push(crackCheck);
-
-  // ---- Fatigue (BS 7910 / ASME Sec VIII Div 2) ----
-  var fatigueRequired = caseRow.load_condition &&
-    /cyclic|fatigue|pulsat|vibration/i.test(String(caseRow.load_condition));
-  var fatigueCheck = {
-    check_id: "fatigue_life",
-    code_ref: "BS 7910 / ASME Sec VIII Div 2",
-    required: !!fatigueRequired,
-    runnable: false,
-    missing_inputs: [],
-    result: null
-  };
-  if (fatigueRequired) {
-    fatigueCheck.missing_inputs.push("cycle count history");
-    fatigueCheck.missing_inputs.push("stress range per cycle");
-    fatigueCheck.missing_inputs.push("SN curve class / material fatigue properties");
-    fatigueCheck.result = { solver: "stub", note: "Solver slot reserved for fatigue integration." };
-  }
-  checks.push(fatigueCheck);
-
-  // ---- Creep (API 579 Part 10) ----
-  var creepRequired = caseRow.service_temperature_c && num(caseRow.service_temperature_c) > 370;
-  var creepCheck = {
-    check_id: "creep_damage",
-    code_ref: "API 579 Part 10",
-    required: !!creepRequired,
-    runnable: false,
-    missing_inputs: [],
-    result: null
-  };
-  if (creepRequired) {
-    creepCheck.missing_inputs.push("service temperature history");
-    creepCheck.missing_inputs.push("stress history");
-    creepCheck.missing_inputs.push("material creep rupture data (Larson-Miller constants)");
-    creepCheck.result = { solver: "stub", note: "Solver slot reserved for creep integration." };
-  }
-  checks.push(creepCheck);
-
-  // ---- Wall-loss severity (new in DEPLOY220) ----
-  var wallLossCheck = {
-    check_id: "wall_loss_severity",
-    code_ref: "API 579 Part 4 / Part 5",
-    required: hasThickness && thkCheck.result && thkCheck.result.verdict !== "pass",
-    runnable: false,
-    missing_inputs: [],
-    result: null
-  };
-  if (wallLossCheck.required) {
-    wallLossCheck.missing_inputs.push("design pressure / MAWP");
-    wallLossCheck.missing_inputs.push("corrosion rate (mpy)");
-    wallLossCheck.missing_inputs.push("next planned shutdown date");
-    wallLossCheck.runnable = false;
-    wallLossCheck.result = { solver: "stub", note: "Solver slot for remaining life calculation." };
-  }
-  checks.push(wallLossCheck);
 
   // ---- Coverage summary ----
-  // Only hard-required checks count toward coverage_pct and the blocking gate.
+  // Only required checks count toward coverage_pct and the blocking gate.
   // Recommended checks are advisory — they surface as warnings but never block.
   var required = 0, runnable = 0, recommendedCount = 0;
   for (var ci = 0; ci < checks.length; ci++) {
@@ -278,6 +362,8 @@ function assessPhysicsCoverage(caseRow, findings, thickness) {
     runnable_count: runnable,
     recommended_count: recommendedCount,
     coverage_pct: coveragePct,
+    material_class_used: matClass,
+    registry_rows_matched: registryRows.length,
     summary: summaryText
   };
 }
@@ -479,7 +565,12 @@ function traceConceptualReasoning(caseRow, findings, thickness, physics, ood, st
   });
 
   // Concept 3: Consequence Reality
-  var thkResult = physics.checks[0] && physics.checks[0].result;
+  // Find the wall thickness check by ID (not by index — registry order varies by material)
+  var thkCheck = null;
+  for (var tc = 0; tc < physics.checks.length; tc++) {
+    if (physics.checks[tc].check_id === "wall_thickness_vs_nominal") { thkCheck = physics.checks[tc]; break; }
+  }
+  var thkResult = thkCheck && thkCheck.result ? thkCheck.result : null;
   var worstVerdict = "unknown";
   if (thkResult && thkResult.verdict) worstVerdict = thkResult.verdict;
   concepts.push({
@@ -501,7 +592,13 @@ function traceConceptualReasoning(caseRow, findings, thickness, physics, ood, st
   var authDisp = caseRow.final_disposition || "not_yet_run";
   var authCodes = [];
   if (caseRow.code_family) authCodes.push(caseRow.code_family);
-  if (physics.checks[0] && physics.checks[0].code_ref) authCodes.push(physics.checks[0].code_ref);
+  // Add code references from the first required physics check (material-appropriate)
+  for (var ac = 0; ac < physics.checks.length; ac++) {
+    if (physics.checks[ac].required && physics.checks[ac].code_ref) {
+      authCodes.push(physics.checks[ac].code_ref);
+      break;
+    }
+  }
   concepts.push({
     concept: "authority_reality",
     label: "Authority Reality",
@@ -683,7 +780,7 @@ export var handler: Handler = async function(event) {
 
     // Core computations
     var oodResult = scoreOOD(neighbors);
-    var physics = assessPhysicsCoverage(caseRow, findingsRes.data || [], thkRes.data || []);
+    var physics = await assessPhysicsCoverage(sb, caseRow, findingsRes.data || [], thkRes.data || []);
 
     // Detect AI-only findings (findings with no matching measurement confirmation)
     var hasAiFindings = (findingsRes.data || []).length > 0 && physics.runnable_count === 0 && physics.required_count > 0;
@@ -737,7 +834,7 @@ export var handler: Handler = async function(event) {
           method_detected_by: f.method_detected_by
         };
       }),
-      thickness_summary: physics.checks[0] && physics.checks[0].result ? physics.checks[0].result : null,
+      thickness_summary: (function() { for (var ts = 0; ts < physics.checks.length; ts++) { if (physics.checks[ts].check_id === "wall_thickness_vs_nominal" && physics.checks[ts].result) return physics.checks[ts].result; } return null; })(),
       physics_coverage: physics,
       similar_cases: neighbors.map(function(n) {
         return {
