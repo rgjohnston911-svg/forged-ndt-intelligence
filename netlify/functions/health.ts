@@ -18,7 +18,7 @@ var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 var SYSTEM_VERSION = "FORGED-NDT/2.0.0";
-var BUILD_DATE = "2026-04-19";
+var BUILD_DATE = "2026-04-20";
 
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,7 +35,9 @@ var CRITICAL_TABLES = [
   { name: "audit_events", deploy: "DEPLOY223", critical: false },
   { name: "audit_bundles", deploy: "DEPLOY223", critical: false },
   { name: "org_signing_keys", deploy: "DEPLOY223", critical: false },
-  { name: "inspector_adjudications", deploy: "DEPLOY226", critical: false }
+  { name: "inspector_adjudications", deploy: "DEPLOY226", critical: false },
+  { name: "physics_check_registry", deploy: "DEPLOY265", critical: false },
+  { name: "physics_check_triggers", deploy: "DEPLOY265", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
