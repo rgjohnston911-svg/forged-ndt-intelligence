@@ -36,8 +36,11 @@ var CRITICAL_TABLES = [
   { name: "audit_bundles", deploy: "DEPLOY223", critical: false },
   { name: "org_signing_keys", deploy: "DEPLOY223", critical: false },
   { name: "inspector_adjudications", deploy: "DEPLOY226", critical: false },
-  { name: "physics_check_registry", deploy: "DEPLOY265", critical: false },
-  { name: "physics_check_triggers", deploy: "DEPLOY265", critical: false }
+  { name: "reasoning_sessions", deploy: "DEPLOY265", critical: false },
+  { name: "learning_records", deploy: "DEPLOY265", critical: false },
+  { name: "hypothesis_tracking", deploy: "DEPLOY265", critical: false },
+  { name: "calibration_scores", deploy: "DEPLOY265", critical: false },
+  { name: "adversarial_challenges", deploy: "DEPLOY265", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -97,7 +100,8 @@ var ENGINE_REGISTRY = [
   { name: "authority-lock-system", deploy: "DEPLOY261", mode: "deterministic", path: "/api/authority-lock-system" },
   { name: "contradiction-engine", deploy: "DEPLOY262", mode: "deterministic", path: "/api/contradiction-engine" },
   { name: "repair-pathway-engine", deploy: "DEPLOY263", mode: "deterministic", path: "/api/repair-pathway-engine" },
-  { name: "reality-lock-domain", deploy: "DEPLOY264", mode: "deterministic", path: "/api/reality-lock-domain" }
+  { name: "reality-lock-domain", deploy: "DEPLOY264", mode: "deterministic", path: "/api/reality-lock-domain" },
+  { name: "tri-model-reasoning", deploy: "DEPLOY265", mode: "ai_assisted", path: "/api/tri-model-reasoning" }
 ];
 
 function countByMode(mode) {
