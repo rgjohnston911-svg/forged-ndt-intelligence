@@ -824,8 +824,3 @@ export default function CaseDetail() {
     </div>
   );
 }
-<<<<<<< Updated upstream
- 
-=======
- 
->>>>>>> Stashed changes
