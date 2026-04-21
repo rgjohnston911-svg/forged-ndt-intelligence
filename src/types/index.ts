@@ -61,6 +61,7 @@ export interface Evidence {
   id: string;
   case_id: string;
   evidence_type: string;
+  nde_method: string | null;
   storage_path: string | null;
   mime_type: string | null;
   filename: string | null;

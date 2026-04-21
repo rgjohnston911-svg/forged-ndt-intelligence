@@ -11,10 +11,22 @@
  * - Teaching placeholder
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
+import NewCase from "./NewCase";
 import { supabase } from "../lib/supabase";
 import MethodBadge from "../components/MethodBadge";
+import ThicknessGridUpload from "../components/ThicknessGridUpload";
+import SimilarCasesPanel from "../components/SimilarCasesPanel";
+import DecisionSpineCard from "../components/DecisionSpineCard";
+import PlannerAgentCard from "../components/PlannerAgentCard";
+import CompositeRepairCard from "../components/CompositeRepairCard";
+import MaterialAuthorityCard from "../components/MaterialAuthorityCard";
+import OutcomeSimulationCard from "../components/OutcomeSimulationCard";
+import UniversalCodeAuthorityCard from "../components/UniversalCodeAuthorityCard";
+import EnterpriseAuditCard from "../components/EnterpriseAuditCard";
+import InspectorAdjudicationCard from "../components/InspectorAdjudicationCard";
+import { EVIDENCE_METHODS, EVIDENCE_METHOD_GROUPS } from "../lib/constants";
 import { DISPOSITION_COLORS } from "../lib/constants";
 
 type TabName = "overview" | "evidence" | "physics" | "findings" | "rules" | "decision" | "teaching";
@@ -49,8 +61,13 @@ var CODE_LIMITS: Record<string, Array<{ code: string; rule: string; limit: numbe
   "porosity:diameter": [{ code: "AWS D1.1", rule: "Individual", limit: 0.09375 }],
 };
 
+// UUID sanity check -- prevents "new" (or any non-UUID fragment) from being
+// passed to supabase as a uuid query, which returns a hard postgres error.
+var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default function CaseDetail() {
   var { id } = useParams<{ id: string }>();
+  var isNonUuid = !!(id && !UUID_RE.test(id));
   var [caseData, setCaseData] = useState<any | null>(null);
   var [findings, setFindings] = useState<any[]>([]);
   var [rules, setRules] = useState<any[]>([]);
@@ -59,11 +76,14 @@ export default function CaseDetail() {
   var [conflicts, setConflicts] = useState<any[]>([]);
   var [activeTab, setActiveTab] = useState<TabName>("overview");
   var [loading, setLoading] = useState(true);
+  var [loadError, setLoadError] = useState<string>("");
 
-  // Evidence upload
+  // Evidence upload -- DEPLOY208: method-tagged
   var [uploading, setUploading] = useState(false);
   var [analyzing, setAnalyzing] = useState(false);
   var [runningAuthority, setRunningAuthority] = useState(false);
+  var [selectedMethod, setSelectedMethod] = useState<string | null>(null);
+  var fileInputRef = useRef<HTMLInputElement>(null);
 
   // Measurements
   var [unitSystem, setUnitSystem] = useState<UnitSystem>("imperial");
@@ -71,18 +91,29 @@ export default function CaseDetail() {
   var [measSaved, setMeasSaved] = useState(false);
   var [savingMeas, setSavingMeas] = useState(false);
 
-  useEffect(function() { if (id) loadCase(); }, [id]);
+  useEffect(function() { if (id && !isNonUuid) loadCase(); }, [id, isNonUuid]);
 
   async function loadCase() {
     setLoading(true);
-    var cRes = await supabase.from("inspection_cases").select("*").eq("id", id).single();
+    setLoadError("");
+    var cRes = await supabase.from("inspection_cases").select("*").eq("id", id).maybeSingle();
+    if (cRes.error) {
+      setLoadError("Failed to load case: " + (cRes.error.message || String(cRes.error)));
+      setLoading(false);
+      return;
+    }
+    if (!cRes.data) {
+      setLoadError("Case not found in inspection_cases (id: " + id + "). This may be an orphan case from an older schema.");
+      setLoading(false);
+      return;
+    }
     setCaseData(cRes.data);
     var fRes = await supabase.from("findings").select("*").eq("case_id", id).order("created_at", { ascending: true });
     setFindings(fRes.data || []);
     var rRes = await supabase.from("rule_evaluations").select("*").eq("case_id", id).order("created_at", { ascending: true });
     setRules(rRes.data || []);
-    var pRes = await supabase.from("physics_reality_models").select("*").eq("case_id", id).single();
-    setPhysics(pRes.data);
+    var pRes = await supabase.from("physics_reality_models").select("*").eq("case_id", id).maybeSingle();
+    setPhysics(pRes.data || null);
     var eRes = await supabase.from("evidence").select("*").eq("case_id", id).order("created_at", { ascending: true });
     setEvidence(eRes.data || []);
     // Load conflicts
@@ -107,27 +138,52 @@ export default function CaseDetail() {
     setLoading(false);
   }
 
-  // === EVIDENCE UPLOAD ===
+  // === EVIDENCE UPLOAD (DEPLOY208: method-tagged) ===
+  function handleMethodSelect(methodValue: string) {
+    setSelectedMethod(methodValue);
+    // Trigger file picker after method is selected
+    setTimeout(function() {
+      if (fileInputRef.current) {
+        var methodDef = EVIDENCE_METHODS.find(function(m) { return m.value === methodValue; });
+        if (methodDef) fileInputRef.current.accept = methodDef.accept;
+        fileInputRef.current.click();
+      }
+    }, 50);
+  }
+
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     var files = e.target.files;
     if (!files || files.length === 0 || !id || !caseData) return;
+    var method = selectedMethod || "OTHER";
+    var methodDef = EVIDENCE_METHODS.find(function(m) { return m.value === method; });
+    var isImage = files[0].type.startsWith("image/");
     setUploading(true);
     for (var i = 0; i < files.length; i++) {
       var file = files[i];
-      var path = id + "/" + Date.now() + "_" + file.name;
+      var path = id + "/" + method + "/" + Date.now() + "_" + file.name;
       var uploadResult = await supabase.storage.from("ndt-evidence").upload(path, file);
       if (!uploadResult.error) {
         var pubUrl = supabase.storage.from("ndt-evidence").getPublicUrl(path).data.publicUrl;
         await supabase.from("evidence").insert({
-          case_id: id, evidence_type: "image", storage_path: path,
+          case_id: id,
+          evidence_type: isImage ? "image" : "data_file",
+          nde_method: method,
+          storage_path: path,
           mime_type: file.type, filename: file.name,
           uploaded_by: caseData.created_by, capture_source: "web_upload",
-          metadata_json: { public_url: pubUrl }
+          metadata_json: {
+            public_url: pubUrl,
+            nde_method: method,
+            nde_method_label: methodDef ? methodDef.label : method,
+            nde_method_group: methodDef ? methodDef.group : "Other"
+          }
         });
       }
     }
     await supabase.from("inspection_cases").update({ status: "evidence_uploaded" }).eq("id", id);
     setUploading(false);
+    setSelectedMethod(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     loadCase();
   }
 
@@ -227,6 +283,23 @@ export default function CaseDetail() {
     return { status: "PASS", detail: "Within code limits" };
   }
 
+  // Defensive guard: if route delivered a non-UUID (e.g. "/cases/new" caught
+  // by the :id route due to a stale bundle), render NewCase directly. This
+  // avoids an infinite redirect loop when the /cases/new static route isn't
+  // being matched by the deployed router.
+  if (isNonUuid) {
+    return <NewCase />;
+  }
+
+  if (loadError) {
+    return (
+      <div style={{ padding: "40px", maxWidth: "700px", margin: "40px auto", backgroundColor: "#1e293b", border: "1px solid #ef444444", borderRadius: "12px", color: "#fca5a5", fontFamily: "'Inter', sans-serif" }}>
+        <h2 style={{ color: "#ef4444", marginTop: 0 }}>Case load failed</h2>
+        <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#fecaca", whiteSpace: "pre-wrap" }}>{loadError}</div>
+        <button onClick={function() { window.location.href = "/cases"; }} style={{ marginTop: "20px", padding: "8px 20px", backgroundColor: "#3b82f6", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer" }}>&larr; Back to Cases</button>
+      </div>
+    );
+  }
   if (loading || !caseData) return <div className="page-loading">Loading case...</div>;
 
   // Use label (e.g. "undercut", "slag_inclusion") not finding_type (e.g. "Discontinuity")
@@ -311,26 +384,79 @@ export default function CaseDetail() {
         {/* ========== EVIDENCE + MEASUREMENTS ========== */}
         {activeTab === "evidence" && (
           <div>
-            <div className="evidence-actions">
-              <label className="upload-btn">
-                {uploading ? "Uploading..." : "Upload Evidence Photos"}
-                <input type="file" accept="image/*" multiple onChange={handleFileUpload} style={{ display: "none" }} disabled={uploading} />
-              </label>
+            {/* Hidden file input -- triggered by method selector */}
+            <input ref={fileInputRef} type="file" multiple onChange={handleFileUpload}
+              style={{ display: "none" }} disabled={uploading} />
+
+            {/* DEPLOY208: Method-tagged upload selector */}
+            <div className="evidence-method-selector">
+              <h3 style={{ margin: "0 0 12px 0", color: "#c9d1d9", fontSize: "15px" }}>
+                {uploading ? "Uploading..." : "Select NDE Method to Upload Evidence"}
+              </h3>
+              {EVIDENCE_METHOD_GROUPS.map(function(group) {
+                var groupMethods = EVIDENCE_METHODS.filter(function(m) { return m.group === group; });
+                return (
+                  <div key={group} className="evidence-method-group">
+                    <span className="evidence-group-label">{group}</span>
+                    <div className="evidence-method-chips">
+                      {groupMethods.map(function(m) {
+                        return (
+                          <button key={m.value}
+                            className={"evidence-method-chip" + (selectedMethod === m.value ? " method-chip-active" : "")}
+                            style={{ borderColor: m.color, color: selectedMethod === m.value ? "#fff" : m.color,
+                              backgroundColor: selectedMethod === m.value ? m.color : "transparent" }}
+                            onClick={function() { handleMethodSelect(m.value); }}
+                            disabled={uploading}>
+                            {m.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="evidence-actions" style={{ marginTop: "12px" }}>
               <button className="analyze-btn" onClick={runAnalysis} disabled={analyzing || evidence.length === 0}>
                 {analyzing ? "Analyzing..." : "Run AI Analysis"}
               </button>
             </div>
 
+            {/* DEPLOY210: Thickness grid / CML CSV uploader */}
+            {/* DEPLOY214: pass callback so an auto-rerun of run-authority refreshes the case */}
+            {id && <ThicknessGridUpload caseId={id} onAuthorityRerun={function() { loadCase(); }} />}
+
+            {/* Evidence display with method tags */}
             {evidence.length > 0 && (
               <div className="evidence-grid">
                 {evidence.map(function(ev) {
                   var url = ev.metadata_json && ev.metadata_json.public_url ? ev.metadata_json.public_url : "";
+                  var methodLabel = (ev.metadata_json && ev.metadata_json.nde_method_label) || ev.nde_method || "Unknown";
+                  var methodDef = EVIDENCE_METHODS.find(function(m) { return m.value === (ev.nde_method || (ev.metadata_json && ev.metadata_json.nde_method)); });
+                  var methodColor = methodDef ? methodDef.color : "#6b7280";
+                  var isImage = ev.evidence_type === "image" || ev.evidence_type === "radiograph";
                   return (
                     <div key={ev.id} className="evidence-card">
-                      {url && <img src={url} alt={ev.filename} className="evidence-img" />}
+                      {isImage && url && <img src={url} alt={ev.filename} className="evidence-img" />}
+                      {!isImage && (
+                        <div className="evidence-data-placeholder" style={{ borderColor: methodColor }}>
+                          <span style={{ color: methodColor, fontSize: "24px", fontWeight: "bold" }}>
+                            {ev.nde_method || "DATA"}
+                          </span>
+                          <span style={{ color: "#8b949e", fontSize: "12px" }}>{ev.filename}</span>
+                        </div>
+                      )}
                       <div className="evidence-info">
-                        <strong>{ev.filename}</strong>
-                        <span>Type: {ev.evidence_type} | Source: {ev.capture_source}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+                          <span className="evidence-method-tag" style={{ backgroundColor: methodColor }}>
+                            {methodLabel}
+                          </span>
+                        </div>
+                        <strong style={{ fontSize: "12px" }}>{ev.filename}</strong>
+                        <span style={{ fontSize: "11px", color: "#8b949e" }}>
+                          {ev.evidence_type} | {ev.capture_source || "upload"}
+                        </span>
                       </div>
                     </div>
                   );
@@ -521,7 +647,7 @@ export default function CaseDetail() {
                 <h3>Dual AI Conflict Resolution</h3>
                 {conflicts.map(function(c, idx) {
                   return (
-                    <div key={idx} className={"conflict-card conflict-" + c.resolution_method.toLowerCase()}>
+                    <div key={idx} className={"conflict-card conflict-" + (c.resolution_method || "unknown").toLowerCase()}>
                       <div className="conflict-header">
                         <span className="conflict-type">{(c.finding_type || "").replace(/_/g, " ")}</span>
                         <span className="conflict-method">{(c.resolution_method || "").replace(/_/g, " ")}</span>
@@ -542,14 +668,18 @@ export default function CaseDetail() {
             ) : (
               <div className="findings-list">
                 {findings.map(function(f) {
+                  var displayType = f.finding_type ? f.finding_type.replace(/_/g, " ") : (f.label || "Finding");
+                  var displaySource = f.source ? f.source.toUpperCase() : null;
+                  var displayLabel = f.label || "";
+                  var displaySeverity = f.severity || null;
                   return (
                     <div key={f.id} className="finding-card">
                       <div className="finding-header">
-                        <span className={"finding-source finding-source-" + f.source}>{f.source.toUpperCase()}</span>
-                        <span className="finding-type">{f.finding_type.replace(/_/g, " ")}</span>
-                        {f.severity && <span className={"severity-badge severity-" + f.severity}>{f.severity.toUpperCase()}</span>}
+                        {displaySource && <span className={"finding-source finding-source-" + f.source}>{displaySource}</span>}
+                        {displaySeverity && <span className={"severity-badge severity-" + displaySeverity}>{displaySeverity.toUpperCase()}</span>}
+                        <span className="finding-type">{displayType}</span>
                       </div>
-                      <div className="finding-label">{f.label}</div>
+                      {displayLabel && displayLabel !== displayType && <div className="finding-label">{displayLabel}</div>}
                       {f.location_ref && <div className="finding-location">Location: {f.location_ref.replace(/_/g, " ")}</div>}
                       {f.confidence != null && <div className="finding-confidence">Confidence: {Math.round(f.confidence * 100)}%</div>}
                       {f.structured_json && f.structured_json.reasoning && (
@@ -578,8 +708,8 @@ export default function CaseDetail() {
                     <div key={r.id} className={"rule-card rule-" + (r.passed === true ? "pass" : r.passed === false ? "fail" : "na")}>
                       <div className="rule-header">
                         <span className="rule-status-icon">{r.passed === true ? "\u2713" : r.passed === false ? "\u2717" : "\u2014"}</span>
-                        <span className="rule-name">{r.rule_name}</span>
-                        <span className="rule-class">{r.rule_class.replace(/_/g, " ")}</span>
+                        <span className="rule-name">{r.rule_name || "Unnamed rule"}</span>
+                        <span className="rule-class">{(r.rule_class || "").replace(/_/g, " ")}</span>
                       </div>
                       <div className="rule-explanation">{r.explanation}</div>
                       {r.engineering_basis_cited && <div className="rule-basis"><strong>Engineering basis:</strong> {r.engineering_basis_cited}</div>}
@@ -605,6 +735,16 @@ export default function CaseDetail() {
         {/* ========== DECISION (Authority Lock) ========== */}
         {activeTab === "decision" && (
           <div>
+            {/* DEPLOY215: Similar prior cases retrieval (case library compounding) */}
+            {id && <SimilarCasesPanel caseId={id} k={5} />}
+            {id && <DecisionSpineCard caseId={id} />}
+            {id && <PlannerAgentCard caseId={id} />}
+            {id && <CompositeRepairCard caseId={id} />}
+            {id && <MaterialAuthorityCard caseId={id} />}
+            {id && <OutcomeSimulationCard caseId={id} />}
+            {id && <UniversalCodeAuthorityCard caseId={id} />}
+            {id && <EnterpriseAuditCard caseId={id} />}
+            {id && <InspectorAdjudicationCard caseId={id} />}
             {caseData.authority_locked && (
               <div className="authority-locked-banner">
                 <span className="lock-icon">{"\uD83D\uDD12"}</span>
@@ -642,36 +782,46 @@ export default function CaseDetail() {
                       <span className="stat stat-fail">Failed: {caseData.authority_evidence.rules_failed}</span>
                       <span className="stat">N/A: {caseData.authority_evidence.rules_na}</span>
                       <span className="stat">Measurements: {caseData.authority_evidence.measurements_provided}</span>
+                      {caseData.authority_evidence.thickness_readings_count > 0 && (
+                        <span className="stat">Thickness Readings: {caseData.authority_evidence.thickness_readings_count}</span>
+                      )}
                     </div>
                   </div>
                 )}
-                {caseData.ai_openai_summary && (
-                  <div className="detail-section" style={{ marginTop: "16px" }}>
-                    <h3>GPT-4o Observation Summary</h3>
-                    <p>{caseData.ai_openai_summary}</p>
-                  </div>
-                )}
-                {caseData.ai_claude_summary && (
-                  <div className="detail-section" style={{ marginTop: "16px" }}>
-                    <h3>Claude Reasoning Summary</h3>
-                    <p>{caseData.ai_claude_summary}</p>
-                  </div>
-                )}
+
+                {/* DEPLOY212: Wall Thickness Summary card */}
+                {caseData.authority_evidence && caseData.authority_evidence.thickness_summary && (function() {
+                  var ts = caseData.authority_evidence.thickness_summary;
+                  var pct = ts.pct_min != null ? Math.round(ts.pct_min * 1000) / 10 : null;
+                  var tone = pct == null ? "#8b949e" : pct < 50 ? "#ef4444" : pct < 80 ? "#f59e0b" : "#22c55e";
+                  var bg = pct == null ? "#161b22" : pct < 50 ? "#7f1d1d44" : pct < 80 ? "#78350f44" : "#14532d44";
+                  var verdictLabel = pct == null ? "INFORMATIONAL" : pct < 50 ? "REJECT" : pct < 80 ? "FFS REVIEW" : "PASS";
+                  return (
+                    <div style={{ marginTop: "16px", padding: "12px", backgroundColor: bg, border: "1px solid " + tone, borderRadius: "8px" }}>
+                      <h3 style={{ margin: "0 0 8px 0", color: tone, fontSize: "14px" }}>
+                        {"Wall Thickness Summary \u2014 " + verdictLabel}
+                      </h3>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "12px", color: "#c9d1d9" }}>
+                        <span>Readings: {ts.count}</span>
+                        {ts.min_in != null && <span>Min: {Number(ts.min_in).toFixed(4)} in</span>}
+                        {ts.avg_in != null && <span>Avg: {Number(ts.avg_in).toFixed(4)} in</span>}
+                        {ts.nominal_in != null && <span>Nominal: {Number(ts.nominal_in).toFixed(4)} in</span>}
+                        {pct != null && <span style={{ color: tone, fontWeight: 600 }}>{"Min/Nominal: " + pct + "%"}</span>}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             ) : (
-              <div className="empty-state">
-                <p>Decision not yet generated. Upload evidence and run the AI analysis, then enter measurements and lock the decision.</p>
+              <div className="decision-empty">
+                <p>No authority decision on record yet. Enter measurements in the Evidence tab, then click Run Authority Lock.</p>
               </div>
             )}
           </div>
-        )}
-
-        {/* ========== TEACHING ========== */}
-        {activeTab === "teaching" && (
-          <div className="empty-state"><p>Teaching intelligence coming in Phase 2.</p></div>
         )}
 
       </div>
     </div>
   );
 }
+ 

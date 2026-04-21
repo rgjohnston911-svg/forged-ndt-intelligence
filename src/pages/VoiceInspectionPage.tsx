@@ -1,9 +1,185 @@
-// DEPLOY108 — VoiceInspectionPage.tsx v13.1
-// FIX: voice-incident-plan call now passes decisionResult directly (DEPLOY107 path 1)
-// FIX: engine version string updated to v2.1 in report generator
-// NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
+// DEPLOY176 -- src/pages/VoiceInspectionPage.tsx v16.6m
+// v16.6m: HARD CONFIDENCE GATE + FORCED REALITY ENFORCEMENT LAYER
+//
+// DEPLOY176 closes four of the five gaps called out by GPT eval across
+// three consecutive scenarios: evidence enforcement, mechanism-specific
+// method mapping, disposition authority escalation on structural
+// instability, and the "report produced at 36% confidence" problem.
+//
+// LOCKED CONFIG (per scoping Q&A):
+//   1. Hard Confidence Gate: 0.60 threshold, HIGH + CRITICAL tiers only.
+//      Decision-core internal gate UNCHANGED at 0.58. Intentional
+//      asymmetry: detect early at 0.58, decide carefully at 0.60.
+//   2. Report mode: PROVISIONAL - failure narrative, contradiction
+//      matrix, and mechanism hypotheses remain VISIBLE when the gate
+//      fires. Final disposition and inspector action card are BLOCKED.
+//   3. Mechanism coverage: all 17 MECH_DEFS mechanisms, no subset.
+//   4. Decision-core.ts untouched. This is a DPR + frontend deploy.
+//
+// SCOPE (this file):
+//   1. callDispositionPathway fetch body extended with three new fields:
+//      - reality_confidence_overall (from coreResult.reality_confidence.overall)
+//      - structural_path (from fmdResult.structural_path)
+//      - validated_mechanisms (from coreResult.damage_reality.validated_mechanisms)
+//   2. PDF render: new branch for dpr.disposition === "HOLD_FOR_INPUT_ENFORCEMENT"
+//      - PROVISIONAL banner with gate math
+//      - Required Evidence Ledger section (per mechanism)
+//      - Required Inspection Plan section (per mechanism)
+//      - Inspector action card suppressed
+//   3. PDF render: new branch for dpr.disposition === "IMMEDIATE_STRUCTURAL_INTEGRITY_REVIEW"
+//      - Emergency structural header
+//      - Operating restrictions block (explicit)
+//      - Structural actions with capacity loss state + indicators
+//   4. Inspector action card: suppressed for both new dispositions
+//   5. Failure narrative + contradiction matrix: wrapped in PROVISIONAL
+//      tint when the confidence gate fires (reasoning visible but
+//      explicitly marked as unverified working analysis)
+//   6. Version bump v16.6l -> v16.6m across header, subtitle, footer,
+//      HARDENING DIAGNOSTIC label, h1, inline diagnostic box
+//
+// BACKEND COORDINATION:
+// Requires DEPLOY176 DPR v1.1 deployed first. DPR v1.1 is null-safe
+// against v16.6l: if the frontend is still passing v1.0 fields only,
+// the new fields default to null/empty and the gate cannot fire, so
+// behavior is identical to DPR v1.0. Deploy backend first, confirm no
+// regression on Scenario 3, then deploy this frontend.
+//
+// CARRIES FORWARD FROM v16.6l (DEPLOY170.3):
+//   - Pipeline reorder (superbrain runs last with full engine bundle)
+//   - Engine bundle passthrough to superbrain v1.2
+//   - Paragraph-format numeric extraction (DEPLOY170.1)
+//   - RSR-null and FTR-null transparency rendering (DEPLOY170.1)
+//   - NPS schedule inference (DEPLOY170)
+//   - All prior patches
+//
+// NO TEMPLATE LITERALS -- STRING CONCATENATION ONLY
 
 import React, { useState, useRef, useEffect } from "react";
+import { runHardeningPipeline } from "../utils/hardening-pipeline";
+import PhotoAnalysisCard from "../PhotoAnalysisCard";
+
+// ============================================================================
+// DEPLOY170: NPS SCHEDULE TABLE (ASME B36.10M)
+// ============================================================================
+// Module-level constant. Covers NPS 1/2" through 24" for STD/Sch40,
+// XS/Sch80, Sch160, and XXS. Values in inches. OD is fixed by NPS;
+// wall thickness varies with schedule. For NPS 14 and larger, STD is
+// universally 0.375" regardless of diameter (classic B36.10M behavior).
+// Source: ASME B36.10M / ASTM A106 / API 5L pipe dimensional tables.
+//
+// XXS values of 0 mean "not defined for this NPS in B36.10M" -- the
+// inference will skip XXS for those sizes and fall through to STD.
+var NPS_SCHEDULE_TABLE: any = {
+  "0.5":  { od: 0.840,  std: 0.109, xs: 0.147, s160: 0.188, xxs: 0.294 },
+  "0.75": { od: 1.050,  std: 0.113, xs: 0.154, s160: 0.219, xxs: 0.308 },
+  "1":    { od: 1.315,  std: 0.133, xs: 0.179, s160: 0.250, xxs: 0.358 },
+  "1.25": { od: 1.660,  std: 0.140, xs: 0.191, s160: 0.250, xxs: 0.382 },
+  "1.5":  { od: 1.900,  std: 0.145, xs: 0.200, s160: 0.281, xxs: 0.400 },
+  "2":    { od: 2.375,  std: 0.154, xs: 0.218, s160: 0.344, xxs: 0.436 },
+  "2.5":  { od: 2.875,  std: 0.203, xs: 0.276, s160: 0.375, xxs: 0.552 },
+  "3":    { od: 3.500,  std: 0.216, xs: 0.300, s160: 0.438, xxs: 0.600 },
+  "4":    { od: 4.500,  std: 0.237, xs: 0.337, s160: 0.531, xxs: 0.674 },
+  "6":    { od: 6.625,  std: 0.280, xs: 0.432, s160: 0.719, xxs: 0.864 },
+  "8":    { od: 8.625,  std: 0.322, xs: 0.500, s160: 0.906, xxs: 0.875 },
+  "10":   { od: 10.750, std: 0.365, xs: 0.500, s160: 1.125, xxs: 0 },
+  "12":   { od: 12.750, std: 0.375, xs: 0.500, s160: 1.312, xxs: 0 },
+  "14":   { od: 14.000, std: 0.375, xs: 0.500, s160: 1.406, xxs: 0 },
+  "16":   { od: 16.000, std: 0.375, xs: 0.500, s160: 1.594, xxs: 0 },
+  "18":   { od: 18.000, std: 0.375, xs: 0.500, s160: 1.781, xxs: 0 },
+  "20":   { od: 20.000, std: 0.375, xs: 0.500, s160: 1.969, xxs: 0 },
+  "24":   { od: 24.000, std: 0.375, xs: 0.500, s160: 2.344, xxs: 0 }
+};
+
+// ============================================================================
+// DEPLOY170: NPS -> nominal wall inference helper
+// ============================================================================
+// Parses NPS size and schedule from a transcript. Returns an object with
+// nominal wall thickness, NPS key, schedule label, and OD -- or null if
+// no NPS size can be recognized.
+//
+// Parser order:
+//   1. Mixed-fraction NPS: "1-1/2 inch", "2-1/2 inch" (two captured ints)
+//   2. Simple fraction: "1/2 inch", "3/4 inch"
+//   3. Integer or decimal: "16 inch", "16-inch", 16", "nps 16", "2.5 inch"
+//
+// Schedule detection (checked in order of specificity):
+//   - "sch 160" / "schedule 160"   -> Sch 160
+//   - "xxs" / "double extra strong" -> XXS (only if table has a non-zero value)
+//   - "sch 80" / "schedule 80" / "xs" / "extra strong" -> XS / Sch 80
+//   - "sch 40" / "schedule 40" / "std" / "standard wall" -> Sch 40 / STD
+//   - default: STD (most common in process piping)
+//
+// Returns null if NPS is absent OR NPS is present but not in the table.
+// Never returns zero or negative nominal.
+function inferNominalWallFromNPS(transcriptRaw: string): any {
+  if (!transcriptRaw) return null;
+  var t = String(transcriptRaw).toLowerCase();
+
+  var npsKey: string | null = null;
+
+  // 1. Mixed fraction: "1-1/2 inch", "2 1/2 inch"
+  var fracMatch = t.match(/(?:nps\s+)?(\d+)[-\s](\d)\s*\/\s*(\d)(?:\s*(?:inch|in\b|"))?/);
+  if (fracMatch) {
+    var whole = parseFloat(fracMatch[1]);
+    var numer = parseFloat(fracMatch[2]);
+    var denom = parseFloat(fracMatch[3]);
+    if (denom > 0 && !isNaN(whole) && !isNaN(numer)) {
+      var mixedVal = whole + (numer / denom);
+      npsKey = String(mixedVal);
+    }
+  }
+
+  // 2. Simple fraction: "1/2 inch", "3/4 inch"
+  if (!npsKey) {
+    var simpleFrac = t.match(/(?:nps\s+)?(\d)\s*\/\s*(\d)\s*(?:inch|in\b|")/);
+    if (simpleFrac) {
+      var sn = parseFloat(simpleFrac[1]);
+      var sd = parseFloat(simpleFrac[2]);
+      if (sd > 0 && !isNaN(sn)) npsKey = String(sn / sd);
+    }
+  }
+
+  // 3. Integer or decimal: "16 inch", "16-inch", 16", "nps 16", "2.5 inch"
+  if (!npsKey) {
+    var intMatch = t.match(/(?:nps\s+)?(\d+(?:\.\d+)?)\s*(?:-\s*)?(?:inch|in\b|")/);
+    if (intMatch) {
+      var iv = parseFloat(intMatch[1]);
+      if (iv > 0 && iv < 100) npsKey = String(iv);
+    }
+  }
+
+  if (!npsKey) return null;
+  var row = NPS_SCHEDULE_TABLE[npsKey];
+  if (!row) return null;
+
+  // Schedule detection. Default: STD.
+  var schedule = "STD / Sch 40";
+  var nominal = row.std;
+
+  if (t.indexOf("sch 160") >= 0 || t.indexOf("schedule 160") >= 0 || t.indexOf("sch.160") >= 0 || t.indexOf("sch-160") >= 0) {
+    schedule = "Sch 160";
+    nominal = row.s160;
+  } else if ((t.indexOf("xxs") >= 0 || t.indexOf("double extra strong") >= 0) && row.xxs > 0) {
+    schedule = "XXS";
+    nominal = row.xxs;
+  } else if (t.indexOf("sch 80") >= 0 || t.indexOf("schedule 80") >= 0 || t.indexOf("sch.80") >= 0 || t.indexOf("sch-80") >= 0 || t.indexOf("extra strong") >= 0 || t.match(/\bxs\b/)) {
+    schedule = "XS / Sch 80";
+    nominal = row.xs;
+  } else if (t.indexOf("sch 40") >= 0 || t.indexOf("schedule 40") >= 0 || t.indexOf("sch.40") >= 0 || t.indexOf("sch-40") >= 0 || t.indexOf("standard wall") >= 0) {
+    schedule = "Sch 40 / STD";
+    nominal = row.std;
+  }
+
+  if (!nominal || nominal <= 0) return null;
+
+  return {
+    nominal: nominal,
+    nps_size: npsKey,
+    schedule: schedule,
+    od: row.od,
+    source: "inferred_from_nps_schedule (ASME B36.10M, " + schedule + ")"
+  };
+}
 
 function generateInspectionReport(data: {
   transcript: string;
@@ -11,9 +187,99 @@ function generateInspectionReport(data: {
   asset: any;
   decisionCore: any;
   aiNarrative: string | null;
+  superbrainResult: any;
+  provenanceResult?: any;
+  authorityLockResult?: any;
+  remainingStrengthResult?: any;
+  failureModeDominanceResult?: any;
+  dispositionPathwayResult?: any;
+  failureTimelineResult?: any;
+  photoAnalysisResult?: any;
+  errors?: string[];
 }) {
   var dc = data.decisionCore;
   if (!dc) { alert("No Decision Core data to export."); return; }
+
+  // ========================================================================
+  // DEPLOY171.8: DOMAIN REFUSAL PDF PAGE
+  // When the decision-core refused because the asset domain is unsupported,
+  // render a single-page professional refusal notice instead of the full
+  // report template with empty sections.
+  // ========================================================================
+  if (dc.domain_not_supported === true) {
+    var refNow = new Date();
+    var refDateStr = refNow.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    var refTimeStr = refNow.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+    var refCaseRef = "FORGED-" + refNow.getFullYear() + "-" + String(refNow.getMonth() + 1).padStart(2, "0") + String(refNow.getDate()).padStart(2, "0") + "-" + String(refNow.getHours()).padStart(2, "0") + String(refNow.getMinutes()).padStart(2, "0");
+    var refAssetClass = dc.asset_class_received || dc.asset_class_original || "unknown";
+    var refSupportedDomains = (dc.supported_domains || []).join(", ");
+    var refReason = dc.refusal_reason || "Asset domain is not in the supported set for this engine build.";
+    var refEngVer = dc.engine_version || "unknown";
+
+    var refHtml = "";
+    refHtml += "<!DOCTYPE html><html><head><meta charset='utf-8'><title>FORGED NDT - Domain Not Supported</title>";
+    refHtml += "<style>";
+    refHtml += "* { margin: 0; padding: 0; box-sizing: border-box; }";
+    refHtml += "body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 12px; line-height: 1.6; color: #1a1a1a; padding: 60px; max-width: 850px; margin: 0 auto; }";
+    refHtml += "@media print { body { padding: 40px; } .no-print { display: none !important; } @page { margin: 1in; } }";
+    refHtml += ".header { text-align: center; border-bottom: 3px solid #dc2626; padding-bottom: 20px; margin-bottom: 40px; }";
+    refHtml += ".header h1 { font-size: 20px; color: #1e40af; margin-bottom: 6px; }";
+    refHtml += ".refusal-banner { background: #dc2626; color: #fff; padding: 16px 24px; border-radius: 8px; text-align: center; font-size: 18px; font-weight: 800; margin-bottom: 32px; letter-spacing: 1px; }";
+    refHtml += ".info-block { margin-bottom: 24px; padding: 16px 20px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f9fafb; }";
+    refHtml += ".info-block h3 { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 8px; text-transform: uppercase; }";
+    refHtml += ".info-block p { font-size: 12px; color: #1a1a1a; line-height: 1.7; }";
+    refHtml += ".domain-list { margin-top: 8px; padding: 12px 16px; background: #f0f4ff; border-radius: 6px; font-size: 11px; color: #1e40af; font-weight: 600; }";
+    refHtml += ".action-box { margin-top: 32px; padding: 20px; border: 2px solid #dc2626; border-radius: 8px; background: #fef2f2; }";
+    refHtml += ".action-box h3 { font-size: 14px; color: #991b1b; margin-bottom: 10px; }";
+    refHtml += ".action-box p { font-size: 12px; color: #374151; }";
+    refHtml += ".footer { margin-top: 60px; text-align: center; font-size: 10px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 16px; }";
+    refHtml += ".print-btn { position: fixed; top: 20px; right: 20px; padding: 12px 24px; font-size: 14px; font-weight: 700; color: #fff; background: #dc2626; border: none; border-radius: 6px; cursor: pointer; z-index: 1000; }";
+    refHtml += "</style></head><body>";
+
+    refHtml += "<button class='print-btn no-print' onclick='window.print()'>Save as PDF / Print</button>";
+
+    refHtml += "<div class='header'>";
+    refHtml += "<h1>FORGED NDT Intelligence OS</h1>";
+    refHtml += "<div style='font-size: 13px; color: #6b7280;'>Physics-First Inspection Intelligence Report</div>";
+    refHtml += "<div style='font-size: 11px; color: #9ca3af; margin-top: 4px;'>Case: " + refCaseRef + " | " + refDateStr + " " + refTimeStr + " | Engine: " + refEngVer + "</div>";
+    refHtml += "</div>";
+
+    refHtml += "<div class='refusal-banner'>DOMAIN NOT SUPPORTED</div>";
+
+    refHtml += "<div class='info-block'>";
+    refHtml += "<h3>Asset Classification Received</h3>";
+    refHtml += "<p style='font-size: 16px; font-weight: 700;'>" + refAssetClass + "</p>";
+    refHtml += "</div>";
+
+    refHtml += "<div class='info-block'>";
+    refHtml += "<h3>Refusal Reason</h3>";
+    refHtml += "<p>" + refReason + "</p>";
+    refHtml += "</div>";
+
+    refHtml += "<div class='info-block'>";
+    refHtml += "<h3>Supported Domains (Current Build)</h3>";
+    refHtml += "<div class='domain-list'>" + refSupportedDomains + "</div>";
+    refHtml += "</div>";
+
+    refHtml += "<div class='action-box'>";
+    refHtml += "<h3>Required Action</h3>";
+    refHtml += "<p>This asset class requires a domain-specific authority chain, mechanism catalog, and consequence model that are not present in this engine build. No disposition, mechanism evaluation, or inspection plan was produced.</p>";
+    refHtml += "<p style='margin-top: 10px;'>Recommended next steps:</p>";
+    refHtml += "<p style='margin-top: 6px; padding-left: 16px;'>1. Verify the asset classification is correct. If the upstream classification was wrong, re-run with the correct asset class.</p>";
+    refHtml += "<p style='padding-left: 16px;'>2. If the classification is correct, this asset requires manual review by domain-qualified personnel (e.g., Level III inspector, materials engineer, or structural engineer with domain expertise).</p>";
+    refHtml += "<p style='padding-left: 16px;'>3. Contact the system administrator to request this domain be added to a future engine build.</p>";
+    refHtml += "</div>";
+
+    refHtml += "<div class='footer'>";
+    refHtml += "FORGED NDT Intelligence OS | Domain Refusal Notice | " + refEngVer + " | Generated " + refDateStr + " " + refTimeStr;
+    refHtml += "</div>";
+
+    refHtml += "</body></html>";
+
+    var refWin = window.open("", "_blank");
+    if (refWin) { refWin.document.write(refHtml); refWin.document.close(); }
+    return;
+  }
 
   var phy = dc.physical_reality;
   var dmg = dc.damage_reality;
@@ -23,14 +289,29 @@ function generateInspectionReport(data: {
   var conf = dc.reality_confidence;
   var dec = dc.decision_reality;
   var comp = dc.physics_computations;
+  var sb = data.superbrainResult;
+
+  var alr = data.authorityLockResult || null;
+  var rsr = data.remainingStrengthResult || null;
+  var fmd = data.failureModeDominanceResult || null;
+  var dpr = data.dispositionPathwayResult || null;
+  var ftr = data.failureTimelineResult || null;
+  var par = data.photoAnalysisResult || null;
+
+  var displayFailureMode = (con && con.failure_mode) || "unknown";
+  var failureModeSource = "decision-core";
+  if (fmd && fmd.governing_failure_mode && fmd.governing_failure_mode !== "NONE") {
+    displayFailureMode = fmd.governing_failure_mode.toLowerCase().replace(/_/g, " ");
+    failureModeSource = "FMD v1.3.2";
+  }
 
   var now = new Date();
   var dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   var timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
   var caseRef = "FORGED-" + now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + String(now.getDate()).padStart(2, "0") + "-" + String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0") + String(now.getSeconds()).padStart(2, "0");
 
-  var tierColor = con.consequence_tier === "CRITICAL" ? "#dc2626" : con.consequence_tier === "HIGH" ? "#ea580c" : con.consequence_tier === "MEDIUM" ? "#ca8a04" : "#16a34a";
-  var bandColor = conf.band === "TRUSTED" || conf.band === "HIGH" ? "#16a34a" : conf.band === "GUARDED" ? "#ca8a04" : "#dc2626";
+  var tierColorVal = con.consequence_tier === "CRITICAL" ? "#dc2626" : con.consequence_tier === "HIGH" ? "#ea580c" : con.consequence_tier === "MEDIUM" ? "#ca8a04" : "#16a34a";
+  var bandColorVal = conf.band === "TRUSTED" || conf.band === "HIGH" ? "#16a34a" : conf.band === "GUARDED" ? "#ca8a04" : "#dc2626";
 
   function esc(s: any): string { return String(s || "").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
@@ -56,8 +337,6 @@ function generateInspectionReport(data: {
   html += ".gate-row { display: flex; align-items: center; gap: 8px; padding: 5px 10px; margin-bottom: 3px; border-radius: 4px; font-size: 11px; }";
   html += ".gate-pass { background: #f0fdf4; } .gate-block { background: #fef2f2; } .gate-warn { background: #fffbeb; } .gate-info { background: #eff6ff; }";
   html += ".recovery-item { padding: 8px 12px; margin-bottom: 6px; border-left: 3px solid #2563eb; background: #f9fafb; border-radius: 4px; }";
-  html += ".mech-valid { padding: 6px 10px; background: #f0fdf4; border-radius: 4px; margin-bottom: 4px; border-left: 3px solid #16a34a; }";
-  html += ".mech-reject { padding: 4px 10px; background: #fef2f2; border-radius: 4px; margin-bottom: 3px; font-size: 10px; color: #991b1b; }";
   html += ".gap-item { padding: 5px 10px; background: #fef2f2; border-radius: 4px; margin-bottom: 3px; color: #991b1b; font-size: 11px; }";
   html += ".confidence-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 8px; }";
   html += ".conf-box { text-align: center; padding: 6px; border: 1px solid #e5e7eb; border-radius: 4px; }";
@@ -68,16 +347,19 @@ function generateInspectionReport(data: {
   html += ".sig-box { flex: 1; border-top: 1px solid #374151; padding-top: 4px; }";
   html += ".sig-label { font-size: 10px; color: #6b7280; }";
   html += ".print-btn { position: fixed; top: 20px; right: 20px; padding: 12px 24px; font-size: 14px; font-weight: 700; color: #fff; background: #2563eb; border: none; border-radius: 6px; cursor: pointer; z-index: 1000; }";
-  html += ".print-btn:hover { background: #1d4ed8; }";
+  html += ".sb-table { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 12px; }";
+  html += ".sb-table th { background: #f0f4ff; padding: 6px 8px; text-align: left; border: 1px solid #dbeafe; font-weight: 700; color: #1e40af; }";
+  html += ".sb-table td { padding: 5px 8px; border: 1px solid #e5e7eb; vertical-align: top; }";
+  html += ".sb-item { padding: 6px 10px; margin-bottom: 4px; background: #f9fafb; border-radius: 4px; border-left: 3px solid #2563eb; font-size: 11px; }";
   html += "</style></head><body>";
 
   html += "<button class='print-btn no-print' onclick='window.print()'>Save as PDF / Print</button>";
 
   html += "<div class='header'>";
   html += "<h1>FORGED NDT Intelligence OS</h1>";
-  html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Plan Report</div>";
+  html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>Engine: physics-first-decision-core v2.1 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>v16.6m | Engine: " + (dc.engine_version || "decision-core") + " + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.1 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.2 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -88,16 +370,638 @@ function generateInspectionReport(data: {
     assetNote = " (corrected from " + esc(dc.asset_correction.original) + ")";
   }
   html += "<div class='meta-box'><div class='meta-label'>Asset Classification</div><div class='meta-value'>" + esc(displayAssetClass) + assetNote + "</div></div>";
-  html += "<div class='meta-box'><div class='meta-label'>Consequence Tier</div><div class='meta-value' style='color:" + tierColor + "'>" + esc(con.consequence_tier) + " - " + esc(con.failure_mode).replace(/_/g, " ") + "</div></div>";
+  html += "<div class='meta-box'><div class='meta-label'>Consequence Tier</div><div class='meta-value' style='color:" + tierColorVal + "'>" + esc(con.consequence_tier) + " - " + esc(displayFailureMode) + "</div></div>";
   html += "<div class='meta-box'><div class='meta-label'>Disposition</div><div class='meta-value'>" + esc(dec.disposition).replace(/_/g, " ").toUpperCase() + "</div></div>";
   html += "<div class='meta-box'><div class='meta-label'>Primary Authority</div><div class='meta-value'>" + esc(auth.primary_authority) + "</div></div>";
   html += "</div>";
 
+  // HARDENING DIAGNOSTIC
+  html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
+  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6m)</div>";
+  html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time.</div>";
+
+  var diagEngines = [
+    { name: "AUTHORITY LOCK (alr)", obj: alr },
+    { name: "REMAINING STRENGTH (rsr)", obj: rsr },
+    { name: "FAILURE MODE DOMINANCE (fmd)", obj: fmd },
+    { name: "DISPOSITION PATHWAY (dpr)", obj: dpr },
+    { name: "FAILURE TIMELINE (ftr)", obj: ftr },
+    { name: "PHOTO ANALYSIS (par)", obj: par }
+  ];
+  for (var di = 0; di < diagEngines.length; di++) {
+    var de = diagEngines[di];
+    var present = de.obj !== null && de.obj !== undefined;
+    var badgeBg = present ? "#16a34a" : "#dc2626";
+    var badgeText = present ? "PRESENT" : "NULL";
+    html += "<div style='padding:6px 10px;margin-bottom:4px;background:#fff;border:1px solid #000;border-radius:3px;'>";
+    html += "<div style='display:flex;align-items:center;gap:8px;'>";
+    html += "<span style='display:inline-block;padding:2px 8px;font-size:10px;font-weight:900;color:#fff;background:" + badgeBg + ";border-radius:3px;'>" + badgeText + "</span>";
+    html += "<span style='font-size:11px;font-weight:700;color:#000;'>" + esc(de.name) + "</span>";
+    html += "</div>";
+    if (present) {
+      var keys: string[] = [];
+      try { keys = Object.keys(de.obj); } catch(e) { keys = []; }
+      html += "<div style='font-size:9px;color:#374151;margin-top:3px;font-family:monospace;word-break:break-all;'>keys: " + esc(keys.join(", ")) + "</div>";
+    }
+    html += "</div>";
+  }
+
+  if (data.errors && data.errors.length > 0) {
+    html += "<div style='margin-top:10px;padding:8px;background:#fff;border:2px solid #dc2626;border-radius:3px;'>";
+    html += "<div style='font-size:11px;font-weight:900;color:#dc2626;margin-bottom:4px;'>CAUGHT ERRORS (" + data.errors.length + ")</div>";
+    for (var dei3 = 0; dei3 < data.errors.length; dei3++) {
+      html += "<div style='font-size:10px;color:#991b1b;padding:2px 0;font-family:monospace;word-break:break-all;'>" + esc(data.errors[dei3]) + "</div>";
+    }
+    html += "</div>";
+  } else {
+    html += "<div style='margin-top:8px;font-size:10px;color:#16a34a;font-weight:700;'>No caught errors in errors[] array.</div>";
+  }
+  html += "</div>";
+
+  if (alr) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Authority Lock Chain</div>";
+    if (alr.status) {
+      var lockColor = alr.status === "LOCKED" ? "#16a34a" : alr.status === "PARTIAL" ? "#ea580c" : "#dc2626";
+      html += "<div class='banner' style='background:" + lockColor + "'>" + esc(alr.status) + " AUTHORITY LOCK</div>";
+    }
+    if (alr.confidence !== undefined && alr.confidence !== null && alr.confidence !== "") {
+      // DEPLOY166.2: defensive confidence rendering
+      var confLabel = "";
+      if (typeof alr.confidence === "number" && !isNaN(alr.confidence)) {
+        if (alr.confidence >= 0 && alr.confidence <= 1) {
+          confLabel = Math.round(alr.confidence * 100) + "%";
+        } else if (alr.confidence > 1 && alr.confidence <= 100) {
+          confLabel = Math.round(alr.confidence) + "%";
+        } else {
+          confLabel = String(alr.confidence);
+        }
+      } else if (typeof alr.confidence === "string") {
+        confLabel = alr.confidence;
+      } else {
+        var coerced = Number(alr.confidence);
+        if (!isNaN(coerced)) {
+          confLabel = (coerced >= 0 && coerced <= 1) ? (Math.round(coerced * 100) + "%") : (Math.round(coerced) + "%");
+        }
+      }
+      if (confLabel) {
+        html += "<div class='info-row'><span class='info-label'>Confidence</span><span class='info-value'>" + esc(confLabel) + "</span></div>";
+      }
+    }
+    if (alr.authority_chain && alr.authority_chain.length > 0) {
+      for (var ali = 0; ali < alr.authority_chain.length; ali++) {
+        var ga = alr.authority_chain[ali] || {};
+        var gaId = ga.code || ga.standard || ga.name || ga.id || ga.title || "authority";
+        var gaLabel = ga.title || ga.description || ga.full_name || "";
+        var gaRole = ga.role || ga.purpose || ga.applicability || "";
+        html += "<div class='sb-item'><strong>" + esc(gaId) + "</strong>";
+        if (gaLabel && gaLabel !== gaId) html += " - " + esc(gaLabel);
+        if (gaRole) html += " <span style='color:#6b7280;font-size:10px;'>[" + esc(gaRole) + "]</span>";
+        html += "</div>";
+      }
+    }
+    if (alr.supplemental_codes && alr.supplemental_codes.length > 0) {
+      html += "<div style='margin-top:6px;font-size:10px;font-weight:700;color:#6b7280;'>SUPPLEMENTAL</div>";
+      for (var asi = 0; asi < alr.supplemental_codes.length; asi++) {
+        var sa = alr.supplemental_codes[asi] || {};
+        var saId = sa.code || sa.standard || sa.name || sa.id || sa.title || "code";
+        var saLabel = sa.title || sa.description || sa.full_name || "";
+        var saRole = sa.role || sa.purpose || sa.applicability || "";
+        html += "<div class='sb-item' style='border-left-color:#ea580c;'><strong>" + esc(saId) + "</strong>";
+        if (saLabel && saLabel !== saId) html += " - " + esc(saLabel);
+        if (saRole) html += " <span style='color:#6b7280;font-size:10px;'>[" + esc(saRole) + "]</span>";
+        html += "</div>";
+      }
+    }
+    var triggerBadges = [];
+    if (alr.trigger_b31g) triggerBadges.push("B31G");
+    if (alr.trigger_crack_assessment) triggerBadges.push("CRACK ASSESSMENT");
+    if (alr.trigger_sour_service) triggerBadges.push("SOUR SERVICE");
+    if (triggerBadges.length > 0) {
+      html += "<div style='margin-top:8px;padding:6px 10px;background:#eff6ff;border-radius:4px;font-size:10px;'>";
+      html += "<strong style='color:#1e40af;'>TRIGGERS:</strong> ";
+      for (var tbi = 0; tbi < triggerBadges.length; tbi++) {
+        html += "<span style='display:inline-block;padding:1px 6px;margin-right:4px;background:#dbeafe;border-radius:3px;font-weight:700;color:#1e40af;'>" + esc(triggerBadges[tbi]) + "</span>";
+      }
+      html += "</div>";
+    }
+    if (alr.lock_reasons && alr.lock_reasons.length > 0) {
+      html += "<div style='margin-top:6px;font-size:10px;color:#6b7280;'>";
+      html += "<strong>LOCK REASONS:</strong> ";
+      for (var lri = 0; lri < alr.lock_reasons.length; lri++) {
+        var lr = alr.lock_reasons[lri];
+        var lrText = (typeof lr === "string") ? lr : (lr && (lr.reason || lr.description || JSON.stringify(lr)));
+        html += "<div style='padding:2px 0;'>- " + esc(lrText) + "</div>";
+      }
+      html += "</div>";
+    }
+    html += "</div>";
+  }
+
+  if (rsr) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Remaining Strength (B31G)</div>";
+
+    // DEPLOY166 RSR banner guardrail
+    var rsrBannerGuardrail = false;
+    var rsrGuardrailReason = "";
+    if (fmd) {
+      if (fmd.cracking_path && fmd.cracking_path.active) {
+        rsrBannerGuardrail = true;
+        rsrGuardrailReason = "cracking path active";
+      } else if (fmd.interaction_flag) {
+        rsrBannerGuardrail = true;
+        rsrGuardrailReason = "mechanism interaction flag set";
+      }
+    }
+    var envColor;
+    if (rsrBannerGuardrail && rsr.safe_envelope === "WITHIN") {
+      envColor = "#ca8a04";
+    } else {
+      envColor = rsr.safe_envelope === "WITHIN" ? "#16a34a" : rsr.safe_envelope === "MARGINAL" ? "#ea580c" : rsr.safe_envelope === "EXCEEDS" ? "#dc2626" : "#6b7280";
+    }
+    if (rsr.safe_envelope) {
+      var bannerText = esc(rsr.safe_envelope) + " SAFE ENVELOPE";
+      if (rsrBannerGuardrail && rsr.safe_envelope === "WITHIN") {
+        bannerText = "WITHIN PRESSURE ENVELOPE ONLY &mdash; NOT GOVERNING";
+      }
+      html += "<div class='banner' style='background:" + envColor + "'>" + bannerText + "</div>";
+      if (rsrBannerGuardrail) {
+        html += "<div style='font-size:10px;color:#92400e;font-style:italic;margin-bottom:8px;text-align:center;'>Pressure envelope cannot disposition this asset: " + esc(rsrGuardrailReason) + ". See FMD and DPR sections.</div>";
+      }
+    }
+
+    if (rsr.data_quality) html += "<div class='info-row'><span class='info-label'>Data Quality Tier</span><span class='info-value'>" + esc(rsr.data_quality) + "</span></div>";
+    if (rsr.governing_maop) html += "<div class='info-row'><span class='info-label'>Governing MAOP</span><span class='info-value'>" + esc(rsr.governing_maop) + " psi (" + esc(rsr.governing_method || "B31G") + ")</span></div>";
+    if (rsr.operating_pressure) html += "<div class='info-row'><span class='info-label'>Operating Pressure</span><span class='info-value'>" + esc(rsr.operating_pressure) + " psi</span></div>";
+    if (rsr.operating_ratio) html += "<div class='info-row'><span class='info-label'>Operating Ratio</span><span class='info-value'>" + Math.round(rsr.operating_ratio * 100) + "%</span></div>";
+    if (rsr.severity_tier && rsr.severity_tier !== "UNKNOWN") html += "<div class='info-row'><span class='info-label'>Severity Tier</span><span class='info-value'>" + esc(rsr.severity_tier) + "</span></div>";
+    if (rsr.pressure_reduction_required && rsr.pressure_reduction_required > 0) html += "<div class='gap-item'>Pressure reduction required: " + esc(rsr.pressure_reduction_required) + " psi</div>";
+    if (rsr.calculations) {
+      var calc = rsr.calculations;
+      if (calc.wall_loss_percent !== undefined) html += "<div class='info-row'><span class='info-label'>Wall Loss</span><span class='info-value'>" + Number(calc.wall_loss_percent).toFixed(1) + "%</span></div>";
+      if (calc.folias_factor !== undefined) html += "<div class='info-row'><span class='info-label'>Folias Factor (M)</span><span class='info-value'>" + Number(calc.folias_factor).toFixed(3) + "</span></div>";
+      if (calc.b31g_folias_factor !== undefined) html += "<div class='info-row'><span class='info-label'>B31G Folias Factor</span><span class='info-value'>" + Number(calc.b31g_folias_factor).toFixed(3) + "</span></div>";
+    }
+    if (rsr.recommendation && !rsrBannerGuardrail) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-left:3px solid " + envColor + ";border-radius:4px;font-size:11px;'>" + esc(rsr.recommendation) + "</div>";
+    if (rsr.derivation_notes && rsr.derivation_notes.length > 0) {
+      html += "<div style='margin-top:8px;font-size:10px;color:#6b7280;font-weight:700;'>DERIVATION NOTES</div>";
+      for (var dni = 0; dni < rsr.derivation_notes.length; dni++) {
+        html += "<div style='font-size:10px;color:#6b7280;padding:2px 0;'>- " + esc(rsr.derivation_notes[dni]) + "</div>";
+      }
+    }
+    html += "</div>";
+  }
+
+  // ========================================================================
+  // DEPLOY170.1: RSR-NULL TRANSPARENCY RENDERING
+  // ========================================================================
+  // When RSR returned null (input data genuinely insufficient), render an
+  // explicit "NOT RUN" section instead of silently omitting. Universal:
+  // fires whenever rsr is null, regardless of asset class or scenario.
+  // Graceful degradation is now visible, not silent.
+  if (!rsr) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Remaining Strength (B31G)</div>";
+    html += "<div class='banner' style='background:#6b7280'>NOT RUN &mdash; INPUT DATA INSUFFICIENT</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:10px 12px;background:#f9fafb;border-radius:4px;border-left:3px solid #6b7280;margin-bottom:10px;'>";
+    html += "The ASME B31G / Modified B31G metal-loss screen was not executed because the transcript did not contain sufficient thickness measurement data. This is graceful degradation, not an engine failure. Provide the inputs below and re-run to obtain a remaining strength assessment.";
+    html += "</div>";
+    html += "<div style='font-size:10px;color:#6b7280;font-weight:700;text-transform:uppercase;margin-bottom:4px;'>Required Inputs</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:3px 14px;'>&bull; <strong>Nominal wall thickness</strong> &mdash; e.g. \"nominal wall: 0.500 in\", an explicit NPS size (16 inch, sch 40), or a stated schedule</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:3px 14px;'>&bull; <strong>Measured minimum wall</strong> OR <strong>wall loss percentage</strong> &mdash; e.g. \"0.262 in minimum\" or \"42% wall loss\"</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:3px 14px;'>&bull; <strong>Pipe diameter</strong> &mdash; NPS size or outside diameter in inches</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:3px 14px;'>&bull; <strong>Operating pressure</strong> &mdash; recommended, not strictly required for screen</div>";
+    html += "<div style='font-size:10px;color:#92400e;font-style:italic;margin-top:10px;padding:8px 10px;background:#fffbe6;border-left:3px solid #ca8a04;border-radius:3px;'>Downstream engines (Failure Mode Dominance, Failure Timeline, Disposition Pathway) may still run on available data and produce a conservative disposition without B31G support.</div>";
+    html += "</div>";
+  }
+
+  if (fmd) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Failure Mode Dominance</div>";
+    var fmdModeColor = fmd.governing_failure_mode === "STRUCTURAL_INSTABILITY" ? "#dc2626"
+      : fmd.governing_failure_mode === "CRACKING" ? "#a855f7"
+      : fmd.governing_failure_mode === "CORROSION" ? "#ea580c"
+      : fmd.governing_failure_mode === "COMPOUND" ? "#dc2626"
+      : "#6b7280";
+    var fmdLabel = (fmd.governing_failure_mode || "NONE").replace(/_/g, " ");
+    html += "<div class='banner' style='background:" + fmdModeColor + "'>GOVERNING: " + esc(fmdLabel) + "</div>";
+    if (fmd.governing_severity) html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(fmd.governing_severity) + "</span></div>";
+    if (fmd.governing_failure_pressure) html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(fmd.governing_failure_pressure) + " psi</span></div>";
+    if (fmd.governing_code_reference) html += "<div class='info-row'><span class='info-label'>Assessment Code</span><span class='info-value'>" + esc(fmd.governing_code_reference) + "</span></div>";
+    if (fmd.governing_basis) html += "<div style='margin-top:8px;padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;font-size:11px;'><strong>Basis:</strong> " + esc(fmd.governing_basis) + "</div>";
+
+    var sp = fmd.structural_path;
+    if (sp && sp.active) {
+      html += "<div style='margin-top:10px;padding:10px 12px;background:#fef2f2;border:2px solid #fecaca;border-radius:6px;'>";
+      html += "<div style='font-size:11px;font-weight:700;color:#dc2626;margin-bottom:6px;'>STRUCTURAL INSTABILITY PATH (active)</div>";
+      if (sp.capacity_loss_state && sp.capacity_loss_state !== "none") {
+        html += "<div class='info-row'><span class='info-label'>Capacity State</span><span class='info-value' style='color:#dc2626;font-weight:700;'>" + esc((sp.capacity_loss_state || "").replace(/_/g, " ")) + "</span></div>";
+      }
+      if (sp.indicators) {
+        var inds = [];
+        if (sp.indicators.tilt) inds.push("TILT/LEAN");
+        if (sp.indicators.settlement) inds.push("SETTLEMENT");
+        if (sp.indicators.buckling) inds.push("BUCKLING");
+        if (sp.indicators.deformation) inds.push("DEFORMATION");
+        if (inds.length > 0) html += "<div class='info-row'><span class='info-label'>Indicators</span><span class='info-value'>" + esc(inds.join(", ")) + "</span></div>";
+      }
+      if (sp.assessment_method && sp.assessment_method !== "none") html += "<div class='info-row'><span class='info-label'>Assessment</span><span class='info-value'>" + esc(sp.assessment_method) + "</span></div>";
+      if (sp.mechanisms && sp.mechanisms.length > 0) html += "<div class='info-row'><span class='info-label'>Mechanisms</span><span class='info-value'>" + esc(sp.mechanisms.join(", ")) + "</span></div>";
+      html += "</div>";
+    }
+
+    var cp = fmd.corrosion_path;
+    if (cp && cp.active) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#ea580c;margin-bottom:4px;'>CORROSION PATH (active)</div>";
+      if (cp.severity && cp.severity !== "none") html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(cp.severity) + "</span></div>";
+      if (cp.failure_pressure) html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(cp.failure_pressure) + " psi</span></div>";
+      if (cp.wall_loss_percent > 0) html += "<div class='info-row'><span class='info-label'>Wall Loss</span><span class='info-value'>" + Number(cp.wall_loss_percent).toFixed(1) + "%</span></div>";
+      html += "</div>";
+    }
+
+    var ckp = fmd.cracking_path;
+    if (ckp && ckp.active) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#faf5ff;border:1px solid #e9d5ff;border-radius:6px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#a855f7;margin-bottom:4px;'>CRACKING PATH (active)</div>";
+      if (ckp.severity && ckp.severity !== "none") html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(ckp.severity) + "</span></div>";
+      if (ckp.brittle_fracture_risk) html += "<div class='gap-item'>BRITTLE FRACTURE RISK - sudden failure with no leak-before-break warning</div>";
+      html += "</div>";
+    }
+
+    if (fmd.interaction_flag) {
+      html += "<div style='margin-top:10px;padding:10px 12px;background:#fef2f2;border-left:3px solid #dc2626;border-radius:4px;'>";
+      html += "<div style='font-size:11px;font-weight:700;color:#dc2626;'>MECHANISM INTERACTION: " + esc(fmd.interaction_type || "PARALLEL") + "</div>";
+      html += "<div style='font-size:11px;color:#991b1b;'>" + esc(fmd.interaction_detail || "") + "</div>";
+      html += "</div>";
+    }
+    html += "</div>";
+  }
+
+  // DEPLOY176: HOLD_FOR_INPUT_ENFORCEMENT (hard confidence gate fired)
+  // PROVISIONAL mode per locked config - reasoning stays visible, final
+  // disposition is blocked, inspector action card is suppressed, and the
+  // Required Evidence Ledger + Required Inspection Plan are rendered.
+  if (dpr && dpr.disposition === "HOLD_FOR_INPUT_ENFORCEMENT") {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Disposition Pathway</div>";
+    html += "<div class='banner' style='background:#b45309;border:3px solid #78350f;'>PROVISIONAL &mdash; NOT A DISPOSITION</div>";
+    html += "<div style='margin-top:6px;padding:8px 10px;background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;font-size:11px;color:#78350f;'>";
+    html += "<strong>Hard Confidence Gate is active.</strong> This report presents reasoning and hypotheses, but <strong>no final disposition is issued.</strong> Pass/fail, repair/replace, and continue-service judgments are blocked until the required inputs listed below are collected and the case is re-evaluated.";
+    html += "</div>";
+
+    // Gate math box
+    var em = dpr.enforcement_metadata || {};
+    var confAtGate = (typeof em.confidence_at_gate === "number") ? em.confidence_at_gate.toFixed(2) : "unknown";
+    var threshAtGate = (typeof em.threshold === "number") ? em.threshold.toFixed(2) : "0.60";
+    var consTierAtGate = em.consequence_tier || "unknown";
+    html += "<div style='margin-top:10px;padding:10px 12px;background:#fff;border:2px solid #b45309;border-radius:6px;'>";
+    html += "<div style='font-size:10px;font-weight:800;color:#78350f;text-transform:uppercase;margin-bottom:6px;'>Gate Math</div>";
+    html += "<div class='info-row'><span class='info-label'>Consequence Tier</span><span class='info-value' style='font-weight:800;color:#b45309;'>" + esc(consTierAtGate) + "</span></div>";
+    html += "<div class='info-row'><span class='info-label'>Overall Confidence</span><span class='info-value' style='font-weight:800;color:#b45309;'>" + esc(confAtGate) + "</span></div>";
+    html += "<div class='info-row'><span class='info-label'>Enforcement Threshold</span><span class='info-value'>" + esc(threshAtGate) + "</span></div>";
+    html += "<div style='font-size:10px;color:#78350f;margin-top:6px;font-style:italic;'>Rule: consequence_tier in (HIGH, CRITICAL) AND reality_confidence_overall &lt; 0.60. Decision-core detects signals at 0.58; enforcement layer decides at 0.60. Detect early, decide carefully.</div>";
+    html += "</div>";
+
+    if (dpr.disposition_basis) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-radius:4px;border-left:3px solid #b45309;font-size:11px;'>" + esc(dpr.disposition_basis) + "</div>";
+    }
+
+    // Required Evidence Ledger
+    var rel = dpr.required_evidence_ledger;
+    if (rel && rel.length > 0) {
+      html += "<div style='margin-top:14px;padding:10px 12px;background:#fef3c7;border:2px solid #b45309;border-radius:6px;'>";
+      html += "<div style='font-size:12px;font-weight:800;color:#78350f;text-transform:uppercase;margin-bottom:8px;'>Required Evidence Ledger</div>";
+      html += "<div style='font-size:10px;color:#78350f;margin-bottom:8px;'>Each unresolved mechanism below must be confirmed or ruled out before a disposition can be issued.</div>";
+      for (var rli = 0; rli < rel.length; rli++) {
+        var relEntry = rel[rli];
+        html += "<div style='margin-top:10px;padding:8px 10px;background:#fff;border-left:3px solid #b45309;border-radius:4px;'>";
+        html += "<div style='font-size:11px;font-weight:800;color:#111;'>" + esc(relEntry.mechanism_name || relEntry.mechanism_id || "unknown") + "</div>";
+        var stateStr = (relEntry.reality_state || "unverified").toUpperCase();
+        var scoreStr = (typeof relEntry.reality_score === "number") ? " (score " + relEntry.reality_score.toFixed(2) + ")" : "";
+        html += "<div style='font-size:9px;color:#b45309;font-weight:700;margin-bottom:6px;'>Current state: " + esc(stateStr) + esc(scoreStr) + "</div>";
+        if (relEntry.confirmation_evidence && relEntry.confirmation_evidence.length > 0) {
+          html += "<div style='font-size:10px;font-weight:700;color:#374151;margin-top:4px;'>Confirmation evidence required:</div>";
+          for (var cei = 0; cei < relEntry.confirmation_evidence.length; cei++) {
+            html += "<div style='font-size:10px;color:#374151;padding:1px 0 1px 12px;'>&bull; " + esc(relEntry.confirmation_evidence[cei]) + "</div>";
+          }
+        }
+        if (relEntry.rule_out_evidence && relEntry.rule_out_evidence.length > 0) {
+          html += "<div style='font-size:10px;font-weight:700;color:#374151;margin-top:4px;'>OR rule-out evidence:</div>";
+          for (var roi = 0; roi < relEntry.rule_out_evidence.length; roi++) {
+            html += "<div style='font-size:10px;color:#374151;padding:1px 0 1px 12px;'>&bull; " + esc(relEntry.rule_out_evidence[roi]) + "</div>";
+          }
+        }
+        if (relEntry.severity_quantifiers && relEntry.severity_quantifiers.length > 0) {
+          html += "<div style='font-size:10px;font-weight:700;color:#374151;margin-top:4px;'>Severity quantifiers (if confirmed):</div>";
+          for (var sqi = 0; sqi < relEntry.severity_quantifiers.length; sqi++) {
+            html += "<div style='font-size:10px;color:#374151;padding:1px 0 1px 12px;'>&bull; " + esc(relEntry.severity_quantifiers[sqi]) + "</div>";
+          }
+        }
+        html += "</div>";
+      }
+      html += "</div>";
+    }
+
+    // Required Inspection Plan
+    var rip = dpr.required_inspection_plan;
+    if (rip && rip.length > 0) {
+      html += "<div style='margin-top:14px;padding:10px 12px;background:#fef3c7;border:2px solid #b45309;border-radius:6px;'>";
+      html += "<div style='font-size:12px;font-weight:800;color:#78350f;text-transform:uppercase;margin-bottom:8px;'>Required Inspection Plan (Mechanism-Specific)</div>";
+      html += "<div style='font-size:10px;color:#78350f;margin-bottom:8px;'>These methods address the specific physics of each candidate mechanism. This is not a generic \"add VT + UT + PAUT\" recommendation.</div>";
+      for (var rpi = 0; rpi < rip.length; rpi++) {
+        var rpEntry = rip[rpi];
+        html += "<div style='margin-top:10px;padding:8px 10px;background:#fff;border-left:3px solid #b45309;border-radius:4px;'>";
+        html += "<div style='font-size:11px;font-weight:800;color:#111;'>" + esc(rpEntry.mechanism_name || rpEntry.mechanism_id || "unknown") + "</div>";
+        if (rpEntry.methods && rpEntry.methods.length > 0) {
+          for (var mpi = 0; mpi < rpEntry.methods.length; mpi++) {
+            var methEntry = rpEntry.methods[mpi];
+            html += "<div style='margin-top:5px;padding-left:12px;'>";
+            html += "<div style='font-size:10px;font-weight:700;color:#374151;'>&bull; " + esc(methEntry.method || "") + "</div>";
+            if (methEntry.physics_basis) {
+              html += "<div style='font-size:9px;color:#6b7280;padding-left:12px;font-style:italic;'>" + esc(methEntry.physics_basis) + "</div>";
+            }
+            html += "</div>";
+          }
+        }
+        html += "</div>";
+      }
+      html += "</div>";
+    }
+
+    if (dpr.temporary_controls && dpr.temporary_controls.length > 0) {
+      html += "<div style='margin-top:10px;padding:8px 10px;background:#f9fafb;border-left:3px solid #6b7280;border-radius:4px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#374151;margin-bottom:4px;'>OPERATIONS UNCHANGED</div>";
+      for (var tci = 0; tci < dpr.temporary_controls.length; tci++) {
+        html += "<div style='font-size:10px;color:#374151;padding:1px 0;'>&bull; " + esc(dpr.temporary_controls[tci]) + "</div>";
+      }
+      html += "</div>";
+    }
+
+    if (dpr.escalation_triggers && dpr.escalation_triggers.length > 0) {
+      html += "<div style='margin-top:8px;padding:8px 10px;background:#fef2f2;border-left:3px solid #dc2626;border-radius:4px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#991b1b;margin-bottom:4px;'>ESCALATION TRIGGERS</div>";
+      for (var eti = 0; eti < dpr.escalation_triggers.length; eti++) {
+        html += "<div style='font-size:10px;color:#991b1b;padding:1px 0;'>&bull; " + esc(dpr.escalation_triggers[eti]) + "</div>";
+      }
+      html += "</div>";
+    }
+
+    html += "<div style='margin-top:12px;padding:10px 12px;background:#f9fafb;border:1px dashed #9ca3af;border-radius:4px;font-size:10px;color:#374151;font-style:italic;'>";
+    html += "Re-run this assessment after the required evidence is collected to obtain a full disposition. Until then, the failure narrative, contradiction matrix, and mechanism hypotheses on this report are working analysis, not a decision.";
+    html += "</div>";
+
+    html += "</div>";
+  }
+
+  // DEPLOY176: IMMEDIATE_STRUCTURAL_INTEGRITY_REVIEW (structural escalation)
+  // Runs when FMD structural_path is active with capacity loss. This is
+  // a confirmed physical emergency, not a data gap, so it gets a full
+  // action card with explicit operating restrictions.
+  else if (dpr && dpr.disposition === "IMMEDIATE_STRUCTURAL_INTEGRITY_REVIEW") {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Disposition Pathway</div>";
+    html += "<div class='banner' style='background:#991b1b;border:3px solid #450a0a;'>IMMEDIATE STRUCTURAL INTEGRITY REVIEW</div>";
+    html += "<div style='margin-top:6px;padding:10px 12px;background:#fef2f2;border:2px solid #dc2626;border-radius:6px;font-size:11px;color:#991b1b;'>";
+    html += "<strong>EMERGENCY.</strong> Structural instability is active with measurable capacity loss. This is not an evidence-gathering problem &mdash; the supporting structure has already deviated from its designed load path, and the pressure boundary integrity depends on that structure. Operating restrictions below are effective immediately.";
+    html += "</div>";
+
+    var semd = dpr.enforcement_metadata || {};
+    if (semd.capacity_loss_state) {
+      html += "<div style='margin-top:10px;padding:10px 12px;background:#fff;border:2px solid #991b1b;border-radius:6px;'>";
+      html += "<div style='font-size:10px;font-weight:800;color:#991b1b;text-transform:uppercase;margin-bottom:6px;'>Structural State</div>";
+      html += "<div class='info-row'><span class='info-label'>Capacity Loss State</span><span class='info-value' style='font-weight:800;color:#991b1b;'>" + esc(String(semd.capacity_loss_state).toUpperCase().replace(/_/g, " ")) + "</span></div>";
+      if (semd.structural_indicators && semd.structural_indicators.length > 0) {
+        html += "<div class='info-row'><span class='info-label'>Indicators</span><span class='info-value'>" + esc(semd.structural_indicators.join(", ")) + "</span></div>";
+      }
+      html += "</div>";
+    }
+
+    if (dpr.urgency) html += "<div class='info-row'><span class='info-label'>Urgency</span><span class='info-value' style='color:#991b1b;font-weight:800;'>" + esc(dpr.urgency) + "</span></div>";
+    if (dpr.disposition_basis) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-radius:4px;border-left:3px solid #991b1b;font-size:11px;'>" + esc(dpr.disposition_basis) + "</div>";
+
+    if (dpr.temporary_controls && dpr.temporary_controls.length > 0) {
+      html += "<div style='margin-top:12px;padding:10px 12px;background:#fef2f2;border:2px solid #dc2626;border-radius:6px;'>";
+      html += "<div style='font-size:12px;font-weight:800;color:#991b1b;text-transform:uppercase;margin-bottom:6px;'>Operating Restrictions (Effective Immediately)</div>";
+      for (var stci = 0; stci < dpr.temporary_controls.length; stci++) {
+        html += "<div style='font-size:11px;color:#991b1b;padding:2px 0;font-weight:600;'>&bull; " + esc(dpr.temporary_controls[stci]) + "</div>";
+      }
+      html += "</div>";
+    }
+
+    if (dpr.actions && dpr.actions.length > 0) {
+      html += "<div style='margin-top:12px;font-size:11px;font-weight:800;color:#991b1b;text-transform:uppercase;'>Required Structural Actions (" + dpr.actions.length + ")</div>";
+      for (var sdai = 0; sdai < dpr.actions.length; sdai++) {
+        var sact = dpr.actions[sdai];
+        html += "<div class='recovery-item' style='border-left:3px solid #991b1b;'>";
+        html += "<strong>#" + esc(sact.priority || (sdai + 1)) + " " + esc(sact.action || "") + "</strong>";
+        if (sact.timeframe) html += " <span style='color:#dc2626;font-size:10px;font-weight:700;'>[" + esc(sact.timeframe) + "]</span>";
+        if (sact.detail) html += "<br/><span style='font-size:10px;'>" + esc(sact.detail) + "</span>";
+        if (sact.who) html += "<br/><span style='font-size:9px;color:#6b7280;'>Responsible: " + esc(sact.who) + "</span>";
+        html += "</div>";
+      }
+    }
+
+    if (dpr.escalation_triggers && dpr.escalation_triggers.length > 0) {
+      html += "<div style='margin-top:10px;padding:8px 10px;background:#fef2f2;border-left:3px solid #dc2626;border-radius:4px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#991b1b;margin-bottom:4px;'>ESCALATION TRIGGERS</div>";
+      for (var seti = 0; seti < dpr.escalation_triggers.length; seti++) {
+        html += "<div style='font-size:10px;color:#991b1b;padding:1px 0;'>&bull; " + esc(dpr.escalation_triggers[seti]) + "</div>";
+      }
+      html += "</div>";
+    }
+
+    html += "</div>";
+  }
+
+  else if (dpr) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Disposition Pathway</div>";
+    var dispColor = dpr.disposition === "IMMEDIATE_ACTION" ? "#dc2626"
+      : dpr.disposition === "HOLD_FOR_DATA" ? "#ea580c"
+      : dpr.disposition === "ENGINEERING_ASSESSMENT" ? "#a855f7"
+      : dpr.disposition === "MONITOR" ? "#2563eb"
+      : dpr.disposition === "CONTINUE_SERVICE" ? "#16a34a"
+      : "#6b7280";
+    html += "<div class='banner' style='background:" + dispColor + "'>" + esc((dpr.disposition || "").replace(/_/g, " ")) + "</div>";
+    if (dpr.urgency) html += "<div class='info-row'><span class='info-label'>Urgency</span><span class='info-value' style='color:" + dispColor + ";font-weight:700;'>" + esc(dpr.urgency) + "</span></div>";
+    if (dpr.interval) html += "<div class='info-row'><span class='info-label'>Re-Inspection Interval</span><span class='info-value'>" + esc(dpr.interval) + "</span></div>";
+    if (dpr.disposition_basis) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-radius:4px;border-left:3px solid " + dispColor + ";font-size:11px;'>" + esc(dpr.disposition_basis) + "</div>";
+    if (dpr.actions && dpr.actions.length > 0) {
+      html += "<div style='margin-top:10px;font-size:10px;font-weight:700;color:#374151;'>REQUIRED ACTIONS (" + dpr.actions.length + ")</div>";
+      for (var dai = 0; dai < dpr.actions.length; dai++) {
+        var act = dpr.actions[dai];
+        html += "<div class='recovery-item'>";
+        html += "<strong>#" + esc(act.priority || (dai + 1)) + " " + esc(act.action || "") + "</strong>";
+        if (act.timeframe) html += " <span style='color:#dc2626;font-size:10px;font-weight:700;'>[" + esc(act.timeframe) + "]</span>";
+        if (act.detail) html += "<br/><span style='font-size:10px;'>" + esc(act.detail) + "</span>";
+        html += "</div>";
+      }
+    }
+    html += "</div>";
+  }
+
+  if (ftr) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Failure Timeline</div>";
+    var ftrColor = ftr.urgency === "EMERGENCY" || ftr.urgency === "CRITICAL" ? "#dc2626"
+      : ftr.urgency === "PRIORITY" ? "#ea580c"
+      : ftr.urgency === "ELEVATED" ? "#2563eb"
+      : "#16a34a";
+    if (ftr.governing_time_years !== null && ftr.governing_time_years !== undefined) {
+      var timeLabel = ftr.governing_time_years === 0 ? "EXPIRED"
+        : ftr.governing_time_years < 1 ? Number(ftr.governing_time_years * 12).toFixed(1) + " months"
+        : Number(ftr.governing_time_years).toFixed(1) + " years";
+      html += "<div class='banner' style='background:" + ftrColor + "'>GOVERNING REMAINING LIFE: " + esc(timeLabel) + "</div>";
+    }
+    if (ftr.governing_failure_mode) html += "<div class='info-row'><span class='info-label'>Governing Mode</span><span class='info-value'>" + esc(ftr.governing_failure_mode) + "</span></div>";
+    if (ftr.urgency) html += "<div class='info-row'><span class='info-label'>Urgency</span><span class='info-value' style='color:" + ftrColor + ";font-weight:700;'>" + esc(ftr.urgency) + "</span></div>";
+    if (ftr.recommended_inspection_interval_years !== null && ftr.recommended_inspection_interval_years !== undefined) {
+      html += "<div class='info-row'><span class='info-label'>Next Inspection (max)</span><span class='info-value'>" + Number(ftr.recommended_inspection_interval_years).toFixed(2) + " years</span></div>";
+    }
+    if (ftr.governing_basis) html += "<div style='margin-top:8px;padding:8px 10px;background:#f9fafb;border-left:3px solid " + ftrColor + ";border-radius:4px;font-size:11px;'>" + esc(ftr.governing_basis) + "</div>";
+
+    if (ftr.progression_state) {
+      var psColor;
+      var psLabel = ftr.progression_state.toUpperCase().replace(/_/g, " ");
+      switch (ftr.progression_state) {
+        case "unstable_critical": psColor = "#dc2626"; break;
+        case "accelerating":      psColor = "#ea580c"; break;
+        case "active_likely":     psColor = "#ca8a04"; break;
+        case "active_possible":   psColor = "#2563eb"; break;
+        case "stable_known":      psColor = "#16a34a"; break;
+        case "dormant_possible":  psColor = "#6b7280"; break;
+        case "insufficient_data": psColor = "#9ca3af"; break;
+        default:                  psColor = "#6b7280";
+      }
+      html += "<div style='margin-top:10px;padding:8px 12px;background:#fff;border:2px solid " + psColor + ";border-radius:6px;'>";
+      html += "<div style='font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:3px;'>Progression State</div>";
+      html += "<div style='font-size:13px;font-weight:800;color:" + psColor + ";'>" + esc(psLabel) + "</div>";
+      if (ftr.progression_state_basis) {
+        html += "<div style='font-size:10px;color:#374151;margin-top:3px;font-style:italic;'>" + esc(ftr.progression_state_basis) + "</div>";
+      }
+      html += "</div>";
+    }
+
+    if (ftr.corrosion_timeline && ftr.corrosion_timeline.enabled && ftr.corrosion_timeline.method !== "none") {
+      var ct = ftr.corrosion_timeline;
+      html += "<div style='margin-top:8px;padding:6px 10px;background:#f9fafb;border-radius:4px;font-size:10px;'>";
+      html += "<strong style='color:#374151;'>CORROSION TIMELINE:</strong> ";
+      if (ct.corrosion_rate_mpy) html += Number(ct.corrosion_rate_mpy).toFixed(2) + " mpy";
+      if (ct.method) html += " <span style='color:#6b7280;'>[" + esc(ct.method) + "]</span>";
+      if (ct.confidence && ct.confidence !== "none") html += " <span style='color:#6b7280;'>(" + esc(ct.confidence) + ")</span>";
+      if (ct.remaining_life_years !== null && ct.remaining_life_years !== undefined) {
+        html += " &mdash; remaining life " + Number(ct.remaining_life_years).toFixed(1) + " yr to " + Number(ct.retirement_wall || 0).toFixed(4) + " in retirement";
+      }
+      if (ct.notes && ct.notes.length > 0) {
+        for (var cni = 0; cni < ct.notes.length; cni++) {
+          html += "<div style='font-size:9px;color:#6b7280;padding:1px 0;'>- " + esc(ct.notes[cni]) + "</div>";
+        }
+      }
+      html += "</div>";
+    }
+    html += "</div>";
+  }
+
+  // ========================================================================
+  // DEPLOY170.1: FTR-NULL TRANSPARENCY RENDERING
+  // ========================================================================
+  // Same pattern as RSR-null: when FTR returned null, explain what's
+  // missing instead of silent omission. Universal graceful degradation.
+  if (!ftr) {
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Failure Timeline</div>";
+    html += "<div class='banner' style='background:#6b7280'>NOT RUN &mdash; INPUT DATA INSUFFICIENT</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:10px 12px;background:#f9fafb;border-radius:4px;border-left:3px solid #6b7280;margin-bottom:10px;'>";
+    html += "The failure timeline projection was not executed because the transcript did not contain sufficient data to quantify a progression rate for any active mechanism. This is graceful degradation, not an engine failure.";
+    html += "</div>";
+    html += "<div style='font-size:10px;color:#6b7280;font-weight:700;text-transform:uppercase;margin-bottom:4px;'>Required Inputs (at least one pathway)</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:3px 14px;margin-bottom:6px;'><strong>Corrosion pathway:</strong> nominal wall + measured wall (or wall loss %) + service age, OR explicit corrosion rate (e.g. \"8.75 mpy\"), OR thickness history</div>";
+    html += "<div style='font-size:11px;color:#374151;padding:3px 14px;'><strong>Cracking pathway:</strong> crack length + depth + critical flaw size, OR stress range (ksi) + cycles per day</div>";
+    html += "<div style='font-size:10px;color:#92400e;font-style:italic;margin-top:10px;padding:8px 10px;background:#fffbe6;border-left:3px solid #ca8a04;border-radius:3px;'>Disposition may still be issued conservatively by the Disposition Pathway engine based on severity and mechanism confirmation, but no quantified remaining-life projection will appear.</div>";
+    html += "</div>";
+  }
+
+  if (par && par.analysis) {
+    var pa = par.analysis;
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Photo Analysis (GPT-4o Vision)</div>";
+    if (par.image_quality) html += "<div class='info-row'><span class='info-label'>Image Quality</span><span class='info-value'>" + esc(par.image_quality) + "</span></div>";
+    if (pa.asset_identification) html += "<div class='info-row'><span class='info-label'>Asset Identified</span><span class='info-value'>" + esc(pa.asset_identification) + "</span></div>";
+    if (pa.material_degradation_severity && pa.material_degradation_severity !== "NONE") html += "<div class='info-row'><span class='info-label'>Material Degradation</span><span class='info-value'>" + esc(pa.material_degradation_severity) + "</span></div>";
+    if (par.transcript_addendum) html += "<div style='margin-top:8px;padding:8px 10px;background:#f0fdf4;border-left:3px solid #16a34a;border-radius:4px;font-size:11px;'>" + esc(par.transcript_addendum) + "</div>";
+    html += "</div>";
+  }
+
+  if (sb && sb.synthesis) {
+    var syn = sb.synthesis;
+    // DEPLOY176: detect PROVISIONAL mode (hard confidence gate fired) and
+    // structural emergency (both suppress the generic inspector action card)
+    var isProvisional = dpr && dpr.disposition === "HOLD_FOR_INPUT_ENFORCEMENT";
+    var isStructuralEmergency = dpr && dpr.disposition === "IMMEDIATE_STRUCTURAL_INTEGRITY_REVIEW";
+    var suppressActionCard = isProvisional || isStructuralEmergency;
+
+    if (syn.failure_narrative) {
+      if (isProvisional) {
+        html += "<div class='section'>";
+        html += "<div class='section-title'>Failure Narrative</div>";
+        html += "<div style='margin-bottom:8px;padding:6px 10px;background:#fffbeb;border:2px dashed #b45309;border-radius:4px;font-size:10px;font-weight:700;color:#78350f;text-transform:uppercase;'>PROVISIONAL &mdash; HYPOTHESIS ONLY &mdash; NOT A DISPOSITION</div>";
+        html += "<div class='narrative' style='opacity:0.92;'>" + esc(syn.failure_narrative) + "</div>";
+        html += "<div style='margin-top:6px;font-size:9px;color:#78350f;font-style:italic;'>This narrative is working analysis, not a conclusion. Treat as hypothesis pending the required evidence listed in the Disposition Pathway section.</div>";
+        html += "</div>";
+      } else {
+        html += "<div class='section'><div class='section-title'>Failure Narrative</div><div class='narrative'>" + esc(syn.failure_narrative) + "</div></div>";
+      }
+    }
+    if (syn.contradiction_matrix && syn.contradiction_matrix.length > 0) {
+      if (isProvisional) {
+        html += "<div class='section'>";
+        html += "<div class='section-title'>Contradiction Matrix</div>";
+        html += "<div style='margin-bottom:8px;padding:6px 10px;background:#fffbeb;border:2px dashed #b45309;border-radius:4px;font-size:10px;font-weight:700;color:#78350f;text-transform:uppercase;'>PROVISIONAL &mdash; UNVERIFIED FRAMEWORK COMPARISON</div>";
+        html += "<table class='sb-table' style='opacity:0.92;'><tr><th>Framework</th><th>Verdict</th><th>Basis</th><th>Gap</th></tr>";
+        for (var ci = 0; ci < syn.contradiction_matrix.length; ci++) {
+          var cm = syn.contradiction_matrix[ci];
+          html += "<tr><td><strong>" + esc(cm.framework) + "</strong></td><td>" + esc(cm.verdict) + "</td><td>" + esc(cm.basis) + "</td><td>" + esc(cm.gap_reason) + "</td></tr>";
+        }
+        html += "</table>";
+        html += "</div>";
+      } else {
+        html += "<div class='section'><div class='section-title'>Contradiction Matrix</div>";
+        html += "<table class='sb-table'><tr><th>Framework</th><th>Verdict</th><th>Basis</th><th>Gap</th></tr>";
+        for (var ci2 = 0; ci2 < syn.contradiction_matrix.length; ci2++) {
+          var cm2 = syn.contradiction_matrix[ci2];
+          html += "<tr><td><strong>" + esc(cm2.framework) + "</strong></td><td>" + esc(cm2.verdict) + "</td><td>" + esc(cm2.basis) + "</td><td>" + esc(cm2.gap_reason) + "</td></tr>";
+        }
+        html += "</table></div>";
+      }
+    }
+    // DEPLOY176: Inspector Action Card suppressed when a specialized
+    // disposition path is active (HOLD_FOR_INPUT_ENFORCEMENT renders no
+    // actions because disposition is blocked; IMMEDIATE_STRUCTURAL_INTEGRITY_REVIEW
+    // has its own action block in the Disposition Pathway section).
+    if (!suppressActionCard && syn.inspector_action_card && syn.inspector_action_card.length > 0) {
+      html += "<div class='section'><div class='section-title'>Inspector Action Card</div>";
+      for (var ac = 0; ac < syn.inspector_action_card.length; ac++) {
+        var action = syn.inspector_action_card[ac];
+        html += "<div class='recovery-item'><strong>#" + (ac + 1) + " " + esc(action.step) + "</strong><br/>" + esc(action.rationale) + "</div>";
+      }
+      html += "</div>";
+    }
+    if (syn.reviewer_brief) {
+      if (isProvisional) {
+        html += "<div class='section'><div class='section-title'>Reviewer Brief</div>";
+        html += "<div style='margin-bottom:6px;padding:4px 8px;background:#fffbeb;border:1px dashed #b45309;border-radius:3px;font-size:9px;font-weight:700;color:#78350f;text-transform:uppercase;'>PROVISIONAL SUMMARY</div>";
+        html += "<div class='narrative' style='opacity:0.92;'>" + esc(syn.reviewer_brief) + "</div></div>";
+      } else {
+        html += "<div class='section'><div class='section-title'>Reviewer Brief</div><div class='narrative'>" + esc(syn.reviewer_brief) + "</div></div>";
+      }
+    }
+  }
+
   html += "<div class='section'>";
   html += "<div class='section-title'>Reality Confidence</div>";
-  html += "<div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>";
-  html += "<div><strong style='color:" + bandColor + ";font-size:14px;'>" + esc(conf.band) + "</strong> (" + Math.round(conf.overall * 100) + "%)</div>";
-  html += "</div>";
+  html += "<div><strong style='color:" + bandColorVal + ";font-size:14px;'>" + esc(conf.band) + "</strong> (" + Math.round(conf.overall * 100) + "%)</div>";
   html += "<div class='confidence-grid'>";
   var confDims = [
     { label: "Physics", value: conf.physics_confidence },
@@ -106,79 +1010,18 @@ function generateInspectionReport(data: {
     { label: "Authority", value: conf.authority_confidence },
     { label: "Inspection", value: conf.inspection_confidence },
   ];
-  for (var ci = 0; ci < confDims.length; ci++) {
-    var pct = Math.round(confDims[ci].value * 100);
+  for (var cdi = 0; cdi < confDims.length; cdi++) {
+    var pct = Math.round(confDims[cdi].value * 100);
     var cc = pct >= 70 ? "#16a34a" : pct >= 50 ? "#ca8a04" : "#dc2626";
-    html += "<div class='conf-box'><div class='conf-label'>" + confDims[ci].label + "</div><div class='conf-value' style='color:" + cc + "'>" + pct + "%</div></div>";
+    html += "<div class='conf-box'><div class='conf-label'>" + confDims[cdi].label + "</div><div class='conf-value' style='color:" + cc + "'>" + pct + "%</div></div>";
   }
-  html += "</div>";
-  if (conf.limiting_factors && conf.limiting_factors.length > 0) {
-    html += "<div style='font-size:10px;color:#6b7280;'>Limiting: " + esc(conf.limiting_factors.join(" | ")) + "</div>";
-  }
-  html += "</div>";
+  html += "</div></div>";
 
   html += "<div class='section'>";
   html += "<div class='section-title'>Consequence Reality</div>";
-  html += "<div class='banner' style='background:" + tierColor + "'>" + esc(con.consequence_tier) + " CONSEQUENCE</div>";
-  html += "<div class='info-row'><span class='info-label'>Failure Mode</span><span class='info-value'>" + esc(con.failure_mode).replace(/_/g, " ") + "</span></div>";
+  html += "<div class='banner' style='background:" + tierColorVal + "'>" + esc(con.consequence_tier) + " CONSEQUENCE</div>";
+  html += "<div class='info-row'><span class='info-label'>Failure Mode</span><span class='info-value'>" + esc(displayFailureMode) + " <span style='color:#6b7280;font-size:9px;'>[" + esc(failureModeSource) + "]</span></span></div>";
   html += "<div class='info-row'><span class='info-label'>Human Impact</span><span class='info-value'>" + esc(con.human_impact) + "</span></div>";
-  html += "<div class='info-row'><span class='info-label'>Damage State</span><span class='info-value'>" + esc(con.damage_state || "STABLE") + "</span></div>";
-  html += "<div class='info-row'><span class='info-label'>Monitoring Urgency</span><span class='info-value'>" + esc(con.monitoring_urgency || "Routine") + "</span></div>";
-  if (con.failure_physics) html += "<div style='margin-top:8px;padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;font-size:11px;'><strong>Failure Physics:</strong> " + esc(con.failure_physics) + "</div>";
-  if (con.damage_trajectory) html += "<div style='margin-top:6px;font-size:11px;'><strong>Trajectory:</strong> " + esc(con.damage_trajectory) + "</div>";
-  html += "</div>";
-
-  html += "<div class='section'>";
-  html += "<div class='section-title'>Physical Reality (confidence: " + Math.round(phy.physics_confidence * 100) + "%)</div>";
-  html += "<div style='padding:8px 10px;background:#f0f4ff;border-radius:4px;border-left:3px solid #2563eb;margin-bottom:8px;font-size:11px;'>" + esc(phy.physics_summary) + "</div>";
-  html += "<div class='info-row'><span class='info-label'>Load Types</span><span class='info-value'>" + esc((phy.stress.primary_load_types || []).join(", ") || "none") + "</span></div>";
-  html += "<div class='info-row'><span class='info-label'>Cyclic Loading</span><span class='info-value'>" + (phy.stress.cyclic_loading ? "YES - " + esc(phy.stress.cyclic_source) : "No") + "</span></div>";
-  html += "<div class='info-row'><span class='info-label'>Stress Concentration</span><span class='info-value'>" + (phy.stress.stress_concentration_present ? "YES - " + esc((phy.stress.stress_concentration_locations || []).join(", ")) : "No") + "</span></div>";
-  html += "<div class='info-row'><span class='info-label'>Corrosive Environment</span><span class='info-value'>" + (phy.chemical.corrosive_environment ? "YES - " + esc((phy.chemical.environment_agents || []).join(", ")) : "No") + "</span></div>";
-  html += "<div class='info-row'><span class='info-label'>Stored Energy</span><span class='info-value'>" + (phy.energy.stored_energy_significant ? "Significant" : "Low") + "</span></div>";
-  if (phy.field_interaction && phy.field_interaction.hotspots.length > 0) {
-    html += "<div style='margin-top:8px;padding:8px 10px;background:" + (phy.field_interaction.interaction_level === "HIGH" ? "#fef2f2" : "#fffbeb") + ";border-radius:4px;border-left:3px solid " + (phy.field_interaction.interaction_level === "HIGH" ? "#dc2626" : "#ca8a04") + ";'>";
-    html += "<strong>Field Interaction: " + esc(phy.field_interaction.interaction_level) + " (" + phy.field_interaction.interaction_score + "/100)</strong><br/>";
-    for (var fi = 0; fi < phy.field_interaction.warnings.length; fi++) html += "<span style='font-size:10px;'>" + esc(phy.field_interaction.warnings[fi]) + "</span><br/>";
-    html += "</div>";
-  }
-  html += "</div>";
-
-  html += "<div class='section'>";
-  html += "<div class='section-title'>Damage Reality (" + (dmg.validated_mechanisms?.length || 0) + " validated, " + (dmg.rejected_mechanisms?.length || 0) + " impossible)</div>";
-  if (dmg.primary_mechanism) {
-    html += "<div class='mech-valid'><strong>Primary: " + esc(dmg.primary_mechanism.name) + "</strong> (" + esc(dmg.primary_mechanism.reality_state) + ", score: " + dmg.primary_mechanism.reality_score + ")<br/>Physics: " + esc(dmg.primary_mechanism.physics_basis) + "</div>";
-  }
-  if (dmg.validated_mechanisms && dmg.validated_mechanisms.length > 1) {
-    for (var vi = 1; vi < dmg.validated_mechanisms.length; vi++) {
-      var vm = dmg.validated_mechanisms[vi];
-      html += "<div class='mech-valid' style='border-left-color:#ca8a04;'>" + esc(vm.name) + " (" + esc(vm.reality_state) + ") - " + esc(vm.physics_basis) + "</div>";
-    }
-  }
-  if (dmg.rejected_mechanisms && dmg.rejected_mechanisms.length > 0) {
-    html += "<div style='font-size:10px;font-weight:700;color:#dc2626;margin:8px 0 4px 0;'>PHYSICALLY IMPOSSIBLE (" + dmg.rejected_mechanisms.length + ")</div>";
-    for (var ri = 0; ri < Math.min(dmg.rejected_mechanisms.length, 8); ri++) {
-      var rm = dmg.rejected_mechanisms[ri];
-      html += "<div class='mech-reject'>" + esc(rm.name) + ": " + esc(rm.rejection_reason) + "</div>";
-    }
-    if (dmg.rejected_mechanisms.length > 8) html += "<div style='font-size:10px;color:#6b7280;'>...and " + (dmg.rejected_mechanisms.length - 8) + " more rejected</div>";
-  }
-  html += "</div>";
-
-  html += "<div class='section'>";
-  html += "<div class='section-title'>Inspection Reality</div>";
-  var inspColor = insp.sufficiency_verdict === "BLOCKED" ? "#dc2626" : insp.sufficiency_verdict === "INSUFFICIENT" ? "#ea580c" : "#16a34a";
-  html += "<div class='banner' style='background:" + inspColor + "'>" + esc(insp.sufficiency_verdict) + " - " + esc((insp.proposed_methods || []).join(", ") || (insp.recommended_package && insp.recommended_package.length > 0 ? "Recommended: " + insp.recommended_package.join(" + ") : "No methods in transcript")) + "</div>";
-  html += "<div style='font-size:11px;margin-bottom:8px;'>" + esc(insp.physics_reason) + "</div>";
-  if (insp.missing_coverage && insp.missing_coverage.length > 0) {
-    for (var mi = 0; mi < insp.missing_coverage.length; mi++) html += "<div class='gap-item'>" + esc(insp.missing_coverage[mi]) + "</div>";
-  }
-  if (insp.best_method) {
-    html += "<div style='margin-top:8px;padding:8px 10px;background:#f0fdf4;border-radius:4px;border-left:3px solid #16a34a;'><strong>Best Method: " + esc(insp.best_method.method) + " (score: " + insp.best_method.overall_score + "/100)</strong></div>";
-  }
-  if (insp.constraint_analysis && insp.constraint_analysis.truth_quality !== "HIGH") {
-    html += "<div style='margin-top:8px;padding:8px 10px;background:#fffbeb;border-radius:4px;border-left:3px solid #ca8a04;font-size:10px;'><strong>Truth Quality: " + esc(insp.constraint_analysis.truth_quality) + "</strong> (" + insp.constraint_analysis.constraint_score + "/100)</div>";
-  }
   html += "</div>";
 
   html += "<div class='section'>";
@@ -187,32 +1030,13 @@ function generateInspectionReport(data: {
   html += "<div class='banner' style='background:" + decColor + "'>" + esc(dec.disposition).replace(/_/g, " ").toUpperCase() + "</div>";
   html += "<div style='font-size:11px;margin-bottom:10px;'>" + esc(dec.disposition_basis) + "</div>";
   if (dec.gates && dec.gates.length > 0) {
-    html += "<div style='font-size:10px;font-weight:700;color:#6b7280;margin-bottom:4px;'>PRECEDENCE GATES</div>";
     for (var gi = 0; gi < dec.gates.length; gi++) {
       var g = dec.gates[gi];
       var gc = g.result === "PASS" ? "gate-pass" : g.result === "BLOCKED" ? "gate-block" : g.result === "ESCALATED" ? "gate-warn" : "gate-info";
-      var gIcon = g.result === "PASS" ? "PASS" : g.result === "BLOCKED" ? "BLOCKED" : g.result === "ESCALATED" ? "ESCALATED" : "INFO";
-      html += "<div class='gate-row " + gc + "'><strong>[" + gIcon + "]</strong> <span style='font-weight:600;'>" + esc(g.gate).replace(/_/g, " ") + "</span> <span style='color:#6b7280;margin-left:6px;'>" + esc(g.reason) + "</span></div>";
+      html += "<div class='gate-row " + gc + "'><strong>[" + g.result + "]</strong> " + esc(g.gate).replace(/_/g, " ") + " <span style='color:#6b7280;'>" + esc(g.reason) + "</span></div>";
     }
   }
   html += "</div>";
-
-  if (dec.guided_recovery && dec.guided_recovery.length > 0) {
-    html += "<div class='section'>";
-    html += "<div class='section-title'>Guided Recovery (" + dec.guided_recovery.length + " actions)</div>";
-    for (var ri2 = 0; ri2 < dec.guided_recovery.length; ri2++) {
-      var r = dec.guided_recovery[ri2];
-      html += "<div class='recovery-item'><strong>#" + r.priority + " " + esc(r.action) + "</strong><br/>Physics: " + esc(r.physics_reason) + "<br/>Who: " + esc(r.who) + "</div>";
-    }
-    html += "</div>";
-  }
-
-  if (data.aiNarrative) {
-    html += "<div class='section'>";
-    html += "<div class='section-title'>AI Narrative Summary (GPT-4o constrained by physics core)</div>";
-    html += "<div class='narrative'>" + esc(data.aiNarrative) + "</div>";
-    html += "</div>";
-  }
 
   html += "<div class='section'>";
   html += "<div class='section-title'>Original Input Transcript</div>";
@@ -225,8 +1049,7 @@ function generateInspectionReport(data: {
   html += "</div>";
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
-  html += "Generated by FORGED NDT Intelligence OS - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
-  html += "<br/>Engine: physics-first-decision-core v2.1 | Klein Bottle Architecture | " + (dc.klein_bottle_states || 6) + " states";
+  html += "Generated by FORGED NDT Intelligence OS v16.6m - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
   html += "</div>";
 
   html += "</body></html>";
@@ -240,10 +1063,6 @@ function generateInspectionReport(data: {
   }
 }
 
-
-// ============================================================================
-// API HELPER
-// ============================================================================
 var API_BASE = "/api";
 async function callAPI(endpoint: string, body: any): Promise<any> {
   var res = await fetch(API_BASE + "/" + endpoint, {
@@ -253,9 +1072,67 @@ async function callAPI(endpoint: string, body: any): Promise<any> {
   return res.json();
 }
 
-// ============================================================================
-// EVIDENCE FLAG DEFINITIONS
-// ============================================================================
+var SUPABASE_URL = "https://lrxwirjcuzultolomnos.supabase.co";
+var SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyeHdpcmpjdXp1bHRvbG9tbm9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzQ1NjcsImV4cCI6MjA5MDY1MDU2N30.oVGJybVpR2ktkHWMXsNeVFkBB7QFzfpp9QyIk00zwUU";
+
+async function saveCaseToSupabase(transcriptText: string, parsedData: any, assetData: any, dcResult: any): Promise<{ success: boolean; caseId: string; error?: string }> {
+  var now = new Date();
+  var caseId = "CASE-" + now.getFullYear() + String(now.getMonth() + 1).padStart(2, "0") + String(now.getDate()).padStart(2, "0") + "-" + String(Math.floor(Math.random() * 9000) + 1000);
+  var con = dcResult.consequence_reality || {};
+  var dec = dcResult.decision_reality || {};
+  var conf = dcResult.reality_confidence || {};
+  var dmg = dcResult.damage_reality || {};
+  var insp = dcResult.inspection_reality || {};
+  var auth = dcResult.authority_reality || {};
+
+  var title = transcriptText.substring(0, 80).replace(/[^a-zA-Z0-9 .,\-]/g, "").trim();
+  if (!title) title = "Voice Inspection " + caseId;
+
+  var displayAsset = (assetData && assetData.asset_class) || "General";
+  if (dcResult.asset_correction && dcResult.asset_correction.corrected) {
+    displayAsset = dcResult.asset_correction.corrected_to;
+  }
+
+  var caseRow = {
+    case_id: caseId, case_name: title, title: title, status: "open", inspector_name: "Field Inspector",
+    asset_type: displayAsset, asset_name: displayAsset, asset_class: displayAsset, location: "Field",
+    description: transcriptText, applicable_standard: (auth.primary_authority || "API 570"),
+    consequence_tier: (con.consequence_tier || "MEDIUM"),
+    superbrain_disposition: (dec.disposition || "hold_for_review"),
+    confidence_band: (conf.band || "LOW"), confidence_overall: (conf.overall || 0),
+    primary_mechanism: (dmg.primary_mechanism ? dmg.primary_mechanism.name : null),
+    sufficiency_verdict: (insp.sufficiency_verdict || null),
+    hard_lock_count: (dec.hard_locks ? dec.hard_locks.length : 0),
+    next_action: (dec.guided_recovery && dec.guided_recovery.length > 0 ? dec.guided_recovery[0].action : null),
+    stage: "evaluated",
+    highest_severity: (dmg.primary_mechanism ? dmg.primary_mechanism.severity : null),
+    finding_count: (dmg.validated_mechanisms ? dmg.validated_mechanisms.length : 0),
+    rejectable_count: (dec.hard_locks ? dec.hard_locks.length : 0),
+    sb_consequence: (con.consequence_tier || "MEDIUM"),
+    sb_disposition: (dec.disposition || "hold_for_review"),
+    sb_confidence: (conf.overall || 0),
+    sb_mechanism: (dmg.primary_mechanism ? dmg.primary_mechanism.name : null),
+    sb_sufficiency: (insp.sufficiency_verdict || null),
+    sb_engine_version: (dcResult.engine_version || "unknown"),
+    sb_last_eval: now.toISOString()
+  };
+
+  try {
+    var res = await fetch(SUPABASE_URL + "/rest/v1/cases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY, "Prefer": "return=minimal" },
+      body: JSON.stringify(caseRow)
+    });
+    if (!res.ok) {
+      var errText = await res.text();
+      return { success: false, caseId: caseId, error: "Insert failed: " + res.status + " " + errText };
+    }
+    return { success: true, caseId: caseId };
+  } catch (err: any) {
+    return { success: false, caseId: caseId, error: "Network error: " + (err.message || String(err)) };
+  }
+}
+
 interface EvidenceFlagDef { key: string; label: string; group: string; type: "boolean" | "number"; hardLockCritical: boolean; description: string; }
 var CONFIRMABLE_FLAGS: EvidenceFlagDef[] = [
   { key: "visible_deformation", label: "Visible Deformation", group: "Damage Indicators", type: "boolean", hardLockCritical: true, description: "Buckling, bending, denting, or permanent distortion" },
@@ -306,9 +1183,6 @@ function extractPreliminaryEvidence(parsed: any, asset: any): any {
   };
 }
 
-// ============================================================================
-// HELPERS
-// ============================================================================
 function tierColor(tier: string): string {
   if (tier === "CRITICAL") return "#dc2626";
   if (tier === "HIGH") return "#ea580c";
@@ -335,15 +1209,13 @@ function gateColor(result: string): string {
   return "#ca8a04";
 }
 
-// ============================================================================
-// CARD WRAPPER
-// ============================================================================
-function Card({ title, icon, children, status, collapsible, defaultCollapsed }: { title: string; icon: string; children: React.ReactNode; status?: string; collapsible?: boolean; defaultCollapsed?: boolean }) {
+function Card({ title, icon, children, status, collapsible, defaultCollapsed, accent }: { title: string; icon: string; children: React.ReactNode; status?: string; collapsible?: boolean; defaultCollapsed?: boolean; accent?: string }) {
   var [collapsed, setCollapsed] = useState(defaultCollapsed || false);
   var canCollapse = collapsible !== false;
+  var borderLeft = accent ? "3px solid " + accent : "none";
   return (
-    <div style={{ marginBottom: "16px", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
-      <div onClick={function() { if (canCollapse) setCollapsed(!collapsed); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", backgroundColor: "#f9fafb", borderBottom: collapsed ? "none" : "1px solid #e5e7eb", cursor: canCollapse ? "pointer" : "default", userSelect: "none" }}>
+    <div style={{ marginBottom: "16px", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff", borderLeft: borderLeft }}>
+      <div onClick={function() { if (canCollapse) setCollapsed(!collapsed); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", backgroundColor: accent ? accent + "08" : "#f9fafb", borderBottom: collapsed ? "none" : "1px solid #e5e7eb", cursor: canCollapse ? "pointer" : "default", userSelect: "none" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <span style={{ fontSize: "18px" }}>{icon}</span>
           <span style={{ fontWeight: 700, fontSize: "14px" }}>{title}</span>
@@ -356,9 +1228,6 @@ function Card({ title, icon, children, status, collapsible, defaultCollapsed }: 
   );
 }
 
-// ============================================================================
-// STEP TRACKER
-// ============================================================================
 interface StepState { label: string; status: "pending" | "running" | "done" | "error" | "waiting"; detail?: string; }
 function StepTracker({ steps }: { steps: StepState[] }) {
   return (
@@ -378,9 +1247,6 @@ function StepTracker({ steps }: { steps: StepState[] }) {
   );
 }
 
-// ============================================================================
-// EVIDENCE CONFIRMATION CARD
-// ============================================================================
 function EvidenceConfirmationCard({ evidence, onConfirm, onSkip, isGenerating }: { evidence: any; onConfirm: (confirmed: any) => void; onSkip: () => void; isGenerating: boolean }) {
   var [edited, setEdited] = useState<any>({ ...evidence });
   function toggle(key: string) { setEdited(function(prev: any) { var n = { ...prev }; n[key] = !n[key]; return n; }); }
@@ -397,7 +1263,7 @@ function EvidenceConfirmationCard({ evidence, onConfirm, onSkip, isGenerating }:
     <Card title="Evidence Confirmation" icon={"\uD83D\uDD0D"} collapsible={false}>
       <div style={{ padding: "10px 14px", backgroundColor: "#eff6ff", borderRadius: "6px", marginBottom: "16px", borderLeft: "4px solid #2563eb" }}>
         <div style={{ fontWeight: 700, fontSize: "13px", color: "#1e40af", marginBottom: "4px" }}>Review Evidence Before Physics Analysis</div>
-        <div style={{ fontSize: "12px", color: "#374151", lineHeight: "1.5" }}>These flags were auto-extracted. They directly control the physics analysis — mechanism validation, consequence tier, and disposition. Correct any errors before proceeding.</div>
+        <div style={{ fontSize: "12px", color: "#374151", lineHeight: "1.5" }}>These flags were auto-extracted. Correct any errors before proceeding.</div>
       </div>
       {Object.keys(groups).map(function(groupName, gi) {
         return (
@@ -449,29 +1315,16 @@ function EvidenceConfirmationCard({ evidence, onConfirm, onSkip, isGenerating }:
   );
 }
 
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
 export default function VoiceInspectionPage() {
   var [transcript, setTranscript] = useState("");
   var [isGenerating, setIsGenerating] = useState(false);
   var [steps, setSteps] = useState<StepState[]>([]);
   var [evidenceConfirmPending, setEvidenceConfirmPending] = useState(false);
   var [preliminaryEvidence, setPreliminaryEvidence] = useState<any>(null);
-
   var [parsed, setParsed] = useState<any>(null);
   var [asset, setAsset] = useState<any>(null);
   var [realityLock, setRealityLock] = useState<any>(null);
   var [decisionCore, setDecisionCore] = useState<any>(null);
-  var [engineeringResult, setEngineeringResult] = useState<any>(null);
-  var [engineeringLoading, setEngineeringLoading] = useState(false);
-  var [engineeringError, setEngineeringError] = useState<string | null>(null);
-  var [showExpertMode, setShowExpertMode] = useState(false);
-  var [architectureResult, setArchitectureResult] = useState<any>(null);
-  var [architectureLoading, setArchitectureLoading] = useState(false);
-  var [materialsResult, setMaterialsResult] = useState<any>(null);
-  var [materialsLoading, setMaterialsLoading] = useState(false);
-  var [showLayer3, setShowLayer3] = useState(false);
   var [aiNarrative, setAiNarrative] = useState<string | null>(null);
   var [errors, setErrors] = useState<string[]>([]);
   var [isListening, setIsListening] = useState(false);
@@ -481,71 +1334,553 @@ export default function VoiceInspectionPage() {
   var [selectedAnswers, setSelectedAnswers] = useState<any>({});
   var [pipelinePaused, setPipelinePaused] = useState(false);
   var resultsRef = useRef<HTMLDivElement>(null);
+  var [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  var [savedCaseId, setSavedCaseId] = useState<string | null>(null);
+  var [saveError, setSaveError] = useState<string | null>(null);
+  var [superbrainResult, setSuperbrainResult] = useState<any>(null);
+  var [superbrainLoading, setSuperbrainLoading] = useState(false);
+  var [superbrainError, setSuperbrainError] = useState<string | null>(null);
+  var [grammarBridgeResult, setGrammarBridgeResult] = useState<any>(null);
+  var [provenanceResult, setProvenanceResult] = useState<any>(null);
+  var [provenanceLoading, setProvenanceLoading] = useState(false);
+  var [hardeningResult, setHardeningResult] = useState<any>(null);
+  var [hardeningLoading, setHardeningLoading] = useState(false);
+  var [gbEditingField, setGbEditingField] = useState<string | null>(null);
+  var [gbAmendments, setGbAmendments] = useState<any[]>([]);
+  var [gbConfirmed, setGbConfirmed] = useState(false);
+  var [authorityLockResult, setAuthorityLockResult] = useState<any>(null);
+  var [remainingStrengthResult, setRemainingStrengthResult] = useState<any>(null);
+  var [failureModeDominanceResult, setFailureModeDominanceResult] = useState<any>(null);
+  var [dispositionPathwayResult, setDispositionPathwayResult] = useState<any>(null);
+  var [failureTimelineResult, setFailureTimelineResult] = useState<any>(null);
 
-  var callEngineeringCore = async function(decResult: any, narrativeText: string) {
-    setEngineeringLoading(true); setEngineeringError(null);
-    var ei: Record<string, any> = {
-      caseId: 'ENG-' + String(Date.now()),
-      assetClass: (decResult.asset_class || decResult.assetClass || 'unknown'),
-      consequenceTier: (decResult.consequence_reality || decResult.consequence || 'MODERATE'),
-      ndtVerdict: (decResult.disposition || 'INDETERMINATE'),
-      ndtConfidence: (decResult.reality_confidence || 0.5),
-      primaryMechanism: (decResult.primary_mechanism || ''),
-      governingStandard: (decResult.authority_reality || ''),
-      incidentNarrative: narrativeText, isCyclicService: false, materialClass: ''
-    };
-    var nr = narrativeText.toLowerCase();
-    if (nr.indexOf('stainless') >= 0 || nr.indexOf('316') >= 0 || nr.indexOf('304') >= 0) { ei.materialClass = 'austenitic_ss'; }
-    else if (nr.indexOf('duplex') >= 0 || nr.indexOf('2205') >= 0) { ei.materialClass = 'duplex_ss'; }
-    else if (nr.indexOf('carbon steel') >= 0 || nr.indexOf('a36') >= 0) { ei.materialClass = 'carbon_steel'; }
-    else if (nr.indexOf('low alloy') >= 0 || nr.indexOf('p91') >= 0) { ei.materialClass = 'low_alloy'; }
-    ei.isCyclicService = (nr.indexOf('cyclic') >= 0 || nr.indexOf('fatigue') >= 0 || nr.indexOf('vibrat') >= 0);
-    if (nr.indexOf('crack') >= 0) { ei.flawType = 'crack'; } else if (nr.indexOf('corrosion') >= 0 || nr.indexOf('thinning') >= 0) { ei.flawType = 'corrosion'; } else if (nr.indexOf('pitting') >= 0) { ei.flawType = 'pitting'; } else if (nr.indexOf('dent') >= 0) { ei.flawType = 'dent'; }
-    if (nr.indexOf('h2s') >= 0 || nr.indexOf('sour') >= 0) { ei.h2sPartialPressureMPa = 0.001; }
-    if (nr.indexOf('chloride') >= 0 || nr.indexOf('seawater') >= 0) { ei.chloridePPM = 1000; }
-    if (nr.indexOf('creep') >= 0 || nr.indexOf('elevated temp') >= 0) { ei.operatingTempC = 400; }
-    try {
-      var er = await fetch('/.netlify/functions/engineering-core', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ei) });
-      if (er.ok) { var ed = await er.json(); setEngineeringResult(ed); }
-      else { setEngineeringError('Engineering core status ' + er.status); }
-    } catch(ex: any) { setEngineeringError('Engineering layer: ' + (ex.message || String(ex))); }
-    finally { setEngineeringLoading(false); }
+  var handleSaveToCase = async function() {
+    if (!decisionCore) return;
+    setSaveStatus("saving"); setSaveError(null);
+    var result = await saveCaseToSupabase(transcript, parsed, asset, decisionCore);
+    if (result.success) { setSaveStatus("saved"); setSavedCaseId(result.caseId); }
+    else { setSaveStatus("error"); setSaveError(result.error || "Unknown error"); }
   };
 
-  var callArchitectureCore = async function(decResult: any, narrativeText: string) {
-    setArchitectureLoading(true);
-    var ai: Record<string, any> = {
-      caseId: 'ARCH-' + String(Date.now()),
-      assetClass: (decResult.asset_class || decResult.assetClass || 'unknown'),
-      consequenceTier: (decResult.consequence_reality || 'MODERATE'),
-      engineeringSignificance: (decResult.engineering_significance || 'MODERATE'),
-      ndtVerdict: (decResult.disposition || 'INDETERMINATE'),
-      riskRanking: (decResult.risk_ranking || 'MEDIUM'),
-      incidentNarrative: narrativeText
-    };
+  var handleGbConfirm = function() { setGbConfirmed(true); setGbEditingField(null); };
+
+  var callAuthorityLock = async function(assetData: any, parsedData: any, gbData: any, confirmedFlags: any) {
     try {
-      var ar = await fetch('/.netlify/functions/architecture-core', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ai) });
-      if (ar.ok) { var ad = await ar.json(); setArchitectureResult(ad); }
-    } catch(ex) {} finally { setArchitectureLoading(false); }
+      var mechanisms: string[] = [];
+      var wallLossPercent = 0;
+      var hasCracking = false;
+      var serviceEnv = "";
+      if (gbData && gbData.extracted) {
+        serviceEnv = gbData.extracted.service_fluid || "";
+        if (gbData.extracted.primary_finding) mechanisms.push(gbData.extracted.primary_finding);
+        if (gbData.extracted.finding_types) mechanisms = mechanisms.concat(gbData.extracted.finding_types);
+        if (gbData.extracted.numeric && gbData.extracted.numeric.wall_loss_percent) wallLossPercent = gbData.extracted.numeric.wall_loss_percent;
+      }
+      if (parsedData) {
+        if (parsedData.environment) {
+          for (var ei2 = 0; ei2 < parsedData.environment.length; ei2++) {
+            var envItem = (parsedData.environment[ei2] || "").toLowerCase();
+            if (envItem.indexOf("sour") >= 0 || envItem.indexOf("h2s") >= 0) serviceEnv = serviceEnv || "sour";
+          }
+        }
+        if (parsedData.numeric_values && parsedData.numeric_values.wall_loss_percent) wallLossPercent = wallLossPercent || parsedData.numeric_values.wall_loss_percent;
+      }
+      if (confirmedFlags) { if (confirmedFlags.crack_confirmed || confirmedFlags.visible_cracking) hasCracking = true; }
+      var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
+      if (lt.indexOf("crack") >= 0) hasCracking = true;
+      if (lt.indexOf("corrosion") >= 0 && mechanisms.indexOf("corrosion") < 0) mechanisms.push("corrosion");
+      if (lt.indexOf("pitting") >= 0 && mechanisms.indexOf("pitting") < 0) mechanisms.push("pitting");
+      if (lt.indexOf("wall loss") >= 0 && mechanisms.indexOf("wall_loss") < 0) mechanisms.push("wall_loss");
+      if (lt.indexOf("hic") >= 0 && mechanisms.indexOf("hic") < 0) mechanisms.push("hic");
+      if (lt.indexOf("sohic") >= 0 && mechanisms.indexOf("sohic") < 0) mechanisms.push("sohic");
+      if (lt.indexOf("ssc") >= 0 && mechanisms.indexOf("ssc") < 0) mechanisms.push("ssc");
+      if (lt.indexOf("mic") >= 0 && mechanisms.indexOf("mic") < 0) mechanisms.push("mic");
+      if (lt.indexOf("erosion") >= 0 && mechanisms.indexOf("erosion") < 0) mechanisms.push("erosion");
+      if (lt.indexOf("fatigue") >= 0 && mechanisms.indexOf("fatigue") < 0) mechanisms.push("fatigue");
+      var uniqueMechs: string[] = [];
+      for (var mi2 = 0; mi2 < mechanisms.length; mi2++) { if (uniqueMechs.indexOf(mechanisms[mi2]) < 0) uniqueMechs.push(mechanisms[mi2]); }
+      var requestBody = {
+        asset_type: (assetData && (assetData.asset_class || assetData.asset_type)) || "",
+        service_environment: serviceEnv, damage_mechanisms: uniqueMechs,
+        wall_loss_percent: wallLossPercent, has_cracking: hasCracking,
+        is_pressure_boundary: confirmedFlags ? !!confirmedFlags.pressure_boundary_involved : true, jurisdiction: ""
+      };
+      var response = await fetch("/.netlify/functions/authority-lock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+      if (!response.ok) {
+        var bodyText = await response.text();
+        setErrors(function(prev) { return prev.concat(["authority-lock HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
+        return null;
+      }
+      var result = await response.json();
+      setAuthorityLockResult(result);
+      return result;
+    } catch (err: any) {
+      console.error("Authority lock error:", err);
+      setErrors(function(prev) { return prev.concat(["authority-lock THREW: " + (err && err.message ? err.message : String(err))]); });
+      return null;
+    }
   };
 
-  var callMaterialsCore = async function(decResult: any, narrativeText: string) {
-    setMaterialsLoading(true);
-    var mi: Record<string, any> = {
-      caseId: 'MAT-' + String(Date.now()),
-      assetClass: (decResult.asset_class || decResult.assetClass || 'unknown'),
-      incidentNarrative: narrativeText
-    };
-    var nr2 = narrativeText.toLowerCase();
-    if (nr2.indexOf('stainless') >= 0 || nr2.indexOf('316') >= 0) { mi.materialClass = 'austenitic_ss'; } else if (nr2.indexOf('duplex') >= 0) { mi.materialClass = 'duplex_ss'; } else if (nr2.indexOf('carbon steel') >= 0) { mi.materialClass = 'carbon_steel'; } else if (nr2.indexOf('low alloy') >= 0) { mi.materialClass = 'low_alloy'; }
-    if (nr2.indexOf('pwht') >= 0 || nr2.indexOf('post weld heat') >= 0) { mi.pwhtApplied = true; }
-    if (nr2.indexOf('h2s') >= 0 || nr2.indexOf('sour') >= 0) { mi.h2sPartialPressureMPa = 0.001; }
-    if (nr2.indexOf('chloride') >= 0 || nr2.indexOf('seawater') >= 0) { mi.chloridePPM = 1000; }
-    if (nr2.indexOf('cyclic') >= 0 || nr2.indexOf('fatigue') >= 0) { mi.isCyclicService = true; }
+  var callRemainingStrength = async function(parsedData: any, gbData: any) {
     try {
-      var mr = await fetch('/.netlify/functions/materials-core', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mi) });
-      if (mr.ok) { var md = await mr.json(); setMaterialsResult(md); }
-    } catch(ex) {} finally { setMaterialsLoading(false); }
+      var nominalWall = 0, measuredMinWall = 0, flawLength = 0, pipeOD = 0, diameterInches = 0, wallLossPercent = 0;
+      var smys = 0, materialGrade = "", designFactor = 0.72, operatingPressure = 0;
+      if (gbData && gbData.extracted && gbData.extracted.numeric) {
+        var num = gbData.extracted.numeric;
+        if (num.nominal_wall) nominalWall = num.nominal_wall;
+        if (num.measured_wall || num.minimum_wall) measuredMinWall = num.measured_wall || num.minimum_wall;
+        if (num.flaw_length || num.defect_length) flawLength = num.flaw_length || num.defect_length;
+        if (num.diameter_inches) { pipeOD = num.diameter_inches; diameterInches = num.diameter_inches; }
+        if (num.pressure_psi) operatingPressure = num.pressure_psi;
+        if (num.wall_loss_percent) wallLossPercent = num.wall_loss_percent;
+      }
+      if (gbData && gbData.extracted) {
+        if (gbData.extracted.material) materialGrade = String(gbData.extracted.material);
+        if (!materialGrade && gbData.extracted.material_grade) materialGrade = String(gbData.extracted.material_grade);
+      }
+      if (parsedData && parsedData.numeric_values) {
+        var nv = parsedData.numeric_values;
+        if (!nominalWall && nv.nominal_wall) nominalWall = nv.nominal_wall;
+        if (!measuredMinWall && nv.measured_wall) measuredMinWall = nv.measured_wall;
+        if (!flawLength && nv.flaw_length) flawLength = nv.flaw_length;
+        if (!pipeOD && nv.pipe_od) { pipeOD = nv.pipe_od; diameterInches = nv.pipe_od; }
+        if (!diameterInches && nv.diameter_inches) { diameterInches = nv.diameter_inches; if (!pipeOD) pipeOD = nv.diameter_inches; }
+        if (!operatingPressure && nv.operating_pressure) operatingPressure = nv.operating_pressure;
+        if (!wallLossPercent && nv.wall_loss_percent) wallLossPercent = nv.wall_loss_percent;
+      }
+      var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
+      var gradePatterns = ["x120", "x100", "x90", "x80", "x70", "x65", "x60", "x56", "x52", "x46", "x42"];
+      for (var gpi = 0; gpi < gradePatterns.length; gpi++) {
+        if (!materialGrade && lt.indexOf(gradePatterns[gpi]) >= 0) { materialGrade = gradePatterns[gpi].toUpperCase(); break; }
+      }
+      if (!materialGrade) {
+        if (lt.indexOf("a106") >= 0 && (lt.indexOf("grade b") >= 0 || lt.indexOf("gr b") >= 0 || lt.indexOf("gr. b") >= 0)) materialGrade = "A106_GR_B";
+        else if (lt.indexOf("a106") >= 0 && (lt.indexOf("grade a") >= 0 || lt.indexOf("gr a") >= 0)) materialGrade = "A106_GR_A";
+        else if (lt.indexOf("a106") >= 0 && (lt.indexOf("grade c") >= 0 || lt.indexOf("gr c") >= 0)) materialGrade = "A106_GR_C";
+        else if (lt.indexOf("a106") >= 0) materialGrade = "A106";
+        else if (lt.indexOf("a53") >= 0) materialGrade = "A53";
+        else if (lt.indexOf("a333") >= 0) materialGrade = "A333";
+        else if (lt.indexOf("a516") >= 0) materialGrade = "A516";
+        else if (lt.indexOf("carbon steel") >= 0) materialGrade = "CARBON_STEEL";
+      }
+      if (!diameterInches) {
+        var diaMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:inch|in\b|")/);
+        if (diaMatch) { var d = parseFloat(diaMatch[1]); if (d > 0 && d < 100) { diameterInches = d; if (!pipeOD) pipeOD = d; } }
+      }
+      if (!wallLossPercent) {
+        var wlMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:wall|metal|thickness)?/);
+        if (wlMatch) { var w = parseFloat(wlMatch[1]); if (w > 0 && w <= 100) wallLossPercent = w; }
+      }
+      if (!operatingPressure) {
+        var pMatch = lt.match(/(\d+(?:\.\d+)?)\s*psi/);
+        if (pMatch) { var pv = parseFloat(pMatch[1]); if (pv > 0 && pv < 20000) operatingPressure = pv; }
+      }
+
+      // ======================================================================
+      // DEPLOY170.1: PARAGRAPH-FORMAT NUMERIC EXTRACTION (RSR)
+      // ======================================================================
+      // Universal regex for written-cadence technical documents. Runs BEFORE
+      // NPS inference so explicit transcript values always win over table
+      // defaults. Bounds 0.05 in < value < 5 in reject nonsense readings.
+      // No asset-class branching, no scenario keywords.
+
+      // "nominal wall: 0.500 in" / "nominal wall 0.500 inch" / "nominal 0.5 in"
+      if (!nominalWall) {
+        var rsrNmMatch = lt.match(/nominal\s+(?:wall\s+)?(?:thickness\s*)?[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (rsrNmMatch) {
+          var rsrNmv = parseFloat(rsrNmMatch[1]);
+          if (rsrNmv > 0.05 && rsrNmv < 5) nominalWall = rsrNmv;
+        }
+      }
+
+      // "0.262 in minimum" / "0.262 inch min" / "0.262\" minimum"
+      if (!measuredMinWall) {
+        var rsrMmMatch = lt.match(/([0-9]*\.?[0-9]+)\s*(?:in|inch|")\s*min(?:imum)?\b/);
+        if (rsrMmMatch) {
+          var rsrMmv = parseFloat(rsrMmMatch[1]);
+          if (rsrMmv > 0.05 && rsrMmv < 5) measuredMinWall = rsrMmv;
+        }
+      }
+
+      // "minimum wall: 0.262 in" / "minimum thickness 0.262 inch" (alt form)
+      if (!measuredMinWall) {
+        var rsrMmMatch2 = lt.match(/min(?:imum)?\s+(?:wall|thickness)[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (rsrMmMatch2) {
+          var rsrMmv2 = parseFloat(rsrMmMatch2[1]);
+          if (rsrMmv2 > 0.05 && rsrMmv2 < 5) measuredMinWall = rsrMmv2;
+        }
+      }
+
+      // "measured wall 0.262 in" / "measured thickness: 0.262" (alt form)
+      if (!measuredMinWall) {
+        var rsrMmMatch3 = lt.match(/measured\s+(?:wall|thickness|minimum)[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (rsrMmMatch3) {
+          var rsrMmv3 = parseFloat(rsrMmMatch3[1]);
+          if (rsrMmv3 > 0.05 && rsrMmv3 < 5) measuredMinWall = rsrMmv3;
+        }
+      }
+
+      // Back-compute wall_loss_percent when nominal + measured present but
+      // percentage was not stated. Completes the inference matrix.
+      if (nominalWall && measuredMinWall && !wallLossPercent) {
+        wallLossPercent = ((nominalWall - measuredMinWall) / nominalWall) * 100;
+        console.log("[DEPLOY170.1 RSR] back-computed wall_loss " + wallLossPercent.toFixed(1) + "% from nominal " + nominalWall + " and measured " + measuredMinWall);
+      }
+      // ======================================================================
+
+      // ======================================================================
+      // DEPLOY170: NPS schedule inference for missing nominal wall.
+      // ======================================================================
+      // Runs only when explicit nominal is absent. Preserves all explicit
+      // field values -- never overrides. Also back-populates pipeOD and
+      // diameterInches from the NPS table when those are missing, so B31G
+      // has a consistent geometry even from sparse field-voice transcripts.
+      // Source transcript: parsedData.raw_text (already the authoritative
+      // transcript for downstream engines).
+      var rsrNominalInferred = false;
+      var rsrInferredSchedule = "";
+      if (!nominalWall) {
+        var rsrNpsInf = inferNominalWallFromNPS((parsedData && parsedData.raw_text) || "");
+        if (rsrNpsInf && rsrNpsInf.nominal > 0) {
+          nominalWall = rsrNpsInf.nominal;
+          rsrNominalInferred = true;
+          rsrInferredSchedule = rsrNpsInf.schedule;
+          if (!pipeOD) pipeOD = rsrNpsInf.od;
+          if (!diameterInches) {
+            var parsedNps = parseFloat(rsrNpsInf.nps_size);
+            diameterInches = isNaN(parsedNps) ? rsrNpsInf.od : parsedNps;
+          }
+          console.log("[DEPLOY170 RSR] inferred nominal " + nominalWall + " in from NPS " + rsrNpsInf.nps_size + " " + rsrInferredSchedule);
+        }
+      }
+
+      // DEPLOY170: if we now have nominal + wall_loss_percent but no measured
+      // wall, back-compute measuredMinWall so B31G has the input it needs.
+      // Only fires when measured is absent -- never overrides explicit value.
+      if (nominalWall && wallLossPercent && !measuredMinWall) {
+        measuredMinWall = nominalWall * (1 - wallLossPercent / 100);
+        console.log("[DEPLOY170 RSR] back-computed measured wall " + measuredMinWall.toFixed(4) + " from nominal " + nominalWall + " and wall_loss " + wallLossPercent + "%");
+      }
+      // ======================================================================
+
+      var haveAnySignal = (nominalWall && measuredMinWall) || (diameterInches && wallLossPercent) || wallLossPercent;
+      if (!haveAnySignal) { console.log("Remaining strength: no wall loss or measurement signal -- skipping"); return null; }
+      var requestBody: any = { design_factor: designFactor };
+      if (nominalWall) requestBody.nominal_wall = nominalWall;
+      if (measuredMinWall) requestBody.measured_minimum_wall = measuredMinWall;
+      if (flawLength) requestBody.flaw_length = flawLength;
+      if (pipeOD) requestBody.pipe_od = pipeOD;
+      if (diameterInches) requestBody.diameter_inches = diameterInches;
+      if (wallLossPercent) requestBody.wall_loss_percent = wallLossPercent;
+      if (smys) requestBody.smys = smys;
+      if (materialGrade) { requestBody.material_grade = materialGrade; requestBody.material = materialGrade; }
+      if (operatingPressure) { requestBody.operating_pressure = operatingPressure; requestBody.pressure_psi = operatingPressure; }
+      // DEPLOY170: provenance flags so the engine (now or later) can surface
+      // the assumption in derivation_notes without any backend change required.
+      if (rsrNominalInferred) {
+        requestBody.nominal_wall_source = "inferred_from_nps_schedule";
+        requestBody.nominal_wall_schedule = rsrInferredSchedule;
+      } else if (nominalWall) {
+        requestBody.nominal_wall_source = "explicit_field";
+      }
+      var response = await fetch("/.netlify/functions/remaining-strength", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+      if (response.ok) { var result = await response.json(); setRemainingStrengthResult(result); return result; }
+      var bodyText = await response.text();
+      setErrors(function(prev) { return prev.concat(["remaining-strength HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
+      return null;
+    } catch (err: any) {
+      console.error("Remaining strength error:", err);
+      setErrors(function(prev) { return prev.concat(["remaining-strength THREW: " + (err && err.message ? err.message : String(err))]); });
+      return null;
+    }
+  };
+
+  var callFailureModeDominance = async function(parsedData: any, gbData: any, confirmedFlags: any, authLockRes: any, remStrengthRes: any) {
+    try {
+      var mechanisms: string[] = [];
+      var wallLossPercent = 0, hasCracking = false, serviceEnv = "", opPressure = 0, nomWall = 0, measWall = 0, od = 0, smysVal = 0;
+      if (gbData && gbData.extracted) {
+        serviceEnv = gbData.extracted.service_fluid || "";
+        if (gbData.extracted.primary_finding) mechanisms.push(gbData.extracted.primary_finding);
+        if (gbData.extracted.finding_types) mechanisms = mechanisms.concat(gbData.extracted.finding_types);
+        if (gbData.extracted.numeric) {
+          wallLossPercent = gbData.extracted.numeric.wall_loss_percent || 0;
+          opPressure = gbData.extracted.numeric.pressure_psi || 0;
+          nomWall = gbData.extracted.numeric.nominal_wall || 0;
+          measWall = gbData.extracted.numeric.measured_wall || gbData.extracted.numeric.minimum_wall || 0;
+          od = gbData.extracted.numeric.diameter_inches || 0;
+        }
+      }
+      if (parsedData && parsedData.numeric_values) wallLossPercent = wallLossPercent || parsedData.numeric_values.wall_loss_percent || 0;
+      if (confirmedFlags) { if (confirmedFlags.crack_confirmed || confirmedFlags.visible_cracking) hasCracking = true; }
+      var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
+      if (lt.indexOf("crack") >= 0) hasCracking = true;
+      if (lt.indexOf("corrosion") >= 0 && mechanisms.indexOf("corrosion") < 0) mechanisms.push("corrosion");
+      if (lt.indexOf("pitting") >= 0 && mechanisms.indexOf("pitting") < 0) mechanisms.push("pitting");
+      if (lt.indexOf("wall loss") >= 0 && mechanisms.indexOf("wall_loss") < 0) mechanisms.push("wall_loss");
+      if (lt.indexOf("hic") >= 0 && mechanisms.indexOf("hic") < 0) mechanisms.push("hic");
+      if (lt.indexOf("sohic") >= 0 && mechanisms.indexOf("sohic") < 0) mechanisms.push("sohic");
+      if (lt.indexOf("ssc") >= 0 && mechanisms.indexOf("ssc") < 0) mechanisms.push("ssc");
+      if (lt.indexOf("mic") >= 0 && mechanisms.indexOf("mic") < 0) mechanisms.push("mic");
+      if (lt.indexOf("fatigue") >= 0 && mechanisms.indexOf("fatigue") < 0) mechanisms.push("fatigue");
+      if (lt.indexOf("erosion") >= 0 && mechanisms.indexOf("erosion") < 0) mechanisms.push("erosion");
+      if (lt.indexOf("scc") >= 0 && mechanisms.indexOf("scc") < 0) mechanisms.push("scc");
+      if (lt.indexOf("cui") >= 0 && mechanisms.indexOf("cui") < 0) mechanisms.push("cui");
+      var response = await fetch("/.netlify/functions/failure-mode-dominance", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          damage_mechanisms: mechanisms, remaining_strength: remStrengthRes, authority_lock: authLockRes,
+          wall_loss_percent: wallLossPercent, has_cracking: hasCracking, service_environment: serviceEnv,
+          transcript: (parsedData && parsedData.raw_text) || "", operating_pressure: opPressure,
+          nominal_wall: nomWall, measured_minimum_wall: measWall, pipe_od: od, smys: smysVal
+        })
+      });
+      if (!response.ok) {
+        var bodyText = await response.text();
+        setErrors(function(prev) { return prev.concat(["failure-mode-dominance HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
+        return null;
+      }
+      var result = await response.json();
+      setFailureModeDominanceResult(result);
+      return result;
+    } catch (err: any) {
+      console.error("Failure mode dominance error:", err);
+      setErrors(function(prev) { return prev.concat(["failure-mode-dominance THREW: " + (err && err.message ? err.message : String(err))]); });
+      return null;
+    }
+  };
+
+  var callDispositionPathway = async function(fmdResult: any, remStrengthRes: any, hardenRes: any, coreResult: any) {
+    try {
+      var safeEnv = (remStrengthRes && remStrengthRes.safe_envelope) || "";
+      var govMode = (fmdResult && fmdResult.governing_failure_mode) || "";
+      var govSev = (fmdResult && fmdResult.governing_severity) || "";
+      var realState = (hardenRes && hardenRes.unknownStateResult && hardenRes.unknownStateResult.reality_state) || "";
+      var dispBlocked = (hardenRes && hardenRes.unknownStateResult && hardenRes.unknownStateResult.unknown_blocks_final_disposition) || false;
+      var interFlag = (fmdResult && fmdResult.interaction_flag) || false;
+      var interType = (fmdResult && fmdResult.interaction_type) || "";
+      var brittleRisk = (fmdResult && fmdResult.cracking_path && fmdResult.cracking_path.brittle_fracture_risk) || false;
+      var wallLoss = (remStrengthRes && remStrengthRes.calculations && remStrengthRes.calculations.wall_loss_percent) || 0;
+      var opRatio = (remStrengthRes && remStrengthRes.operating_ratio) || 0;
+      var pressReduc = (remStrengthRes && remStrengthRes.pressure_reduction_required) || 0;
+      var hasCrack = (fmdResult && fmdResult.cracking_path && fmdResult.cracking_path.active) || false;
+      var confBand = (coreResult && coreResult.reality_confidence && coreResult.reality_confidence.band) || "";
+      var conTier = (coreResult && coreResult.consequence_reality && coreResult.consequence_reality.consequence_tier) || "";
+      // DEPLOY176: new fields for hard confidence gate + structural escalation
+      var realConfOverall: any = (coreResult && coreResult.reality_confidence && typeof coreResult.reality_confidence.overall === "number") ? coreResult.reality_confidence.overall : null;
+      var structPath: any = (fmdResult && fmdResult.structural_path) || null;
+      var validatedMechs: any = (coreResult && coreResult.damage_reality && coreResult.damage_reality.validated_mechanisms) || [];
+      var response = await fetch("/.netlify/functions/disposition-pathway", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          safe_envelope: safeEnv, governing_failure_mode: govMode, governing_severity: govSev,
+          reality_state: realState, disposition_blocked: dispBlocked, interaction_flag: interFlag,
+          interaction_type: interType, brittle_fracture_risk: brittleRisk, wall_loss_percent: wallLoss,
+          operating_ratio: opRatio, pressure_reduction_required: pressReduc, has_cracking: hasCrack,
+          confidence_band: confBand, consequence_tier: conTier,
+          // DEPLOY176: enforcement layer inputs
+          reality_confidence_overall: realConfOverall,
+          structural_path: structPath,
+          validated_mechanisms: validatedMechs
+        })
+      });
+      if (!response.ok) {
+        var bodyText = await response.text();
+        setErrors(function(prev) { return prev.concat(["disposition-pathway HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
+        return null;
+      }
+      var result = await response.json();
+      setDispositionPathwayResult(result);
+      return result;
+    } catch (err: any) {
+      console.error("Disposition pathway error:", err);
+      setErrors(function(prev) { return prev.concat(["disposition-pathway THREW: " + (err && err.message ? err.message : String(err))]); });
+      return null;
+    }
+  };
+
+  var callFailureTimeline = async function(parsedData: any, gbData: any, confirmedFlags: any, remStrengthRes: any, fmdResult: any) {
+    try {
+      var nominalWall = 0, currentWall = 0, retirementWall = 0, corrosionRateMpy = 0;
+      var crackLength = 0, crackDepth = 0, criticalCrackSize = 0, stressRange = 0, cyclesPerDay = 0;
+      var hasCorrosion = false, hasCracking = false, serviceEnv = "", materialClass = "";
+      var wallLossPercent = 0;
+      var serviceAgeYears = 0;
+      var fmdSeverity = "";
+
+      if (gbData && gbData.extracted) {
+        serviceEnv = gbData.extracted.service_fluid || "";
+        materialClass = gbData.extracted.material || "";
+        if (gbData.extracted.numeric) {
+          nominalWall = gbData.extracted.numeric.nominal_wall || 0;
+          currentWall = gbData.extracted.numeric.measured_wall || gbData.extracted.numeric.minimum_wall || 0;
+          if (gbData.extracted.numeric.wall_loss_percent) {
+            wallLossPercent = gbData.extracted.numeric.wall_loss_percent;
+            if (nominalWall && !currentWall) {
+              currentWall = nominalWall * (1 - wallLossPercent / 100);
+            }
+          }
+          corrosionRateMpy = gbData.extracted.numeric.corrosion_rate_mpy || 0;
+          crackLength = gbData.extracted.numeric.crack_length || 0;
+          crackDepth = gbData.extracted.numeric.crack_depth || 0;
+          if (gbData.extracted.numeric.service_age_years) serviceAgeYears = gbData.extracted.numeric.service_age_years;
+        }
+      }
+      if (remStrengthRes && remStrengthRes.inputs) {
+        nominalWall = nominalWall || remStrengthRes.inputs.nominal_wall || 0;
+        currentWall = currentWall || remStrengthRes.inputs.measured_minimum_wall || 0;
+      }
+      if (remStrengthRes && remStrengthRes.calculations && !wallLossPercent) {
+        wallLossPercent = remStrengthRes.calculations.wall_loss_percent || 0;
+      }
+      if (fmdResult) {
+        hasCorrosion = (fmdResult.corrosion_path && fmdResult.corrosion_path.active) || false;
+        hasCracking = (fmdResult.cracking_path && fmdResult.cracking_path.active) || false;
+        fmdSeverity = fmdResult.governing_severity || "";
+      }
+      var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
+      if (lt.indexOf("crack") >= 0) hasCracking = true;
+      if (lt.indexOf("corrosion") >= 0 || lt.indexOf("wall loss") >= 0 || lt.indexOf("pitting") >= 0) hasCorrosion = true;
+
+      // DEPLOY165: universal service age extraction regex
+      if (!serviceAgeYears) {
+        var agePatterns = [
+          /(?:in\s+operation|operating|in\s+service|service\s+life)\s+(?:for\s+|of\s+)?(\d+(?:\.\d+)?)\s*year/,
+          /(\d+(?:\.\d+)?)\s*(?:-\s*)?year[s]?\s*(?:old|of\s+service|in\s+service|in\s+operation)/,
+          /(\d+(?:\.\d+)?)\s*year[s]?\s+since\s+(?:install|commission|startup)/,
+          /installed\s+(\d+(?:\.\d+)?)\s*year/,
+          /commissioned\s+(\d+(?:\.\d+)?)\s*year/
+        ];
+        for (var api2 = 0; api2 < agePatterns.length; api2++) {
+          var am = lt.match(agePatterns[api2]);
+          if (am) {
+            var ay = parseFloat(am[1]);
+            if (ay > 0 && ay < 200) { serviceAgeYears = ay; break; }
+          }
+        }
+      }
+
+      if (!wallLossPercent) {
+        var wlMatchFtr = lt.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:wall\s*loss|wall|metal\s*loss|thickness\s*loss)?/);
+        if (wlMatchFtr) {
+          var wv = parseFloat(wlMatchFtr[1]);
+          if (wv > 0 && wv <= 100) wallLossPercent = wv;
+        }
+      }
+
+      var rateMatch = lt.match(/(\d+(?:\.\d+)?)\s*mpy/);
+      if (rateMatch && !corrosionRateMpy) corrosionRateMpy = parseFloat(rateMatch[1]);
+      var rateMatch2 = lt.match(/(\d+(?:\.\d+)?)\s*mils?\s*\/?\s*y(ea)?r/);
+      if (rateMatch2 && !corrosionRateMpy) corrosionRateMpy = parseFloat(rateMatch2[1]);
+
+      var cyclesMatch = lt.match(/(\d+(?:\.\d+)?)\s*cycles?\s*\/?\s*day/);
+      if (cyclesMatch) cyclesPerDay = parseFloat(cyclesMatch[1]);
+      var stressMatch = lt.match(/(\d+(?:\.\d+)?)\s*ksi/);
+      if (stressMatch) stressRange = parseFloat(stressMatch[1]);
+
+      // ======================================================================
+      // DEPLOY170.1: PARAGRAPH-FORMAT NUMERIC EXTRACTION (FTR)
+      // ======================================================================
+      // Same universal patterns as RSR, except FTR uses currentWall (not
+      // measuredMinWall). Runs before NPS inference so explicit values win.
+      // Bounds 0.05 in < value < 5 in. No asset-class or scenario branching.
+
+      if (!nominalWall) {
+        var ftrNmMatch = lt.match(/nominal\s+(?:wall\s+)?(?:thickness\s*)?[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (ftrNmMatch) {
+          var ftrNmv = parseFloat(ftrNmMatch[1]);
+          if (ftrNmv > 0.05 && ftrNmv < 5) nominalWall = ftrNmv;
+        }
+      }
+
+      if (!currentWall) {
+        var ftrMmMatch = lt.match(/([0-9]*\.?[0-9]+)\s*(?:in|inch|")\s*min(?:imum)?\b/);
+        if (ftrMmMatch) {
+          var ftrMmv = parseFloat(ftrMmMatch[1]);
+          if (ftrMmv > 0.05 && ftrMmv < 5) currentWall = ftrMmv;
+        }
+      }
+
+      if (!currentWall) {
+        var ftrMmMatch2 = lt.match(/min(?:imum)?\s+(?:wall|thickness)[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (ftrMmMatch2) {
+          var ftrMmv2 = parseFloat(ftrMmMatch2[1]);
+          if (ftrMmv2 > 0.05 && ftrMmv2 < 5) currentWall = ftrMmv2;
+        }
+      }
+
+      if (!currentWall) {
+        var ftrMmMatch3 = lt.match(/measured\s+(?:wall|thickness|minimum)[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (ftrMmMatch3) {
+          var ftrMmv3 = parseFloat(ftrMmMatch3[1]);
+          if (ftrMmv3 > 0.05 && ftrMmv3 < 5) currentWall = ftrMmv3;
+        }
+      }
+
+      // Back-compute wall_loss_percent from nominal + current wall when missing
+      if (nominalWall && currentWall && !wallLossPercent) {
+        wallLossPercent = ((nominalWall - currentWall) / nominalWall) * 100;
+        console.log("[DEPLOY170.1 FTR] back-computed wall_loss " + wallLossPercent.toFixed(1) + "% from nominal " + nominalWall + " and current " + currentWall);
+      }
+      // ======================================================================
+
+      // ======================================================================
+      // DEPLOY170: NPS schedule inference for missing nominal wall (FTR).
+      // ======================================================================
+      // Same logic as RSR -- only fires when explicit nominal absent.
+      // Idempotent with RSR: even if RSR already inferred and echoed back via
+      // remStrengthRes.inputs, this path handles the case where RSR didn't run
+      // (e.g. RSR failed, or haveAnySignal was false in RSR), keeping FTR
+      // independently resilient. Also back-computes currentWall from wall
+      // loss % when possible, so the timeline engine has a concrete wall
+      // reading to project forward from.
+      if (!nominalWall) {
+        var ftrNpsInf = inferNominalWallFromNPS((parsedData && parsedData.raw_text) || "");
+        if (ftrNpsInf && ftrNpsInf.nominal > 0) {
+          nominalWall = ftrNpsInf.nominal;
+          console.log("[DEPLOY170 FTR] inferred nominal " + nominalWall + " in from NPS " + ftrNpsInf.nps_size + " " + ftrNpsInf.schedule);
+          if (wallLossPercent && !currentWall) {
+            currentWall = nominalWall * (1 - wallLossPercent / 100);
+            console.log("[DEPLOY170 FTR] back-computed current wall " + currentWall.toFixed(4) + " from nominal and wall_loss " + wallLossPercent + "%");
+          }
+        }
+      }
+      // ======================================================================
+
+      if (!hasCorrosion && !hasCracking && !wallLossPercent) {
+        console.log("Failure timeline: no corrosion or cracking signal -- skipping");
+        return null;
+      }
+      var requestBody = {
+        nominal_wall: nominalWall,
+        current_wall: currentWall,
+        measured_minimum_wall: currentWall,
+        retirement_wall: retirementWall,
+        corrosion_rate_mpy: corrosionRateMpy,
+        thickness_history: [],
+        crack_length: crackLength,
+        crack_depth: crackDepth,
+        critical_crack_size: criticalCrackSize,
+        stress_range_ksi: stressRange,
+        cycles_per_day: cyclesPerDay,
+        has_corrosion: hasCorrosion,
+        has_cracking: hasCracking,
+        service_environment: serviceEnv,
+        material_class: materialClass,
+        wall_loss_percent: wallLossPercent,
+        service_age_years: serviceAgeYears,
+        fmd_severity: fmdSeverity
+      };
+      var response = await fetch("/.netlify/functions/failure-timeline", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+      if (response.ok) { var result = await response.json(); setFailureTimelineResult(result); return result; }
+      var bodyText = await response.text();
+      setErrors(function(prev) { return prev.concat(["failure-timeline HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
+      return null;
+    } catch (err: any) {
+      console.error("Failure timeline error:", err);
+      setErrors(function(prev) { return prev.concat(["failure-timeline THREW: " + (err && err.message ? err.message : String(err))]); });
+      return null;
+    }
   };
 
   var parsedRef = useRef<any>(null);
@@ -575,47 +1910,58 @@ export default function VoiceInspectionPage() {
     var next = current.slice(); next[idx] = Object.assign({}, next[idx], updates); return next;
   }
 
-  // ============================================================================
-  // PHASE 1: Parse + Asset + Reality Lock
-  // ============================================================================
   async function handleGenerate(transcriptOverride?: string) {
     var inputText = transcriptOverride || transcript;
     if (!inputText.trim()) return;
-
     setIsGenerating(true); setPipelinePaused(false); setEvidenceConfirmPending(false);
     setPreliminaryEvidence(null); setErrors([]);
     setParsed(null); setAsset(null); setRealityLock(null);
     setDecisionCore(null); setAiNarrative(null);
+    setSuperbrainResult(null); setSuperbrainError(null);
+    setGrammarBridgeResult(null);
+    setProvenanceResult(null); setProvenanceLoading(false);
+    setHardeningResult(null); setHardeningLoading(false);
+    setGbEditingField(null); setGbAmendments([]); setGbConfirmed(false);
     setAiQuestions(null); setAiUnderstood(null); setSelectedAnswers({});
+    setSaveStatus("idle"); setSavedCaseId(null); setSaveError(null);
+    setAuthorityLockResult(null); setRemainingStrengthResult(null);
+    setFailureModeDominanceResult(null); setDispositionPathwayResult(null);
+    setFailureTimelineResult(null);
     inputTextRef.current = inputText;
-
     var initialSteps: StepState[] = [
-      { label: "AI Incident Parser (GPT-4o)", status: "pending" },
-      { label: "Resolve Asset + Domain Gate", status: "pending" },
-      { label: "Physics-First Decision Core (6 states)", status: "pending" },
-      { label: "AI Narrative (GPT-4o)", status: "pending" },
+      { label: "AI Incident Parser", status: "pending" },
+      { label: "Resolve Asset", status: "pending" },
+      { label: "Evidence Provenance", status: "pending" },
+      { label: "Authority Lock + Remaining Strength", status: "pending" },
+      { label: "Physics-First Decision Core", status: "pending" },
+      { label: "Reality Hardening", status: "pending" },
+      { label: "Failure Mode Dominance + Disposition Pathway", status: "pending" },
+      { label: "Failure Timeline", status: "pending" },
+      { label: "Superbrain Synthesis", status: "pending" },
     ];
     var s = initialSteps.slice();
     setSteps(s); stepsRef.current = s;
     var errs: string[] = [];
     var parsedResult: any = null;
     var assetResult: any = null;
-
     try {
       s = updateStep(0, { status: "running" }, s); s = updateStep(1, { status: "running" }, s); setSteps(s.slice());
-
+      var gbPromise = callAPI("voice-grammar-bridge", { action: "extract", transcript: inputText }).catch(function() { return null; });
       var [parseRes, assetRes] = await Promise.allSettled([
         callAPI("parse-incident", { transcript: inputText }),
         callAPI("resolve-asset", { raw_text: inputText }),
       ]);
-
+      try {
+        var gbValue = await gbPromise;
+        if (gbValue && gbValue.ok) setGrammarBridgeResult(gbValue.result || gbValue);
+      } catch (gbErr) {}
       if (parseRes.status === "fulfilled") {
         parsedResult = parseRes.value.parsed || parseRes.value;
         setParsed(parsedResult);
         if (parseRes.value.needs_input && parseRes.value.questions) {
           setAiQuestions(parseRes.value.questions);
           setAiUnderstood(parseRes.value.understood || "");
-          for (var wi = 2; wi < s.length; wi++) s = updateStep(wi, { status: "waiting", detail: "waiting for answers" }, s);
+          for (var wi = 3; wi < s.length; wi++) s = updateStep(wi, { status: "waiting", detail: "waiting for answers" }, s);
           s = updateStep(0, { status: "done", detail: (parsedResult?.events?.length || 0) + " events" }, s);
           if (assetRes.status === "fulfilled") {
             assetResult = assetRes.value.resolved || assetRes.value;
@@ -633,7 +1979,6 @@ export default function VoiceInspectionPage() {
         parsedResult = { events: [], environment: [], numeric_values: {}, raw_text: inputText };
         setParsed(parsedResult);
       }
-
       if (assetRes.status === "fulfilled") {
         assetResult = assetRes.value.resolved || assetRes.value;
         setAsset(assetResult);
@@ -660,32 +2005,24 @@ export default function VoiceInspectionPage() {
         setAsset(assetResult);
       }
       setSteps(s.slice());
-
       parsedRef.current = parsedResult;
       assetRef.current = assetResult;
       stepsRef.current = s;
       errorsRef.current = errs;
-
       var prelimEvidence = extractPreliminaryEvidence(parsedResult, assetResult);
       setPreliminaryEvidence(prelimEvidence);
       setEvidenceConfirmPending(true);
-
-      for (var ei = 2; ei < s.length; ei++) s = updateStep(ei, { status: "waiting", detail: "waiting for evidence confirmation" }, s);
+      for (var ei = 3; ei < s.length; ei++) s = updateStep(ei, { status: "waiting", detail: "waiting for evidence confirmation" }, s);
       setSteps(s.slice()); stepsRef.current = s;
       setErrors(errs); errorsRef.current = errs;
       setIsGenerating(false);
       setTimeout(function() { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: "smooth" }); }, 200);
-
     } catch (e: any) {
       errs.push("Pipeline error: " + e.message);
       setErrors(errs); setIsGenerating(false);
     }
   }
 
-  // ============================================================================
-  // PHASE 2: Decision Core + AI Narrative
-  // DEPLOY108: voice-incident-plan now receives decisionResult directly
-  // ============================================================================
   async function continuePipeline(confirmedFlags: any) {
     setIsGenerating(true); setEvidenceConfirmPending(false);
     var parsedResult = parsedRef.current;
@@ -693,57 +2030,225 @@ export default function VoiceInspectionPage() {
     var inputText = inputTextRef.current;
     var s = stepsRef.current.slice();
     var errs = errorsRef.current.slice();
-
+    var hardenRes: any = null;
+    var fmdResult: any = null;
+    var dpResult: any = null;
+    var ftResult: any = null;
+    var localAuthResult: any = null;
+    var localStrengthResult: any = null;
     try {
-      s = updateStep(2, { status: "running", detail: "6 Klein bottle states..." }, s); setSteps(s.slice());
+      s = updateStep(2, { status: "running", detail: "classifying evidence trust..." }, s); setSteps(s.slice());
+      var provenanceData: any = null;
+      try {
+        setProvenanceLoading(true);
+        var provRes = await callAPI("evidence-provenance", {
+          transcript: inputText,
+          numeric_values: parsedResult ? parsedResult.numeric_values || {} : {},
+          methods: [], findings: []
+        });
+        if (provRes && provRes.ok) {
+          provenanceData = provRes;
+          setProvenanceResult(provRes);
+          var trustLabel = (provRes.provenance_summary ? provRes.provenance_summary.trust_band : "?");
+          var evidenceCount = (provRes.evidence ? provRes.evidence.length : 0);
+          s = updateStep(2, { status: "done", detail: trustLabel + " trust | " + evidenceCount + " items" }, s);
+        } else { s = updateStep(2, { status: "done", detail: "no provenance data" }, s); }
+      } catch (provErr: any) {
+        s = updateStep(2, { status: "error", detail: provErr.message }, s);
+        errs.push("evidence-provenance: " + provErr.message);
+      }
+      setProvenanceLoading(false);
+      setSteps(s.slice());
+
+      s = updateStep(3, { status: "running", detail: "resolving governing authority..." }, s); setSteps(s.slice());
+      var authDetail = "";
+      try {
+        localAuthResult = await callAuthorityLock(assetResult, parsedResult, grammarBridgeResult, confirmedFlags);
+        if (localAuthResult && localAuthResult.status === "LOCKED") {
+          var codeCount = (localAuthResult.authority_chain || []).length;
+          var suppCount = (localAuthResult.supplemental_codes || []).length;
+          authDetail = "LOCKED | " + codeCount + " primary";
+          if (suppCount > 0) authDetail = authDetail + " + " + suppCount + " supp";
+          if (localAuthResult.trigger_b31g) authDetail = authDetail + " | B31G triggered";
+        } else if (localAuthResult) {
+          authDetail = localAuthResult.status + " | " + (localAuthResult.lock_reasons || []).length + " reasons";
+        } else { authDetail = "no authority data"; }
+        s = updateStep(3, { status: "done", detail: authDetail }, s);
+        setSteps(s.slice());
+      } catch (authErr: any) {
+        s = updateStep(3, { status: "error", detail: authErr.message }, s);
+        errs.push("authority-lock: " + authErr.message);
+        setSteps(s.slice());
+      }
+
+      try {
+        localStrengthResult = await callRemainingStrength(parsedResult, grammarBridgeResult);
+        if (localStrengthResult) {
+          var rsrDetail = "RSR: " + (localStrengthResult.data_quality || "?");
+          if (localStrengthResult.governing_maop) {
+            rsrDetail = rsrDetail + " | MAOP " + localStrengthResult.governing_maop + " psi";
+            if (localStrengthResult.safe_envelope) rsrDetail = rsrDetail + " | " + localStrengthResult.safe_envelope;
+          } else if (localStrengthResult.severity_tier && localStrengthResult.severity_tier !== "UNKNOWN") {
+            rsrDetail = rsrDetail + " | " + localStrengthResult.severity_tier;
+          }
+          s = updateStep(3, { status: "done", detail: authDetail + " || " + rsrDetail }, s);
+          setSteps(s.slice());
+        }
+      } catch (rsrErr: any) {
+        errs.push("remaining-strength (unconditional): " + (rsrErr && rsrErr.message ? rsrErr.message : String(rsrErr)));
+      }
+
+      s = updateStep(4, { status: "running", detail: "6 Klein bottle states..." }, s); setSteps(s.slice());
       var coreResult: any = null;
       try {
         var coreRes = await callAPI("decision-core", {
-          parsed: parsedResult,
-          asset: assetResult,
-          confirmed_flags: confirmedFlags,
-          transcript: inputText,
-          reality_lock: realityLock
+          parsed: parsedResult, asset: assetResult, confirmed_flags: confirmedFlags,
+          transcript: inputText, reality_lock: realityLock, evidence_provenance: provenanceData,
+          authority_lock: localAuthResult
         });
         coreResult = coreRes.decision_core || coreRes;
         setDecisionCore(coreResult);
-        if (coreResult) {
-          var txVal = '';
-          try { if (transcript) { txVal = String(transcript); } } catch(ex) {}
-          callEngineeringCore(coreResult, txVal);
-          callArchitectureCore(coreResult, txVal);
-          callMaterialsCore(coreResult, txVal);
-        }
         var tier = coreResult?.consequence_reality?.consequence_tier || "?";
         var disp = coreResult?.decision_reality?.disposition || "?";
         var elapsed = coreResult?.elapsed_ms || "?";
         if (coreResult?.asset_correction?.corrected) {
           s = updateStep(1, { status: "done", detail: coreResult.asset_correction.corrected_to + " (corrected from " + coreResult.asset_correction.original + ")" }, s);
         }
-        s = updateStep(2, { status: "done", detail: tier + " | " + disp + " | " + elapsed + "ms" }, s);
+        s = updateStep(4, { status: "done", detail: tier + " | " + disp + " | " + elapsed + "ms" }, s);
       } catch (e: any) {
-        s = updateStep(2, { status: "error", detail: e.message }, s);
+        s = updateStep(4, { status: "error", detail: e.message }, s);
         errs.push("decision-core: " + e.message);
       }
       setSteps(s.slice());
 
-      // ====== AI NARRATIVE — DEPLOY108 FIX ======
-      // Pass decisionResult directly. voice-incident-plan v5 (DEPLOY107)
-      // builds locked context from full JSON in buildLockedContext().
-      s = updateStep(3, { status: "running" }, s); setSteps(s.slice());
+      // DEPLOY170.3: pipeline reorder -- Hardening runs first (step 5)
+      s = updateStep(5, { status: "running", detail: "challenge + unknown state..." }, s); setSteps(s.slice());
+      if (coreResult) {
+        try {
+          setHardeningLoading(true);
+          hardenRes = await runHardeningPipeline(
+            inputText, parsedResult, assetResult, grammarBridgeResult, provenanceData,
+            coreResult.damage_reality || null, coreResult.inspection_reality || null,
+            coreResult.authority_reality || null, coreResult.contradiction_engine || null,
+            coreResult.consequence_reality || null, coreResult, savedCaseId || undefined
+          );
+          setHardeningResult(hardenRes);
+          var rState = hardenRes?.unknownStateResult?.reality_state || "?";
+          var tFacts = hardenRes?.trustedFacts?.length || 0;
+          s = updateStep(5, { status: "done", detail: rState + " | " + tFacts + " trusted facts" }, s);
+        } catch (hErr: any) {
+          s = updateStep(5, { status: "error", detail: hErr.message }, s);
+          errs.push("hardening: " + hErr.message);
+        } finally { setHardeningLoading(false); }
+      } else { s = updateStep(5, { status: "error", detail: "no decision-core data" }, s); }
+      setSteps(s.slice());
+
+      // DEPLOY170.3: FMD + DPR runs second (step 6)
+      s = updateStep(6, { status: "running", detail: "evaluating failure modes..." }, s); setSteps(s.slice());
       try {
-        var planRes = await callAPI("voice-incident-plan", { transcript: inputText, decisionResult: coreResult });
-        var narrative = planRes?.plan || planRes?.text || planRes?.result || JSON.stringify(planRes);
-        setAiNarrative(typeof narrative === "string" ? narrative : JSON.stringify(narrative));
-        s = updateStep(3, { status: "done", detail: "narrative generated" }, s);
-      } catch (e: any) {
-        s = updateStep(3, { status: "error", detail: e.message }, s);
-        errs.push("narrative: " + e.message);
+        fmdResult = await callFailureModeDominance(parsedResult, grammarBridgeResult, confirmedFlags, localAuthResult, localStrengthResult);
+        if (fmdResult) {
+          var govMode = fmdResult.governing_failure_mode || "?";
+          var govSev = fmdResult.governing_severity || "?";
+          var fmdDetail = govMode + " | " + govSev;
+          if (fmdResult.interaction_flag) fmdDetail = fmdDetail + " | INTERACTION";
+          dpResult = await callDispositionPathway(fmdResult, localStrengthResult, hardenRes, coreResult);
+          if (dpResult) {
+            fmdDetail = fmdDetail + " | " + dpResult.disposition;
+            s = updateStep(6, { status: "done", detail: fmdDetail }, s);
+          } else { s = updateStep(6, { status: "done", detail: fmdDetail + " | no disposition" }, s); }
+        } else { s = updateStep(6, { status: "done", detail: "no failure mode data" }, s); }
+      } catch (fmdErr: any) {
+        s = updateStep(6, { status: "error", detail: fmdErr.message }, s);
+        errs.push("failure-mode-dominance: " + fmdErr.message);
       }
       setSteps(s.slice());
 
-    } catch (e: any) { errs.push("Pipeline error: " + e.message); }
+      // DEPLOY170.3: FTR runs third (step 7)
+      s = updateStep(7, { status: "running", detail: "projecting remaining life..." }, s); setSteps(s.slice());
+      try {
+        ftResult = await callFailureTimeline(parsedResult, grammarBridgeResult, confirmedFlags, localStrengthResult, fmdResult);
+        if (ftResult) {
+          var govTime = ftResult.governing_time_years;
+          var govModeFt = ftResult.governing_failure_mode || "?";
+          var ftDetail = govModeFt;
+          if (govTime !== null) {
+            ftDetail = ftDetail + " | " + (govTime < 1 ? (govTime * 12).toFixed(1) + " mo" : govTime.toFixed(1) + " yr");
+          }
+          if (ftResult.urgency) ftDetail = ftDetail + " | " + ftResult.urgency;
+          s = updateStep(7, { status: "done", detail: ftDetail }, s);
+        } else { s = updateStep(7, { status: "done", detail: "no timeline data" }, s); }
+      } catch (ftErr: any) {
+        s = updateStep(7, { status: "error", detail: ftErr.message }, s);
+        errs.push("failure-timeline: " + ftErr.message);
+      }
+      setSteps(s.slice());
 
+      // DEPLOY170.3: Superbrain runs LAST (step 8) with full engine context.
+      // This is the architectural fix that unlocks DEPLOY170.2 backend
+      // constraints. Previously superbrain ran at step 5 with only
+      // decision_core + transcript, so FMD/DPR/FTR results were null at
+      // synthesis time and the FMD governing mode override block could
+      // never fire. With this reorder, superbrain now has full access to
+      // ALR, RSR, FMD, DPR, FTR at synthesis time and the backend v1.2
+      // constraint blocks activate correctly.
+      s = updateStep(8, { status: "running", detail: "GPT-4o constrained by decision-core + engines..." }, s); setSteps(s.slice());
+      if (coreResult) {
+        try {
+          var sbBody: any = {
+            decision_core: coreResult,
+            transcript: inputText
+          };
+          // DEPLOY170.3: pass all available engine results to superbrain.
+          // Backend v1.2 uses these to activate FMD governing mode override
+          // and ALR contradiction matrix scope rule. Null-safe: backend
+          // handles absent fields gracefully (behaves like v1.1 if none sent).
+          if (localAuthResult) sbBody.authority_lock = localAuthResult;
+          if (localStrengthResult) sbBody.remaining_strength = localStrengthResult;
+          if (fmdResult) sbBody.failure_mode_dominance = fmdResult;
+          if (dpResult) sbBody.disposition_pathway = dpResult;
+          if (ftResult) sbBody.failure_timeline = ftResult;
+          var sbRes = await fetch('/.netlify/functions/superbrain-synthesis', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sbBody)
+          });
+          if (sbRes.ok) {
+            var sbData = await sbRes.json();
+            setSuperbrainResult(sbData);
+            var featureCount = 0;
+            if (sbData.synthesis) {
+              if (sbData.synthesis.failure_narrative) featureCount++;
+              if (sbData.synthesis.contradiction_matrix) featureCount++;
+              if (sbData.synthesis.pre_inspection_briefing) featureCount++;
+              if (sbData.synthesis.procedure_forensics) featureCount++;
+              if (sbData.synthesis.inspector_action_card) featureCount++;
+            }
+            // DEPLOY170.3: surface constraint metadata in step detail if present
+            var sbDetail = featureCount + " features synthesized";
+            if (sbData.constraint_metadata) {
+              var cm = sbData.constraint_metadata;
+              var flags = [];
+              if (cm.fmd_override_applied) flags.push("FMD-lock");
+              if (cm.alr_scope_applied) flags.push("ALR-scope");
+              if (cm.narrative_corrected) flags.push("narr-corrected");
+              if (cm.matrix_filter_applied && cm.matrix_entries_removed && cm.matrix_entries_removed.length > 0) flags.push("matrix-filtered(" + cm.matrix_entries_removed.length + ")");
+              if (flags.length > 0) sbDetail = sbDetail + " | " + flags.join(", ");
+            }
+            s = updateStep(8, { status: "done", detail: sbDetail }, s);
+          } else {
+            var sbErrText = await sbRes.text();
+            setSuperbrainError('Status ' + sbRes.status);
+            s = updateStep(8, { status: "error", detail: "status " + sbRes.status }, s);
+            errs.push("superbrain-synthesis: " + sbErrText.substring(0, 200));
+          }
+        } catch (sbEx: any) {
+          setSuperbrainError(sbEx.message || String(sbEx));
+          s = updateStep(8, { status: "error", detail: sbEx.message }, s);
+          errs.push("superbrain-synthesis: " + sbEx.message);
+        }
+      } else { s = updateStep(8, { status: "error", detail: "no decision-core data" }, s); }
+      setSteps(s.slice());
+    } catch (e: any) { errs.push("Pipeline error: " + e.message); }
     setErrors(errs); setIsGenerating(false);
     setTimeout(function() { if (resultsRef.current) resultsRef.current.scrollIntoView({ behavior: "smooth" }); }, 200);
   }
@@ -763,22 +2268,26 @@ export default function VoiceInspectionPage() {
   var con = dc?.consequence_reality;
   var auth = dc?.authority_reality;
   var insp = dc?.inspection_reality;
-  var comp = dc?.physics_computations;
   var conf = dc?.reality_confidence;
   var dec = dc?.decision_reality;
+  var syn = superbrainResult?.synthesis;
 
-  // ============================================================================
-  // RENDER
-  // ============================================================================
+  var liveFailureMode = (con && con.failure_mode) || "unknown";
+  var liveFailureModeSource = "decision-core";
+  if (failureModeDominanceResult && failureModeDominanceResult.governing_failure_mode && failureModeDominanceResult.governing_failure_mode !== "NONE") {
+    liveFailureMode = failureModeDominanceResult.governing_failure_mode.toLowerCase().replace(/_/g, " ");
+    liveFailureModeSource = "FMD v1.3.2";
+  }
+
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} Physics-First Decision Core</h1>
-        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>Describe the inspection scenario. The system starts with physics, not codes. Every answer is inarguable.</p>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.6m</h1>
+        <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY176: hard confidence gate + forced reality enforcement layer. Provisional mode when HIGH/CRITICAL tier falls below 0.60.</p>
       </div>
 
       <div style={{ marginBottom: "20px", border: "1px solid #d1d5db", borderRadius: "8px", overflow: "hidden", backgroundColor: "#fff" }}>
-        <textarea value={transcript} onChange={function(e) { setTranscript(e.target.value); }} placeholder="Describe the scenario \u2014 asset, damage, method, conditions..." style={{ width: "100%", minHeight: "120px", padding: "14px 16px", fontSize: "14px", lineHeight: "1.6", border: "none", outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
+        <textarea value={transcript} onChange={function(e) { setTranscript(e.target.value); }} placeholder="Describe the scenario..." style={{ width: "100%", minHeight: "120px", padding: "14px 16px", fontSize: "14px", lineHeight: "1.6", border: "none", outline: "none", resize: "vertical", fontFamily: "inherit", boxSizing: "border-box" }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px", backgroundColor: "#f9fafb", borderTop: "1px solid #e5e7eb" }}>
           <span style={{ fontSize: "12px", color: "#9ca3af" }}>{transcript.length > 0 ? transcript.split(/\s+/).filter(Boolean).length + " words" : "Speak or type"}</span>
           <div style={{ display: "flex", gap: "8px" }}>
@@ -788,11 +2297,39 @@ export default function VoiceInspectionPage() {
         </div>
       </div>
 
+      <PhotoAnalysisCard
+        contextTranscript={transcript}
+        assetType={asset?.asset_class || ""}
+        serviceEnvironment=""
+        onAddendumReady={function(addendum: string) {
+          setTranscript(function(prev: string) {
+            var sep = prev.trim().length > 0 ? " " : "";
+            return prev + sep + addendum;
+          });
+        }}
+      />
+
       {steps.length > 0 && <StepTracker steps={steps} />}
 
-      {errors.length > 0 && (<div style={{ margin: "12px 0", padding: "12px 16px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px" }}>{errors.map(function(e, i) { return <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0" }}>{e}</div>; })}</div>)}
+      {errors.length > 0 && (<div style={{ margin: "12px 0", padding: "12px 16px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px" }}>{errors.map(function(e, i) { return <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0", fontFamily: "monospace" }}>{e}</div>; })}</div>)}
 
       <div ref={resultsRef}>
+
+        {grammarBridgeResult && evidenceConfirmPending && (
+          <div style={{ margin: "0 0 16px 0", padding: "16px", backgroundColor: gbConfirmed ? "#f0fdf4" : "#f0f9ff", border: "1px solid " + (gbConfirmed ? "#bbf7d0" : "#bae6fd"), borderRadius: "8px" }}>
+            <div style={{ fontSize: "13px", fontWeight: 700, color: gbConfirmed ? "#16a34a" : "#0369a1", marginBottom: "8px" }}>
+              {gbConfirmed ? "\u2705 Readback Confirmed" : "\uD83C\uDF99\uFE0F Voice Grammar Bridge"}
+            </div>
+            <div style={{ fontSize: "14px", color: "#1e3a5f", lineHeight: "1.6", padding: "10px 12px", backgroundColor: "#fff", borderRadius: "6px", border: "1px solid #e0f2fe", marginBottom: "12px" }}>
+              {grammarBridgeResult.readback || "No readback generated"}
+            </div>
+            {!gbConfirmed && (
+              <button onClick={handleGbConfirm} style={{ width: "100%", padding: "10px", fontSize: "13px", fontWeight: 700, color: "#fff", backgroundColor: "#0369a1", border: "none", borderRadius: "6px", cursor: "pointer" }}>
+                {"\u2705"} Confirm Readback
+              </button>
+            )}
+          </div>
+        )}
 
         {evidenceConfirmPending && preliminaryEvidence && (
           <EvidenceConfirmationCard evidence={preliminaryEvidence} onConfirm={handleConfirmEvidence} onSkip={handleSkipEvidence} isGenerating={isGenerating} />
@@ -824,23 +2361,38 @@ export default function VoiceInspectionPage() {
         )}
 
         {dc && (
-          <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
-            <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative }); }} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: "#1e40af", border: "none", borderRadius: "6px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-              {"\uD83D\uDCC4"} Save Report as PDF
-            </button>
+          <div style={{ marginBottom: "16px" }}>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative, superbrainResult: superbrainResult, provenanceResult: provenanceResult, authorityLockResult: authorityLockResult, remainingStrengthResult: remainingStrengthResult, failureModeDominanceResult: failureModeDominanceResult, dispositionPathwayResult: dispositionPathwayResult, failureTimelineResult: failureTimelineResult, errors: errors }); }} disabled={isGenerating} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#1e40af", border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                {isGenerating ? "\u23F3 Pipeline Running..." : "\uD83D\uDCC4 Export PDF"}
+              </button>
+              {saveStatus === "saved" ? (
+                <div style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: "#16a34a", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                  {"\u2705"} Saved {"\u2014"} {savedCaseId}
+                </div>
+              ) : (
+                <button onClick={handleSaveToCase} disabled={saveStatus === "saving" || isGenerating} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: (saveStatus === "saving" || isGenerating) ? "#9ca3af" : "#16a34a", border: "none", borderRadius: "6px", cursor: (saveStatus === "saving" || isGenerating) ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                  {saveStatus === "saving" ? "\u23F3 Saving..." : "\uD83D\uDCBE Save to Cases"}
+                </button>
+              )}
+            </div>
+            {saveStatus === "saved" && (
+              <div style={{ marginTop: "8px", padding: "10px 14px", backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "6px" }}>
+                <span style={{ fontSize: "13px", color: "#16a34a" }}>{"\u2705"} Case {savedCaseId} saved</span>
+              </div>
+            )}
+            {saveStatus === "error" && (
+              <div style={{ marginTop: "8px", padding: "10px 14px", backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "6px", fontSize: "12px", color: "#dc2626" }}>
+                {"\u274c"} {saveError}
+              </div>
+            )}
           </div>
         )}
 
         {conf && (
           <div style={{ marginBottom: "16px", padding: "14px 18px", backgroundColor: conf.band === "TRUSTED" || conf.band === "HIGH" ? "#f0fdf4" : conf.band === "GUARDED" ? "#fffbeb" : "#fef2f2", border: "2px solid " + bandColor(conf.band), borderRadius: "8px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span style={{ fontSize: "22px" }}>{conf.band === "TRUSTED" || conf.band === "HIGH" ? "\u2705" : conf.band === "GUARDED" ? "\u26A0\uFE0F" : "\uD83D\uDED1"}</span>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: "16px", color: bandColor(conf.band) }}>Reality Confidence: {conf.band}</div>
-                  <div style={{ fontSize: "12px", color: "#374151" }}>Overall: {Math.round(conf.overall * 100)}% {"\u2014"} {conf.certainty_state === "blocked" ? "Disposition BLOCKED" : conf.certainty_state === "escalated" ? "Escalation Required" : "Decision Eligible"}</div>
-                </div>
-              </div>
+              <div style={{ fontWeight: 800, fontSize: "16px", color: bandColor(conf.band) }}>Reality Confidence: {conf.band}</div>
               <div style={{ fontSize: "28px", fontWeight: 800, color: bandColor(conf.band) }}>{Math.round(conf.overall * 100)}%</div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: "8px" }}>
@@ -851,459 +2403,122 @@ export default function VoiceInspectionPage() {
                 { label: "Authority", value: conf.authority_confidence },
                 { label: "Inspection", value: conf.inspection_confidence },
               ].map(function(dim, i) {
-                var pct = Math.round(dim.value * 100);
-                var c = pct >= 70 ? "#16a34a" : pct >= 50 ? "#ca8a04" : "#dc2626";
+                var pctVal = Math.round(dim.value * 100);
+                var c = pctVal >= 70 ? "#16a34a" : pctVal >= 50 ? "#ca8a04" : "#dc2626";
                 return (
                   <div key={i} style={{ textAlign: "center", padding: "6px", backgroundColor: "#fff", borderRadius: "6px", border: "1px solid #e5e7eb" }}>
                     <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>{dim.label}</div>
-                    <div style={{ fontSize: "16px", fontWeight: 700, color: c }}>{pct}%</div>
+                    <div style={{ fontSize: "16px", fontWeight: 700, color: c }}>{pctVal}%</div>
                   </div>
                 );
               })}
             </div>
-            {conf.limiting_factors && conf.limiting_factors.length > 0 && (
-              <div style={{ marginTop: "10px", fontSize: "12px", color: "#6b7280" }}>
-                <strong>Limiting:</strong> {conf.limiting_factors.join(" | ")}
-              </div>
-            )}
           </div>
         )}
 
         {con && (
-          <Card title={"Consequence: " + con.consequence_tier} icon={con.consequence_tier === "CRITICAL" ? "\uD83D\uDED1" : con.consequence_tier === "HIGH" ? "\u26A0\uFE0F" : "\u2139\uFE0F"} collapsible={false}>
-            <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "18px", color: "#fff", backgroundColor: tierColor(con.consequence_tier), textAlign: "center" }}>
-              {con.consequence_tier} CONSEQUENCE {"\u2014"} {con.failure_mode.replace(/_/g, " ").toUpperCase()}
+          <Card title={"Consequence: " + con.consequence_tier} icon={con.consequence_tier === "CRITICAL" ? "\uD83D\uDED1" : "\u2139\uFE0F"} collapsible={false}>
+            <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "8px", fontWeight: 800, fontSize: "18px", color: "#fff", backgroundColor: tierColor(con.consequence_tier), textAlign: "center" }}>
+              {con.consequence_tier} CONSEQUENCE {"\u2014"} {liveFailureMode.toUpperCase()}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-              <div style={{ padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>Human Impact</div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111" }}>{con.human_impact}</div>
-              </div>
-              <div style={{ padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>Damage State</div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: con.damage_state === "TRANSITION_RISK" ? "#dc2626" : con.damage_state === "APPROACHING_THRESHOLD" ? "#ea580c" : "#111" }}>{(con.damage_state || "STABLE").replace(/_/g, " ")}</div>
-              </div>
-              <div style={{ padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>Degradation</div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: con.degradation_certainty === "CONFIRMED" ? "#dc2626" : con.degradation_certainty === "SUSPECTED" ? "#ea580c" : "#16a34a" }}>{con.degradation_certainty || "UNVERIFIED"}</div>
-              </div>
-              <div style={{ padding: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: "#6b7280", textTransform: "uppercase" }}>Monitoring</div>
-                <div style={{ fontSize: "13px", fontWeight: 600 }}>{con.monitoring_urgency || "Routine"}</div>
-              </div>
+            <div style={{ fontSize: "10px", color: "#6b7280", textAlign: "center", marginBottom: "10px" }}>[{liveFailureModeSource}]</div>
+            <div style={{ fontSize: "13px", color: "#374151" }}>{con.failure_physics || ""}</div>
+          </Card>
+        )}
+
+        {dec && (
+          <Card title={"Decision: " + (dec.disposition || "").replace(/_/g, " ").toUpperCase()} icon={dec.disposition === "no_go" ? "\uD83D\uDED1" : "\u2705"} collapsible={false}>
+            <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "16px", color: "#fff", backgroundColor: dec.disposition === "no_go" ? "#dc2626" : dec.disposition === "hold_for_review" || dec.disposition === "engineering_review_required" ? "#ca8a04" : "#16a34a", textAlign: "center" }}>
+              {(dec.disposition || "").replace(/_/g, " ").toUpperCase()}
             </div>
-            {con.failure_physics && <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "10px", padding: "10px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}><strong>Failure Physics:</strong> {con.failure_physics}</div>}
-            {con.damage_trajectory && <div style={{ fontSize: "12px", color: "#374151", marginBottom: "8px" }}><strong>Trajectory:</strong> {con.damage_trajectory}</div>}
-            {con.consequence_basis && con.consequence_basis.map(function(b: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#374151", padding: "2px 0" }}>{b}</div>; })}
+            <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px" }}>{dec.disposition_basis}</div>
+            {dec.gates && dec.gates.map(function(g: any, i: number) {
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 10px", marginBottom: "3px", backgroundColor: g.result === "BLOCKED" ? "#fef2f2" : g.result === "ESCALATED" ? "#fffbeb" : "#f0fdf4", borderRadius: "4px" }}>
+                  <span style={{ fontSize: "14px" }}>{gateIcon(g.result)}</span>
+                  <span style={{ fontWeight: 600, fontSize: "12px", color: gateColor(g.result) }}>{g.gate.replace(/_/g, " ")}</span>
+                  <span style={{ fontSize: "11px", color: "#6b7280" }}>{g.reason}</span>
+                </div>
+              );
+            })}
+          </Card>
+        )}
+
+        {syn && syn.failure_narrative && (
+          <Card title="Failure Narrative" icon={"\uD83D\uDCD6"} accent="#2563eb">
+            <div style={{ fontSize: "13px", lineHeight: "1.7", whiteSpace: "pre-wrap" }}>{syn.failure_narrative}</div>
+          </Card>
+        )}
+
+        {syn && syn.inspector_action_card && syn.inspector_action_card.length > 0 && (
+          <Card title="Inspector Action Card" icon={"\u2705"} accent="#16a34a">
+            {syn.inspector_action_card.map(function(action: any, i: number) {
+              return (
+                <div key={i} style={{ padding: "10px 12px", marginBottom: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", borderLeft: "3px solid #16a34a" }}>
+                  <div style={{ fontWeight: 700, fontSize: "13px" }}>#{i + 1} {action.step}</div>
+                  <div style={{ fontSize: "12px", color: "#6b7280" }}>{action.rationale}</div>
+                </div>
+              );
+            })}
+          </Card>
+        )}
+
+        {syn && syn.contradiction_matrix && syn.contradiction_matrix.length > 0 && (
+          <Card title="Contradiction Matrix" icon={"\u26A0\uFE0F"} accent="#dc2626" defaultCollapsed={true}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+              <thead><tr style={{ backgroundColor: "#fef2f2" }}><th style={{ padding: "6px", textAlign: "left" }}>Framework</th><th style={{ padding: "6px" }}>Verdict</th><th style={{ padding: "6px", textAlign: "left" }}>Gap</th></tr></thead>
+              <tbody>
+                {syn.contradiction_matrix.map(function(row: any, i: number) {
+                  return <tr key={i}><td style={{ padding: "6px" }}>{row.framework}</td><td style={{ padding: "6px", textAlign: "center" }}>{row.verdict}</td><td style={{ padding: "6px" }}>{row.gap_reason}</td></tr>;
+                })}
+              </tbody>
+            </table>
           </Card>
         )}
 
         {phy && (
-          <Card title="Physical Reality" icon={"\u269B\uFE0F"} status={"confidence: " + Math.round(phy.physics_confidence * 100) + "%"}>
-            <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "12px", padding: "10px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}>{phy.physics_summary}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-              <div style={{ padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Stress State</div>
-                <div style={{ fontSize: "12px" }}>Loads: {phy.stress.primary_load_types.join(", ") || "none identified"}</div>
-                <div style={{ fontSize: "12px" }}>Cyclic: {phy.stress.cyclic_loading ? "\u2705 " + (phy.stress.cyclic_source || "yes") : "\u274c No"}</div>
-                <div style={{ fontSize: "12px" }}>Stress concentration: {phy.stress.stress_concentration_present ? "\u2705 " + phy.stress.stress_concentration_locations.join(", ") : "\u274c No"}</div>
-                <div style={{ fontSize: "12px" }}>Load path: {phy.stress.load_path_criticality}</div>
-              </div>
-              <div style={{ padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "4px" }}>Environment</div>
-                <div style={{ fontSize: "12px" }}>Corrosive: {phy.chemical.corrosive_environment ? "\u2705 " + phy.chemical.environment_agents.join(", ") : "\u274c No"}</div>
-                <div style={{ fontSize: "12px" }}>Thermal: {phy.thermal.fire_exposure ? "\uD83D\uDD25 Fire exposure" : phy.thermal.creep_range ? "\u2622\uFE0F Creep range" : "Normal"}</div>
-                <div style={{ fontSize: "12px" }}>Pressure cycling: {phy.energy.pressure_cycling ? "\u2705 Yes" : "\u274c No"}</div>
-                <div style={{ fontSize: "12px" }}>Stored energy: {phy.energy.stored_energy_significant ? "\u26A0\uFE0F Significant" : "Low"}</div>
-              </div>
-            </div>
-            {phy.field_interaction && phy.field_interaction.hotspots.length > 0 && (
-              <div style={{ padding: "10px 12px", backgroundColor: phy.field_interaction.interaction_level === "HIGH" ? "#fef2f2" : "#fffbeb", borderRadius: "6px", borderLeft: "3px solid " + (phy.field_interaction.interaction_level === "HIGH" ? "#dc2626" : "#ca8a04") }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", color: phy.field_interaction.interaction_level === "HIGH" ? "#dc2626" : "#92400e", marginBottom: "4px" }}>Field Interaction: {phy.field_interaction.interaction_level} ({phy.field_interaction.interaction_score}/100)</div>
-                {phy.field_interaction.warnings.map(function(w: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#374151", padding: "2px 0" }}>{w}</div>; })}
-              </div>
-            )}
+          <Card title="Physical Reality" icon={"\u269B\uFE0F"} defaultCollapsed={true}>
+            <div style={{ fontSize: "13px", color: "#374151" }}>{phy.physics_summary}</div>
           </Card>
         )}
 
         {dmg && (
-          <Card title="Damage Reality" icon={"\uD83E\uDDEA"} status={(dmg.validated_mechanisms?.length || 0) + " validated, " + (dmg.rejected_mechanisms?.length || 0) + " impossible"}>
+          <Card title="Damage Reality" icon={"\uD83E\uDDEA"} defaultCollapsed={true} status={(dmg.validated_mechanisms?.length || 0) + " validated"}>
             {dmg.primary_mechanism && (
-              <div style={{ padding: "10px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", borderLeft: "3px solid #16a34a", marginBottom: "12px" }}>
-                <div style={{ fontWeight: 700, fontSize: "14px", color: "#16a34a" }}>Primary: {dmg.primary_mechanism.name}</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>Physics basis: {dmg.primary_mechanism.physics_basis}</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>Reality: {dmg.primary_mechanism.reality_state} (score: {dmg.primary_mechanism.reality_score}) | Severity: {dmg.primary_mechanism.severity}</div>
-                {dmg.primary_mechanism.evidence_for.length > 0 && <div style={{ fontSize: "11px", color: "#16a34a", marginTop: "4px" }}>Evidence: {dmg.primary_mechanism.evidence_for.join(", ")}</div>}
-                {dmg.primary_mechanism.evidence_against && dmg.primary_mechanism.evidence_against.length > 0 && <div style={{ fontSize: "11px", color: "#ea580c", marginTop: "4px" }}>Uncertainty: {dmg.primary_mechanism.evidence_against.join("; ")}</div>}
-              </div>
-            )}
-            {dmg.validated_mechanisms && dmg.validated_mechanisms.length > 1 && (
-              <div style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Other Validated Mechanisms</div>
-                {dmg.validated_mechanisms.slice(1).map(function(m: any, i: number) {
-                  return <div key={i} style={{ fontSize: "12px", padding: "4px 10px", marginBottom: "3px", backgroundColor: "#f9fafb", borderRadius: "4px" }}>{m.name} ({m.reality_state}, score: {m.reality_score}) {"\u2014"} {m.physics_basis}</div>;
-                })}
-              </div>
-            )}
-            {dmg.rejected_mechanisms && dmg.rejected_mechanisms.length > 0 && (
-              <div>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "6px" }}>Physically Impossible ({dmg.rejected_mechanisms.length})</div>
-                {dmg.rejected_mechanisms.slice(0, 5).map(function(m: any, i: number) {
-                  return <div key={i} style={{ fontSize: "11px", padding: "3px 10px", marginBottom: "2px", backgroundColor: "#fef2f2", borderRadius: "4px", color: "#991b1b", opacity: 0.8 }}>{m.name}: {m.rejection_reason}</div>;
-                })}
-                {dmg.rejected_mechanisms.length > 5 && <div style={{ fontSize: "11px", color: "#6b7280", padding: "3px 10px" }}>...and {dmg.rejected_mechanisms.length - 5} more rejected</div>}
+              <div style={{ fontSize: "13px", padding: "10px", backgroundColor: "#f0fdf4", borderRadius: "6px" }}>
+                <strong>Primary:</strong> {dmg.primary_mechanism.name} {"\u2014"} {dmg.primary_mechanism.physics_basis}
               </div>
             )}
           </Card>
         )}
 
         {auth && (
-          <Card title="Authority Reality" icon={"\uD83D\uDCDC"} status={auth.primary_authority} defaultCollapsed={true}>
-            <div style={{ fontSize: "14px", fontWeight: 700, marginBottom: "8px" }}>Primary: {auth.primary_authority}</div>
-            {auth.secondary_authorities && auth.secondary_authorities.length > 0 && <div style={{ fontSize: "12px", color: "#374151", marginBottom: "6px" }}>Secondary: {auth.secondary_authorities.join(", ")}</div>}
-            <div style={{ fontSize: "12px", color: "#374151", padding: "8px 12px", backgroundColor: "#f0f4ff", borderRadius: "6px", marginBottom: "8px" }}>{auth.physics_code_alignment}</div>
-            {auth.design_state_warning && <div style={{ fontSize: "12px", color: "#ea580c", fontWeight: 700, padding: "6px 12px", backgroundColor: "#fffbeb", borderRadius: "6px", marginBottom: "6px" }}>{"\u26A0\uFE0F"} {auth.design_state_warning}</div>}
-            {auth.code_gaps && auth.code_gaps.length > 0 && (
-              <div style={{ marginTop: "6px" }}>
-                {auth.code_gaps.map(function(g: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#dc2626", padding: "2px 0" }}>{"\u274c"} {g}</div>; })}
-              </div>
-            )}
+          <Card title="Authority Reality" icon={"\uD83D\uDCDC"} defaultCollapsed={true} status={auth.primary_authority}>
+            <div style={{ fontSize: "13px" }}>Primary: <strong>{auth.primary_authority}</strong></div>
+            <div style={{ fontSize: "12px", color: "#374151", marginTop: "4px" }}>{auth.physics_code_alignment}</div>
           </Card>
         )}
 
         {insp && (
-          <Card title="Inspection Reality" icon={"\uD83D\uDD2C"} status={insp.sufficiency_verdict + " | " + (insp.proposed_methods.length > 0 ? insp.proposed_methods.join(", ") : insp.recommended_package && insp.recommended_package.length > 0 ? "Recommended: " + insp.recommended_package.join(", ") : "None")}>
-            <div style={{ padding: "10px 14px", borderRadius: "6px", marginBottom: "12px", fontWeight: 700, fontSize: "14px", color: "#fff", backgroundColor: insp.sufficiency_verdict === "BLOCKED" ? "#dc2626" : insp.sufficiency_verdict === "INSUFFICIENT" ? "#ea580c" : "#16a34a", textAlign: "center" }}>
-              {insp.sufficiency_verdict === "BLOCKED" ? "\uD83D\uDED1 DISPOSITION BLOCKED" : insp.sufficiency_verdict === "INSUFFICIENT" ? "\u26A0\uFE0F INSUFFICIENT" : "\u2705 SUFFICIENT"} {"\u2014"} {insp.proposed_methods.length > 0 ? insp.proposed_methods.join(", ") : "No methods in transcript"}
+          <Card title="Inspection Reality" icon={"\uD83D\uDD2C"} defaultCollapsed={true} status={insp.sufficiency_verdict}>
+            <div style={{ padding: "10px", borderRadius: "6px", color: "#fff", textAlign: "center", backgroundColor: insp.sufficiency_verdict === "BLOCKED" ? "#dc2626" : insp.sufficiency_verdict === "INSUFFICIENT" ? "#ea580c" : "#16a34a", fontWeight: 700 }}>
+              {insp.sufficiency_verdict}
             </div>
-            {insp.recommended_package && insp.recommended_package.length > 0 && insp.proposed_methods.length === 0 && (
-              <div style={{ padding: "10px 14px", borderRadius: "6px", marginBottom: "12px", fontWeight: 700, fontSize: "14px", color: "#fff", backgroundColor: "#2563eb", textAlign: "center" }}>
-                {"\uD83D\uDCCB"} RECOMMENDED: {insp.recommended_package.join(" + ")}
-              </div>
-            )}
-            <div style={{ fontSize: "13px", lineHeight: "1.6", color: "#374151", marginBottom: "12px" }}>{insp.physics_reason}</div>
-            {insp.missing_coverage && insp.missing_coverage.length > 0 && (
-              <div style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "4px" }}>Physics Gaps</div>
-                {insp.missing_coverage.map(function(m: string, i: number) { return <div key={i} style={{ fontSize: "12px", color: "#991b1b", padding: "4px 10px", marginBottom: "3px", backgroundColor: "#fef2f2", borderRadius: "4px" }}>{"\u274c"} {m}</div>; })}
-              </div>
-            )}
-            {insp.best_method && (
-              <div style={{ padding: "8px 12px", backgroundColor: "#f0fdf4", borderRadius: "6px", marginBottom: "10px" }}>
-                <div style={{ fontWeight: 700, fontSize: "13px", color: "#16a34a" }}>Best Method: {insp.best_method.method} (score: {insp.best_method.overall_score}/100)</div>
-                <div style={{ fontSize: "11px", color: "#374151" }}>{insp.best_method.physics_principle}</div>
-                {insp.best_method.blind_spots && insp.best_method.blind_spots.length > 0 && <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "4px" }}>Blind spots: {insp.best_method.blind_spots.join("; ")}</div>}
-                {insp.best_method.complementary_methods && insp.best_method.complementary_methods.length > 0 && <div style={{ fontSize: "11px", color: "#1e40af", marginTop: "2px" }}>Complementary: {insp.best_method.complementary_methods.join(", ")}</div>}
-              </div>
-            )}
-            {insp.constraint_analysis && insp.constraint_analysis.truth_quality !== "HIGH" && (
-              <div style={{ padding: "8px 12px", backgroundColor: insp.constraint_analysis.truth_quality === "UNRELIABLE" ? "#fef2f2" : "#fffbeb", borderRadius: "6px", borderLeft: "3px solid " + (insp.constraint_analysis.truth_quality === "UNRELIABLE" ? "#dc2626" : "#ca8a04") }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", color: insp.constraint_analysis.truth_quality === "UNRELIABLE" ? "#dc2626" : "#92400e" }}>Truth Quality: {insp.constraint_analysis.truth_quality} ({insp.constraint_analysis.constraint_score}/100)</div>
-                {insp.constraint_analysis.warnings.map(function(w: string, i: number) { return <div key={i} style={{ fontSize: "11px", color: "#374151", padding: "2px 0" }}>{w}</div>; })}
-              </div>
-            )}
+            <div style={{ fontSize: "12px", color: "#374151", marginTop: "8px" }}>{insp.physics_reason}</div>
           </Card>
         )}
 
-        {dec && (
-          <Card title={"Decision: " + (dec.disposition || "").replace(/_/g, " ").toUpperCase()} icon={dec.disposition === "no_go" ? "\uD83D\uDED1" : dec.disposition === "hold_for_review" ? "\u23F8\uFE0F" : dec.disposition === "engineering_review_required" ? "\u26A0\uFE0F" : "\u2705"} collapsible={false}>
-            <div style={{ padding: "12px 16px", borderRadius: "6px", marginBottom: "12px", fontWeight: 800, fontSize: "16px", color: "#fff", backgroundColor: dec.disposition === "no_go" ? "#dc2626" : dec.disposition === "repair_before_restart" ? "#ea580c" : dec.disposition === "hold_for_review" || dec.disposition === "engineering_review_required" ? "#ca8a04" : "#16a34a", textAlign: "center" }}>
-              {(dec.disposition || "").replace(/_/g, " ").toUpperCase()}
+        {(authorityLockResult || remainingStrengthResult || failureModeDominanceResult || dispositionPathwayResult || failureTimelineResult) && (
+          <div style={{ marginBottom: "16px", padding: "12px", border: "2px solid #000", borderRadius: "8px", backgroundColor: "#fffbe6" }}>
+            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.6m inline diagnostic)</div>
+            <div style={{ fontSize: "11px", fontFamily: "monospace", lineHeight: "1.6" }}>
+              <div>ALR: {authorityLockResult ? "PRESENT \u2014 status=" + (authorityLockResult.status || "?") + " | " + ((authorityLockResult.authority_chain || []).length) + " primary | trigger_b31g=" + String(!!authorityLockResult.trigger_b31g) : "null"}</div>
+              <div>RSR: {remainingStrengthResult ? "PRESENT \u2014 tier=" + (remainingStrengthResult.data_quality || "?") + " | envelope=" + (remainingStrengthResult.safe_envelope || "?") + " | MAOP=" + (remainingStrengthResult.governing_maop || "?") + " | severity=" + (remainingStrengthResult.severity_tier || "?") : "null"}</div>
+              <div>FMD: {failureModeDominanceResult ? "PRESENT \u2014 governing=" + (failureModeDominanceResult.governing_failure_mode || "?") + " | severity=" + (failureModeDominanceResult.governing_severity || "?") : "null"}</div>
+              <div>DPR: {dispositionPathwayResult ? "PRESENT \u2014 disposition=" + (dispositionPathwayResult.disposition || "?") + " | urgency=" + (dispositionPathwayResult.urgency || "?") : "null"}</div>
+              <div>FTR: {failureTimelineResult ? "PRESENT \u2014 mode=" + (failureTimelineResult.governing_failure_mode || "?") + " | urgency=" + (failureTimelineResult.urgency || "?") + " | progression=" + (failureTimelineResult.progression_state || "?") + " | life=" + (failureTimelineResult.governing_time_years !== null && failureTimelineResult.governing_time_years !== undefined ? Number(failureTimelineResult.governing_time_years).toFixed(1) + "yr" : "?") : "null"}</div>
             </div>
-            <div style={{ fontSize: "13px", color: "#374151", marginBottom: "12px" }}>{dec.disposition_basis}</div>
-            <div style={{ marginBottom: "12px" }}>
-              <div style={{ fontSize: "11px", fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>Precedence Gates</div>
-              {dec.gates && dec.gates.map(function(g: any, i: number) {
-                return (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 10px", marginBottom: "3px", backgroundColor: g.result === "BLOCKED" ? "#fef2f2" : g.result === "ESCALATED" ? "#fffbeb" : "#f0fdf4", borderRadius: "4px" }}>
-                    <span style={{ fontSize: "14px" }}>{gateIcon(g.result)}</span>
-                    <div style={{ flex: 1 }}>
-                      <span style={{ fontWeight: 600, fontSize: "12px", color: gateColor(g.result) }}>{g.gate.replace(/_/g, " ")}</span>
-                      <span style={{ fontSize: "11px", color: "#6b7280", marginLeft: "8px" }}>{g.reason}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {dec.hard_locks && dec.hard_locks.length > 0 && (
-              <div style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", marginBottom: "6px" }}>Hard Locks ({dec.hard_locks.length})</div>
-                {dec.hard_locks.map(function(hl: any, i: number) {
-                  return <div key={i} style={{ fontSize: "12px", padding: "6px 10px", marginBottom: "3px", backgroundColor: "#fef2f2", borderRadius: "4px", borderLeft: "3px solid #dc2626" }}><strong>{hl.code}:</strong> {hl.reason} <span style={{ fontSize: "11px", color: "#6b7280" }}>({hl.physics_basis})</span></div>;
-                })}
-              </div>
-            )}
-          </Card>
-        )}
-
-        {dec && dec.guided_recovery && dec.guided_recovery.length > 0 && (
-          <Card title="Guided Recovery" icon={"\uD83D\uDEE0\uFE0F"} status={dec.guided_recovery.length + " actions to resolve"}>
-            <div style={{ fontSize: "12px", color: "#374151", marginBottom: "10px" }}>These are the specific actions needed to resolve blocked gates and move toward disposition.</div>
-            {dec.guided_recovery.map(function(r: any, i: number) {
-              return (
-                <div key={i} style={{ padding: "10px 12px", marginBottom: "8px", backgroundColor: "#f9fafb", borderRadius: "6px", borderLeft: "3px solid #2563eb" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                    <span style={{ fontWeight: 800, fontSize: "14px", color: "#2563eb" }}>#{r.priority}</span>
-                    <span style={{ fontWeight: 700, fontSize: "13px" }}>{r.action}</span>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#6b7280" }}>Physics: {r.physics_reason}</div>
-                  <div style={{ fontSize: "11px", color: "#374151" }}>Who: {r.who}</div>
-                </div>
-              );
-            })}
-          </Card>
-        )}
-
-        {dec && dec.phased_strategy && dec.phased_strategy.length > 0 && (
-          <Card title="Phased Inspection Strategy" icon={"\uD83D\uDCCB"} status="4-phase plan" defaultCollapsed={true}>
-            {dec.phased_strategy.map(function(phase: any, i: number) {
-              return (
-                <div key={i} style={{ padding: "10px 12px", marginBottom: "10px", backgroundColor: i === 0 ? "#fef2f2" : "#f9fafb", borderRadius: "6px", borderLeft: "3px solid " + (i === 0 ? "#dc2626" : i === 1 ? "#ea580c" : i === 2 ? "#ca8a04" : "#16a34a") }}>
-                  <div style={{ fontWeight: 700, fontSize: "13px", marginBottom: "4px" }}>Phase {phase.phase}: {phase.name}</div>
-                  <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>{phase.objective}</div>
-                  {phase.actions.map(function(a: string, ai: number) { return <div key={ai} style={{ fontSize: "12px", color: "#374151", padding: "2px 0", paddingLeft: "8px" }}>{ai + 1}. {a}</div>; })}
-                  <div style={{ fontSize: "11px", color: "#2563eb", marginTop: "6px", fontWeight: 600 }}>Gate: {phase.gate} | Time: {phase.time_frame}</div>
-                </div>
-              );
-            })}
-          </Card>
-        )}
-
-        {comp && (comp.fatigue.enabled || comp.critical_flaw.enabled || comp.wall_loss.enabled || comp.leak_vs_burst.enabled) && (
-          <Card title="Physics Computations" icon={"\uD83D\uDCCA"} status="Paris Law, Critical Flaw, Wall Loss" defaultCollapsed={true}>
-            {comp.fatigue.enabled && (
-              <div style={{ marginBottom: "10px", padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Fatigue Crack Growth (Paris Law)</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>{comp.fatigue.narrative}</div>
-                {comp.fatigue.delta_k && <div style={{ fontSize: "11px", color: "#6b7280" }}>{"\u0394"}K = {comp.fatigue.delta_k} MPa{"\u221A"}m{comp.fatigue.days_to_critical ? " | Days to critical: " + comp.fatigue.days_to_critical : ""}</div>}
-              </div>
-            )}
-            {comp.critical_flaw.enabled && (
-              <div style={{ marginBottom: "10px", padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Critical Flaw Threshold</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>{comp.critical_flaw.narrative}</div>
-              </div>
-            )}
-            {comp.wall_loss.enabled && (
-              <div style={{ marginBottom: "10px", padding: "8px 12px", backgroundColor: "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Wall Loss Remaining Life</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>{comp.wall_loss.narrative}</div>
-              </div>
-            )}
-            {comp.leak_vs_burst.enabled && (
-              <div style={{ padding: "8px 12px", backgroundColor: comp.leak_vs_burst.tendency === "BURST_FAVORED" ? "#fef2f2" : "#f9fafb", borderRadius: "6px" }}>
-                <div style={{ fontWeight: 700, fontSize: "12px", marginBottom: "4px" }}>Leak vs Burst Tendency</div>
-                <div style={{ fontSize: "12px", color: "#374151" }}>{comp.leak_vs_burst.narrative}</div>
-                <div style={{ fontSize: "11px", color: "#6b7280" }}>Tendency: {comp.leak_vs_burst.tendency} | Through-wall risk: {comp.leak_vs_burst.through_wall_risk} | Fracture risk: {comp.leak_vs_burst.fracture_risk}</div>
-              </div>
-            )}
-          </Card>
-        )}
-
-        {aiNarrative && (
-          <Card title="AI Narrative Summary" icon={"\uD83E\uDD16"} status="GPT-4o constrained by physics core" defaultCollapsed={true}>
-            <div style={{ fontSize: "13px", lineHeight: "1.7", color: "#374151", whiteSpace: "pre-wrap" }}>{aiNarrative}</div>
-          </Card>
-        )}
-
-        {engineeringLoading && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px', background: 'rgba(68,170,255,0.05)', border: '1px solid rgba(68,170,255,0.2)', borderRadius: '8px', margin: '8px 0' }}>
-            <div style={{ width: '16px', height: '16px', border: '2px solid rgba(68,170,255,0.2)', borderTopColor: '#44aaff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-            <div style={{ fontSize: '13px', color: '#44aaff' }}>Engineering Intelligence Layer analyzing...</div>
           </div>
-        )}
-
-        {engineeringError && (
-          <div style={{ padding: '10px 14px', background: 'rgba(255,150,0,0.08)', border: '1px solid rgba(255,150,0,0.3)', borderRadius: '6px', fontSize: '12px', color: '#ffaa44', margin: '8px 0' }}>{'Engineering layer: ' + (engineeringError || '')}</div>
-        )}
-
-        {engineeringResult && (
-          <div style={{ marginTop: '4px' }}>
-            {engineeringResult.engineeringOverrideFlag && (
-              <div style={{ background: '#1a0000', border: '2px solid #ff3333', borderRadius: '8px', padding: '14px 16px', margin: '10px 0', boxShadow: '0 0 12px rgba(255,51,51,0.25)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '18px' }}>{'!'}</span>
-                  <span style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '0.08em', color: '#ff4444', textTransform: 'uppercase' as const }}>{'ENGINEERING OVERRIDE ACTIVE'}</span>
-                </div>
-                <div style={{ fontSize: '12px', color: '#ffaaaa', lineHeight: 1.5, marginBottom: '6px' }}>{engineeringResult.overrideReason}</div>
-                {engineeringResult.arbitration && engineeringResult.arbitration.disagreementSummary && (<div style={{ fontSize: '11px', color: '#ff8888', borderTop: '1px solid #440000', paddingTop: '8px', fontStyle: 'italic' }}>{engineeringResult.arbitration.disagreementSummary}</div>)}
-                <div style={{ marginTop: '8px', fontSize: '11px', color: '#ffcccc', fontWeight: 600, textTransform: 'uppercase' as const }}>{'Engineering sign-off required before return to service'}</div>
-              </div>
-            )}
-            <div style={{ background: '#0f1a2a', border: '1px solid #1e3a5a', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', color: '#4488aa', textTransform: 'uppercase' as const, marginBottom: '10px' }}>{'DUAL-CORE VERDICT'}</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 36px 1fr', alignItems: 'center', gap: '8px' }}>
-                <div>
-                  <div style={{ fontSize: '10px', color: '#666', textTransform: 'uppercase' as const, marginBottom: '4px' }}>{'NDT INSPECTOR'}</div>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#4488ff' }}>{decisionCore ? (decisionCore.disposition || 'HOLD') : '-'}</div>
-                  <div style={{ fontSize: '11px', color: '#446' }}>{decisionCore ? (decisionCore.authority_reality || '-') : '-'}</div>
-                </div>
-                <div style={{ textAlign: 'center' as const, color: '#444', fontSize: '12px', fontWeight: 600 }}>{'vs'}</div>
-                <div>
-                  <div style={{ fontSize: '10px', color: '#666', textTransform: 'uppercase' as const, marginBottom: '4px' }}>{'ENGINEER'}</div>
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: engineeringResult.engineeringSignificance === 'CRITICAL' ? '#ff4444' : engineeringResult.engineeringSignificance === 'HIGH' ? '#ff8c00' : '#44ff88' }}>{(engineeringResult.engineeringVerdict || '').replace(/_/g, ' ')}</div>
-                  <div style={{ fontSize: '11px', color: '#446' }}>{engineeringResult.primaryAuthority || '-'}</div>
-                </div>
-              </div>
-              {engineeringResult.engineeringOverrideFlag && (<div style={{ textAlign: 'center' as const, marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #330000', fontSize: '11px', color: '#ff6666', fontWeight: 600, textTransform: 'uppercase' as const }}>{'Verdicts disagree - Engineering governs'}</div>)}
-            </div>
-            <div style={{ background: '#0f1a0f', border: '1px solid #2a4a2a', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, color: '#44aa44', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'STRUCTURAL SAFETY MARGIN (FAD)'}</div>
-              <div style={{ fontSize: '16px', fontWeight: 700, color: engineeringResult.safetyMarginPct === null ? '#888' : engineeringResult.safetyMarginPct < 10 ? '#ff4444' : engineeringResult.safetyMarginPct < 30 ? '#ff8c00' : '#44ff88' }}>{engineeringResult.safetyMarginPct !== null ? (String(engineeringResult.safetyMarginPct) + '% from failure boundary') : 'Flaw dimensions required for FAD'}</div>
-              <div style={{ fontSize: '11px', color: '#557', marginTop: '4px' }}>{(engineeringResult.e3 && engineeringResult.e3.fadStatus || '').replace(/_/g, ' ')}</div>
-              {engineeringResult.e3 && engineeringResult.e3.kr !== null && (<div style={{ fontSize: '11px', color: '#668', marginTop: '4px', fontFamily: 'monospace' }}>{'K_r=' + (engineeringResult.e3.kr || 0).toFixed(3) + ' | L_r=' + (engineeringResult.e3.lr || 0).toFixed(3)}</div>)}
-              {engineeringResult.e3 && engineeringResult.e3.hardGate && (<div style={{ marginTop: '8px', background: 'rgba(255,50,50,0.15)', border: '1px solid rgba(255,50,50,0.4)', borderRadius: '4px', padding: '5px 8px', fontSize: '11px', color: '#ff8888', fontWeight: 600 }}>{'HARD GATE - Level 3 Engineering Review Required'}</div>)}
-            </div>
-            <div style={{ background: '#1a100a', border: '1px solid #3a2010', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, color: '#cc8844', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'FAILURE MODE'}</div>
-              <div style={{ fontSize: '15px', fontWeight: 700, color: '#ffaa55' }}>{(engineeringResult.dominantFailureMode || '').replace(/_/g, ' ')}</div>
-              <div style={{ fontSize: '11px', color: '#887766', marginTop: '4px' }}>{'Confidence: ' + String(engineeringResult.failureModeConfidencePct || 0) + '% | Env: ' + (engineeringResult.e2 && engineeringResult.e2.environmentSeverity || '-')}</div>
-              {engineeringResult.e2 && engineeringResult.e2.secondaryMode && (<div style={{ fontSize: '11px', color: '#aa7744', marginTop: '4px' }}>{'Secondary: ' + engineeringResult.e2.secondaryMode.replace(/_/g, ' ')}</div>)}
-              <div style={{ fontSize: '11px', color: '#668', marginTop: '4px' }}>{'Recommended NDT: ' + (engineeringResult.recommendedNDTMethod || '').replace(/_/g, '/')}</div>
-            </div>
-            <div style={{ background: '#0a0a1a', border: '1px solid #2244aa', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, color: '#4466cc', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'REMAINING LIFE ESTIMATE'}</div>
-              <div style={{ fontSize: '15px', fontWeight: 700, color: engineeringResult.e5 && engineeringResult.e5.calendarMonthsLow !== null && engineeringResult.e5.calendarMonthsLow < 12 ? '#ff4444' : '#6688ff' }}>{engineeringResult.remainingLifeSummary || 'Insufficient data for life estimate'}</div>
-              {engineeringResult.e5 && engineeringResult.e5.minerDamageFraction !== null && (<div style={{ fontSize: '11px', color: '#557', marginTop: '4px' }}>{'Fatigue damage: ' + ((engineeringResult.e5.minerDamageFraction || 0) * 100).toFixed(0) + '% (Miner Rule)'}</div>)}
-              {engineeringResult.e5 && engineeringResult.e5.criticalFlawSizeMM !== null && (<div style={{ fontSize: '11px', color: '#668', marginTop: '4px', fontFamily: 'monospace' }}>{'Critical flaw size a_c: ' + (engineeringResult.e5.criticalFlawSizeMM || 0).toFixed(1) + 'mm'}</div>)}
-              {engineeringResult.e5 && engineeringResult.e5.hardGate && (<div style={{ marginTop: '8px', background: 'rgba(255,50,50,0.15)', border: '1px solid rgba(255,50,50,0.4)', borderRadius: '4px', padding: '5px 8px', fontSize: '11px', color: '#ff8888', fontWeight: 600 }}>{'GATE: ' + (engineeringResult.e5.hardGateReason || 'Life below safe threshold')}</div>)}
-            </div>
-            <div style={{ background: '#0d0a00', border: '1px solid #443300', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, color: '#aaaa44', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'RISK RANKING (API 580/581 RBI)'}</div>
-              <div style={{ fontSize: '16px', fontWeight: 800, color: engineeringResult.riskRanking === 'CRITICAL' ? '#ff4444' : engineeringResult.riskRanking === 'HIGH' ? '#ff8c00' : engineeringResult.riskRanking === 'MEDIUM' ? '#ffd700' : '#44ff88' }}>{engineeringResult.riskRanking}</div>
-              {engineeringResult.e6 && (<div style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>{'PoF: ' + String(engineeringResult.e6.pofCategory) + '/5 x CoF: ' + String(engineeringResult.e6.cofCategory) + '/5 = ' + String(engineeringResult.e6.riskScore) + '/25'}</div>)}
-              <div style={{ fontSize: '11px', color: '#778', marginTop: '4px' }}>{'Next inspection: ' + (engineeringResult.inspectionIntervalMonths === 0 ? 'IMMEDIATE' : String(engineeringResult.inspectionIntervalMonths) + ' months')}</div>
-            </div>
-            {engineeringResult.engineeringRestrictions && engineeringResult.engineeringRestrictions.length > 0 && (
-              <div style={{ background: '#1a0d00', border: '1px solid #553300', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, color: '#cc6600', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'ENGINEERING RESTRICTIONS'}</div>
-                {engineeringResult.engineeringRestrictions.map(function(r: string, i: number) { return <div key={i} style={{ fontSize: '12px', color: '#ffaa66', padding: '3px 0' }}>{'+ ' + r}</div>; })}
-              </div>
-            )}
-            <div style={{ background: '#111', border: '1px solid #333', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, color: '#555', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'ENGINEERING SUMMARY'}</div>
-              <div style={{ fontSize: '12px', color: '#aaa', lineHeight: 1.6 }}>{engineeringResult.simpleNarrative}</div>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center', margin: '12px 0' }}>
-              <button onClick={function() { setShowExpertMode(!showExpertMode); }} style={{ background: 'transparent', border: '1px solid ' + (showExpertMode ? '#44aaff' : '#555'), color: showExpertMode ? '#44aaff' : '#888', padding: '7px 14px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}>{showExpertMode ? 'Hide Expert Detail' : 'Show Expert Detail (FAD / Audit / Assumptions)'}</button>
-            </div>
-            {showExpertMode && (
-              <div style={{ borderTop: '1px solid #222', paddingTop: '10px' }}>
-                <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', padding: '12px', margin: '6px 0' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#555', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'EVIDENCE INTEGRITY'}</div>
-                  <div style={{ fontSize: '12px', color: '#777' }}>{String(engineeringResult.evidenceIntegrityScore || 0) + '% measured | ' + (engineeringResult.evidenceIntegrityLabel || '').replace(/_/g, ' ')}</div>
-                </div>
-                {engineeringResult.domainViolations && engineeringResult.domainViolations.length > 0 && (
-                  <div style={{ background: '#1a0000', border: '1px solid #550000', borderRadius: '8px', padding: '12px', margin: '6px 0' }}>
-                    <div style={{ fontSize: '10px', fontWeight: 700, color: '#aa3333', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'DOMAIN VIOLATIONS'}</div>
-                    {engineeringResult.domainViolations.map(function(v: string, i: number) { return <div key={i} style={{ fontSize: '11px', color: '#ff8888', padding: '3px 0' }}>{'!! ' + v}</div>; })}
-                  </div>
-                )}
-                <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', padding: '12px', margin: '6px 0' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#555', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'ASSUMPTIONS (' + String((engineeringResult.assumptionFlags && engineeringResult.assumptionFlags.length) || 0) + ')'}</div>
-                  {engineeringResult.assumptionFlags && engineeringResult.assumptionFlags.map(function(a: string, i: number) { return <div key={i} style={{ fontSize: '11px', color: '#666', padding: '2px 0' }}>{'[' + String(i + 1) + '] ' + a}</div>; })}
-                </div>
-                <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', padding: '12px', margin: '6px 0' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#555', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'ENGINE AUDIT TRAIL'}</div>
-                  {engineeringResult.auditTrail && engineeringResult.auditTrail.map(function(line: string, i: number) { return <div key={i} style={{ fontSize: '10px', color: '#555', fontFamily: 'monospace', padding: '2px 0', borderBottom: '1px solid #181818' }}>{line}</div>; })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {(architectureLoading || materialsLoading) && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'rgba(170,68,255,0.05)', border: '1px solid rgba(170,68,255,0.2)', borderRadius: '8px', margin: '8px 0' }}>
-            <div style={{ width: '16px', height: '16px', border: '2px solid rgba(170,68,255,0.2)', borderTopColor: '#aa44ff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-            <div style={{ fontSize: '12px', color: '#aa44ff' }}>{'Layer 3 - Architecture + Materials Intelligence analyzing...'}</div>
-          </div>
-        )}
-
-        {(architectureResult || materialsResult) && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'center', margin: '10px 0' }}>
-              <button onClick={function() { setShowLayer3(!showLayer3); }} style={{ background: 'transparent', border: '1px solid ' + (showLayer3 ? '#aa44ff' : '#555'), color: showLayer3 ? '#aa44ff' : '#888', padding: '7px 14px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer' }}>{showLayer3 ? 'Hide Layer 3' : 'Show Layer 3: Architecture + Materials Intelligence'}</button>
-            </div>
-            {showLayer3 && architectureResult && (
-              <div>
-                {architectureResult.architectureOverrideFlag && (
-                  <div style={{ background: '#1a001a', border: '2px solid #aa44ff', borderRadius: '8px', padding: '14px 16px', margin: '10px 0' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                      <span style={{ fontSize: '18px' }}>{'!!'}</span>
-                      <span style={{ fontSize: '13px', fontWeight: 800, color: '#cc66ff', textTransform: 'uppercase' as const }}>{'ARCHITECTURE OVERRIDE ACTIVE'}</span>
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#ddaaff', lineHeight: 1.5 }}>{architectureResult.simpleNarrative}</div>
-                    {architectureResult.engineeringRecomputeRequired && (<div style={{ marginTop: '8px', fontSize: '11px', color: '#cc88ff', fontWeight: 600, textTransform: 'uppercase' as const }}>{'System consequence exceeds component-only engineering - re-assessment required'}</div>)}
-                  </div>
-                )}
-                <div style={{ background: '#0f0a1a', border: '1px solid #2a1a4a', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#8855cc', textTransform: 'uppercase' as const, marginBottom: '8px', letterSpacing: '0.08em' }}>{'SYSTEM ARCHITECTURE'}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    <div><div style={{ fontSize: '10px', color: '#666', marginBottom: '3px' }}>{'FACILITY TYPE'}</div><div style={{ fontSize: '12px', fontWeight: 700, color: '#aa88ff' }}>{(architectureResult.facilityType || '').replace(/_/g, ' ').toUpperCase()}</div></div>
-                    <div><div style={{ fontSize: '10px', color: '#666', marginBottom: '3px' }}>{'SYSTEM ROLE'}</div><div style={{ fontSize: '12px', fontWeight: 700, color: architectureResult.criticalityClass === 'CRITICAL' ? '#ff4444' : '#aa88ff' }}>{architectureResult.criticalityClass || ''}</div></div>
-                    <div><div style={{ fontSize: '10px', color: '#666', marginBottom: '3px' }}>{'REDUNDANCY'}</div><div style={{ fontSize: '11px', fontWeight: 600, color: architectureResult.spofFlag ? '#ff4444' : '#aa88ff' }}>{(architectureResult.redundancyState || '').replace(/_/g, ' ')}</div></div>
-                    <div><div style={{ fontSize: '10px', color: '#666', marginBottom: '3px' }}>{'FACILITY RISK'}</div><div style={{ fontSize: '13px', fontWeight: 700, color: architectureResult.facilityRiskRanking === 'CRITICAL' ? '#ff4444' : architectureResult.facilityRiskRanking === 'HIGH' ? '#ff8c00' : '#44ff88' }}>{architectureResult.facilityRiskRanking}</div></div>
-                  </div>
-                  {architectureResult.spofFlag && (<div style={{ marginTop: '10px', background: 'rgba(255,50,50,0.12)', border: '1px solid rgba(255,50,50,0.4)', borderRadius: '4px', padding: '6px 10px', fontSize: '11px', color: '#ff8888', fontWeight: 600 }}>{'SINGLE POINT OF FAILURE - No backup capacity at this location'}</div>)}
-                </div>
-                {architectureResult.combinedRiskScenarios && architectureResult.combinedRiskScenarios.length > 0 && (
-                  <div style={{ background: '#100a1a', border: '1px solid #3a1a5a', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-                    <div style={{ fontSize: '10px', fontWeight: 700, color: '#8855cc', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'CASCADE RISK - ' + ((architectureResult.cascadeProbability || 0) * 100).toFixed(0) + '%'}</div>
-                    {architectureResult.combinedRiskScenarios.map(function(s: string, i: number) { return <div key={i} style={{ fontSize: '11px', color: '#aa66ee', padding: '2px 0' }}>{'> ' + s}</div>; })}
-                  </div>
-                )}
-                {architectureResult.regulatoryOverrideFlag && (
-                  <div style={{ background: '#0a0a1a', border: '1px solid #334', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-                    <div style={{ fontSize: '10px', fontWeight: 700, color: '#6688cc', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'REGULATORY OVERRIDE'}</div>
-                    <div style={{ fontSize: '12px', color: '#8899dd', lineHeight: 1.5 }}>{architectureResult.regulatoryNarrative}</div>
-                    {architectureResult.requiredDocumentation && architectureResult.requiredDocumentation.slice(0, 3).map(function(d: string, i: number) { return <div key={i} style={{ fontSize: '11px', color: '#6677bb', padding: '2px 0', marginTop: '4px' }}>{'- ' + d}</div>; })}
-                  </div>
-                )}
-                <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', padding: '12px', margin: '6px 0' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#555', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'REPAIR PRIORITY'}</div>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: architectureResult.repairPriority === 'IMMEDIATE' ? '#ff4444' : architectureResult.repairPriority === 'URGENT' ? '#ff8c00' : '#aaa' }}>{(architectureResult.repairPriority || '').replace(/_/g, ' ')}</div>
-                  <div style={{ fontSize: '11px', color: '#666', marginTop: '4px' }}>{'Trend: ' + (architectureResult.trendState || '').replace(/_/g, ' ') + ' | ' + (architectureResult.regulatoryBody || '-')}</div>
-                </div>
-              </div>
-            )}
-            {showLayer3 && materialsResult && (
-              <div>
-                <div style={{ background: '#0a1a0a', border: '1px solid #1a4a1a', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#44bb44', textTransform: 'uppercase' as const, marginBottom: '8px', letterSpacing: '0.08em' }}>{'MATERIALS INTELLIGENCE'}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    <div><div style={{ fontSize: '10px', color: '#666', marginBottom: '3px' }}>{'HAZ HARDNESS'}</div><div style={{ fontSize: '12px', fontWeight: 700, color: materialsResult.hardnessStatus === 'ACCEPTABLE' ? '#44ff88' : materialsResult.hardnessStatus === 'NEAR_LIMIT' ? '#ffd700' : '#ff4444' }}>{String(materialsResult.hvHAZPeak || 0) + ' HV'}</div></div>
-                    <div><div style={{ fontSize: '10px', color: '#666', marginBottom: '3px' }}>{'MATERIALS RISK'}</div><div style={{ fontSize: '12px', fontWeight: 700, color: materialsResult.materialsRiskLevel === 'CRITICAL' ? '#ff4444' : materialsResult.materialsRiskLevel === 'HIGH' ? '#ff8c00' : '#44ff88' }}>{materialsResult.materialsRiskLevel}</div></div>
-                  </div>
-                  <div style={{ marginTop: '10px', fontSize: '11px', color: '#557755' }}>{'Mechanism: ' + (materialsResult.dominantDamageMechanism || '').replace(/_/g, ' ')}</div>
-                </div>
-                <div style={{ background: '#1a0a00', border: '1px solid #3a2200', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#dd8822', textTransform: 'uppercase' as const, marginBottom: '6px', letterSpacing: '0.08em' }}>{'PRE-FLAW PREDICTION'}</div>
-                  {materialsResult.likelyInitiationZones && materialsResult.likelyInitiationZones.map(function(z: string, i: number) { return <div key={i} style={{ fontSize: '11px', color: '#ffaa44', padding: '3px 0' }}>{'[' + String(i + 1) + '] ' + z}</div>; })}
-                  {materialsResult.timeToInitiationMonths !== null && materialsResult.timeToInitiationMonths !== undefined && (<div style={{ marginTop: '8px', fontSize: '12px', color: '#ff8844', fontWeight: 600 }}>{'Time to initiation: ' + materialsResult.timeToInitiationMonths.toFixed(0) + ' months'}</div>)}
-                  <div style={{ marginTop: '6px', fontSize: '11px', color: '#886644', fontStyle: 'italic' }}>{materialsResult.expectedFlawMorphology}</div>
-                </div>
-                <div style={{ background: '#0a1a0a', border: '1px solid #1a4a1a', borderRadius: '8px', padding: '14px', margin: '8px 0' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#44bb44', textTransform: 'uppercase' as const, marginBottom: '6px' }}>{'INSPECTION DIRECTIVES'}</div>
-                  {materialsResult.inspectionPriority && materialsResult.inspectionPriority.map(function(p: string, i: number) { return <div key={i} style={{ fontSize: '11px', color: '#88cc88', padding: '3px 0' }}>{'> ' + p}</div>; })}
-                </div>
-                <div style={{ background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', padding: '12px', margin: '6px 0' }}>
-                  <div style={{ fontSize: '10px', fontWeight: 700, color: '#555', textTransform: 'uppercase' as const, marginBottom: '4px' }}>{'MATERIALS SUMMARY'}</div>
-                  <div style={{ fontSize: '11px', color: '#777', lineHeight: 1.6 }}>{materialsResult.simpleNarrative}</div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {dec && dec.decision_trace && dec.decision_trace.length > 0 && (
-          <Card title="Decision Trace (Audit)" icon={"\uD83D\uDCCB"} defaultCollapsed={true}>
-            {dec.decision_trace.map(function(t: string, i: number) {
-              var isLock = t.indexOf("HARD LOCK") !== -1;
-              var isBlocked = t.indexOf("BLOCKED") !== -1;
-              var isPhysics = t.indexOf("PHYSICS") !== -1;
-              return <div key={i} style={{ fontSize: "12px", color: isLock ? "#dc2626" : isBlocked ? "#ea580c" : isPhysics ? "#2563eb" : "#374151", fontWeight: (isLock || isBlocked) ? 700 : 400, padding: "3px 0" }}>{i + 1}. {t}</div>;
-            })}
-          </Card>
         )}
 
       </div>

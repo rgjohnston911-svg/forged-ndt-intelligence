@@ -122,14 +122,39 @@ export var handler: Handler = async function(event) {
       }
     }
 
-    // If no images, add structured evidence metadata
+    // DEPLOY208: Add method-tagged evidence metadata for smarter analysis
     if (evidenceRows.length > 0) {
       var metadataText = "\nEvidence metadata:\n";
+      // Collect unique NDE methods for method-specific analysis guidance
+      var methodsUsed: string[] = [];
       evidenceRows.forEach(function(ev: any) {
-        metadataText = metadataText + "- Type: " + ev.evidence_type
-          + ", File: " + (ev.filename || "none")
-          + ", Metadata: " + JSON.stringify(ev.metadata_json) + "\n";
+        var ndeMethod = ev.nde_method || (ev.metadata_json && ev.metadata_json.nde_method) || null;
+        var methodLabel = (ev.metadata_json && ev.metadata_json.nde_method_label) || ndeMethod || "unknown";
+        metadataText = metadataText + "- NDE Method: " + methodLabel
+          + ", Type: " + ev.evidence_type
+          + ", File: " + (ev.filename || "none") + "\n";
+        if (ndeMethod && methodsUsed.indexOf(ndeMethod) === -1) methodsUsed.push(ndeMethod);
       });
+
+      // Add method-specific analysis instructions
+      if (methodsUsed.length > 0) {
+        metadataText = metadataText + "\nMethod-specific analysis guidance:\n";
+        for (var mi = 0; mi < methodsUsed.length; mi++) {
+          var meth = methodsUsed[mi];
+          if (meth === "UT_thickness") metadataText = metadataText + "- UT Thickness: Report measured wall thickness values, grid locations, min/max readings, corrosion rate if calculable from previous data.\n";
+          else if (meth === "UT_shear_wave") metadataText = metadataText + "- UT Shear Wave: Report indication depth, length, amplitude, beam angle, DAC/TCG level, reflector characterization (planar vs volumetric).\n";
+          else if (meth === "UT_PAUT") metadataText = metadataText + "- PAUT: Report S-scan/B-scan indication location, depth, through-wall extent, length, classification per applicable code. Note focal law and scan plan details if visible.\n";
+          else if (meth === "UT_TOFD") metadataText = metadataText + "- TOFD: Report lateral wave, backwall signal, diffraction tips, indication height sizing, through-wall position.\n";
+          else if (meth === "RT_film" || meth === "RT_digital") metadataText = metadataText + "- Radiography: Report density variations, indication type (porosity/slag/crack/LOF/IP), indication dimensions, film quality (density, contrast, artifacts).\n";
+          else if (meth === "ET_conventional" || meth === "ET_array") metadataText = metadataText + "- Eddy Current: Report impedance plane trajectory, amplitude, phase angle, signal-to-noise, indication depth estimate, liftoff effects.\n";
+          else if (meth === "AE") metadataText = metadataText + "- Acoustic Emission: Report hit rate, amplitude distribution, source location clusters, Kaiser/Felicity effect, emission during load/hold.\n";
+          else if (meth === "IR") metadataText = metadataText + "- Infrared Thermography: Report hot/cold spots, temperature gradients, thermal anomalies, pattern shape and location.\n";
+          else if (meth === "HARDNESS") metadataText = metadataText + "- Hardness Testing: Report HB/HRC/HV values, test locations (base/HAZ/weld), hardness traverse if available, compliance with max hardness limits.\n";
+          else if (meth === "PMI") metadataText = metadataText + "- PMI: Report alloy identification, element percentages, compliance with material specification, any mismatch flags.\n";
+          else if (meth === "REPLICA") metadataText = metadataText + "- Metallographic Replica: Report microstructure (grain size, phase distribution), creep voids, sigma phase, graphitization, sensitization, carburization evidence.\n";
+        }
+      }
+
       userContent.push({ type: "text", text: metadataText });
     }
 

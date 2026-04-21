@@ -40,7 +40,8 @@ export var handler: Handler = async function(event) {
       };
     }
 
-    var evidenceRow = {
+    // DEPLOY208: Accept nde_method for method-tagged evidence
+    var evidenceRow: Record<string, any> = {
       case_id: body.case_id,
       evidence_type: body.evidence_type,
       storage_path: body.storage_path || null,
@@ -50,6 +51,10 @@ export var handler: Handler = async function(event) {
       capture_source: body.capture_source || null,
       metadata_json: body.metadata_json || {}
     };
+    // Add nde_method if provided (DEPLOY208)
+    if (body.nde_method) {
+      evidenceRow.nde_method = body.nde_method;
+    }
 
     var insertResult = await supabase
       .from("evidence")
@@ -83,6 +88,7 @@ export var handler: Handler = async function(event) {
       event_json: {
         evidence_id: insertResult.data.id,
         evidence_type: body.evidence_type,
+        nde_method: body.nde_method || null,
         filename: body.filename || null
       }
     });

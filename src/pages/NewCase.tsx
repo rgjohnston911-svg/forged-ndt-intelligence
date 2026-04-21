@@ -1,24 +1,57 @@
+/**
+ * DEPLOY209 — NewCase.tsx
+ * Unifies new-case creation on the `inspection_cases` table.
+ *
+ * Before DEPLOY209 the form inserted into a legacy `cases` table while
+ * CaseDetail + Dashboard + every netlify function read from `inspection_cases`,
+ * which left every newly-created case stuck on "Loading case...".
+ *
+ * Now this page calls /.netlify/functions/create-case which writes to
+ * `inspection_cases` with all required NOT NULL / CHECK columns filled in.
+ *
+ * CONSTRAINTS: var only, no template literals, @ts-nocheck friendly.
+ */
+// @ts-nocheck
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { sbInsert, sbUpdate, callDecisionCore, generateId, ASSET_CLASS_MAP } from "../utils/supabase";
+import { supabase } from "../lib/supabase";
+
+var NDT_METHODS = ["VT", "PT", "MT", "UT", "RT", "ET"];
+
+var ASSET_CLASS_OPTIONS = [
+  "Pressure Vessel", "Piping", "Pipeline", "Tank", "Heat Exchanger",
+  "Boiler", "Storage Sphere", "Offshore Structure", "Saturation Diving System", "Bridge"
+];
+
+var ASSET_CLASS_TO_ENGINE = {
+  "Pressure Vessel": "pressure_vessel",
+  "Piping": "piping",
+  "Pipeline": "piping",
+  "Tank": "tank",
+  "Heat Exchanger": "pressure_vessel",
+  "Boiler": "pressure_vessel",
+  "Storage Sphere": "pressure_vessel",
+  "Offshore Structure": "offshore_platform",
+  "Saturation Diving System": "pressure_vessel",
+  "Bridge": "bridge"
+};
 
 export default function NewCase() {
-  const navigate = useNavigate();
-  const [title, setTitle] = useState("");
-  const [assetName, setAssetName] = useState("");
-  const [assetClass, setAssetClass] = useState("Pressure Vessel");
-  const [location, setLocation] = useState("");
-  const [description, setDescription] = useState("");
-  const [events, setEvents] = useState("");
-  const [measurements, setMeasurements] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [statusMsg, setStatusMsg] = useState("");
-  const [error, setError] = useState("");
+  var navigate = useNavigate();
+  var [title, setTitle] = useState("");
+  var [method, setMethod] = useState("VT");
+  var [assetName, setAssetName] = useState("");
+  var [assetClass, setAssetClass] = useState("Pressure Vessel");
+  var [location, setLocation] = useState("");
+  var [description, setDescription] = useState("");
+  var [events, setEvents] = useState("");
+  var [measurements, setMeasurements] = useState("");
+  var [submitting, setSubmitting] = useState(false);
+  var [statusMsg, setStatusMsg] = useState("");
+  var [error, setError] = useState("");
 
-  const assetClassOptions = Object.keys(ASSET_CLASS_MAP);
-
-  function buildTranscript(): string {
-    const parts: string[] = [];
+  function buildTranscript() {
+    var parts = [];
     parts.push("ASSET: " + assetName + " (" + assetClass + ")");
     if (location) parts.push("LOCATION: " + location);
     if (description) parts.push("DESCRIPTION: " + description);
@@ -27,7 +60,7 @@ export default function NewCase() {
     return parts.join("\n");
   }
 
-  async function handleCreateOnly() {
+  async function createCase(runEvaluate) {
     if (!title.trim() || !assetName.trim()) {
       setError("Title and Asset Name are required.");
       return;
@@ -37,167 +70,99 @@ export default function NewCase() {
     setStatusMsg("Creating case...");
 
     try {
-      const caseId = generateId();
-      const now = new Date().toISOString();
-      const transcript = buildTranscript();
+      // Get the current session token so create-case can auth the caller.
+      var sessRes = await supabase.auth.getSession();
+      var token = (sessRes.data && sessRes.data.session && sessRes.data.session.access_token) || "";
+      if (!token) {
+        setError("You must be signed in to create a case.");
+        setSubmitting(false);
+        setStatusMsg("");
+        return;
+      }
 
-      await sbInsert("cases", {
-        id: caseId,
-        title: title.trim(),
-        asset_name: assetName.trim(),
-        asset_class: assetClass,
-        location: location.trim(),
-        description: description.trim(),
-        running_transcript: transcript,
-        status: "open",
-        created_at: now,
-        updated_at: now
+      var engineAssetClass = ASSET_CLASS_TO_ENGINE[assetClass] || "pressure_vessel";
+      var transcript = buildTranscript();
+
+      // Call create-case netlify function -- writes to inspection_cases.
+      var createResp = await fetch("/api/create-case", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + token
+        },
+        body: JSON.stringify({
+          method: method,
+          component: assetName.trim(),
+          inspectionContext: null,
+          materialClass: "",
+          materialFamily: "",
+          surfaceType: null,
+          serviceEnvironment: null,
+          lifecycleStage: null,
+          industrySector: null,
+          assetType: assetClass
+        })
       });
 
-      await sbInsert("case_history", {
-        id: generateId(),
-        case_id: caseId,
-        action: "case_created",
-        details: "Case created: " + title.trim(),
-        created_at: now
-      });
+      var createJson = await createResp.json();
+      if (!createResp.ok || !createJson.caseId) {
+        throw new Error((createJson && createJson.error) ? createJson.error : ("create-case failed: " + createResp.status));
+      }
 
+      var caseId = createJson.caseId;
+
+      // Patch the case with the user-entered title + context fields.
+      // Only write columns we know exist across the schema.
+      var patch = { title: title.trim() };
+      // Some schemas have running_transcript; write if present -- ignore failure.
+      try {
+        var patchRes = await supabase
+          .from("inspection_cases")
+          .update({ title: title.trim(), running_transcript: transcript })
+          .eq("id", caseId);
+        if (patchRes.error) {
+          // Fall back to just the title if running_transcript column doesn't exist.
+          await supabase.from("inspection_cases").update(patch).eq("id", caseId);
+        }
+      } catch (patchErr) {
+        await supabase.from("inspection_cases").update(patch).eq("id", caseId);
+      }
+
+      setStatusMsg("Case created.");
+
+      if (runEvaluate) {
+        setStatusMsg("Running initial analysis...");
+        try {
+          await fetch("/api/run-analysis", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ case_id: caseId })
+          });
+        } catch (evalErr) {
+          // Non-fatal -- user can retry from CaseDetail.
+          console.error("run-analysis failed:", evalErr);
+        }
+      }
+
+      setStatusMsg("Opening case...");
       navigate("/cases/" + caseId);
-    } catch (err: any) {
+    } catch (err) {
       setError("Failed to create case: " + (err.message || String(err)));
       setSubmitting(false);
       setStatusMsg("");
     }
   }
 
-  async function handleCreateAndEvaluate() {
-    if (!title.trim() || !assetName.trim()) {
-      setError("Title and Asset Name are required.");
-      return;
-    }
-    setSubmitting(true);
-    setError("");
-    setStatusMsg("Creating case...");
+  function handleCreateOnly() { createCase(false); }
+  function handleCreateAndEvaluate() { createCase(true); }
 
-    try {
-      const caseId = generateId();
-      const now = new Date().toISOString();
-      const transcript = buildTranscript();
-      const engineAssetClass = ASSET_CLASS_MAP[assetClass] || "pressure_vessel";
-
-      let eventsList: string[] = [];
-      if (events.trim()) {
-        eventsList = events.split(",").map(e => e.trim()).filter(e => e.length > 0);
-      }
-
-      // Step 1: Create case
-      await sbInsert("cases", {
-        id: caseId,
-        title: title.trim(),
-        asset_name: assetName.trim(),
-        asset_class: assetClass,
-        location: location.trim(),
-        description: description.trim(),
-        running_transcript: transcript,
-        status: "open",
-        created_at: now,
-        updated_at: now
-      });
-      setStatusMsg("Case created. Running Superbrain evaluation...");
-
-      // Step 2: Call decision-core
-      const dcResult = await callDecisionCore(transcript, engineAssetClass, eventsList);
-      const dc = dcResult.decision_core || dcResult;
-
-      // Extract superbrain state
-      const consequence = dc.consequence_reality?.consequence_level || "";
-      const disposition = dc.decision_reality?.disposition || "";
-      const confidence = dc.reality_confidence?.overall_confidence || 0;
-      const mechanism = dc.damage_reality?.primary_damage_mechanism?.mechanism || "";
-      const sufficiency = dc.decision_reality?.evidence_sufficiency || "";
-
-      // Step 3: Update case with superbrain state
-      await sbUpdate("cases", caseId, {
-        sb_consequence: consequence,
-        sb_disposition: disposition,
-        sb_confidence: confidence,
-        sb_mechanism: mechanism,
-        sb_sufficiency: sufficiency,
-        sb_engine_version: dc.engine_version || "",
-        sb_last_eval: now,
-        updated_at: now
-      });
-      setStatusMsg("Superbrain evaluation stored. Saving snapshot...");
-
-      // Step 4: Store snapshot
-      const snapshotId = generateId();
-      await sbInsert("decision_core_snapshots", {
-        id: snapshotId,
-        case_id: caseId,
-        snapshot_number: 1,
-        transcript_at_eval: transcript,
-        full_output: JSON.stringify(dc),
-        consequence_level: consequence,
-        disposition: disposition,
-        confidence: confidence,
-        primary_mechanism: mechanism,
-        evidence_sufficiency: sufficiency,
-        engine_version: dc.engine_version || "",
-        created_at: now
-      });
-
-      // Step 5: Generate checklist from phased_strategy
-      if (dc.inspection_reality?.phased_strategy) {
-        const phases = dc.inspection_reality.phased_strategy;
-        let checkOrder = 0;
-        for (let pi = 0; pi < phases.length; pi++) {
-          const phase = phases[pi];
-          const phaseName = phase.phase || ("Phase " + (pi + 1));
-          const items = phase.actions || phase.steps || [];
-          for (let ai = 0; ai < items.length; ai++) {
-            checkOrder++;
-            const itemText = typeof items[ai] === "string" ? items[ai] : (items[ai].action || items[ai].description || JSON.stringify(items[ai]));
-            await sbInsert("checklist_items", {
-              id: generateId(),
-              case_id: caseId,
-              snapshot_id: snapshotId,
-              phase: phaseName,
-              item_text: itemText,
-              item_order: checkOrder,
-              is_checked: false,
-              created_at: now
-            });
-          }
-        }
-      }
-
-      // Step 6: History
-      await sbInsert("case_history", {
-        id: generateId(),
-        case_id: caseId,
-        action: "superbrain_evaluation",
-        details: "Initial evaluation — " + consequence + " / " + disposition + " / " + Math.round(confidence * 100) + "% confidence",
-        snapshot_id: snapshotId,
-        created_at: now
-      });
-
-      setStatusMsg("Complete. Opening case...");
-      navigate("/cases/" + caseId);
-
-    } catch (err: any) {
-      setError("Evaluation failed: " + (err.message || String(err)));
-      setSubmitting(false);
-      setStatusMsg("");
-    }
-  }
-
-  const inputStyle: React.CSSProperties = {
+  var inputStyle = {
     width: "100%", padding: "10px 14px", backgroundColor: "#1e293b",
     border: "1px solid #334155", borderRadius: "8px", color: "#f8fafc",
     fontSize: "14px", outline: "none", boxSizing: "border-box"
   };
 
-  const labelStyle: React.CSSProperties = {
+  var labelStyle = {
     display: "block", fontSize: "13px", fontWeight: "600", color: "#94a3b8",
     marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.5px"
   };
@@ -205,79 +170,82 @@ export default function NewCase() {
   return (
     <div style={{ padding: "24px", maxWidth: "720px", margin: "0 auto", fontFamily: "'Inter', -apple-system, sans-serif", color: "#e2e8f0" }}>
 
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "32px" }}>
         <button
-          onClick={() => navigate("/cases")}
+          onClick={function() { navigate("/cases"); }}
           style={{ padding: "6px 14px", backgroundColor: "transparent", color: "#94a3b8", border: "1px solid #334155", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}
-        >← Back</button>
+        >&larr; Back</button>
         <h1 style={{ fontSize: "22px", fontWeight: "700", color: "#f8fafc", margin: 0 }}>Create New Case</h1>
       </div>
 
-      {/* Form */}
       <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "12px", padding: "28px" }}>
 
         <div style={{ marginBottom: "20px" }}>
           <label style={labelStyle}>Case Title *</label>
-          <input type="text" value={title} onChange={e => setTitle(e.target.value)}
+          <input type="text" value={title} onChange={function(e) { setTitle(e.target.value); }}
             placeholder="e.g. Decompression Chamber Annual Inspection" style={inputStyle} />
         </div>
 
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "20px" }}>
+          <div>
+            <label style={labelStyle}>NDT Method *</label>
+            <select value={method} onChange={function(e) { setMethod(e.target.value); }} style={Object.assign({}, inputStyle, { cursor: "pointer" })}>
+              {NDT_METHODS.map(function(m) { return <option key={m} value={m}>{m}</option>; })}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Asset Class</label>
+            <select value={assetClass} onChange={function(e) { setAssetClass(e.target.value); }} style={Object.assign({}, inputStyle, { cursor: "pointer" })}>
+              {ASSET_CLASS_OPTIONS.map(function(opt) { return <option key={opt} value={opt}>{opt}</option>; })}
+            </select>
+          </div>
+        </div>
+
         <div style={{ marginBottom: "20px" }}>
-          <label style={labelStyle}>Asset Name *</label>
-          <input type="text" value={assetName} onChange={e => setAssetName(e.target.value)}
+          <label style={labelStyle}>Asset Name / Component *</label>
+          <input type="text" value={assetName} onChange={function(e) { setAssetName(e.target.value); }}
             placeholder="e.g. DDC-101, Pipeline Segment 14B" style={inputStyle} />
         </div>
 
         <div style={{ marginBottom: "20px" }}>
-          <label style={labelStyle}>Asset Class</label>
-          <select value={assetClass} onChange={e => setAssetClass(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-            {assetClassOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-          </select>
-        </div>
-
-        <div style={{ marginBottom: "20px" }}>
           <label style={labelStyle}>Location</label>
-          <input type="text" value={location} onChange={e => setLocation(e.target.value)}
+          <input type="text" value={location} onChange={function(e) { setLocation(e.target.value); }}
             placeholder="e.g. Gulf of Mexico Block 214, Plant Unit 3" style={inputStyle} />
         </div>
 
         <div style={{ marginBottom: "20px" }}>
           <label style={labelStyle}>Description / Situation</label>
-          <textarea value={description} onChange={e => setDescription(e.target.value)}
+          <textarea value={description} onChange={function(e) { setDescription(e.target.value); }}
             placeholder="Describe the inspection scenario, concerns, observations..."
-            style={{ ...inputStyle, minHeight: "100px", resize: "vertical" }} />
+            style={Object.assign({}, inputStyle, { minHeight: "100px", resize: "vertical" })} />
         </div>
 
         <div style={{ marginBottom: "20px" }}>
           <label style={labelStyle}>Events / History</label>
-          <textarea value={events} onChange={e => setEvents(e.target.value)}
+          <textarea value={events} onChange={function(e) { setEvents(e.target.value); }}
             placeholder="Fire exposure, hurricane, chemical spill, impact damage, years in service..."
-            style={{ ...inputStyle, minHeight: "70px", resize: "vertical" }} />
+            style={Object.assign({}, inputStyle, { minHeight: "70px", resize: "vertical" })} />
         </div>
 
         <div style={{ marginBottom: "20px" }}>
           <label style={labelStyle}>Measurements / Data</label>
-          <textarea value={measurements} onChange={e => setMeasurements(e.target.value)}
+          <textarea value={measurements} onChange={function(e) { setMeasurements(e.target.value); }}
             placeholder="Wall thickness readings, temperatures, pressures, dimensions..."
-            style={{ ...inputStyle, minHeight: "70px", resize: "vertical" }} />
+            style={Object.assign({}, inputStyle, { minHeight: "70px", resize: "vertical" })} />
         </div>
 
-        {/* Error */}
         {error && (
           <div style={{ padding: "12px 16px", backgroundColor: "#ef444422", color: "#fca5a5", borderRadius: "8px", marginBottom: "16px", fontSize: "13px", border: "1px solid #ef444444" }}>
             {error}
           </div>
         )}
 
-        {/* Status */}
         {statusMsg && (
           <div style={{ padding: "12px 16px", backgroundColor: "#3b82f622", color: "#93c5fd", borderRadius: "8px", marginBottom: "16px", fontSize: "13px", border: "1px solid #3b82f644" }}>
             {statusMsg}
           </div>
         )}
 
-        {/* Buttons */}
         <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
           <button
             onClick={handleCreateAndEvaluate} disabled={submitting}
@@ -286,7 +254,7 @@ export default function NewCase() {
               color: "#fff", border: "none", borderRadius: "8px", cursor: submitting ? "not-allowed" : "pointer",
               fontSize: "14px", fontWeight: "600", opacity: submitting ? 0.7 : 1
             }}
-          >{submitting ? "Processing..." : "Create Case + Evaluate with Superbrain"}</button>
+          >{submitting ? "Processing..." : "Create Case + Run Analysis"}</button>
           <button
             onClick={handleCreateOnly} disabled={submitting}
             style={{

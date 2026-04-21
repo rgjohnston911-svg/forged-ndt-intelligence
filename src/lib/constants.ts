@@ -57,6 +57,34 @@ export var NDE_METHODS = [
 ];
 
 /* ================================================================
+   EVIDENCE UPLOAD -- Method-tagged evidence (DEPLOY208)
+   Extended method list for evidence upload. Includes sub-methods
+   that map to Engine 3's coverage matrix for progressive case flow.
+================================================================ */
+
+export var EVIDENCE_METHODS = [
+  { value: "VT", label: "Visual (VT)", group: "Surface", accept: "image/*", color: "#3b82f6", icon: "eye" },
+  { value: "PT", label: "Penetrant (PT)", group: "Surface", accept: "image/*", color: "#ef4444", icon: "droplet" },
+  { value: "MT", label: "Magnetic Particle (MT)", group: "Surface", accept: "image/*", color: "#a855f7", icon: "magnet" },
+  { value: "UT_thickness", label: "UT Thickness", group: "Volumetric", accept: "image/*,.csv,.txt,.xlsx", color: "#06b6d4", icon: "ruler" },
+  { value: "UT_shear_wave", label: "UT Shear Wave", group: "Volumetric", accept: "image/*,.csv,.txt", color: "#06b6d4", icon: "activity" },
+  { value: "UT_PAUT", label: "Phased Array UT (PAUT)", group: "Volumetric", accept: "image/*,.csv,.txt,.opd", color: "#0891b2", icon: "grid" },
+  { value: "UT_TOFD", label: "Time of Flight Diffraction (TOFD)", group: "Volumetric", accept: "image/*,.csv,.txt", color: "#0e7490", icon: "radio" },
+  { value: "RT_film", label: "Radiography — Film", group: "Volumetric", accept: "image/*", color: "#f59e0b", icon: "film" },
+  { value: "RT_digital", label: "Radiography — Digital (DR/CR)", group: "Volumetric", accept: "image/*,.dcm,.tiff,.tif", color: "#d97706", icon: "monitor" },
+  { value: "ET_conventional", label: "Eddy Current (ET)", group: "Electromagnetic", accept: "image/*,.csv,.txt", color: "#10b981", icon: "zap" },
+  { value: "ET_array", label: "Eddy Current Array (ECA)", group: "Electromagnetic", accept: "image/*,.csv,.txt", color: "#059669", icon: "cpu" },
+  { value: "AE", label: "Acoustic Emission (AE)", group: "Monitoring", accept: "image/*,.csv,.txt,.wav", color: "#8b5cf6", icon: "volume-2" },
+  { value: "IR", label: "Infrared Thermography (IR)", group: "Monitoring", accept: "image/*,.csv", color: "#f97316", icon: "thermometer" },
+  { value: "HARDNESS", label: "Hardness Testing", group: "Material", accept: "image/*,.csv,.txt", color: "#64748b", icon: "hash" },
+  { value: "PMI", label: "Positive Material ID (PMI)", group: "Material", accept: "image/*,.csv,.txt,.pdf", color: "#475569", icon: "check-circle" },
+  { value: "REPLICA", label: "Metallographic Replica", group: "Material", accept: "image/*", color: "#78716c", icon: "layers" },
+  { value: "OTHER", label: "Other / General", group: "Other", accept: "image/*,.csv,.txt,.pdf,.xlsx", color: "#6b7280", icon: "paperclip" }
+];
+
+export var EVIDENCE_METHOD_GROUPS = ["Surface", "Volumetric", "Electromagnetic", "Monitoring", "Material", "Other"];
+
+/* ================================================================
    WELDING PROCESSES (from DEPLOY29)
 ================================================================ */
 
