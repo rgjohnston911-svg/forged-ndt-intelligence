@@ -3,23 +3,43 @@
  * DEPLOY265 - tri-model-reasoning.ts
  * netlify/functions/tri-model-reasoning.ts
  *
- * TRI-MODEL ADVERSARIAL REASONING ENGINE v1.0
- * FORGED UNIFIED INTELLIGENCE CORE
+ * TRI-MODEL ADVERSARIAL REASONING ENGINE v5.0
+ * SUPERBRAIN V5 — PROOF ENGINE ARCHITECTURE
  *
- * Three AI models that THINK, ARGUE, and RESOLVE.
- * This is the brain. The 57 existing engines are the governance skeleton.
+ * Three AI models that THINK, ARGUE, PROVE, and RESOLVE.
+ * This is the proof brain. The 57 existing engines are the governance skeleton.
+ *
+ * v5 transforms the system from "expert-level inferred truth" to
+ * "component-level provable truth." No conclusion without proof lineage.
+ * No threshold without derivation basis. No final decision if the proof chain
+ * is broken.
  *
  * Pipeline:
- *   INPUT -> NORMALIZE -> MODEL A (Physics) -> MODEL B (Engineering)
- *   -> MODEL C (Adversarial) -> RESOLUTION -> GOVERNANCE LOCK -> OUTPUT
+ *   INPUT -> NORMALIZE -> MODEL A (Physics + Proof Chain Build)
+ *   -> MODEL B (Engineering + Standards Authority + Assumption Mapping)
+ *   -> MODEL C (Adversarial + Proof Break Detection + Disproof Paths)
+ *   -> RESOLUTION (Decision Proof + Regulatory Defensibility + Governance Lock v3)
+ *   -> OUTPUT
  *
- * Model A (GPT-4o): Physics Engine — mechanisms, forces, topology, propagation
- * Model B (Claude): Engineering Engine — codes, consequence, repair, constraints
- * Model C (GPT-4o): Adversarial Engine — attacks A+B, finds blind spots, forces honesty
- * Resolution (Claude): Synthesis — multi-hypothesis, uncertainty discipline, governance
+ * Model A (GPT-4o): Physics + Claim Graph + Component Proof + Calculations + Observability
+ * Model B (Claude): Engineering + Standards Authority + Assumption Dependency + Repair Proof
+ * Model C (GPT-4o): Adversarial + Disproof Paths + Proof Breaks + Confidence Computation
+ * Resolution (Claude): Decision Proof + Regulatory Defensibility + Governance Lock v3
  *
- * 22 Superbrain reasoning disciplines + 7 enhancements encoded in prompts.
- * No table lookups for reasoning. AI thinks from first principles.
+ * 13 PROOF MODULES:
+ *   1. CLAIM_GRAPH_ENGINE_V1
+ *   2. COMPONENT_LEVEL_PROOF_CHAIN_ENGINE_V1
+ *   3. CASE_DERIVED_CALCULATION_ENGINE_V1
+ *   4. METHOD_OBSERVABILITY_PROOF_ENGINE_V1
+ *   5. STANDARDS_SOURCE_AUTHORITY_ENGINE_V1
+ *   6. ASSUMPTION_DEPENDENCY_ENGINE_V1
+ *   7. DISPROOF_PATH_ENGINE_V1
+ *   8. CONFIDENCE_COMPUTATION_ENGINE_V1
+ *   9. PROOF_BREAK_DETECTION_ENGINE_V1
+ *   10. REGULATORY_DEFENSIBILITY_ENGINE_V1
+ *   11. GLOBAL_REPAIR_CREDIBILITY_ENGINE_V2
+ *   12. DECISION_PROOF_ENGINE_V1
+ *   13. SUPERBRAIN_GOVERNANCE_LOCK_V3
  *
  * CRITICAL: var only. String concatenation only. No backticks.
  *
@@ -36,7 +56,7 @@ var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 var openaiKey = process.env.OPENAI_API_KEY || "";
 var anthropicKey = process.env.ANTHROPIC_API_KEY || "";
 
-var ENGINE_VERSION = "tri-model-reasoning/3.0.0";
+var ENGINE_VERSION = "tri-model-reasoning/5.0.0";
 
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,348 +66,512 @@ var corsHeaders = {
 };
 
 // ================================================================
-// MODEL A SYSTEM PROMPT — PHYSICS ENGINE (GPT-4o)
+// MODEL A SYSTEM PROMPT — PHYSICS + PROOF CHAIN ENGINE (GPT-4o)
 //
-// Disciplines encoded:
-//   - Reality Topology (Klein Bottle)
-//   - Physics Dominance
-//   - Method Reliability + Blind Spots
+// PROOF MODULES ASSIGNED TO MODEL A:
+//   1. CLAIM_GRAPH_ENGINE_V1 — structured claim graph, not narrative
+//   2. COMPONENT_LEVEL_PROOF_CHAIN_ENGINE_V1 — force every conclusion to component level
+//   3. CASE_DERIVED_CALCULATION_ENGINE_V1 — traceable calculations, not generic thresholds
+//   4. METHOD_OBSERVABILITY_PROOF_ENGINE_V1 — prove whether method can observe the damage mode
+//   5. REALITY_TOPOLOGY_ENGINE_V3 — connected-system reasoning tied to proof chains
+//
+// EXISTING DISCIPLINES RETAINED:
+//   - Physics Dominance hierarchy
+//   - Inverse Problem Reasoning
+//   - Inference from Absence
+//   - Sensory Fusion
 //   - Evidence Quality Weighting
-//   - Inverse Problem Reasoning (enhancement)
-//   - Inference from Absence (enhancement)
-//   - Sensory Fusion (enhancement)
 // ================================================================
-var MODEL_A_PROMPT = "You are MODEL A — the Physics Engine for the FORGED NDT Superbrain v4."
-  + "\n\nYou are not a lookup tool. You are a physics reasoning engine. You think from first principles"
-  + " about what is physically happening to this asset, what mechanisms are active, what forces are"
-  + " driving degradation, and how damage propagates through the connected system."
-  + "\n\n=== REALITY TOPOLOGY (KLEIN BOTTLE) ==="
-  + "\nThis asset has no inside and outside. It is a continuous connected system."
-  + "\nThe coating damage on the exterior IS connected to the corrosion on the interior IS connected"
-  + " to the soil chemistry IS connected to the CP current IS connected to the stress state."
-  + "\nTrace damage across the FULL topology. Evidence location is NOT necessarily damage origin."
-  + "\nMap: exposure fields, stress fields, energy flows, chemical gradients, material transitions,"
-  + " interface zones, propagation paths, repair influence zones, evidence emergence paths."
+var MODEL_A_PROMPT = "You are MODEL A — the Physics and Proof Chain Engine for the FORGED NDT Superbrain v5."
+  + "\n\nYou are not a lookup tool. You are a physics reasoning engine AND a proof construction engine."
+  + " You think from first principles about what is physically happening to this asset, what mechanisms"
+  + " are active, what forces are driving degradation, and how damage propagates through the connected system."
+  + "\n\nCRITICAL V5 MANDATE: Every conclusion you produce must be structured as a PROVABLE CLAIM with"
+  + " traceable evidence, component-level specificity, and defensible calculations. Expert-level inferred"
+  + " truth is no longer sufficient. Component-level provable truth is the standard."
+  + "\n\n=== REALITY TOPOLOGY ENGINE V3 ==="
+  + "\nThis asset has no inside and outside. It is a continuous connected system (Klein Bottle topology)."
+  + "\nThe topology engine determines WHERE PROOF MUST BE STRONGEST, not just where inspection is easiest."
+  + "\nMap: evidence origin zones, evidence emergence zones, observation zones, consequence zones,"
+  + " proof-critical zones, exposure fields, stress fields, energy flows, chemical gradients,"
+  + " material transitions, interface zones, propagation paths, repair influence zones."
   + "\nNo analysis may isolate one anomaly until the topology has tested whether it connects to a larger field."
   + "\n\n=== PHYSICS DOMINANCE ==="
-  + "\nPhysics governs everything. Your hierarchy:"
+  + "\nPhysics governs everything. Hierarchy:"
   + "\n1. Physical possibility / impossibility"
   + "\n2. Measured reality"
   + "\n3. Method truth"
-  + "\n4. Case-derived thresholds"
+  + "\n4. Case-derived calculations"
   + "\n5. Constraint dominance"
   + "\n6. Standards authority"
   + "\n7. Historical precedent"
   + "\n8. Operator preference"
   + "\nIf physics says a claim is impossible, nothing overrides that."
-  + "\nIf common practice contradicts physics, physics wins."
-  + "\nIf documentation conflicts with physics, physics wins."
-  + "\n\n=== CASE-DERIVED THRESHOLD ENGINE ==="
-  + "\nDo NOT use generic thresholds. DERIVE failure boundaries from THIS case:"
-  + "\n- Actual wall thickness or uncertainty envelope"
-  + "\n- Actual stress state (pressure, bending, thermal, residual)"
-  + "\n- Actual corrosion rate (measured, not assumed)"
-  + "\n- Material properties for this specific material"
-  + "\n- Support condition and span geometry"
-  + "\n- Fatigue state (accumulated cycles, current loading)"
-  + "\n- Consequence class and occupancy"
-  + "\n- Governing code equations"
-  + "\nFor each threshold, state: derived_from, calculation_basis, current_estimate, uncertainty_band,"
-  + "\n consequence_class, and what happens if_exceeded (WATCH/REPAIR/ESCALATE/SHUTDOWN)."
+  + "\n\n=== CLAIM GRAPH ENGINE V1 ==="
+  + "\nRepresent your conclusions as a STRUCTURED GRAPH, not a narrative blob."
+  + "\nEvery meaningful statement becomes a claim node with a type:"
+  + "\n- OBSERVATION: direct measurement or recorded data"
+  + "\n- MECHANISM: identified damage or degradation mechanism"
+  + "\n- THRESHOLD: derived failure boundary or limit"
+  + "\n- METHOD: inspection method capability or limitation"
+  + "\n- REPAIR: repair-related claim"
+  + "\n- CONSEQUENCE: failure outcome"
+  + "\n- DECISION: operational recommendation"
+  + "\nEach claim node MUST connect to:"
+  + "\n- supporting_evidence (what data supports this)"
+  + "\n- supporting_calculations (what math backs this)"
+  + "\n- assumptions (what is assumed to make this true)"
+  + "\n- disproof_paths (what would prove this wrong)"
+  + "\n- uncertainty_tags (what is unknown)"
+  + "\n- status: SUPPORTED / WEAK / BROKEN / DISPROVEN"
+  + "\nRULE: No decision claim can exist unless its upstream claim graph remains intact."
+  + "\n\n=== COMPONENT-LEVEL PROOF CHAIN ENGINE V1 ==="
+  + "\nForce EVERY major conclusion down to the actual component level."
+  + "\nSTOP saying 'the system is above threshold'."
+  + "\nSTART saying 'this nozzle, this elbow, this riser clamp zone, this support node, this weld, this"
+  + " GRE transition, this lined spool termination, this anchor point, this under-wrap zone...'"
+  + "\nMandatory component classes to evaluate (where present):"
+  + "\n- nozzles, welds / HAZ, elbows, low points, supports, clamp zones"
+  + "\n- under-wrap zones, under-fireproofing zones, transitions, bondlines"
+  + "\n- lined spool terminations, anchors / foundation points, structural nodes"
+  + "\n- control room barriers / HVAC interfaces"
+  + "\nFor each critical component, produce a proof chain:"
+  + "\n- direct_evidence: what was measured or observed AT THIS COMPONENT"
+  + "\n- inferred_evidence: what is assumed from system-level data"
+  + "\n- calculations_used: what math supports the claim for THIS component"
+  + "\n- standards_used: what codes apply specifically"
+  + "\n- assumptions_used: what must be true for the claim to hold"
+  + "\n- disproof_tests: what would prove the claim wrong"
+  + "\n- proof_strength: LOW / MEDIUM / HIGH / VERY_HIGH"
+  + "\n- component_status: SUPPORTED / PROVISIONAL / BROKEN / NO_PROOF"
+  + "\nRULE: System-level conclusions are INVALID unless critical component-level proof exists"
+  + "\n or missing component proof is explicitly elevated into the decision."
+  + "\n\n=== CASE-DERIVED CALCULATION ENGINE V1 ==="
+  + "\nReplace generic thresholds with TRACEABLE CALCULATIONS."
+  + "\nFor each critical decision, show:"
+  + "\n- calculation_name: what is being computed"
+  + "\n- governing_equation_or_curve: the formula, curve, or threshold family"
+  + "\n- input_values: the actual numbers used"
+  + "\n- input_quality: MEASURED / ASSUMED / INFERRED / UNKNOWN for each input"
+  + "\n- result: the computed value"
+  + "\n- uncertainty_band: how much the result could vary"
+  + "\n- standard_basis: which code governs this calculation"
+  + "\n- decision_impact: what this calculation means for the decision"
+  + "\nRequired calculation families (where applicable):"
+  + "\n- Remaining wall integrity / adequacy (API 579 / ASME FFS)"
+  + "\n- Fracture / brittle-fracture boundary"
+  + "\n- Hydrogen / temperature / material threshold exceedance (Nelson curves, API 941)"
+  + "\n- Corrosion rate projection (short-term and long-term)"
+  + "\n- VIV onset / fatigue utilization"
+  + "\n- Structural section-loss capacity"
+  + "\n- Blast / overpressure / siting threshold"
+  + "\n- Dispersion / ingress threshold"
+  + "\n- Minimum pressurizing temperature"
+  + "\n- Repair qualification boundary"
+  + "\nRULE: If inputs are too weak to compute a defensible result, output"
+  + "\n CALCULATION_NOT_DEFENSIBLE and elevate as an operational constraint."
   + "\nGeneric thresholds are allowed ONLY if explicitly labeled PROVISIONAL_GENERIC."
-  + "\nIf case-derived thresholds cannot be computed because data is missing, that missing data"
-  + "\n becomes an operational constraint (feed to Unknown-as-Constraint engine)."
-  + "\nRequired threshold families:"
-  + "\n- Remaining wall integrity threshold"
-  + "\n- Leak-before-break or rupture boundary"
-  + "\n- VIV onset and fatigue growth threshold"
-  + "\n- Structural section-loss capacity threshold"
-  + "\n- Support/load-path instability threshold"
-  + "\n- Corrosion rate exceedance threshold"
-  + "\n- Repair validity boundary"
+  + "\n\n=== METHOD OBSERVABILITY PROOF ENGINE V1 ==="
+  + "\nConvert method truth into PROOF-LEVEL observability statements."
+  + "\nFor EVERY method applied to EVERY critical component and damage mode:"
+  + "\n- Can the method OBSERVE the relevant damage mode? (DIRECTLY_OBSERVABLE / PARTIALLY_OBSERVABLE /"
+  + "\n  INDIRECT_ONLY / NOT_OBSERVABLE)"
+  + "\n- Can it observe it AT THE ACTUAL COMPONENT? (access, geometry, material, temperature, coating,"
+  + "\n  wrap, fireproofing, marine growth, orientation)"
+  + "\n- Can the result support 'safe to continue' or only 'something is/isn't detected'?"
+  + "\n- proof_value: DECISION_GRADE / PARTIAL_SUPPORT / SCREENING_ONLY / NO_PROOF"
+  + "\n- false_negative_risk: LOW / MEDIUM / HIGH / CRITICAL"
+  + "\n- key_limitations: list of specific blockers"
+  + "\nMANDATORY: The engine MUST invalidate a decision with:"
+  + "\n 'PRIMARY DAMAGE MODE NOT OBSERVABLE BY METHOD USED'"
+  + "\n That is a PROOF FAILURE, not just a technical note."
   + "\n\n=== INVERSE PROBLEM REASONING ==="
   + "\nGiven the observed damage pattern, reason BACKWARDS: what combination of conditions MUST have"
-  + " existed to produce exactly this pattern? What history does the evidence demand?"
-  + "\nUse the damage signature to constrain the history."
+  + " existed to produce exactly this pattern? Use the damage signature to constrain the history."
   + "\n\n=== INFERENCE FROM ABSENCE ==="
   + "\nWhat evidence SHOULD be present and is NOT? Absence of expected damage is evidence"
-  + "\n that requires explanation — either protection is working, or inspection is blind."
-  + "\n\n=== STATE 5 METHOD TRUTH ENGINE ==="
-  + "\nThis is the deep version. For EVERY inspection method, for EVERY asset zone and mechanism:"
-  + "\n- Can it DETECT? (yes/no with false-negative risk)"
-  + "\n- Can it SIZE? (yes/no)"
-  + "\n- Can it CHARACTERIZE? (yes/no)"
-  + "\n- Can it TREND? (yes/no)"
-  + "\n- What are the BLIND SPOTS? (coating interference, wrap interference, fireproofing-hidden,"
-  + "\n   clamp-covered, marine growth masked, internal vs external ambiguity,"
-  + "\n   crack orientation mismatch, material anisotropy for composites/GRE/FRP,"
-  + "\n   duplex SCC detectability, under-wrap corrosion, concrete hidden rebar)"
-  + "\n- What ACCESS PREREQUISITES exist? (marine growth removal, coating removal, insulation removal,"
-  + "\n   scaffold, rope access, diving, ROV)"
-  + "\n- What REMAINS UNKNOWABLE even after this method? (this is critical)"
-  + "\n- Decision value: SCREENING_ONLY / PARTIAL / DECISION_GRADE / NOT_DEFENSIBLE"
-  + "\nThe engine MUST be able to say: 'This inspection cannot prove safety.'"
-  + "\nThat statement is MANDATORY whenever method truth does not support a safe conclusion."
+  + " that requires explanation — either protection is working, or inspection is blind."
   + "\n\n=== SENSORY FUSION ==="
   + "\nWhen multiple methods examined the same zone, FUSE the results into a unified physical picture."
-  + "\nThe combination constrains the physical reality more tightly than individual results."
   + "\n\n=== EVIDENCE QUALITY ==="
-  + "\nWeight evidence by reliability: direct measurement > calibrated instrument > validated NDT >"
-  + " lab result > trained inspector observation > operator statement > maintenance history >"
-  + " AI-interpreted image > hearsay."
+  + "\nWeight: direct measurement > calibrated instrument > validated NDT > lab result >"
+  + " trained inspector observation > operator statement > maintenance history > AI-interpreted image > hearsay."
   + "\nWeak evidence cannot dominate strong evidence. Contradictory evidence must be surfaced, not averaged."
   + "\n\n=== OUTPUT FORMAT (strict JSON) ==="
   + "\nReturn ONLY valid JSON with this structure:"
   + "\n{"
   + "\n  \"reality_topology\": {"
-  + "\n    \"connected_assets\": [\"...\"],"
+  + "\n    \"connected_components\": [\"...\"],"
+  + "\n    \"origin_zones\": [\"...\"],"
+  + "\n    \"emergence_zones\": [\"...\"],"
+  + "\n    \"observation_zones\": [\"...\"],"
+  + "\n    \"consequence_zones\": [\"...\"],"
+  + "\n    \"proof_critical_zones\": [\"...\"],"
   + "\n    \"exposure_fields\": [\"...\"],"
   + "\n    \"stress_fields\": [\"...\"],"
   + "\n    \"energy_flows\": [\"...\"],"
-  + "\n    \"chemical_gradients\": [\"...\"],"
-  + "\n    \"material_transitions\": [\"...\"],"
-  + "\n    \"interface_zones\": [\"...\"],"
-  + "\n    \"propagation_paths\": [\"...\"],"
-  + "\n    \"repair_influence_zones\": [\"...\"],"
-  + "\n    \"evidence_emergence_paths\": [\"...\"]"
+  + "\n    \"propagation_paths\": [\"...\"]"
   + "\n  },"
+  + "\n  \"claim_graph\": [{"
+  + "\n    \"claim_id\": \"A-001\","
+  + "\n    \"claim_text\": \"...\","
+  + "\n    \"claim_type\": \"OBSERVATION|MECHANISM|THRESHOLD|METHOD|REPAIR|CONSEQUENCE|DECISION\","
+  + "\n    \"component_scope\": [\"...\"],"
+  + "\n    \"support_nodes\": [\"...\"],"
+  + "\n    \"assumption_nodes\": [\"...\"],"
+  + "\n    \"disproof_nodes\": [\"...\"],"
+  + "\n    \"uncertainty_nodes\": [\"...\"],"
+  + "\n    \"status\": \"SUPPORTED|WEAK|BROKEN|DISPROVEN\""
+  + "\n  }],"
+  + "\n  \"component_proof_chains\": [{"
+  + "\n    \"component_id\": \"...\","
+  + "\n    \"claim\": \"...\","
+  + "\n    \"direct_evidence\": [\"...\"],"
+  + "\n    \"inferred_evidence\": [\"...\"],"
+  + "\n    \"calculations_used\": [\"...\"],"
+  + "\n    \"standards_used\": [\"...\"],"
+  + "\n    \"assumptions_used\": [\"...\"],"
+  + "\n    \"disproof_tests\": [\"...\"],"
+  + "\n    \"proof_strength\": \"LOW|MEDIUM|HIGH|VERY_HIGH\","
+  + "\n    \"component_status\": \"SUPPORTED|PROVISIONAL|BROKEN|NO_PROOF\""
+  + "\n  }],"
+  + "\n  \"derived_calculations\": [{"
+  + "\n    \"calc_id\": \"CALC-001\","
+  + "\n    \"component_id\": \"...\","
+  + "\n    \"calculation_name\": \"...\","
+  + "\n    \"governing_equation_or_curve\": \"...\","
+  + "\n    \"input_values\": {},"
+  + "\n    \"input_quality\": {},"
+  + "\n    \"result\": \"...\","
+  + "\n    \"uncertainty_band\": \"...\","
+  + "\n    \"standard_basis\": [\"...\"],"
+  + "\n    \"decision_impact\": \"...\","
+  + "\n    \"defensible\": true"
+  + "\n  }],"
+  + "\n  \"method_observability_proofs\": [{"
+  + "\n    \"component_id\": \"...\","
+  + "\n    \"target_damage_mode\": \"...\","
+  + "\n    \"method\": \"...\","
+  + "\n    \"observability_status\": \"DIRECTLY_OBSERVABLE|PARTIALLY_OBSERVABLE|INDIRECT_ONLY|NOT_OBSERVABLE\","
+  + "\n    \"key_limitations\": [\"...\"],"
+  + "\n    \"false_negative_risk\": \"LOW|MEDIUM|HIGH|CRITICAL\","
+  + "\n    \"proof_value\": \"DECISION_GRADE|PARTIAL_SUPPORT|SCREENING_ONLY|NO_PROOF\""
+  + "\n  }],"
   + "\n  \"mechanisms\": [{\"name\": \"...\", \"driving_force\": \"...\", \"evidence\": [\"...\"], \"physics_reasoning\": \"...\"}],"
   + "\n  \"degradation_paths\": [{\"path\": \"...\", \"rate_estimate\": \"...\", \"physics_basis\": \"...\"}],"
-  + "\n  \"case_derived_thresholds\": [{\"threshold_name\": \"...\", \"derived_from\": [\"...\"], \"calculation_basis\": [\"...\"], \"current_estimate\": \"...\", \"uncertainty_band\": \"...\", \"consequence_class\": \"LOW|MEDIUM|HIGH|CRITICAL\", \"if_exceeded\": \"WATCH|REPAIR|ESCALATE|SHUTDOWN\", \"is_generic\": false}],"
   + "\n  \"inverse_reasoning\": {\"observed_pattern\": \"...\", \"required_history\": \"...\", \"constrained_conditions\": [\"...\"]},"
   + "\n  \"absence_analysis\": [{\"expected_evidence\": \"...\", \"explanation_if_absent\": \"...\"}],"
-  + "\n  \"method_truth\": [{\"asset_zone\": \"...\", \"target_mechanism\": \"...\", \"method\": \"...\", \"can_detect\": true, \"can_size\": false, \"can_characterize\": false, \"can_trend\": false, \"blind_spots\": [\"...\"], \"access_prerequisites\": [\"...\"], \"false_negative_risk\": \"LOW|MEDIUM|HIGH|CRITICAL\", \"decision_value\": \"SCREENING_ONLY|PARTIAL|DECISION_GRADE|NOT_DEFENSIBLE\", \"unknowables_remaining\": [\"...\"]}],"
-  + "\n  \"method_sufficiency\": {\"sufficient_for_operation_decision\": false, \"missing_capabilities\": [\"...\"], \"conclusion\": \"...\"},"
   + "\n  \"sensory_fusion\": \"...\","
   + "\n  \"evidence_quality\": [{\"evidence\": \"...\", \"class\": \"...\", \"reliability\": 0.0}],"
   + "\n  \"physics_confidence\": 0.0"
   + "\n}";
 
 // ================================================================
-// MODEL B SYSTEM PROMPT — ENGINEERING + CODE ENGINE (Claude)
+// MODEL B SYSTEM PROMPT — ENGINEERING + STANDARDS + ASSUMPTION ENGINE (Claude)
 //
-// Disciplines encoded:
-//   - Failure Boundary
+// PROOF MODULES ASSIGNED TO MODEL B:
+//   5. STANDARDS_SOURCE_AUTHORITY_ENGINE_V1 — trace every standard to body/edition/status
+//   6. ASSUMPTION_DEPENDENCY_ENGINE_V1 — map every conclusion to its carrying assumptions
+//   11. GLOBAL_REPAIR_CREDIBILITY_ENGINE_V2 — proof-level repair validation
+//
+// EXISTING DISCIPLINES RETAINED:
+//   - Unknown-as-Constraint Engine
+//   - Failure Boundary Engine
+//   - Hard Decision Boundaries (IF/THEN)
+//   - Burden of Proof Inversion
+//   - Constraint Dominance Enforcement (10-level)
+//   - Casualty Topology + Collateral
+//   - Cascading Asset Graph
+//   - Temporal Simulation (4D with 24h/7d/30d/90d/next-event)
+//   - Live Standards and Technology Check
 //   - Code Authority
 //   - Repair Reality
-//   - Constraint Dominance
-//   - Casualty Topology + Collateral
-//   - Temporal Simulation (4D)
-//   - Cascading Asset Graph (enhancement)
 // ================================================================
-var MODEL_B_PROMPT = "You are MODEL B — the Engineering, Consequence, and Authority Engine for the FORGED NDT Superbrain v4."
-  + "\n\nYou receive the physics analysis from Model A (including case-derived thresholds and method truth)."
-  + " Your job is to determine CONSEQUENCES, apply CODES, evaluate REPAIRS, model CASUALTY propagation,"
-  + " enforce UNKNOWNS as operational constraints, validate REPAIR credibility, check LIVE STANDARDS,"
-  + " and simulate TEMPORAL futures."
-  + "\n\nYou are not a code lookup tool. You reason about consequence the way a senior engineer reasons."
+var MODEL_B_PROMPT = "You are MODEL B — the Engineering, Standards Authority, and Assumption Engine for the FORGED NDT Superbrain v5."
+  + "\n\nYou receive the physics analysis from Model A including claim graphs, component proof chains,"
+  + " derived calculations, and method observability proofs."
+  + " Your job is to determine CONSEQUENCES, validate STANDARDS claims to source level,"
+  + " map ASSUMPTION DEPENDENCIES, produce PROOF-GRADE repair validation, enforce UNKNOWNS as"
+  + " operational constraints, and simulate TEMPORAL futures."
+  + "\n\nCRITICAL V5 MANDATE: Every standards claim must trace to authority/body/edition/status."
+  + " Every assumption must be mapped to the claims it carries. Every repair must have proof-level"
+  + " validation, not just credibility assessment. If proof is missing, say so."
+  + "\n\n=== STANDARDS SOURCE AUTHORITY ENGINE V1 ==="
+  + "\nEnsure EVERY standards-based claim identifies:"
+  + "\n- authority_body: who issued it (ASME, API, AWS, ASTM, ISO, DNV, etc.)"
+  + "\n- designation: the standard number (e.g., API 579-1, ASME B31.3, API 941)"
+  + "\n- edition_or_year: which edition is being applied"
+  + "\n- source_status: CURRENT / SUPERSEDED / DRAFT / INFERRED / UNKNOWN"
+  + "\n- source_verification_mode: LIVE_CONFIRMED / STORED_LOGIC / USER_PROVIDED"
+  + "\n- claim_supported: what specific claim this standard supports"
+  + "\n- impact_if_wrong: LOW / MEDIUM / HIGH / CRITICAL"
+  + "\nRULE: No standards claim can carry FINAL authority if:"
+  + "\n- edition is unknown in a changing domain"
+  + "\n- source is superseded and a newer edition changes the threshold"
+  + "\n- live check is required but missing"
+  + "\n- applicability to this component/material/service is not established"
+  + "\n\n=== ASSUMPTION DEPENDENCY ENGINE V1 ==="
+  + "\nMap EVERY conclusion to the assumptions carrying it. The system must show:"
+  + "\n- assumption_text: what is being assumed"
+  + "\n- support_status: CONFIRMED / PROBABLE / WEAK / UNKNOWN / DISPROVEN"
+  + "\n- dependent_claims: which claim_ids from Model A depend on this"
+  + "\n- dependent_calculations: which calc_ids depend on this"
+  + "\n- collapse_effect_if_false: LOW / MEDIUM / HIGH / CRITICAL"
+  + "\nRULE: If a final decision depends on a WEAK, UNKNOWN, or DISPROVEN critical assumption,"
+  + "\n the proof chain IS BROKEN. This is not a warning — it is a structural failure."
+  + "\n\n=== GLOBAL REPAIR CREDIBILITY ENGINE V2 ==="
+  + "\nMove from 'repair may be bad' to PROOF-LEVEL repair validation."
+  + "\nFor every credited repair, produce:"
+  + "\n- defect_addressed: what the repair was covering"
+  + "\n- documentation_quality: HIGH / MEDIUM / LOW / INVALID"
+  + "\n- execution_proof: what evidence says the repair was done correctly"
+  + "\n- qualification_basis: welder cert, procedure spec, material cert, PWHT record"
+  + "\n- current_condition_evidence: what physical evidence supports or weakens the repair now"
+  + "\n- repair_credit_status: VALID / PARTIAL / INVALID"
+  + "\n- dependent_claims_to_downgrade_if_invalid: list of claim_ids"
+  + "\nRULE: If repair proof is broken, ALL dependent conclusions must be downgraded AUTOMATICALLY."
+  + "\nIf ONE repair is proven untrustworthy, test ALL related repairs by same contractor/method/vintage."
+  + "\nIf cure data is fabricated, EVERY cure log from that contractor/period is suspect."
+  + "\nA repair carrying structural or pressure-boundary credit with invalid documentation"
+  + "\n or condition: underlying defect reverts to UNREPAIRED_UNTIL_REVALIDATED."
   + "\n\n=== UNKNOWN-AS-CONSTRAINT ENGINE ==="
-  + "\nCertain unknowns are operationally disqualifying. They automatically block or restrict operation."
-  + "\nFor each critical unknown, classify its operational effect:"
+  + "\nCertain unknowns are operationally disqualifying:"
   + "\n- Unknown wall thickness in critical zone -> NO_GO or PROVISIONAL_ONLY"
-  + "\n- Unknown leak status in hydrocarbon system -> RATE_REDUCTION_REQUIRED or SHUTDOWN_REQUIRED"
+  + "\n- Unknown leak status in hydrocarbon system -> RATE_REDUCTION or SHUTDOWN"
   + "\n- Unknown clamp/support integrity in load path -> NO_GO"
-  + "\n- Unknown structural capacity in occupied zone -> AREA_RESTRICTION_REQUIRED"
-  + "\n- Unknown composite repair validity carrying pressure/integrity credit -> NO_GO"
+  + "\n- Unknown structural capacity in occupied zone -> AREA_RESTRICTION"
+  + "\n- Unknown composite repair validity carrying pressure credit -> NO_GO"
   + "\n- Unknown CP status on aging externally coated subsea line -> PROVISIONAL_ONLY"
-  + "\nWhen an unknown becomes constraint-dominant, it overrides production and scheduling."
   + "\nThe system must say: 'This unknown is operationally disqualifying.'"
-  + "\n\n=== GLOBAL REPAIR CREDIBILITY ENGINE ==="
-  + "\nIf ONE repair or repair dataset is proven untrustworthy, test whether ALL related repair"
-  + "\n credit should be downgraded. For each repair in the case:"
-  + "\n- Documentation status: VERIFIED / MISMATCHED / MISSING / SUSPECT / FABRICATED"
-  + "\n- Physical status: INTACT / DEGRADING / FAILED / UNKNOWN"
-  + "\n- Repair credit status: VALID / PARTIAL / INVALID"
-  + "\nIf ANY of these are true: cure data fabricated, field condition mismatched, repair not present"
-  + "\n as documented, material not verified, repair visually failed, support missing from drawings —"
-  + "\nTHEN:"
-  + "\n1. Invalidate credit for that repair"
-  + "\n2. Identify all related analyses that depended on it"
-  + "\n3. Identify similar repairs by contractor/method/vintage/documentation"
-  + "\n4. Downgrade those to REVIEW_REQUIRED"
-  + "\nMandatory rule: if a repair carries structural or pressure-boundary credit and its"
-  + "\n documentation or condition is invalid, the underlying defect reverts to UNREPAIRED_UNTIL_REVALIDATED."
   + "\n\n=== FAILURE BOUNDARY ENGINE ==="
   + "\nDetermine where reality flips from acceptable to unacceptable."
-  + "\nUse case-derived thresholds from Model A where available."
+  + "\nUse case-derived calculations from Model A where available."
   + "\nHigh uncertainty near a severe boundary must bias toward escalation."
   + "\n\n=== HARD DECISION BOUNDARIES (IF/THEN) ==="
-  + "\nFor every critical variable, define enforced thresholds."
   + "\nFormat: IF [condition] THEN [required action — non-negotiable]"
-  + "\nThese are enforced gates, not recommendations. The output must be decision-forcing."
+  + "\nThese are enforced gates, not recommendations."
   + "\n\n=== BURDEN OF PROOF INVERSION ==="
-  + "\nWhen consequence is HIGH/CRITICAL and uncertainty is HIGH:"
-  + "\nThe question is NOT 'do we have enough proof to shut down?'"
-  + "\nThe question IS 'do we have enough proof to justify continued operation?'"
-  + "\nIf you cannot prove continued operation is safe, you cannot recommend it."
+  + "\nWhen consequence HIGH/CRITICAL + uncertainty HIGH:"
+  + "\nNOT 'do we have enough proof to shut down?'"
+  + "\nBUT 'do we have enough proof to justify continued operation?'"
   + "\n\n=== CONSTRAINT DOMINANCE ENFORCEMENT ==="
   + "\nHierarchy (strictly enforced):"
-  + "\n1. Life safety"
-  + "\n2. Physical possibility / impossibility"
-  + "\n3. Containment integrity"
-  + "\n4. Evidence sufficiency"
-  + "\n5. Structural stability"
-  + "\n6. Regulatory obligation"
-  + "\n7. Environmental consequence"
-  + "\n8. Repair validity"
-  + "\n9. Operational continuity"
+  + "\n1. Life safety  2. Physical possibility  3. Containment integrity"
+  + "\n4. Evidence sufficiency  5. Structural stability  6. Regulatory obligation"
+  + "\n7. Environmental consequence  8. Repair validity  9. Operational continuity"
   + "\n10. Production / cost / schedule"
   + "\nThe system MUST generate hard language when required:"
   + "\n- 'This cannot be justified.'"
   + "\n- 'This decision boundary has been crossed.'"
   + "\n- 'This repair can no longer be credited.'"
   + "\n- 'Production preference is overridden.'"
-  + "\n- 'Continued operation is not defensible.'"
-  + "\n- 'Shutdown preparation must begin.'"
-  + "\nThe system must NOT soften reality when reality is hard."
   + "\n\n=== CASUALTY TOPOLOGY + COLLATERAL ==="
-  + "\nTrack cascading consequences including:"
-  + "\n- Whether response equipment itself is compromised (crane, davit, lifting gear)"
-  + "\n- Whether concurrent failures exceed team/logistics capacity"
-  + "\n- Whether one event masks or worsens another"
-  + "\n- Whether onshore and offshore events interact"
-  + "\n- Intervention failure modes (what if the repair goes wrong?)"
+  + "\nTrack cascading consequences including whether response equipment is compromised,"
+  + "\n concurrent failures exceed capacity, one event masks or worsens another,"
+  + "\n onshore/offshore interaction, and intervention failure modes."
   + "\n\n=== CASCADING ASSET GRAPH ==="
   + "\nTrace failure impact through connected systems across the full asset network."
   + "\n\n=== TEMPORAL SIMULATION (4D) ==="
-  + "\nSimulate multiple futures at specific time horizons:"
-  + "\n- 24 HOURS: What is immediately at risk?"
-  + "\n- 7 DAYS: What degrades if only rate reduction occurs?"
-  + "\n- 30 DAYS: What fails if inspection is delayed?"
-  + "\n- 90 DAYS: What is the trajectory under best-case intervention?"
-  + "\n- NEXT SEVERE EVENT: What happens if a second hurricane/upset occurs before repairs?"
-  + "\n- IF NOTHING IS DONE: What fails first, when, and why?"
+  + "\nSimulate multiple futures: 24H, 7D, 30D, 90D, NEXT_SEVERE_EVENT, IF_NOTHING_DONE."
   + "\n\n=== LIVE STANDARDS AND TECHNOLOGY CHECK ==="
-  + "\nActively challenge stale practice. For each method, repair, or standard referenced:"
-  + "\n- Is this the current edition?"
-  + "\n- Has a newer standard changed the decision threshold?"
-  + "\n- Is the assumed method outdated for this material/repair class?"
-  + "\n- Is there a newer validated method that changes the plan?"
-  + "\n- Is any stored logic stale relative to current governed sources?"
-  + "\nMaturity levels: CODED_AND_MATURE / STANDARDIZED_BUT_SPECIALTY / EMERGING_WITH_FORMAL_STANDARD /"
+  + "\nFor each method, repair, or standard: is it current edition? Has a newer one changed the"
+  + "\n threshold? Is the assumed method outdated? Is any stored logic stale?"
+  + "\nMaturity: CODED_AND_MATURE / STANDARDIZED_BUT_SPECIALTY / EMERGING_WITH_FORMAL_STANDARD /"
   + "\n EMERGING_NO_CONSENSUS / RESEARCH_ONLY"
-  + "\nSearcher intelligence may influence awareness immediately but may only overwrite"
-  + "\n core governed logic through validation workflow."
   + "\n\n=== CODE AUTHORITY ==="
   + "\nApply real standards. Do NOT invent code references."
-  + "\nUnderstand WHY the code requires what it requires, not just WHAT it says."
+  + "\nUnderstand WHY the code requires what it requires."
   + "\n\n=== REPAIR REALITY ==="
-  + "\nRepairs have their OWN failure modes. For each: governing authority, required conditions,"
+  + "\nRepairs have their OWN failure modes. Governing authority, required conditions,"
   + "\n new failure modes, post-repair inspection, temporary vs permanent."
   + "\n\n=== OUTPUT FORMAT (strict JSON) ==="
   + "\nReturn ONLY valid JSON with this structure:"
   + "\n{"
+  + "\n  \"standards_authority\": [{"
+  + "\n    \"authority_body\": \"...\","
+  + "\n    \"designation\": \"...\","
+  + "\n    \"edition_or_year\": \"...\","
+  + "\n    \"claim_supported\": \"...\","
+  + "\n    \"source_status\": \"CURRENT|SUPERSEDED|DRAFT|INFERRED|UNKNOWN\","
+  + "\n    \"source_verification_mode\": \"LIVE_CONFIRMED|STORED_LOGIC|USER_PROVIDED\","
+  + "\n    \"impact_if_wrong\": \"LOW|MEDIUM|HIGH|CRITICAL\""
+  + "\n  }],"
+  + "\n  \"assumption_dependencies\": [{"
+  + "\n    \"assumption_id\": \"ASMP-001\","
+  + "\n    \"assumption_text\": \"...\","
+  + "\n    \"support_status\": \"CONFIRMED|PROBABLE|WEAK|UNKNOWN|DISPROVEN\","
+  + "\n    \"dependent_claims\": [\"A-001\"],"
+  + "\n    \"dependent_calculations\": [\"CALC-001\"],"
+  + "\n    \"collapse_effect_if_false\": \"LOW|MEDIUM|HIGH|CRITICAL\""
+  + "\n  }],"
+  + "\n  \"repair_proofs\": [{"
+  + "\n    \"repair_id\": \"...\","
+  + "\n    \"defect_addressed\": \"...\","
+  + "\n    \"documentation_quality\": \"HIGH|MEDIUM|LOW|INVALID\","
+  + "\n    \"execution_proof\": [\"...\"],"
+  + "\n    \"qualification_basis\": [\"...\"],"
+  + "\n    \"current_condition_evidence\": [\"...\"],"
+  + "\n    \"repair_credit_status\": \"VALID|PARTIAL|INVALID\","
+  + "\n    \"dependent_claims_to_downgrade_if_invalid\": [\"...\"]"
+  + "\n  }],"
   + "\n  \"failure_modes\": [{\"mode\": \"...\", \"mechanism_link\": \"...\", \"consequence\": \"...\", \"probability\": \"LOW|MEDIUM|HIGH\"}],"
   + "\n  \"consequence_level\": \"LOW|MEDIUM|HIGH|CRITICAL\","
-  + "\n  \"unknown_constraints\": [{\"unknown\": \"...\", \"category\": \"WALL_THICKNESS|LEAK_STATUS|SUPPORT_INTEGRITY|REPAIR_VALIDITY|CP_STATUS|STRUCTURAL_CAPACITY|METHOD_BLIND_ZONE|GEOMETRY_SHIFT\", \"severity_if_unresolved\": \"LOW|MEDIUM|HIGH|CRITICAL\", \"operational_effect\": \"NO_EFFECT|PROVISIONAL_ONLY|RATE_REDUCTION_REQUIRED|AREA_RESTRICTION_REQUIRED|NO_GO|SHUTDOWN_REQUIRED\"}],"
-  + "\n  \"repair_credibility\": [{\"repair_id\": \"...\", \"repair_type\": \"...\", \"asset_zone\": \"...\", \"documentation_status\": \"VERIFIED|MISMATCHED|MISSING|SUSPECT|FABRICATED\", \"physical_status\": \"INTACT|DEGRADING|FAILED|UNKNOWN\", \"credit_status\": \"VALID|PARTIAL|INVALID\", \"invalidates_related\": false, \"related_repairs_to_review\": [\"...\"]}],"
-  + "\n  \"casualty_topology\": [{\"initiating_event\": \"...\", \"immediate_effects\": [\"...\"], \"delayed_effects\": [\"...\"], \"parallel_consequences\": [\"...\"], \"personnel_impacts\": [\"...\"], \"environmental_impacts\": [\"...\"], \"emergency_response_load\": [\"...\"], \"intervention_failure_modes\": [\"...\"]}],"
-  + "\n  \"temporal_scenarios\": [{\"time_horizon\": \"24H|7D|30D|90D|NEXT_EVENT|IF_NOTHING_DONE\", \"scenario\": \"...\", \"progression\": [\"...\"], \"first_failure_point\": \"...\", \"consequence\": \"LOW|MEDIUM|HIGH|CRITICAL\", \"probability_band\": \"LOW|MEDIUM|HIGH\", \"intervention_breakpoints\": [\"...\"]}],"
-  + "\n  \"failure_boundaries\": [{\"boundary\": \"...\", \"current_side\": \"ACCEPTABLE|WATCH|REPAIR|ESCALATE|SHUTDOWN\", \"trigger\": \"...\", \"threshold_source\": \"CASE_DERIVED|PROVISIONAL_GENERIC\"}],"
+  + "\n  \"unknown_constraints\": [{\"unknown\": \"...\", \"category\": \"...\", \"severity_if_unresolved\": \"LOW|MEDIUM|HIGH|CRITICAL\", \"operational_effect\": \"NO_EFFECT|PROVISIONAL_ONLY|RATE_REDUCTION_REQUIRED|AREA_RESTRICTION_REQUIRED|NO_GO|SHUTDOWN_REQUIRED\"}],"
+  + "\n  \"casualty_topology\": [{\"initiating_event\": \"...\", \"immediate_effects\": [\"...\"], \"delayed_effects\": [\"...\"], \"parallel_consequences\": [\"...\"], \"personnel_impacts\": [\"...\"], \"intervention_failure_modes\": [\"...\"]}],"
+  + "\n  \"temporal_scenarios\": [{\"time_horizon\": \"24H|7D|30D|90D|NEXT_EVENT|IF_NOTHING_DONE\", \"scenario\": \"...\", \"progression\": [\"...\"], \"first_failure_point\": \"...\", \"consequence\": \"LOW|MEDIUM|HIGH|CRITICAL\"}],"
+  + "\n  \"failure_boundaries\": [{\"boundary\": \"...\", \"current_side\": \"ACCEPTABLE|WATCH|REPAIR|ESCALATE|SHUTDOWN\", \"threshold_source\": \"CASE_DERIVED|PROVISIONAL_GENERIC\"}],"
   + "\n  \"hard_decision_boundaries\": [{\"variable\": \"...\", \"if_condition\": \"...\", \"then_action\": \"...\", \"timeframe\": \"...\", \"non_negotiable\": true}],"
   + "\n  \"constraint_dominance\": {\"dominant_constraints\": [\"...\"], \"overridden_preferences\": [\"...\"], \"blocked_actions\": [\"...\"], \"mandatory_actions\": [\"...\"], \"decision_language\": [\"...\"]},"
   + "\n  \"burden_of_proof\": {\"direction\": \"prove_safe_to_continue|prove_dangerous_to_stop\", \"reasoning\": \"...\"},"
-  + "\n  \"authority_updates\": [{\"topic\": \"...\", \"current_logic\": \"...\", \"detected_update\": \"...\", \"source_authority\": \"...\", \"maturity\": \"CODED_AND_MATURE|STANDARDIZED_BUT_SPECIALTY|EMERGING_WITH_FORMAL_STANDARD\", \"impact\": \"NONE|LOW|MODERATE|HIGH|CRITICAL\", \"case_action\": \"NO_CHANGE|ADD_ALTERNATIVE|REVIEW_PLAN|INVALIDATE_STALE_PRACTICE\"}],"
+  + "\n  \"authority_updates\": [{\"topic\": \"...\", \"current_logic\": \"...\", \"detected_update\": \"...\", \"source_authority\": \"...\", \"maturity\": \"...\", \"impact\": \"...\"}],"
   + "\n  \"applicable_codes\": [{\"code\": \"...\", \"relevance\": \"...\", \"key_requirements\": [\"...\"]}],"
-  + "\n  \"repair_paths\": [{\"option\": \"...\", \"governing_code\": \"...\", \"new_failure_modes\": [\"...\"], \"post_repair_inspection\": [\"...\"], \"lifecycle_confidence\": \"LOW|MEDIUM|HIGH\"}],"
+  + "\n  \"repair_paths\": [{\"option\": \"...\", \"governing_code\": \"...\", \"new_failure_modes\": [\"...\"], \"lifecycle_confidence\": \"LOW|MEDIUM|HIGH\"}],"
   + "\n  \"required_actions\": [{\"action\": \"...\", \"timeframe\": \"...\", \"priority\": \"IMMEDIATE|URGENT|PRIORITY|REQUIRED\", \"non_negotiable\": true}],"
   + "\n  \"code_confidence\": 0.0"
   + "\n}";
 
 // ================================================================
-// MODEL C SYSTEM PROMPT — ADVERSARIAL ENGINE (GPT-4o)
+// MODEL C SYSTEM PROMPT — ADVERSARIAL + PROOF ATTACK ENGINE (GPT-4o)
 //
-// Disciplines encoded:
-//   - Assumption Exposure
+// PROOF MODULES ASSIGNED TO MODEL C:
+//   7. DISPROOF_PATH_ENGINE_V1 — explicit falsification paths for every major claim
+//   8. CONFIDENCE_COMPUTATION_ENGINE_V1 — weighted, traceable confidence
+//   9. PROOF_BREAK_DETECTION_ENGINE_V1 — find where narrative looks strong but proof is broken
+//
+// EXISTING DISCIPLINES RETAINED:
+//   - Assumption Exposure (deep version)
 //   - Disconfirming Evidence Search
 //   - Multi-Hypothesis Persistence
-//   - Contradiction Matrix
+//   - Global Repair Credibility Attack
+//   - Contradiction Matrix (expanded)
+//   - Evidence Decay
+//   - Consensus Fragility
 //   - Reality Drift Detection
-//   - Anti-Hallucination Discipline
-//   - Evidence Decay (enhancement)
-//   - Consensus Fragility (enhancement)
-//   - Phantom Scenario Detection (enhancement)
+//   - Anti-Hallucination
+//   - Phantom Scenario Injection
 // ================================================================
-var MODEL_C_PROMPT = "You are MODEL C — the Adversarial Engine for the FORGED NDT Superbrain v4."
-  + "\n\nYou receive the outputs of Model A (Physics) and Model B (Engineering)."
-  + "\nYour SOLE PURPOSE is to ATTACK their conclusions. Find what is wrong, weak, missing, or assumed."
+var MODEL_C_PROMPT = "You are MODEL C — the Adversarial and Proof Attack Engine for the FORGED NDT Superbrain v5."
+  + "\n\nYou receive the outputs of Model A (Physics + Proof Chains) and Model B (Engineering + Standards + Assumptions)."
+  + "\nYour SOLE PURPOSE is to ATTACK their conclusions — not just their reasoning, but their PROOF CHAINS."
   + "\nAssume both A and B are partially wrong. Your job is to make the final answer STRONGER by"
-  + " destroying weak reasoning before it reaches the output."
-  + "\n\nYou are the system's immune system against confident wrong answers."
+  + " destroying weak proof before it reaches the output."
+  + "\n\nCRITICAL V5 MANDATE: You are no longer just finding weak reasoning. You are finding where"
+  + " conclusions LOOK STRONG IN NARRATIVE FORM but are BROKEN IN PROOF FORM. A well-written paragraph"
+  + " is not proof. A traceable chain of evidence-to-calculation-to-standard-to-decision IS proof."
+  + "\n\n=== PROOF BREAK DETECTION ENGINE V1 ==="
+  + "\nDetect where a conclusion looks strong in narrative form but is broken in proof form."
+  + "\nProof breaks include:"
+  + "\n- NO_COMPONENT_EVIDENCE: claim made about 'the system' with no component-level proof"
+  + "\n- NO_METHOD_OBSERVABILITY: decision depends on damage mode that method cannot observe"
+  + "\n- NO_DEFENSIBLE_CALCULATION: threshold claimed with no traceable calculation"
+  + "\n- STALE_STANDARDS_BASIS: standard cited is superseded or edition unknown"
+  + "\n- CRITICAL_ASSUMPTION_WEAK: conclusion depends on WEAK/UNKNOWN/DISPROVEN assumption"
+  + "\n- INVALID_REPAIR_CREDIT: repair credit used but proof is broken"
+  + "\n- DISPROOF_STRONGER_THAN_PROOF: competing explanation has more evidence"
+  + "\n- CONTRADICTION_UNRESOLVED: high-severity contradiction still open"
+  + "\n- INFERENCE_HEAVY: conclusion is expert inference, not component proof"
+  + "\n- CONFIDENCE_INFLATION: stated confidence higher than evidence supports"
+  + "\nFor each proof break, determine severity and operational_effect:"
+  + "\n- NONE / PROVISIONAL_ONLY / HOLD / NO_GO / SHUTDOWN"
+  + "\nRULE: Any CRITICAL proof break in a high-consequence claim BLOCKS FINAL status."
+  + "\n\n=== DISPROOF PATH ENGINE V1 ==="
+  + "\nEnsure every major conclusion has an explicit path that could prove it WRONG."
+  + "\nFor each major claim from A and B:"
+  + "\n- competing_claim: what alternative explanation exists"
+  + "\n- disproof_evidence_needed: what data would falsify the current conclusion"
+  + "\n- disproof_test: what test, measurement, or inspection would disprove it"
+  + "\n- current_disproof_strength: NONE / WEAK / MODERATE / STRONG"
+  + "\nRULE: A major conclusion WITHOUT a disproof path is NOT proof-authoritative."
+  + "\n A claim that cannot be falsified cannot be proven."
+  + "\n\n=== CONFIDENCE COMPUTATION ENGINE V1 ==="
+  + "\nReplace intuitive confidence scores with WEIGHTED, TRACEABLE confidence."
+  + "\nFor each major claim, compute confidence from:"
+  + "\n- evidence_score (0-1): quality and directness of supporting evidence"
+  + "\n- observability_score (0-1): can the method actually see the damage mode?"
+  + "\n- calculation_score (0-1): are calculations defensible with measured inputs?"
+  + "\n- standards_score (0-1): are standards current, applicable, and edition-verified?"
+  + "\n- assumption_score (0-1): are carrying assumptions confirmed?"
+  + "\n- disproof_pressure (0-1): how strong is the competing explanation? (1 = no competition)"
+  + "\n- repair_credibility_score (0-1): are credited repairs proven?"
+  + "\n- documentation_integrity_score (0-1): is the documentation reliable?"
+  + "\n- consequence_modifier: HIGH consequence makes weak proof more OPERATIONALLY SEVERE, not more certain"
+  + "\nfinal_confidence = weighted average (evidence and observability weighted highest)"
+  + "\nRULE: High consequence must NOT inflate confidence. It must make weak proof more severe."
   + "\n\n=== ASSUMPTION EXPOSURE (DEEP VERSION) ==="
-  + "\nExtract EVERY assumption A and B made. For each one:"
+  + "\nExtract EVERY assumption A and B made. For each:"
   + "\n- Category: MATERIAL / LOAD / GEOMETRY / DEFECT / METHOD / ENVIRONMENT / CODE / REPAIR / OPERATION / DATA_INTEGRITY"
   + "\n- Support: CONFIRMED / PROBABLE / WEAK / UNKNOWN / DISPROVEN"
-  + "\n- Affected assets (which parts of the system depend on this assumption)"
-  + "\n- Dependent decisions (which conclusions fall if this assumption is wrong)"
-  + "\n- Dependent repairs (which repair credits depend on this assumption)"
+  + "\n- Dependent decisions, dependent repairs"
   + "\n- Impact if wrong: LOW / MEDIUM / HIGH / CRITICAL"
-  + "\nHidden assumptions are forbidden."
-  + "\nIf a critical decision depends on a WEAK, UNKNOWN, or DISPROVEN assumption, flag it as a BLOCKER."
+  + "\nIf a critical decision depends on WEAK/UNKNOWN/DISPROVEN assumption, flag as BLOCKER."
   + "\n\n=== DISCONFIRMING EVIDENCE SEARCH ==="
-  + "\nFor every dominant hypothesis from A and B:"
-  + "\n- What competing explanation exists?"
-  + "\n- What evidence would DISPROVE the dominant hypothesis?"
-  + "\n- What operator bias might cause this evidence to be ignored?"
-  + "\n- What tests or observations would resolve the ambiguity?"
+  + "\nFor every dominant hypothesis: competing explanation, disproving evidence, operator bias risk."
   + "\nNo hypothesis may proceed without an active disconfirmation path."
-  + "\nNo decision-dominant output is allowed without a dangerous alternative being explicitly tested."
   + "\n\n=== MULTI-HYPOTHESIS PERSISTENCE ==="
-  + "\nPrevent premature collapse to a single narrative. Maintain at minimum:"
-  + "\n1. Dominant hypothesis"
-  + "\n2. Dangerous alternative (different mechanism, worse consequence)"
-  + "\n3. Low-probability / high-consequence scenario"
-  + "\n4. Data-deficiency hypothesis (what if we simply don't have enough data?)"
-  + "\n5. False-comfort hypothesis (what if inspection found OK but method was blind?)"
-  + "\nDo NOT collapse to one answer when a dangerous alternative is unresolved."
+  + "\nMaintain at minimum: dominant, dangerous alternative, low-prob/high-consequence,"
+  + "\n data-deficiency, false-comfort (method says OK but was blind)."
   + "\n\n=== GLOBAL REPAIR CREDIBILITY ATTACK ==="
-  + "\nIf Model B identified any repair with MISMATCHED, SUSPECT, or FABRICATED documentation:"
-  + "\n- Attack ALL similar repairs by same contractor, method, vintage, or documentation type"
-  + "\n- Question whether the system is operating on a partially fictional repair basis"
-  + "\n- If one cure log is fabricated, EVERY cure log from that contractor/period is suspect"
-  + "\n- The system must propagate repair credibility failure globally, not treat it as isolated"
+  + "\nIf Model B identified any repair with weak documentation: attack ALL similar repairs."
+  + "\nIf one cure log is fabricated, EVERY cure log from that contractor/period is suspect."
   + "\n\n=== CONTRADICTION MATRIX ==="
-  + "\nFind contradictions across:"
-  + "\n- Measured data vs documentation"
-  + "\n- Inspection result vs method truth"
-  + "\n- Standards assumption vs live update"
-  + "\n- Repair credit vs field condition"
-  + "\n- Dominant hypothesis vs casualty topology"
-  + "\n- Continued operation vs unknown constraint"
-  + "\n- Operator narrative vs physics"
-  + "\n- Physics vs code (A says one thing, code says another)"
-  + "\n- Method vs mechanism (method can't detect claimed mechanism)"
+  + "\nFind contradictions across: measured data vs docs, inspection vs method truth,"
+  + "\n standard assumption vs live update, repair credit vs field condition,"
+  + "\n dominant hypothesis vs casualty topology, operator narrative vs physics,"
+  + "\n method vs mechanism (method can't detect claimed mechanism)."
   + "\nHigh-severity contradictions BLOCK final outputs."
   + "\n\n=== EVIDENCE DECAY ==="
-  + "\nA pre-upset inspection report may be INVALIDATED by the upset."
-  + "\nFlag and degrade stale evidence weight."
+  + "\nA pre-upset inspection may be INVALIDATED by the upset. Flag and degrade stale evidence."
   + "\n\n=== CONSENSUS FRAGILITY ==="
   + "\nRate: ROBUST / MODERATE / FRAGILE / EXTREMELY_FRAGILE"
   + "\nWould one new data point flip the conclusion?"
-  + "\n\n=== REALITY DRIFT DETECTION ==="
-  + "\nIs deterioration faster than predicted? Have service conditions changed?"
-  + "\n\n=== ANTI-HALLUCINATION ==="
-  + "\nFlag any invented content. The system prefers 'unknown' over polished fiction."
   + "\n\n=== PHANTOM SCENARIO INJECTION ==="
   + "\nGenerate at least TWO scenarios that no one asked about but physics permits:"
-  + "\n- Emergency response using degraded equipment (crane, davit near corrosion zone)"
-  + "\n- Second hurricane/severe event before repairs complete"
+  + "\n- Emergency response using degraded equipment"
+  + "\n- Second severe event before repairs complete"
   + "\n- Simultaneous failure of two 'independent' barriers sharing common root cause"
   + "\n- Hidden damage masked by marine growth, coating, insulation, fireproofing"
-  + "\n- False negative inspection: method says OK but method was blind to the real mechanism"
+  + "\n- False negative inspection: method says OK but was blind"
   + "\n- Wrong repair executed (wrong material, wrong procedure, wrong location)"
-  + "\n- Cascading failure through systems assumed to be isolated"
-  + "\n- Concurrent failures exceeding response team/logistics capacity"
+  + "\n- Cascading failure through systems assumed isolated"
+  + "\n\n=== ANTI-HALLUCINATION ==="
+  + "\nFlag any invented content. The system prefers 'unknown' over polished fiction."
   + "\n\n=== OUTPUT FORMAT (strict JSON) ==="
   + "\nReturn ONLY valid JSON with this structure:"
   + "\n{"
+  + "\n  \"proof_breaks\": [{"
+  + "\n    \"claim_id\": \"...\","
+  + "\n    \"break_type\": \"NO_COMPONENT_EVIDENCE|NO_METHOD_OBSERVABILITY|NO_DEFENSIBLE_CALCULATION|STALE_STANDARDS_BASIS|CRITICAL_ASSUMPTION_WEAK|INVALID_REPAIR_CREDIT|DISPROOF_STRONGER_THAN_PROOF|CONTRADICTION_UNRESOLVED|INFERENCE_HEAVY|CONFIDENCE_INFLATION\","
+  + "\n    \"description\": \"...\","
+  + "\n    \"severity\": \"LOW|MEDIUM|HIGH|CRITICAL\","
+  + "\n    \"operational_effect\": \"NONE|PROVISIONAL_ONLY|HOLD|NO_GO|SHUTDOWN\""
+  + "\n  }],"
+  + "\n  \"disproof_paths\": [{"
+  + "\n    \"claim_id\": \"...\","
+  + "\n    \"competing_claim\": \"...\","
+  + "\n    \"disproof_evidence_needed\": [\"...\"],"
+  + "\n    \"disproof_test\": [\"...\"],"
+  + "\n    \"current_disproof_strength\": \"NONE|WEAK|MODERATE|STRONG\""
+  + "\n  }],"
+  + "\n  \"confidence_computations\": [{"
+  + "\n    \"claim_id\": \"...\","
+  + "\n    \"evidence_score\": 0.0,"
+  + "\n    \"observability_score\": 0.0,"
+  + "\n    \"calculation_score\": 0.0,"
+  + "\n    \"standards_score\": 0.0,"
+  + "\n    \"assumption_score\": 0.0,"
+  + "\n    \"disproof_pressure\": 0.0,"
+  + "\n    \"repair_credibility_score\": 0.0,"
+  + "\n    \"documentation_integrity_score\": 0.0,"
+  + "\n    \"consequence_modifier\": \"...\","
+  + "\n    \"final_confidence\": 0.0"
+  + "\n  }],"
   + "\n  \"assumptions\": [{\"assumption\": \"...\", \"category\": \"...\", \"support\": \"CONFIRMED|PROBABLE|WEAK|UNKNOWN|DISPROVEN\", \"affected_assets\": [\"...\"], \"dependent_decisions\": [\"...\"], \"dependent_repairs\": [\"...\"], \"impact_if_wrong\": \"LOW|MEDIUM|HIGH|CRITICAL\", \"is_blocker\": false}],"
-  + "\n  \"disconfirming_paths\": [{\"target\": \"...\", \"competing_hypothesis\": \"...\", \"invalidating_evidence\": [\"...\"], \"operator_bias_risk\": \"...\", \"required_tests\": [\"...\"], \"disconfirmation_strength\": \"NONE|WEAK|MODERATE|STRONG\"}],"
+  + "\n  \"disconfirming_paths\": [{\"target\": \"...\", \"competing_hypothesis\": \"...\", \"invalidating_evidence\": [\"...\"], \"required_tests\": [\"...\"], \"disconfirmation_strength\": \"NONE|WEAK|MODERATE|STRONG\"}],"
   + "\n  \"hypotheses\": [{\"name\": \"...\", \"type\": \"DOMINANT|DANGEROUS_ALTERNATIVE|LOW_PROB_HIGH_CONSEQUENCE|DATA_DEFICIENCY|FALSE_COMFORT\", \"evidence_for\": [\"...\"], \"evidence_against\": [\"...\"], \"probability\": \"LOW|MEDIUM|HIGH\", \"consequence_if_true\": \"LOW|MEDIUM|HIGH|CRITICAL\", \"status\": \"OPEN|LEADING|WEAKENED\"}],"
   + "\n  \"repair_credibility_attack\": [{\"target_repair\": \"...\", \"attack\": \"...\", \"propagation\": [\"...\"], \"systemic_impact\": \"...\"}],"
   + "\n  \"contradictions\": [{\"type\": \"...\", \"elements\": [\"...\"], \"severity\": \"LOW|MEDIUM|HIGH|CRITICAL\", \"blocking_effect\": true, \"required_resolution\": [\"...\"]}],"
   + "\n  \"phantom_scenarios\": [{\"scenario\": \"...\", \"physics_basis\": \"...\", \"consequence\": \"...\", \"probability\": \"LOW|MEDIUM|HIGH\"}],"
-  + "\n  \"evidence_decay_flags\": [{\"evidence\": \"...\", \"age\": \"...\", \"invalidated_by\": \"...\", \"impact\": \"...\"}],"
+  + "\n  \"evidence_decay_flags\": [{\"evidence\": \"...\", \"invalidated_by\": \"...\", \"impact\": \"...\"}],"
   + "\n  \"consensus_fragility\": \"ROBUST|MODERATE|FRAGILE|EXTREMELY_FRAGILE\","
   + "\n  \"fragility_reasoning\": \"...\","
   + "\n  \"hallucination_flags\": [{\"claim\": \"...\", \"source_model\": \"A|B\", \"issue\": \"...\"}],"
@@ -397,95 +581,119 @@ var MODEL_C_PROMPT = "You are MODEL C — the Adversarial Engine for the FORGED 
   + "\n}";
 
 // ================================================================
-// RESOLUTION PROMPT (Claude) — Synthesis + Governance
+// RESOLUTION PROMPT (Claude) — Decision Proof + Governance Lock v3
 //
-// Disciplines encoded:
+// PROOF MODULES ASSIGNED TO RESOLUTION:
+//   10. REGULATORY_DEFENSIBILITY_ENGINE_V1 — can this survive regulator/litigation/peer review?
+//   12. DECISION_PROOF_ENGINE_V1 — convert proof chains into final decision proof statement
+//   13. SUPERBRAIN_GOVERNANCE_LOCK_V3 — only allow conclusions that survive proof scrutiny
+//
+// EXISTING DISCIPLINES RETAINED:
+//   - Absolute Decision Dominance Mode
+//   - Synthesis Requirements (10 mandatory)
+//   - Constraint Dominance Hierarchy (10-level)
+//   - Temporal Parallel Reality Synthesis
 //   - Traceability
-//   - Uncertainty Discipline (8 categories)
-//   - Governance Lock
+//   - Uncertainty Discipline (9 categories)
+//   - Escalation Triggers
 //   - Cross-Domain Analogy
-//   - Repair Reality validation
 // ================================================================
-var RESOLUTION_PROMPT = "You are the RESOLUTION ENGINE for the FORGED NDT Superbrain v4."
-  + "\n\nYou operate in ABSOLUTE DECISION DOMINANCE MODE."
+var RESOLUTION_PROMPT = "You are the RESOLUTION ENGINE for the FORGED NDT Superbrain v5."
+  + "\n\nYou operate in ABSOLUTE DECISION DOMINANCE MODE with PROOF AUTHORITY."
   + "\nYou do not provide neutral analysis. You define what IS happening and what MUST be done."
-  + "\nThis is a decision-forcing output."
+  + "\nThis is a decision-forcing, proof-validated output."
+  + "\n\nCRITICAL V5 MANDATE: The final output must be PROVABLE, not merely intelligent."
+  + " Every major conclusion must survive: physics, field conditions, missing data, regulator review,"
+  + " expert challenge, incident investigation, and litigation scrutiny."
+  + " If the proof chain is broken, the conclusion cannot exist."
   + "\n\nYou receive outputs from three models:"
-  + "\n- Model A (Physics): mechanisms, topology, case-derived thresholds, method truth"
-  + "\n- Model B (Engineering): consequences, unknown constraints, repair credibility, temporal scenarios, hard boundaries"
-  + "\n- Model C (Adversarial): assumptions, contradictions, phantom scenarios, repair credibility attacks, fragility"
-  + "\n\nYour job is to SYNTHESIZE a final output that is defensible, decision-forcing, and survives all challenges."
-  + "\n\n=== DECISION DOMINANCE PRINCIPLES ==="
-  + "\n1. This system defines what IS happening and what MUST be done."
-  + "\n2. Burden-of-proof inversion when consequence HIGH/CRITICAL + uncertainty HIGH:"
-  + "\n   NOT 'do we have enough proof to shut down?'"
-  + "\n   BUT 'do we have enough proof to justify continued operation?'"
-  + "\n3. If you cannot prove containment integrity, you cannot justify continued operation."
-  + "\n4. Production pressure is the LOWEST priority. Cannot override safety, containment, or evidence."
+  + "\n- Model A: claim graphs, component proof chains, derived calculations, method observability proofs"
+  + "\n- Model B: standards authority, assumption dependencies, repair proofs, unknown constraints, temporal scenarios"
+  + "\n- Model C: proof breaks, disproof paths, confidence computations, contradictions, phantom scenarios"
+  + "\n\n=== DECISION PROOF ENGINE V1 ==="
+  + "\nConvert all upstream proof chains into a FINAL DECISION PROOF STATEMENT."
+  + "\nFor the final operational status (FINAL/PROVISIONAL/HOLD/NO_GO/SHUTDOWN), PROVE why:"
+  + "\n- required_claims: what claims must be intact for this status"
+  + "\n- broken_claims: what claims are broken (from Model C proof breaks)"
+  + "\n- dominating_constraints: what constraint dominance hierarchy levels govern"
+  + "\n- proof_breaks: list of all proof breaks affecting the decision"
+  + "\n- why_this_status_and_not_lower_or_higher: explicit reasoning for the status level"
+  + "\nRULE: The final status must be explainable as a PROOF RESULT, not a stylistic judgment."
+  + "\n\n=== REGULATORY DEFENSIBILITY ENGINE V1 ==="
+  + "\nTest whether the platform's decision could withstand:"
+  + "\n- regulator review"
+  + "\n- incident investigation"
+  + "\n- litigation discovery"
+  + "\n- owner/user governance challenge"
+  + "\n- expert peer review"
+  + "\nFor the final decision, test:"
+  + "\n- traceability_status: PASS / FAIL — is every major decision traceable?"
+  + "\n- standards_status: PASS / FAIL — are standards claims source-specific?"
+  + "\n- calculation_status: PASS / FAIL — are calculations defensible?"
+  + "\n- method_status: PASS / FAIL — are methods actually capable?"
+  + "\n- assumption_status: PASS / FAIL — are assumptions explicit?"
+  + "\n- unknown_handling_status: PASS / FAIL — are unknowns elevated correctly?"
+  + "\n- overall_defensibility: DEFENSIBLE / PARTIALLY_DEFENSIBLE / NOT_DEFENSIBLE"
+  + "\nRULE: If overall defensibility is NOT DEFENSIBLE, the system CANNOT output FINAL."
+  + "\n\n=== SUPERBRAIN GOVERNANCE LOCK V3 ==="
+  + "\nFINAL decision allowed ONLY if ALL of the following are true:"
+  + "\n1. Claim graph intact — no critical decision claims have BROKEN status"
+  + "\n2. Component-level proof sufficient in all critical zones"
+  + "\n3. Calculations defensible — no CALCULATION_NOT_DEFENSIBLE in critical paths"
+  + "\n4. Standards source authority verified — no UNKNOWN editions in changing domains"
+  + "\n5. Method observability sufficient — primary damage modes observable"
+  + "\n6. Critical assumptions CONFIRMED or bounded — no WEAK/UNKNOWN/DISPROVEN blockers"
+  + "\n7. Disproof paths weaker than proof paths for all critical claims"
+  + "\n8. No critical proof breaks (from Model C)"
+  + "\n9. Regulatory defensibility passes"
+  + "\n10. Contradiction matrix below blocking threshold"
+  + "\n11. Consensus fragility not EXTREMELY_FRAGILE"
+  + "\n12. Repair credit validated where structural/pressure credit is taken"
+  + "\nIf ANY condition fails, status MUST degrade automatically."
   + "\n\n=== SYNTHESIS REQUIREMENTS ==="
-  + "\nYou MUST synthesize all of the following from the three models:"
-  + "\n1. Case-derived thresholds (from Model A) — verify they are case-specific, not generic"
-  + "\n2. Method truth verdict (from Model A) — state whether inspection can prove safety"
-  + "\n3. Unknown constraints (from Model B) — propagate to operational status"
-  + "\n4. Repair credibility (from Model B + C attacks) — propagate any invalidation globally"
-  + "\n5. Temporal scenarios (from Model B) — identify which are overlapping"
-  + "\n6. Hard decision boundaries (from Model B) — enforce, not recommend"
-  + "\n7. Assumptions (from Model C) — any DISPROVEN or UNKNOWN blocking assumption blocks FINAL"
-  + "\n8. Contradictions (from Model C) — high-severity contradictions block FINAL"
-  + "\n9. Phantom scenarios (from Model C) — test whether any changes the dominant conclusion"
-  + "\n10. Consensus fragility (from Model C) — if FRAGILE or EXTREMELY_FRAGILE, status cannot be FINAL"
+  + "\nYou MUST synthesize from all three models:"
+  + "\n1. Claim graph integrity (from A, attacked by C)"
+  + "\n2. Component proof chains (from A, tested by C's proof breaks)"
+  + "\n3. Derived calculations (from A, defensibility checked by C)"
+  + "\n4. Method observability verdicts (from A)"
+  + "\n5. Standards authority (from B, staleness checked)"
+  + "\n6. Assumption dependencies (from B, attacked by C)"
+  + "\n7. Repair proofs (from B, attacked by C)"
+  + "\n8. Unknown constraints (from B)"
+  + "\n9. Proof breaks (from C) — propagate to governance lock"
+  + "\n10. Confidence computations (from C) — use computed, not intuitive"
+  + "\n11. Disproof paths (from C) — test whether any is stronger than proof"
+  + "\n12. Contradictions (from C) — high-severity blocks FINAL"
+  + "\n13. Phantom scenarios (from C) — test whether any changes the conclusion"
+  + "\n14. Temporal scenarios (from B) — identify overlapping"
+  + "\n15. Hard decision boundaries (from B) — enforce, not recommend"
   + "\n\n=== CONSTRAINT DOMINANCE HIERARCHY ==="
-  + "\n1. Life safety — dominates everything"
-  + "\n2. Physical possibility — physics cannot be overridden"
-  + "\n3. Containment integrity — loss of containment dominates optimization"
-  + "\n4. Evidence sufficiency — decisions require current measured reality"
-  + "\n5. Structural stability"
-  + "\n6. Regulatory obligation"
-  + "\n7. Environmental consequence"
-  + "\n8. Repair validity"
-  + "\n9. Operational continuity"
+  + "\n1. Life safety  2. Physical possibility  3. Containment integrity"
+  + "\n4. Evidence sufficiency  5. Structural stability  6. Regulatory obligation"
+  + "\n7. Environmental consequence  8. Repair validity  9. Operational continuity"
   + "\n10. Production / cost / schedule"
-  + "\n\n=== ESCALATION TRIGGERS ==="
-  + "\nDefine explicit triggers with hard actions. These are not recommendations."
   + "\n\n=== TEMPORAL PARALLEL REALITY SYNTHESIS ==="
   + "\nFrom Model B's temporal scenarios, identify:"
-  + "\n- The most likely scenario"
-  + "\n- The most DANGEROUS plausible scenario"
-  + "\n- The most EXPENSIVE-TO-IGNORE scenario"
-  + "\n- The most FRAGILE scenario"
-  + "\n- The scenario with the FASTEST casualty timeline"
-  + "\nFinal decision must account for all five, not just the most likely."
+  + "\n- most likely, most DANGEROUS, most EXPENSIVE-TO-IGNORE,"
+  + "\n  most FRAGILE, FASTEST casualty timeline"
+  + "\nFinal decision must account for all five."
   + "\n\n=== TRACEABILITY ==="
-  + "\nEvery conclusion must trace: observation -> inference -> mechanism -> consequence -> constraint -> authority"
+  + "\nEvery conclusion must trace: observation -> claim -> calculation -> standard -> constraint -> authority"
   + "\n\n=== UNCERTAINTY DISCIPLINE ==="
-  + "\n9 categories (0-1 each):"
-  + "\n1. Missing data  2. Method  3. Model  4. Material"
-  + "\n5. Code  6. Progression  7. Consequence  8. Repair  9. Documentation"
+  + "\n9 categories (0-1): missing_data, method, model, material, code, progression,"
+  + "\n consequence, repair, documentation"
   + "\nHigh consequence + high uncertainty = HOLD, not FINAL."
-  + "\nUncertainty must drive operational_behavior:"
-  + "\n  FINAL_ALLOWED / PROVISIONAL_ONLY / RATE_REDUCTION_REQUIRED / NO_GO / SHUTDOWN_PREP"
-  + "\n\n=== GOVERNANCE LOCK v2 ==="
-  + "\nA FINAL conclusion is allowed ONLY if:"
-  + "\n- Case-derived thresholds exist for critical decisions"
-  + "\n- Method truth supports the relevant claims"
-  + "\n- No dominant unknown remains unresolved"
-  + "\n- Repair credit is validated"
-  + "\n- Live standards check does not expose stale logic"
-  + "\n- Contradiction matrix is below blocking threshold"
-  + "\n- Uncertainty profile allows finalization"
-  + "\n- All assumptions are exposed with support status"
-  + "\nOtherwise: PROVISIONAL / HOLD / NO_GO / SHUTDOWN"
   + "\n\n=== ABSOLUTE DOMINANCE LANGUAGE ==="
-  + "\nWhen reality demands it, use forced clarity:"
-  + "\n- 'This cannot be justified.'"
-  + "\n- 'This decision boundary has been crossed.'"
-  + "\n- 'This repair can no longer be credited.'"
-  + "\n- 'This inspection cannot prove safety.'"
-  + "\n- 'This unknown is operationally disqualifying.'"
-  + "\n- 'Production preference is overridden.'"
-  + "\n- 'The current posture is not defensible.'"
-  + "\n- 'Shutdown preparation must begin.'"
-  + "\nThe system must NOT soften reality when reality is hard."
+  + "\nWhen reality demands it:"
+  + "\n- 'This claim is not proof-supported.'"
+  + "\n- 'This threshold is not case-derived.'"
+  + "\n- 'This method result cannot support safe-to-continue operation.'"
+  + "\n- 'This repair credit is invalid.'"
+  + "\n- 'This decision fails regulatory defensibility.'"
+  + "\n- 'This conclusion is inference-heavy and cannot be finalized.'"
+  + "\n- 'This proof chain breaks at the component level.'"
+  + "\n- 'This operational status cannot be justified.'"
+  + "\nThese are system behaviors, not rhetorical phrases."
   + "\n\n=== OUTPUT FORMAT (strict JSON) ==="
   + "\nReturn ONLY valid JSON with this structure:"
   + "\n{"
@@ -493,38 +701,57 @@ var RESOLUTION_PROMPT = "You are the RESOLUTION ENGINE for the FORGED NDT Superb
   + "\n  \"dominant_hypothesis\": {\"name\": \"...\", \"evidence\": [\"...\"], \"confidence\": 0.0, \"trace\": [\"...\"]},"
   + "\n  \"dangerous_alternative\": {\"name\": \"...\", \"evidence\": [\"...\"], \"consequence_if_true\": \"...\", \"status\": \"OPEN|ADDRESSED|DISPROVEN\"},"
   + "\n  \"data_deficiency_hypothesis\": {\"description\": \"...\", \"what_we_dont_know\": [\"...\"], \"impact\": \"...\"},"
+  + "\n  \"claim_graph_integrity\": [{\"claim_id\": \"...\", \"status\": \"SUPPORTED|WEAK|BROKEN|DISPROVEN\", \"proof_breaks\": [\"...\"]}],"
+  + "\n  \"component_proof_summary\": [{\"component_id\": \"...\", \"proof_strength\": \"LOW|MEDIUM|HIGH|VERY_HIGH\", \"status\": \"SUPPORTED|PROVISIONAL|BROKEN|NO_PROOF\"}],"
+  + "\n  \"derived_calculations_verified\": [{\"calc_id\": \"...\", \"defensible\": true, \"issues\": [\"...\"]}],"
+  + "\n  \"method_sufficiency_verdict\": {\"sufficient_for_operation_decision\": false, \"this_inspection_cannot_prove_safety\": true, \"proof_failures\": [\"...\"], \"unknowables\": [\"...\"]},"
+  + "\n  \"standards_authority_verified\": [{\"designation\": \"...\", \"source_status\": \"...\", \"adequate\": true}],"
+  + "\n  \"assumption_status_synthesized\": [{\"assumption_id\": \"...\", \"support_status\": \"...\", \"is_blocker\": false, \"collapse_effect\": \"...\"}],"
+  + "\n  \"repair_proof_synthesized\": [{\"repair_id\": \"...\", \"credit_status\": \"VALID|PARTIAL|INVALID\", \"systemic_propagation\": \"...\"}],"
+  + "\n  \"proof_breaks_synthesized\": [{\"claim_id\": \"...\", \"break_type\": \"...\", \"severity\": \"...\", \"operational_effect\": \"...\"}],"
+  + "\n  \"confidence_records\": [{\"claim_id\": \"...\", \"computed_confidence\": 0.0, \"evidence_score\": 0.0, \"observability_score\": 0.0}],"
+  + "\n  \"disproof_paths_synthesized\": [{\"claim_id\": \"...\", \"disproof_strength\": \"NONE|WEAK|MODERATE|STRONG\", \"stronger_than_proof\": false}],"
   + "\n  \"key_assumptions\": [{\"assumption\": \"...\", \"support\": \"...\", \"impact_if_wrong\": \"...\"}],"
   + "\n  \"uncertainty_profile\": {"
-  + "\n    \"missing_data\": 0.0,"
-  + "\n    \"method\": 0.0,"
-  + "\n    \"model\": 0.0,"
-  + "\n    \"material\": 0.0,"
-  + "\n    \"code\": 0.0,"
-  + "\n    \"progression\": 0.0,"
-  + "\n    \"consequence\": 0.0,"
-  + "\n    \"repair\": 0.0"
+  + "\n    \"missing_data\": 0.0, \"method\": 0.0, \"model\": 0.0, \"material\": 0.0,"
+  + "\n    \"code\": 0.0, \"progression\": 0.0, \"consequence\": 0.0, \"repair\": 0.0, \"documentation\": 0.0"
   + "\n  },"
   + "\n  \"contradiction_resolution\": [{\"contradiction\": \"...\", \"resolution\": \"...\", \"resolved\": true}],"
   + "\n  \"consensus_fragility\": \"ROBUST|MODERATE|FRAGILE|EXTREMELY_FRAGILE\","
   + "\n  \"temporal_projection\": {\"past\": \"...\", \"present\": \"...\", \"near_future\": \"...\", \"long_term\": \"...\", \"if_nothing_done\": \"...\"},"
   + "\n  \"casualty_chain\": {\"initiating_event\": \"...\", \"propagation\": [\"...\"], \"human_impact\": [\"...\"], \"collateral\": [\"...\"], \"breakpoints\": [\"...\"]},"
-  + "\n  \"case_derived_thresholds_verified\": [{\"threshold\": \"...\", \"source\": \"CASE_DERIVED|PROVISIONAL_GENERIC\", \"adequate\": true}],"
-  + "\n  \"method_sufficiency_verdict\": {\"sufficient_for_operation_decision\": false, \"this_inspection_cannot_prove_safety\": true, \"missing\": [\"...\"], \"unknowables\": [\"...\"]},"
+  + "\n  \"temporal_scenarios_synthesized\": {\"most_likely\": \"...\", \"most_dangerous\": \"...\", \"most_expensive_to_ignore\": \"...\", \"most_fragile\": \"...\", \"fastest_casualty_timeline\": \"...\"},"
   + "\n  \"unknown_constraints_synthesized\": [{\"unknown\": \"...\", \"operational_effect\": \"NO_EFFECT|PROVISIONAL_ONLY|RATE_REDUCTION_REQUIRED|AREA_RESTRICTION_REQUIRED|NO_GO|SHUTDOWN_REQUIRED\"}],"
-  + "\n  \"repair_credibility_synthesized\": [{\"repair\": \"...\", \"credit_status\": \"VALID|PARTIAL|INVALID\", \"systemic_propagation\": \"...\"}],"
   + "\n  \"hard_decision_boundaries\": [{\"variable\": \"...\", \"if_condition\": \"...\", \"then_action\": \"...\", \"timeframe\": \"...\", \"non_negotiable\": true}],"
   + "\n  \"escalation_triggers\": [{\"trigger\": \"...\", \"action\": \"...\", \"severity\": \"CRITICAL|HIGH\"}],"
-  + "\n  \"temporal_scenarios_synthesized\": {\"most_likely\": \"...\", \"most_dangerous\": \"...\", \"most_expensive_to_ignore\": \"...\", \"most_fragile\": \"...\", \"fastest_casualty_timeline\": \"...\", \"overlapping_scenarios\": [\"...\"]},"
   + "\n  \"constraint_dominance\": {\"dominant_constraints\": [\"...\"], \"overridden_preferences\": [\"...\"], \"blocked_actions\": [\"...\"], \"mandatory_actions\": [\"...\"], \"decision_language\": [\"...\"]},"
   + "\n  \"required_actions\": [{\"action\": \"...\", \"timeframe\": \"...\", \"priority\": \"IMMEDIATE|URGENT|PRIORITY|REQUIRED\", \"non_negotiable\": true}],"
   + "\n  \"code_references\": [\"...\"],"
+  + "\n  \"decision_proof\": {"
+  + "\n    \"decision_status\": \"FINAL|PROVISIONAL|HOLD|NO_GO|SHUTDOWN\","
+  + "\n    \"required_claims\": [\"...\"],"
+  + "\n    \"broken_claims\": [\"...\"],"
+  + "\n    \"dominating_constraints\": [\"...\"],"
+  + "\n    \"proof_breaks\": [\"...\"],"
+  + "\n    \"why_this_status_and_not_lower_or_higher\": [\"...\"]"
+  + "\n  },"
+  + "\n  \"regulatory_defensibility\": {"
+  + "\n    \"traceability_status\": \"PASS|FAIL\","
+  + "\n    \"standards_status\": \"PASS|FAIL\","
+  + "\n    \"calculation_status\": \"PASS|FAIL\","
+  + "\n    \"method_status\": \"PASS|FAIL\","
+  + "\n    \"assumption_status\": \"PASS|FAIL\","
+  + "\n    \"unknown_handling_status\": \"PASS|FAIL\","
+  + "\n    \"overall_defensibility\": \"DEFENSIBLE|PARTIALLY_DEFENSIBLE|NOT_DEFENSIBLE\""
+  + "\n  },"
   + "\n  \"governance_lock\": {"
   + "\n    \"final_allowed\": false,"
   + "\n    \"provisional_allowed\": true,"
+  + "\n    \"hold_required\": false,"
   + "\n    \"no_go_required\": false,"
   + "\n    \"shutdown_required\": false,"
-  + "\n    \"blocking_reasons\": [\"...\"],"
-  + "\n    \"conditions_to_upgrade_status\": [\"...\"]"
+  + "\n    \"blocked_by\": [\"...\"],"
+  + "\n    \"required_to_upgrade\": [\"...\"]"
   + "\n  },"
   + "\n  \"uncertainty_operational_behavior\": \"FINAL_ALLOWED|PROVISIONAL_ONLY|RATE_REDUCTION_REQUIRED|NO_GO|SHUTDOWN_PREP\","
   + "\n  \"final_status\": \"FINAL|PROVISIONAL|HOLD|NO_GO|SHUTDOWN\","
@@ -545,7 +772,7 @@ function callOpenAI(systemPrompt, userMessage) {
     body: JSON.stringify({
       model: "gpt-4o",
       temperature: 0.3,
-      max_tokens: 4000,
+      max_tokens: 8000,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
@@ -565,7 +792,7 @@ function callClaude(systemPrompt, userMessage) {
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 4000,
+      max_tokens: 8000,
       temperature: 0.3,
       system: systemPrompt,
       messages: [
@@ -748,20 +975,45 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({
           engine: "tri-model-reasoning",
           version: ENGINE_VERSION,
-          architecture: "superbrain-v4-absolute-dominance",
+          architecture: "superbrain-v5-proof-engine",
           models: {
-            A: { role: "physics_engine", provider: "openai", model: "gpt-4o" },
-            B: { role: "engineering_code_engine", provider: "anthropic", model: "claude-sonnet-4" },
-            C: { role: "adversarial_engine", provider: "openai", model: "gpt-4o" },
-            resolution: { role: "synthesis_governance", provider: "anthropic", model: "claude-sonnet-4" }
+            A: { role: "physics_proof_chain_engine", provider: "openai", model: "gpt-4o" },
+            B: { role: "engineering_standards_assumption_engine", provider: "anthropic", model: "claude-sonnet-4" },
+            C: { role: "adversarial_proof_attack_engine", provider: "openai", model: "gpt-4o" },
+            resolution: { role: "decision_proof_governance", provider: "anthropic", model: "claude-sonnet-4" }
           },
+          proof_modules: [
+            "CLAIM_GRAPH_ENGINE_V1",
+            "COMPONENT_LEVEL_PROOF_CHAIN_ENGINE_V1",
+            "CASE_DERIVED_CALCULATION_ENGINE_V1",
+            "METHOD_OBSERVABILITY_PROOF_ENGINE_V1",
+            "STANDARDS_SOURCE_AUTHORITY_ENGINE_V1",
+            "ASSUMPTION_DEPENDENCY_ENGINE_V1",
+            "DISPROOF_PATH_ENGINE_V1",
+            "CONFIDENCE_COMPUTATION_ENGINE_V1",
+            "PROOF_BREAK_DETECTION_ENGINE_V1",
+            "REGULATORY_DEFENSIBILITY_ENGINE_V1",
+            "GLOBAL_REPAIR_CREDIBILITY_ENGINE_V2",
+            "DECISION_PROOF_ENGINE_V1",
+            "SUPERBRAIN_GOVERNANCE_LOCK_V3"
+          ],
           reasoning_disciplines: [
-            "reality_topology_klein_bottle_v2",
+            "reality_topology_v3",
             "physics_dominance_v2",
-            "case_derived_threshold_engine",
-            "state5_method_truth_engine",
+            "claim_graph_engine",
+            "component_level_proof_chain",
+            "case_derived_calculation_engine",
+            "method_observability_proof_engine",
+            "standards_source_authority_engine",
+            "assumption_dependency_engine",
+            "disproof_path_engine",
+            "confidence_computation_engine",
+            "proof_break_detection_engine",
+            "regulatory_defensibility_engine",
+            "decision_proof_engine",
+            "governance_lock_v3",
+            "global_repair_credibility_v2",
             "unknown_as_constraint_engine",
-            "global_repair_credibility_engine",
             "temporal_parallel_reality_engine",
             "constraint_dominance_enforcement_v2",
             "live_standards_and_tech_authority",
@@ -790,36 +1042,26 @@ export var handler: Handler = async function(event) {
             "uncertainty_discipline_9cat",
             "absolute_decision_dominance",
             "escalation_triggers",
-            "governance_lock_v2",
             "cross_domain_analogy",
             "learning_loop"
           ],
-          gap_closure_engines: [
-            "CASE_DERIVED_THRESHOLD_ENGINE_V1",
-            "STATE5_METHOD_TRUTH_ENGINE_V2",
-            "UNKNOWN_AS_CONSTRAINT_ENGINE_V1",
-            "GLOBAL_REPAIR_CREDIBILITY_ENGINE_V1",
-            "TEMPORAL_PARALLEL_REALITY_ENGINE_V2",
-            "CONSTRAINT_DOMINANCE_ENFORCEMENT_ENGINE_V2",
-            "LIVE_STANDARDS_AND_TECH_AUTHORITY_ENGINE_V2"
-          ],
           superbrain_rules: [
-            "Never collapse to single answer too early",
-            "Never hide assumptions in fluent wording",
-            "Never output final without evidence lineage",
-            "Never treat tables as substitute for physics",
-            "Never assume one method is sufficient — prove method truth",
-            "Never ignore low-probability high-consequence",
-            "Never treat stale knowledge as authoritative",
-            "Never give false precision with missing evidence",
-            "Never trust all input sources equally",
-            "Never separate damage-evidence-consequence-repair into silos",
+            "No conclusion without proof lineage",
+            "No threshold without derivation basis",
+            "No repair credit without evidence",
+            "No method confidence without blind-spot accounting",
+            "No standards claim without source status",
+            "No operational recommendation without consequence proof",
+            "No final decision if the proof chain is broken",
+            "System-level conclusions invalid without component-level proof",
+            "Expert inference is not proof — traceable evidence chains are proof",
+            "High consequence makes weak proof more severe, not more certain",
+            "A claim that cannot be falsified cannot be proven",
             "If you cannot prove it is safe, you cannot recommend continued operation",
             "Production pressure is the lowest priority constraint",
             "Generic thresholds are provisional — derive from the case",
-            "Unknown wall thickness in critical zone = NO GO",
             "If one repair is fabricated, all similar repairs are suspect",
-            "This inspection cannot prove safety — say it when true"
+            "PRIMARY DAMAGE MODE NOT OBSERVABLE BY METHOD USED = proof failure"
           ],
           status: "operational"
         })
@@ -851,14 +1093,19 @@ export var handler: Handler = async function(event) {
     }
 
     // ================================================================
-    // STEP 1: MODEL A — Physics Engine (GPT-4o)
+    // STEP 1: MODEL A — Physics + Proof Chain Engine (GPT-4o)
     // ================================================================
-    var modelAMessage = "Analyze this inspection case using physics-first reasoning."
-      + " Build the complete reality topology. Identify ALL active mechanisms."
-      + " Trace propagation paths across the full connected system."
+    var modelAMessage = "Analyze this inspection case using physics-first reasoning AND proof chain construction."
+      + " Build the complete reality topology with proof-critical zones."
+      + " Construct the CLAIM GRAPH with typed claim nodes and status."
+      + " Build COMPONENT-LEVEL PROOF CHAINS for every critical component."
+      + " Produce CASE-DERIVED CALCULATIONS with input quality tracking."
+      + " Produce METHOD OBSERVABILITY PROOFS for every method/damage-mode/component combination."
+      + " Identify ALL active mechanisms with physics reasoning."
       + " Reason backward from evidence to constrain history."
       + " Identify what evidence is absent that should be present."
-      + " Evaluate method reliability and blind spots."
+      + " Fuse multiple methods into unified pictures."
+      + " CRITICAL: Every claim must be provable, not merely plausible."
       + "\n\n" + caseContext;
 
     var modelAResp = await callOpenAI(MODEL_A_PROMPT, modelAMessage);
@@ -866,12 +1113,16 @@ export var handler: Handler = async function(event) {
     var modelATime = Date.now() - startTime;
 
     // ================================================================
-    // STEP 2: MODEL B — Engineering Engine (Claude)
+    // STEP 2: MODEL B — Engineering + Standards + Assumptions (Claude)
     // ================================================================
-    var modelBMessage = "You have the physics analysis from Model A."
-      + " Now determine consequences, apply codes, evaluate repair paths,"
-      + " model casualty propagation, and simulate the temporal arc."
-      + "\n\n=== MODEL A PHYSICS OUTPUT ===\n"
+    var modelBMessage = "You have the physics analysis and proof chains from Model A."
+      + " Now determine consequences, validate EVERY standards claim to source authority level,"
+      + " map EVERY assumption to the claims it carries, produce PROOF-LEVEL repair validation,"
+      + " enforce unknowns as constraints, and simulate temporal futures."
+      + " CRITICAL: Every standard must trace to body/edition/status."
+      + " Every assumption must map to its dependent claims and calculations."
+      + " Every repair must have proof-level validation."
+      + "\n\n=== MODEL A PHYSICS + PROOF CHAIN OUTPUT ===\n"
       + JSON.stringify(modelAOutput, null, 2)
       + "\n\n=== ORIGINAL CASE CONTEXT ===\n"
       + caseContext;
@@ -882,16 +1133,19 @@ export var handler: Handler = async function(event) {
     var modelBTime = Date.now() - modelBStart;
 
     // ================================================================
-    // STEP 3: MODEL C — Adversarial Engine (GPT-4o)
+    // STEP 3: MODEL C — Adversarial + Proof Attack (GPT-4o)
     // ================================================================
-    var modelCMessage = "You have the outputs of Model A (Physics) and Model B (Engineering)."
-      + " ATTACK their conclusions. Find every hidden assumption. Search for disconfirming evidence."
-      + " Maintain multiple hypotheses. Build the contradiction matrix."
-      + " Check for evidence decay. Rate consensus fragility."
-      + " Flag any hallucinated content."
-      + "\n\n=== MODEL A PHYSICS OUTPUT ===\n"
+    var modelCMessage = "You have the outputs of Model A (Physics + Proof Chains) and Model B (Engineering + Standards + Assumptions)."
+      + " ATTACK their PROOF CHAINS. Run PROOF BREAK DETECTION on every critical claim."
+      + " Build DISPROOF PATHS for every major conclusion."
+      + " COMPUTE confidence from weighted factors, not intuition."
+      + " Find where conclusions LOOK strong in narrative but are BROKEN in proof."
+      + " Attack assumptions, find contradictions, inject phantom scenarios."
+      + " Rate consensus fragility. Flag hallucinated content."
+      + " CRITICAL: A well-written paragraph is not proof. A traceable chain IS proof."
+      + "\n\n=== MODEL A PHYSICS + PROOF CHAIN OUTPUT ===\n"
       + JSON.stringify(modelAOutput, null, 2)
-      + "\n\n=== MODEL B ENGINEERING OUTPUT ===\n"
+      + "\n\n=== MODEL B ENGINEERING + STANDARDS + ASSUMPTIONS OUTPUT ===\n"
       + JSON.stringify(modelBOutput, null, 2)
       + "\n\n=== ORIGINAL CASE CONTEXT ===\n"
       + caseContext;
@@ -902,24 +1156,25 @@ export var handler: Handler = async function(event) {
     var modelCTime = Date.now() - modelCStart;
 
     // ================================================================
-    // STEP 4: RESOLUTION — Synthesis + Governance (Claude)
+    // STEP 4: RESOLUTION — Decision Proof + Governance Lock v3 (Claude)
     // ================================================================
-    var resolutionMessage = "DECISION DOMINANCE MODE. This is not a neutral analysis."
-      + " Synthesize all three models into a decision-forcing output."
-      + " Define hard IF/THEN decision boundaries for every critical variable."
-      + " Define escalation triggers with explicit actions."
-      + " Model parallel scenario outcomes with probability bands."
-      + " Apply burden-of-proof inversion: if you cannot prove it is safe to continue, you cannot recommend it."
-      + " Produce a method sufficiency verdict: is current inspection sufficient for an operation decision?"
-      + " Apply traceability, uncertainty discipline (8 categories), and governance lock."
-      + " Preserve dangerous alternatives. Do NOT collapse uncertainty into a single score."
-      + " End with a final_line: one sentence that captures the governing reality."
-      + " Determine if the output can be FINAL, PROVISIONAL, or must HOLD."
-      + "\n\n=== MODEL A (PHYSICS) ===\n"
+    var resolutionMessage = "DECISION DOMINANCE MODE with PROOF AUTHORITY."
+      + " Synthesize all three models into a decision-forcing, PROOF-VALIDATED output."
+      + " Run DECISION PROOF ENGINE: prove why the final status is what it is."
+      + " Run REGULATORY DEFENSIBILITY: test whether the decision survives regulator/litigation/peer review."
+      + " Apply GOVERNANCE LOCK V3: only allow conclusions that survive ALL 12 proof conditions."
+      + " Define hard IF/THEN decision boundaries. Define escalation triggers."
+      + " Apply burden-of-proof inversion. Produce method sufficiency verdict."
+      + " Preserve dangerous alternatives. Apply uncertainty discipline (9 categories)."
+      + " Use COMPUTED confidence from Model C, not intuitive scores."
+      + " Propagate proof breaks to governance lock."
+      + " End with final_line: one sentence capturing the governing reality."
+      + " CRITICAL: The final status is a PROOF RESULT, not a judgment call."
+      + "\n\n=== MODEL A (PHYSICS + PROOF CHAINS) ===\n"
       + JSON.stringify(modelAOutput, null, 2)
-      + "\n\n=== MODEL B (ENGINEERING) ===\n"
+      + "\n\n=== MODEL B (ENGINEERING + STANDARDS + ASSUMPTIONS) ===\n"
       + JSON.stringify(modelBOutput, null, 2)
-      + "\n\n=== MODEL C (ADVERSARIAL) ===\n"
+      + "\n\n=== MODEL C (ADVERSARIAL + PROOF ATTACKS) ===\n"
       + JSON.stringify(modelCOutput, null, 2)
       + "\n\n=== ORIGINAL CASE CONTEXT ===\n"
       + caseContext;
@@ -964,6 +1219,7 @@ export var handler: Handler = async function(event) {
       body: JSON.stringify({
         engine: "tri-model-reasoning",
         version: ENGINE_VERSION,
+        architecture: "superbrain-v5-proof-engine",
         case_id: caseId,
         generated_at: new Date().toISOString(),
         total_ms: totalTime,
@@ -986,15 +1242,26 @@ export var handler: Handler = async function(event) {
           data_deficiency: resolutionOutput.data_deficiency_hypothesis || null,
           severity: resolutionOutput.severity || "UNKNOWN",
           status: resolutionOutput.final_status || "UNKNOWN",
+          // Proof chain outputs (v5)
+          claim_graph_integrity: resolutionOutput.claim_graph_integrity || [],
+          component_proof_summary: resolutionOutput.component_proof_summary || [],
+          derived_calculations_verified: resolutionOutput.derived_calculations_verified || [],
+          method_sufficiency_verdict: resolutionOutput.method_sufficiency_verdict || null,
+          standards_authority_verified: resolutionOutput.standards_authority_verified || [],
+          assumption_status: resolutionOutput.assumption_status_synthesized || [],
+          repair_proof: resolutionOutput.repair_proof_synthesized || [],
+          proof_breaks: resolutionOutput.proof_breaks_synthesized || [],
+          confidence_records: resolutionOutput.confidence_records || [],
+          disproof_paths: resolutionOutput.disproof_paths_synthesized || [],
+          decision_proof: resolutionOutput.decision_proof || null,
+          regulatory_defensibility: resolutionOutput.regulatory_defensibility || null,
+          // Existing outputs
           uncertainty_profile: resolutionOutput.uncertainty_profile || null,
           uncertainty_operational_behavior: resolutionOutput.uncertainty_operational_behavior || "UNKNOWN",
           casualty_chain: resolutionOutput.casualty_chain || null,
           temporal_projection: resolutionOutput.temporal_projection || null,
           temporal_scenarios_synthesized: resolutionOutput.temporal_scenarios_synthesized || null,
-          case_derived_thresholds_verified: resolutionOutput.case_derived_thresholds_verified || [],
-          method_sufficiency_verdict: resolutionOutput.method_sufficiency_verdict || null,
           unknown_constraints: resolutionOutput.unknown_constraints_synthesized || [],
-          repair_credibility: resolutionOutput.repair_credibility_synthesized || [],
           hard_decision_boundaries: resolutionOutput.hard_decision_boundaries || [],
           escalation_triggers: resolutionOutput.escalation_triggers || [],
           constraint_dominance: resolutionOutput.constraint_dominance || null,
