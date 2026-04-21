@@ -1195,4 +1195,24 @@ export var handler: Handler = async function(event) {
           input: body.input || null
         })
       });
-      // Backg
+      // Background function invoked
+      console.log("Background function invoked, status: " + bgResp.status);
+    } catch (bgErr) {
+      await sb2.from("reasoning_sessions").update({ pipeline_status: "error", pipeline_error: "Failed to invoke background function: " + String(bgErr) }).eq("id", newSessionId);
+      return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: "Failed to start pipeline", detail: String(bgErr) }) };
+    }
+
+    return {
+      statusCode: 202,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        session_id: newSessionId,
+        status: "accepted",
+        message: "Pipeline started. Poll with {action:'get_result', session_id:'" + newSessionId + "'}"
+      })
+    };
+
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
+  }
+};
