@@ -1,0 +1,327 @@
+// ============================================================================
+// FORGED NDT INTELLIGENCE OS -- ELITE SCENARIO TEST
+// "The Helideck That Passed Everything"
+// Hidden Post-Hurricane Jacket Fatigue and Occupancy Risk
+// Under Crane, Flight, and Access Loading
+// Gulf of Mexico fixed offshore platform, post-hurricane, dual-engine stress test
+// Re-run against DEPLOY200 (decision-core v2.10.0)
+// Paste into F12 console at https://4dndt.netlify.app
+// ============================================================================
+
+(function() {
+  var BASE = "https://4dndt.netlify.app/.netlify/functions";
+
+  // --------------------------------------------------------------------------
+  // THE SCENARIO: Post-hurricane offshore platform helideck/jacket assessment
+  // --------------------------------------------------------------------------
+  var transcript = "Mature fixed offshore production platform Gulf of Mexico. 8-leg steel jacket, carbon steel tubular construction, decades old. "
+    + "Helideck was retrofit 14 years ago, steel framing tied into topside support steel, not part of original global structural design. "
+    + "Pedestal crane mounted near helideck support influence zone, used for supply baskets valves hoses and maintenance lifts. "
+    + "Platform repeatedly modified over the years: helideck retrofit, upgraded crash barrier framing, heavier firefighting skid, "
+    + "temporary equipment that became permanent, added cable trays and utility runs, localized deck extensions, "
+    + "crane usage patterns heavier than original design assumptions. "
+    + "Hurricane event 3 weeks ago. Platform returned to service. Post-storm structural and NDT check before resuming normal helideck and crane operations. "
+    + "Pilot reports: Touchdown felt mushy. Got a weird rebound on settle. Deck did not feel clean and stiff. Definitely not normal. "
+    + "Crane operator reports: When I boom out and swing I can feel delayed movement. Not just the crane moving the structure answers back. "
+    + "Feels like it has got a second motion after the first one. "
+    + "Platform personnel: Walkway near the helideck support chatters under load. Handrails buzz in the wind now. "
+    + "Stair landing alignment looks a hair off. Some grating clips have started fighting fit-up. "
+    + "That deck feels dead one minute and springy the next. When the bird sets down the whole top gives a little shudder. "
+    + "Crane swing makes the handrail chatter. One of them braces down low looks like it got kissed by the storm. "
+    + "Paint is busted in a few spots but nothing looks blown open. She ain't failed but she sure don't feel right. "
+    + "Helideck welds looked okay last go-round. Looks like storm beat her up then the salt hid the fingerprints. "
+    + "Visual testing: No gross member fracture. No obvious collapsed framing. "
+    + "Cracked coating at helideck support nodes. Local rust bleed at weld toes. "
+    + "Slight handrail misalignment near access path. One deck plate transition at helideck approach no longer sits flush. "
+    + "Minor gap change at a stair connection. Impact scarring and coating loss on lower jacket brace in splash zone. "
+    + "Local deformation suspected at non-obvious brace intersection. "
+    + "CWI review: Several welds visually acceptable by profile and surface condition. "
+    + "A few repaired welds rough but arguable. Some undercut and coating issues but not obvious universal reject. "
+    + "No single visible weld that screams imminent rupture. Some old repair areas difficult to interpret due to coating salt and access. "
+    + "From what is accessible the welds generally look serviceable. "
+    + "Magnetic particle testing: Scattered toe indications at secondary support attachments. "
+    + "Linear indications at one helideck bracket support weld. "
+    + "Ambiguous relevant and nonrelevant calls at a crane-access framing intersection. "
+    + "Localized indications where coating cracking was present. "
+    + "MT coverage poor due to access coatings salt contamination awkward geometry weld orientation weather exposure. "
+    + "Ultrasonic testing and phased array UT on helideck and topside structural connections: "
+    + "Intermittent crack-like reflectors near a helideck support node. "
+    + "Planar reflector indications near weld transition in one crane-adjacent connection. "
+    + "Inconsistent signal response where prior repairs altered geometry. "
+    + "Some locations difficult to size because of coating shape and access. "
+    + "One joint shows suspicious reflector behavior that changes with probe angle. "
+    + "Could be benign geometry or old repair profile or fatigue crack or storm-opened preexisting flaw or reflector from partial lack of fusion that has now become active. "
+    + "Rope access lower jacket inspection: Coating damage. Impact scarring. Marine growth masking geometry. "
+    + "Possible denting and ovalization at one brace. Rust staining near a node-to-brace weld transition. "
+    + "No obvious full fracture but several signs of local overstress. "
+    + "Field notes: That brace got worked. Could have been debris could have been wave slam. "
+    + "Tube is not tore open but it don't look born that way. "
+    + "Structural engineer suspects hurricane introduced local yielding in lower framing. "
+    + "Jacket global stiffness may have changed slightly. Topside response may now be different. "
+    + "Helideck support nodes may be seeing amplified demand because lower structure no longer responds the same way. "
+    + "Crane and helideck could now be exciting a damaged structural frequency band. "
+    + "Problem may not be local damage alone. It may be global stiffness degradation showing up as local fatigue risk. "
+    + "Helicopter landings add cyclic vertical and lateral impulse. Crane lifts add torsional and lateral demand. "
+    + "Wind adds repeated excitation on helideck perimeter framing handrails screens upper deck attachments. "
+    + "These loads now interact with a storm-altered structure. "
+    + "Architectural occupancy evidence: stair landing misfit, altered walking feel, deck transitions not flush, "
+    + "handrail vibration, changed egress comfort and safety. "
+    + "These are not cosmetic. They are occupancy evidence of structural reality.";
+
+  var payload = {
+    transcript: transcript,
+    parsed: {
+      raw_text: transcript,
+      events: [
+        { type: "cracking", severity: "moderate" },
+        { type: "fatigue", severity: "heavy" },
+        { type: "vibration", severity: "heavy" },
+        { type: "wall_loss", severity: "moderate" },
+        { type: "coating_damage", severity: "heavy" },
+        { type: "deformation", severity: "moderate" },
+        { type: "storm_damage", severity: "heavy" },
+        { type: "dynamic_response_change", severity: "heavy" }
+      ],
+      numeric_values: {}
+    },
+    asset: { asset_class: "offshore_platform" }
+  };
+
+  console.log("============================================================");
+  console.log("ELITE SCENARIO: The Helideck That Passed Everything");
+  console.log("Gulf of Mexico | Post-Hurricane | Offshore Jacket + Helideck");
+  console.log("Dual-Engine Stress Test against DEPLOY200 (v2.10.0)");
+  console.log("============================================================");
+  console.log("");
+
+  // --------------------------------------------------------------------------
+  // ENGINE 1: Decision Core (deterministic physics)
+  // --------------------------------------------------------------------------
+  console.log("=== ENGINE 1: Decision Core ===");
+
+  fetch(BASE + "/decision-core", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(dcResult) {
+    var dc = dcResult.decision_core || dcResult;
+
+    console.log("[ENGINE 1] " + (dc.engine_version || "unknown"));
+
+    // Validated mechanisms
+    var validated = (dc.damage_reality || {}).validated_mechanisms || [];
+    var validatedIds = validated.map(function(v) { return v.id; });
+    console.log("[ENGINE 1] Validated: " + validatedIds.join(", "));
+    console.log("[ENGINE 1] Validated count: " + validatedIds.length);
+
+    // Rejected
+    var rejected = (dc.damage_reality || {}).rejected_mechanisms || [];
+    console.log("[ENGINE 1] Rejected: " + rejected.length + " mechanisms");
+
+    // Primary mechanism
+    var primary = (dc.damage_reality || {}).primary_mechanism || {};
+    console.log("[ENGINE 1] Primary: " + (primary.id || "none") + " -- " + (primary.display_name || ""));
+
+    // Physical reality summary
+    var pr = dc.physical_reality || {};
+    var mat = pr.material || {};
+    console.log("[ENGINE 1] Material: " + (mat.class || "?") + " (confidence: " + (mat.class_confidence || 0) + ")");
+    console.log("[ENGINE 1] Material evidence: " + JSON.stringify(mat.evidence || []));
+
+    var thermal = pr.thermal || {};
+    console.log("[ENGINE 1] Thermal: temp=" + (thermal.operating_temp_f || "?") + "F creep=" + (thermal.creep_range || false) + " cycling=" + (thermal.thermal_cycling || false));
+
+    var stress = pr.stress || {};
+    console.log("[ENGINE 1] Stress: cyclic=" + (stress.cyclic_loading || false) + " tensile=" + (stress.tensile_stress || false) + " stress_conc=" + (stress.stress_concentration_present || false));
+    console.log("[ENGINE 1] Stress conc locations: " + JSON.stringify(stress.stress_concentration_locations || []));
+
+    var energy = pr.energy || {};
+    console.log("[ENGINE 1] Energy: vibration=" + (energy.vibration || false) + " impact=" + (energy.impact_event || false) + " cavitation=" + (energy.cavitation || false));
+
+    // Flow regime
+    var fr = pr.flow_regime || {};
+    console.log("[ENGINE 1] Flow: state=" + (fr.flow_state || "null") + " turbulence_geo=" + (fr.turbulence_geometry_present || false));
+
+    // Deposits
+    var dep = pr.deposits || {};
+    console.log("[ENGINE 1] Deposits: present=" + (dep.deposits_present || false) + " type=" + (dep.deposit_type || "null"));
+
+    // Process chemistry flags
+    var procChem = pr.process_chemistry || {};
+    console.log("[ENGINE 1] Process Chemistry: hydrogen=" + (procChem.hydrogen_present || false) + " h2s=" + (procChem.h2s_present || false) + " caustic=" + (procChem.caustic_present || false));
+
+    // Environment
+    var env = pr.environment || {};
+    console.log("[ENGINE 1] Environment: phases=" + JSON.stringify(env.phases_present || []) + " atmosphere=" + (env.atmosphere_class || "null"));
+
+    // Context inferred
+    var ci = pr.context_inferred || [];
+    if (ci.length > 0) {
+      console.log("[ENGINE 1] Context Inferred (" + ci.length + "):");
+      for (var i = 0; i < ci.length; i++) {
+        console.log("  -> " + ci[i]);
+      }
+    }
+
+    // Field interaction
+    var fi = pr.field_interaction || {};
+    console.log("[ENGINE 1] Interaction: score=" + (fi.interaction_score || 0) + " level=" + (fi.interaction_level || "?"));
+    var hotspots = fi.hotspots || [];
+    if (hotspots.length > 0) {
+      console.log("[ENGINE 1] Hotspots:");
+      for (var h = 0; h < hotspots.length; h++) {
+        console.log("  ! " + hotspots[h]);
+      }
+    }
+
+    // Consequence
+    var cr = dc.consequence_reality || {};
+    console.log("[ENGINE 1] Consequence: tier=" + (cr.consequence_tier || "?") + " undetermined=" + cr.consequence_undetermined);
+
+    // Decision reality
+    var dr2 = dc.decision_reality || {};
+    console.log("[ENGINE 1] Disposition: " + (dr2.disposition || "?"));
+
+    console.log("[ENGINE 1] Confidence: " + (pr.physics_confidence || "?"));
+    console.log("[ENGINE 1] Summary: " + (pr.physics_summary || "").substring(0, 300));
+
+    console.log("");
+    console.log("=== ENGINE 2: Inspection Intelligence (calling GPT-4o-mini... 10-20s) ===");
+
+    // --------------------------------------------------------------------------
+    // ENGINE 2: Inspection Intelligence (AI reasoning)
+    // --------------------------------------------------------------------------
+    return fetch(BASE + "/inspection-intelligence", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        decision_core: dc,
+        transcript: transcript,
+        asset_description: "Mature fixed offshore production platform, Gulf of Mexico. 8-leg steel jacket, carbon steel tubular construction. "
+          + "Retrofit helideck 14 years old, pedestal crane, multiple topside modifications. "
+          + "Post-hurricane assessment. Pilots report mushy touchdown, crane operator reports structure answering back, "
+          + "personnel report walkway chatter and handrail buzz. Suspected global stiffness degradation with "
+          + "helideck/crane dynamic coupling. Lower jacket brace possible denting/ovalization from wave impact."
+      })
+    });
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(iiResult) {
+    if (iiResult.error) {
+      console.log("[ENGINE 2 ERROR] " + iiResult.error);
+      if (iiResult.debug) console.log("[DEBUG] " + JSON.stringify(iiResult.debug));
+      return;
+    }
+
+    var meta = iiResult.metadata || {};
+    console.log("[META] inspection-intelligence v" + meta.version + " | " + meta.elapsed_ms + "ms");
+    console.log("[META] Static: " + meta.static_validated_count + " validated | AI: " + meta.ai_suggested_count + " suggested, " + meta.ai_approved_count + " approved, " + meta.ai_vetoed_count + " vetoed");
+    console.log("");
+
+    // Domain classification
+    var dom = iiResult.domain_classification || {};
+    console.log("[DOMAIN] " + (dom.primary_domain || "?") + " / " + (dom.sub_domain || "?") + " (" + (dom.confidence || "?") + ")");
+    if (dom.basis) console.log("[DOMAIN BASIS] " + dom.basis);
+    console.log("");
+
+    // Governing codes
+    var codes = iiResult.governing_codes || [];
+    console.log("[CODES] " + codes.length + " identified:");
+    for (var c = 0; c < codes.length; c++) {
+      var code = codes[c];
+      console.log("  " + (code.primary ? "* " : "  ") + (code.code || "?") + " -- " + (code.scope || ""));
+    }
+    console.log("");
+
+    // Static mechanisms
+    var staticMechs = ((iiResult.mechanisms || {}).static_catalog || {}).validated || [];
+    var staticIds = staticMechs.map(function(s) { return s.id; });
+    console.log("[STATIC MECHANISMS] " + staticIds.join(", "));
+
+    // AI extended mechanisms
+    var aiApproved = ((iiResult.mechanisms || {}).ai_extended || {}).approved || [];
+    var aiVetoed = ((iiResult.mechanisms || {}).ai_extended || {}).vetoed || [];
+    console.log("[AI EXTENDED - APPROVED] " + aiApproved.length + " mechanisms:");
+    for (var a = 0; a < aiApproved.length; a++) {
+      var am = aiApproved[a];
+      console.log("  + " + (am.id || am.name || "?") + " -- " + (am.physical_basis || "") + " (confidence: " + (am.confidence || "?") + ")");
+    }
+    if (aiVetoed.length > 0) {
+      console.log("[AI EXTENDED - VETOED] " + aiVetoed.length + " mechanisms:");
+      for (var v = 0; v < aiVetoed.length; v++) {
+        var vm = aiVetoed[v];
+        console.log("  X " + (vm.id || vm.name || "?") + " -- VETO: " + (vm.veto_reason || ""));
+      }
+    }
+    console.log("");
+
+    // Inspection plan
+    var plan = iiResult.inspection_plan || {};
+    var techniques = plan.techniques || [];
+    console.log("[INSPECTION PLAN] " + techniques.length + " techniques:");
+    for (var t = 0; t < techniques.length; t++) {
+      var tech = techniques[t];
+      console.log("  [" + (tech.priority || "?") + "] " + (tech.mechanism_id || "?") + " -> " + (tech.technique || "?") + " | " + (tech.code_basis || ""));
+      if (tech.acceptance_criteria) console.log("    Acceptance: " + tech.acceptance_criteria);
+    }
+    console.log("");
+
+    // Temporal projection
+    var tp = iiResult.temporal_projection || {};
+    console.log("[TEMPORAL] Life: " + (tp.remaining_life_estimate || "?") + " | Next inspection: " + (tp.next_inspection_due || "?") + " | Trajectory: " + (tp.degradation_trajectory || "?"));
+
+    // Digital twin progression
+    var fp = tp.failure_progression || {};
+    console.log("[TWIN] Now: " + (fp.current_state || "?"));
+    if (fp.six_months) console.log("[TWIN] 6mo: " + fp.six_months);
+    if (fp.one_year) console.log("[TWIN] 1yr: " + fp.one_year);
+    if (fp.three_years) console.log("[TWIN] 3yr: " + fp.three_years);
+    if (fp.five_years) console.log("[TWIN] 5yr: " + fp.five_years);
+    console.log("[TWIN] Failure mode: " + (fp.failure_mode || "?"));
+    console.log("");
+
+    // Intervention windows
+    var iw = tp.intervention_windows || [];
+    for (var w = 0; w < iw.length; w++) {
+      var win = iw[w];
+      console.log("[" + (win.urgency || "?") + "] " + (win.window || "?") + " -> " + (win.action || "?"));
+      if (win.consequence_of_inaction) console.log("  IF NOT: " + win.consequence_of_inaction);
+    }
+    console.log("");
+
+    // Data gaps
+    var gaps = tp.data_gaps || [];
+    if (gaps.length > 0) {
+      console.log("[DATA GAPS] " + gaps.length + ":");
+      for (var g = 0; g < gaps.length; g++) {
+        console.log("  ? " + gaps[g]);
+      }
+      console.log("");
+    }
+
+    // Confidence
+    var conf = iiResult.confidence_assessment || {};
+    console.log("[CONFIDENCE] Overall: " + (conf.overall || "?"));
+    var lims = conf.limitations || [];
+    if (lims.length > 0) {
+      console.log("[LIMITATIONS]");
+      for (var l = 0; l < lims.length; l++) {
+        console.log("  - " + lims[l]);
+      }
+    }
+    console.log("");
+
+    // Teaching insight
+    if (iiResult.teaching_insight) {
+      console.log("[TEACHING] " + iiResult.teaching_insight);
+    }
+
+    console.log("");
+    console.log("=== ELITE SCENARIO TEST COMPLETE ===");
+  })
+  .catch(function(err) {
+    console.log("[FATAL ERROR] " + err.message);
+  });
+})();

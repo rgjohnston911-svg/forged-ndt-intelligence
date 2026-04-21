@@ -1,0 +1,14 @@
+# units: in
+# nominal: 0.500
+A1,12 o'clock - above wrap,0.4750
+A2,12 o'clock - wrap edge,0.4200
+A3,12 o'clock - below wrap,0.4620
+B1,3 o'clock - above wrap,0.3850
+B2,3 o'clock - splash zone,0.2950
+B3,3 o'clock - below wrap,0.3600
+C1,6 o'clock - above wrap,0.3700
+C2,6 o'clock - splash zone,0.2100
+C3,6 o'clock - below wrap,0.3400
+D1,9 o'clock - above wrap,0.4100
+D2,9 o'clock - splash zone,0.3150
+D3,9 o'clock - below wrap,0.4000

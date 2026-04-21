@@ -1,0 +1,531 @@
+// ============================================================================
+// FORGED NDT INTELLIGENCE OS -- ELITE STRESS TEST
+// "The Tri-Authority Offshore Hybrid Structure Crisis"
+// Deepwater FPSO, Gulf of Guinea -- Category 4 hurricane aftermath
+// Multi-material (steel + CRA clad + composite), multi-authority (API + DNV + AWS + ISO)
+// Conflicting evidence, compound damage, high-consequence decision under uncertainty
+// Paste into F12 console at https://4dndt.netlify.app
+// ============================================================================
+
+(function() {
+  var BASE = "https://4dndt.netlify.app/.netlify/functions";
+  var divider = "============================================================";
+
+  function post(fn, body) {
+    return fetch(BASE + "/" + fn, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function(r) { return r.json(); });
+  }
+
+  // -----------------------------------------------------------------------
+  // THE TRANSCRIPT -- compound damage, field slang, multi-authority chaos
+  // -----------------------------------------------------------------------
+  var transcript = [
+    "Deepwater FPSO offshore West Africa, Gulf of Guinea. Post-hurricane Category 4 inspection.",
+    "Floating Production Storage and Offloading unit connected to subsea manifolds via steel catenary risers and experimental carbon fiber composite jumper system.",
+    "Adjacent helideck plus flare boom plus living quarters. Structural concern across multiple systems.",
+    "",
+    "HELIDECK INSPECTION:",
+    "That deck legs tweaked, looks like she took a hit from the crane during the storm. Welds look chewed up.",
+    "Aluminum grating with welded steel supports. Cyclic helicopter loading history.",
+    "Visual inspection found undercut, toe cracking, corrosion pitting at weld toes.",
+    "MT at helideck weld toes shows linear indications, rejectable per AWS D1.1.",
+    "Drone plus LiDAR scan detected 2.8 degree tilt in helideck support column.",
+    "Digital twin mismatch versus original design geometry.",
+    "Structural deformation, misalignment visible, racked per field crew observation.",
+    "",
+    "FLARE BOOM INSPECTION:",
+    "Flare boom experienced thermal shock during storm, rain hitting hot surfaces.",
+    "Intermittent high temperature exposure 800 degrees F. Surface oxidation and distortion noted.",
+    "Thermal cycling ambient to 800F repeatedly. Sulfur compounds in process gas.",
+    "",
+    "SUBSEA RISER INSPECTION:",
+    "Carbon steel risers in sour service, H2S confirmed present.",
+    "CRA cladding in some sections, clad interface integrity uncertain.",
+    "UT and PAUT at riser 6 oclock position downstream elbow shows 38 to 45 percent wall loss.",
+    "Design pressure 2200 psi. Last inspection was 6 years ago, internal corrosion rate unknown.",
+    "Abnormal vibration during storm, vortex induced vibration spike recorded.",
+    "Acoustic emission monitoring at jacket node under wave loading shows active emissions.",
+    "Active crack growth suspected in real time.",
+    "",
+    "JACKET NODE INSPECTION:",
+    "Offshore steel jacket ASTM A36 plus HSLA steel primary structure.",
+    "PAUT at jacket node weld shows indications suggesting planar defect, possible fatigue crack.",
+    "Wave loading during hurricane exceeded design by 18 percent.",
+    "Acoustic emission confirms active emissions under wave loading.",
+    "DNV fatigue model predicts failure in less than 30 days under current loading conditions.",
+    "",
+    "COMPOSITE JUMPER INSPECTION:",
+    "Carbon fiber composite jumper with bonded interfaces. Experimental installation.",
+    "UT at composite interface shows signal attenuation inconsistent, unclear bonding condition.",
+    "No clear code authority for composite assessment. ISO versus manufacturer specification conflict.",
+    "",
+    "ENVIRONMENTAL CONDITIONS:",
+    "Marine environment, saltwater exposure, chloride present.",
+    "Sour service confirmed, H2S detected in process stream.",
+    "Offshore platform in open water with wave and current loading.",
+    "Coating condition on external surfaces is degraded, peeling and flaking noted.",
+    "",
+    "AUTHORITY CONFLICT:",
+    "API 579 FFS assessment says borderline Level 2 and Level 3 required for riser wall loss.",
+    "API 510 and API 570 monitoring regime possible for some components.",
+    "DNV fatigue model contradicts API and predicts imminent crack propagation at jacket node.",
+    "AWS D1.1 rejects helideck welds outright based on MT indications.",
+    "ISO 19901 governs offshore structural assessment but conflicts with API on acceptance criteria.",
+    "Operator internal integrity management program wants run-to-failure window for riser.",
+    "Multiple authorities give different answers for same component.",
+    "",
+    "CONSEQUENCE CONCERNS:",
+    "Helideck collapse means personnel fatalities, aviation safety threshold exceeded.",
+    "Riser rupture means environmental release plus explosion risk, 2200 psi sour service.",
+    "Jacket failure means total asset loss, platform collapse scenario.",
+    "Flare boom failure could cascade into fire and explosion scenario.",
+    "Living quarters occupancy risk, evacuation threshold question.",
+    "",
+    "COMPETING DAMAGE NARRATIVES:",
+    "Field crew says storm damage, impact event caused everything.",
+    "Physics evidence suggests fatigue crack pre-existed at jacket node and propagated during storm.",
+    "Wall loss at riser is progressive corrosion not storm related.",
+    "Thermal fatigue at flare boom is operational not storm related.",
+    "Storm masked pre-existing degradation across multiple systems."
+  ].join("\n");
+
+  // -----------------------------------------------------------------------
+  // ASSET + PARSED INPUTS
+  // -----------------------------------------------------------------------
+  var asset = {
+    asset_class: "offshore_platform",
+    jurisdiction: ""
+  };
+
+  var parsed = {
+    raw_text: transcript,
+    events: [
+      { type: "wall_loss", severity: "critical" },
+      { type: "cracking", severity: "critical" },
+      { type: "impact_damage", severity: "high" },
+      { type: "thermal_cycling", severity: "high" },
+      { type: "vibration", severity: "high" },
+      { type: "deformation", severity: "high" }
+    ],
+    numeric_values: {
+      wall_thickness_measured: 0.180,
+      design_pressure: 2200,
+      operating_temp_f: 800,
+      wall_loss_percent: 45
+    }
+  };
+
+  var body = {
+    transcript: transcript,
+    parsed: parsed,
+    asset: asset
+  };
+
+  console.log(divider);
+  console.log("ELITE STRESS TEST: Tri-Authority Offshore Hybrid Structure Crisis");
+  console.log("Firing all engines...");
+  console.log(divider);
+
+  // -----------------------------------------------------------------------
+  // PHASE 1: ENGINE 1 (Decision Core -- Physics + Jurisdiction + Authority)
+  // -----------------------------------------------------------------------
+  post("decision-core", body).then(function(e1Raw) {
+    var dc = e1Raw.decision_core || e1Raw;
+    console.log("\n" + divider);
+    console.log("ENGINE 1: DECISION CORE (Physics-First Deterministic)");
+    console.log(divider);
+    console.log("Engine version: " + (dc.engine_version || "?"));
+    console.log("Klein bottle states: " + (dc.klein_bottle_states || "?"));
+    console.log("");
+
+    // -- PHYSICAL REALITY --
+    var phys = dc.physical_reality || {};
+    console.log("--- PHYSICAL REALITY ---");
+    console.log("Material class: " + ((phys.material || {}).class || "?"));
+    console.log("Material evidence: " + JSON.stringify((phys.material || {}).evidence || []));
+    console.log("Multi-material: " + ((phys.material || {}).secondary_material || "none"));
+    console.log("Concrete also present: " + ((phys.material || {}).concrete_also_present || false));
+    console.log("Environment phases: " + JSON.stringify((phys.environment || {}).phases_present || []));
+    console.log("Atmosphere class: " + ((phys.environment || {}).atmosphere_class || "?"));
+    console.log("Chemical agents: " + JSON.stringify((phys.chemical || {}).environment_agents || []));
+    console.log("H2S present: " + ((phys.chemical || {}).h2s_present || false));
+    console.log("Chlorides present: " + ((phys.chemical || {}).chlorides_present || false));
+    console.log("Sour service: " + ((phys.chemical || {}).sour_service || false));
+    console.log("Corrosive environment: " + ((phys.chemical || {}).corrosive_environment || false));
+    console.log("Operating temp F: " + ((phys.thermal || {}).operating_temp_f || "?"));
+    console.log("Cryogenic: " + ((phys.thermal || {}).cryogenic || false));
+    console.log("Fire exposure: " + ((phys.thermal || {}).fire_exposure || false));
+    console.log("Creep range: " + ((phys.thermal || {}).creep_range || false));
+    console.log("Cyclic loading: " + ((phys.stress || {}).cyclic_loading || false));
+    console.log("Vibration: " + ((phys.energy || {}).vibration || false));
+    console.log("Impact event: " + ((phys.energy || {}).impact_event || false));
+    console.log("Stress concentration: " + ((phys.stress || {}).stress_concentration_present || false));
+    console.log("Coating condition: " + ((phys.coating || {}).coating_condition || "?"));
+    console.log("Coating type: " + ((phys.coating || {}).coating_type || "?"));
+    console.log("Chloride band: " + ((phys.process_chemistry || {}).chloride_band || "?"));
+    console.log("Sulfur class: " + ((phys.process_chemistry || {}).sulfur_class || "?"));
+    console.log("");
+
+    // -- NPS INFERENCE --
+    var nps = dc.nps_wall_inference || {};
+    console.log("--- NPS WALL INFERENCE ---");
+    console.log("NPS: " + (nps.nps_value || "null") + " | Schedule: " + (nps.schedule || "null") + " | Wall: " + (nps.nominal_wall_mm || "null") + "mm");
+    console.log("Source: " + (nps.source || "null") + " | DQ: " + (nps.data_quality || "null"));
+    console.log("");
+
+    // -- DAMAGE REALITY --
+    var dmg = dc.damage_reality || {};
+    var validated = dmg.validated_mechanisms || [];
+    var rejected = dmg.rejected_mechanisms || [];
+    var indeterminate = dmg.indeterminate_mechanisms || [];
+    console.log("--- DAMAGE REALITY ---");
+    console.log("Validated mechanisms (" + validated.length + "):");
+    for (var v = 0; v < validated.length; v++) {
+      var vm = validated[v];
+      console.log("  [" + (v + 1) + "] " + vm.id + " (" + vm.name + ") -- severity: " + (vm.severity || "?") + " state: " + (vm.reality_state || "?"));
+    }
+    console.log("Rejected mechanisms (" + rejected.length + "): " + rejected.map(function(r) { return r.id; }).join(", "));
+    console.log("Indeterminate mechanisms (" + indeterminate.length + "): " + indeterminate.map(function(r) { return r.id; }).join(", "));
+    console.log("");
+
+    // -- CONSEQUENCE REALITY --
+    var cons = dc.consequence_reality || {};
+    console.log("--- CONSEQUENCE REALITY ---");
+    console.log("Tier: " + (cons.consequence_tier || "?"));
+    console.log("Undetermined: " + (cons.consequence_undetermined || false));
+    console.log("Impacts: " + JSON.stringify(cons.impact_classes || []));
+    console.log("");
+
+    // -- AUTHORITY REALITY --
+    var auth = dc.authority_reality || {};
+    console.log("--- AUTHORITY REALITY ---");
+    console.log("Primary authority: " + (auth.primary_authority || "?"));
+    console.log("Secondary authorities: " + JSON.stringify(auth.secondary_authorities || []));
+    console.log("Conditional requirements: " + JSON.stringify(auth.conditional_requirements || []));
+    console.log("Jurisdiction applied: " + (auth.jurisdiction_applied || false));
+    console.log("Alignment narrative: " + (auth.alignment_narrative || "?"));
+    console.log("");
+
+    // -- JURISDICTION REALITY --
+    var jur = dc.jurisdiction_reality || {};
+    console.log("--- JURISDICTION REALITY ---");
+    console.log("Jurisdiction: " + (jur.jurisdiction || "?"));
+    console.log("Label: " + (jur.jurisdiction_label || "?"));
+    console.log("Detection method: " + (jur.detection_method || "?"));
+    console.log("Confidence: " + (jur.detection_confidence || "?"));
+    console.log("Keyword matches: " + JSON.stringify(jur.keyword_matches || []));
+    console.log("Code stack applied: " + (jur.code_stack_applied || false));
+    console.log("");
+
+    // -- WELD REALITY (DEPLOY205/206) --
+    var weld = dc.weld_reality || {};
+    console.log("--- WELD REALITY ---");
+    console.log("Weld context detected: " + (weld.weld_context_detected || false));
+    console.log("Joint types: " + JSON.stringify(weld.joint_types || []));
+    console.log("Weld zones at risk: " + JSON.stringify(weld.weld_zones_at_risk || []));
+    console.log("PWHT status: " + (weld.pwht_status || "?"));
+    console.log("DMW: " + (weld.dissimilar_metal_weld || false));
+    console.log("DMW materials: " + JSON.stringify(weld.dmw_materials || []));
+    console.log("Repair weld: " + (weld.repair_weld || false));
+    console.log("Weld processes: " + JSON.stringify(weld.weld_processes || []));
+    console.log("Quality concerns: " + JSON.stringify(weld.quality_concerns || []));
+    console.log("Field slang matched: " + JSON.stringify(weld.field_slang_matched || []));
+    var weldMods = weld.mechanism_modifiers_applied || [];
+    console.log("Mechanism modifiers (" + weldMods.length + "):");
+    for (var wm = 0; wm < weldMods.length; wm++) {
+      console.log("  [" + (wm + 1) + "] " + weldMods[wm].mechanism + " -> " + weldMods[wm].modifier + ": " + (weldMods[wm].detail || ""));
+    }
+    console.log("");
+
+    // -- INSPECTION SUFFICIENCY --
+    var insp = dc.inspection_sufficiency || {};
+    console.log("--- INSPECTION SUFFICIENCY ---");
+    console.log("Best method: " + ((insp.best_method || {}).method || "?") + " (score: " + ((insp.best_method || {}).overall_score || "?") + ")");
+    console.log("Verdict: " + ((insp.best_method || {}).verdict || "?"));
+    console.log("Blind spots: " + JSON.stringify((insp.best_method || {}).blind_spots || []));
+    console.log("Complementary: " + JSON.stringify((insp.best_method || {}).complementary_methods || []));
+    console.log("Sufficiency: " + (insp.sufficiency_verdict || "?"));
+    console.log("Missing coverage: " + JSON.stringify(insp.missing_coverage || []));
+    console.log("");
+
+    // -- CONFIDENCE --
+    var conf = dc.reality_confidence || {};
+    console.log("--- REALITY CONFIDENCE ---");
+    console.log("Physics: " + (conf.physics_confidence || "?"));
+    console.log("Damage: " + (conf.damage_confidence || "?"));
+    console.log("Consequence: " + (conf.consequence_confidence || "?"));
+    console.log("Authority: " + (conf.authority_confidence || "?"));
+    console.log("Inspection: " + (conf.inspection_confidence || "?"));
+    console.log("Overall: " + (conf.overall || "?") + " (" + (conf.band || "?") + ")");
+    console.log("Certainty state: " + (conf.certainty_state || "?"));
+    console.log("Decision lock: " + (conf.decision_lock || "?"));
+    console.log("Escalation required: " + (conf.escalation_required || "?"));
+    console.log("Contradiction flags: " + JSON.stringify(conf.contradiction_flags || []));
+    console.log("");
+
+    // -- DECISION REALITY --
+    var dec = dc.decision_reality || {};
+    console.log("--- DECISION REALITY ---");
+    console.log("DISPOSITION: " + (dec.disposition || "?"));
+    console.log("Basis: " + (dec.disposition_basis || "?"));
+    console.log("Gates: " + JSON.stringify(dec.gates || []));
+    console.log("Hard locks: " + JSON.stringify(dec.hard_locks || []));
+    console.log("Guided recovery: " + JSON.stringify(dec.guided_recovery || {}));
+    console.log("");
+
+    // -- FIELD LANGUAGE SUMMARY --
+    var fld = dc.field_language_summary || {};
+    console.log("--- FIELD LANGUAGE SUMMARY ---");
+    console.log(JSON.stringify(fld, null, 2));
+    console.log("");
+
+    // -----------------------------------------------------------------------
+    // PHASE 2: ENGINE 3 (Inspection Retrieval -- deterministic code lookup)
+    // -----------------------------------------------------------------------
+    return post("inspection-retrieval", {
+      decision_core: dc,
+      transcript: transcript
+    }).then(function(e3) {
+      console.log("\n" + divider);
+      console.log("ENGINE 3: INSPECTION RETRIEVAL (Deterministic Knowledge)");
+      console.log(divider);
+      console.log("Version: " + ((e3.metadata || {}).version || "?"));
+      console.log("Mechanisms referenced: " + ((e3.metadata || {}).mechanisms_referenced || 0));
+      console.log("Methods referenced: " + ((e3.metadata || {}).methods_referenced || 0));
+      console.log("");
+
+      var mechRefs = e3.mechanism_references || [];
+      console.log("--- MECHANISM REFERENCES (" + mechRefs.length + ") ---");
+      for (var m = 0; m < mechRefs.length; m++) {
+        var ref = mechRefs[m];
+        console.log("  [" + (m + 1) + "] " + ref.mechanism_id + " | API 571 sec " + (ref.api_571_section || "?") + " | Codes: " + (ref.governing_codes || []).join(", "));
+        console.log("       Primary methods: " + (ref.primary_methods || []).join(", "));
+        console.log("       Supplementary: " + (ref.supplementary_methods || []).join(", "));
+      }
+      console.log("");
+
+      var covMatrix = e3.method_coverage || [];
+      console.log("--- METHOD COVERAGE MATRIX (" + covMatrix.length + " methods) ---");
+      for (var c = 0; c < covMatrix.length; c++) {
+        var cm = covMatrix[c];
+        console.log("  " + cm.method + " covers " + cm.mechanisms_covered.length + " mechanisms: " + cm.mechanisms_covered.join(", "));
+      }
+      console.log("");
+
+      return { dc: dc, e3: e3 };
+    });
+
+  }).then(function(engines) {
+    // -----------------------------------------------------------------------
+    // PHASE 3: ENGINE 2 (AI Reasoning -- fault-tolerant, 504 won't kill scorecard)
+    // -----------------------------------------------------------------------
+    return post("inspection-intelligence", {
+      decision_core: engines.dc,
+      transcript: transcript
+    }).then(function(e2) {
+      console.log("\n" + divider);
+      console.log("ENGINE 2: INSPECTION INTELLIGENCE (AI Reasoning)");
+      console.log(divider);
+      console.log("Version: " + (e2.version || "?"));
+      console.log("AI Provider: " + ((e2.ai_provider || {}).provider || "?"));
+      console.log("");
+
+      var analysis = e2.analysis || e2.ai_analysis || e2;
+      if (typeof analysis === "string") {
+        console.log("--- AI ANALYSIS (first 2000 chars) ---");
+        console.log(analysis.substring(0, 2000));
+      } else {
+        console.log("--- AI ANALYSIS ---");
+        console.log(JSON.stringify(analysis, null, 2).substring(0, 3000));
+      }
+      console.log("");
+
+      return { dc: engines.dc, e3: engines.e3, e2: e2 };
+    }).catch(function(e2err) {
+      console.log("\n" + divider);
+      console.log("ENGINE 2: INSPECTION INTELLIGENCE -- TIMEOUT/ERROR (non-fatal)");
+      console.log(divider);
+      console.log("Error: " + (e2err.message || String(e2err)));
+      console.log("Scorecard will continue without Engine 2 results.");
+      console.log("");
+      return { dc: engines.dc, e3: engines.e3, e2: null };
+    });
+
+  }).then(function(engines) {
+    // -----------------------------------------------------------------------
+    // PHASE 4: SUPERBRAIN SYNTHESIS (fault-tolerant)
+    // -----------------------------------------------------------------------
+    return post("superbrain-synthesis", {
+      decision_core: engines.dc,
+      transcript: transcript,
+      inspection_intelligence: engines.e2,
+      inspection_retrieval: engines.e3
+    }).then(function(sb) {
+      console.log("\n" + divider);
+      console.log("SUPERBRAIN: SYNTHESIS (Triple-Engine Fusion)");
+      console.log(divider);
+      console.log("Version: " + (sb.version || "?"));
+      console.log("AI Provider: " + ((sb.ai_provider || {}).provider || "?"));
+      console.log("");
+
+      var synthesis = sb.synthesis || sb.ai_synthesis || sb;
+      if (typeof synthesis === "string") {
+        console.log("--- SUPERBRAIN SYNTHESIS (first 3000 chars) ---");
+        console.log(synthesis.substring(0, 3000));
+      } else {
+        console.log("--- SUPERBRAIN SYNTHESIS ---");
+        console.log(JSON.stringify(synthesis, null, 2).substring(0, 4000));
+      }
+      console.log("");
+
+      return { dc: engines.dc, e3: engines.e3, e2: engines.e2, sb: sb };
+    }).catch(function(sberr) {
+      console.log("\n" + divider);
+      console.log("SUPERBRAIN: SYNTHESIS -- TIMEOUT/ERROR (non-fatal)");
+      console.log(divider);
+      console.log("Error: " + (sberr.message || String(sberr)));
+      console.log("Scorecard will continue without Superbrain results.");
+      console.log("");
+      return { dc: engines.dc, e3: engines.e3, e2: engines.e2, sb: null };
+    });
+
+  }).then(function(all) {
+    // -----------------------------------------------------------------------
+    // PHASE 5: SCORECARD -- What did the system handle?
+    // -----------------------------------------------------------------------
+    var dc = all.dc;
+    var dmg = dc.damage_reality || {};
+    var validated = dmg.validated_mechanisms || [];
+    var validatedIds = validated.map(function(v) { return v.id; });
+    var phys = dc.physical_reality || {};
+    var auth = dc.authority_reality || {};
+    var jur = dc.jurisdiction_reality || {};
+    var cons = dc.consequence_reality || {};
+    var dec = (dc.decision_reality || {});
+    var conf = dc.reality_confidence || {};
+    var coating = (phys.coating || {});
+    var stress = (phys.stress || {});
+    var energy = (phys.energy || {});
+    var thermal = (phys.thermal || {});
+    var chem = (phys.chemical || {});
+    var env = (phys.environment || {});
+
+    console.log("\n" + divider);
+    console.log("SCORECARD: SYSTEM CAPABILITY ASSESSMENT");
+    console.log(divider);
+
+    var checks = [];
+
+    function check(label, passed) {
+      checks.push({ label: label, passed: passed });
+      console.log((passed ? "[YES]" : "[ NO]") + " " + label);
+    }
+
+    // MATERIAL DETECTION
+    check("Material detected as carbon_steel or low_alloy_steel", (phys.material || {}).class === "carbon_steel" || (phys.material || {}).class === "low_alloy_steel");
+    check("Multi-material detected (secondary in evidence)", (phys.material || {}).evidence && JSON.stringify((phys.material || {}).evidence).indexOf("secondary_material") !== -1);
+    check("Marine atmosphere detected", env.atmosphere_class === "marine");
+    check("H2S / sour service detected", chem.h2s_present === true || chem.sour_service === true);
+    check("Chlorides detected", chem.chlorides_present === true);
+    check("Corrosive environment flagged", chem.corrosive_environment === true);
+    check("Operating temp 800F detected", thermal.operating_temp_f >= 700);
+    check("Sulfur class detected (not null)", !!((phys.process_chemistry || {}).sulfur_class) && (phys.process_chemistry || {}).sulfur_class !== "none");
+    check("Creep range active", thermal.creep_range === true);
+    check("Cyclic loading detected", stress.cyclic_loading === true);
+    check("Vibration detected", energy.vibration === true);
+    check("Impact event detected", energy.impact_event === true);
+    check("Stress concentration detected", stress.stress_concentration_present === true);
+    check("Degraded coating detected", coating.coating_condition === "degraded");
+
+    console.log("");
+    console.log("--- MECHANISM VALIDATION ---");
+
+    // CRITICAL MECHANISMS THAT SHOULD VALIDATE
+    var expectedMechs = [
+      { id: "fatigue_mechanical", label: "Fatigue (mechanical) -- wave + helicopter + vibration" },
+      { id: "fatigue_thermal", label: "Thermal fatigue -- flare boom 800F cycling" },
+      { id: "fatigue_vibration", label: "Vibration fatigue -- VIV + storm vibration" },
+      { id: "ssc_sulfide", label: "Sulfide stress cracking -- H2S sour service" },
+      { id: "hic", label: "HIC -- hydrogen induced cracking in sour service" },
+      { id: "sulfidation", label: "Sulfidation -- sulfur compounds + high temp" },
+      { id: "general_corrosion", label: "General corrosion -- wall loss detected" },
+      { id: "pitting", label: "Pitting -- corrosion pitting at welds" },
+      { id: "atmospheric_corrosion", label: "Atmospheric corrosion -- degraded coating offshore" },
+      { id: "erosion", label: "Erosion -- high velocity flow possible" },
+      { id: "creep", label: "Creep -- 800F long-term exposure" },
+      { id: "overload_buckling", label: "Overload/buckling -- storm impact + deformation" }
+    ];
+
+    for (var e = 0; e < expectedMechs.length; e++) {
+      var found = validatedIds.indexOf(expectedMechs[e].id) !== -1;
+      check(expectedMechs[e].label, found);
+    }
+
+    console.log("");
+    console.log("--- AUTHORITY + JURISDICTION ---");
+    check("Primary authority resolved (not ?)", (auth.primary_authority || "?") !== "?");
+    check("FFS standard in secondary (API 579 or equivalent)", JSON.stringify(auth.secondary_authorities || []).indexOf("579") !== -1 || JSON.stringify(auth.secondary_authorities || []).indexOf("FFS") !== -1);
+    check("Jurisdiction detection ran", (jur.jurisdiction || "?") !== "?");
+    check("Consequence tier HIGH or CRITICAL", cons.consequence_tier === "HIGH" || cons.consequence_tier === "CRITICAL" || cons.consequence_tier === "high" || cons.consequence_tier === "critical");
+
+    console.log("");
+    console.log("--- CONFIDENCE + DECISION ---");
+    check("Contradiction flags present (conflicting evidence)", (conf.contradiction_flags || []).length > 0);
+    check("Escalation required flagged", conf.escalation_required === true);
+    check("Disposition is NOT accept-as-is", (dec.disposition || "").indexOf("accept") === -1);
+    check("Disposition escalated (engineering_review or higher)", (dec.disposition || "").indexOf("review") !== -1 || (dec.disposition || "").indexOf("escalat") !== -1 || (dec.disposition || "").indexOf("hold") !== -1);
+
+    console.log("");
+    console.log("--- WELD INTELLIGENCE (DEPLOY205/206) ---");
+    var wr = dc.weld_reality || {};
+    check("Weld context detected", wr.weld_context_detected === true);
+    check("Weld zones identified", (wr.weld_zones_at_risk || []).length >= 1);
+    check("Quality concerns detected (undercut/cracking/planar)", (wr.quality_concerns || []).length >= 1);
+    check("Mechanism modifiers applied", (wr.mechanism_modifiers_applied || []).length >= 1);
+
+    console.log("");
+    console.log("--- ENGINE 3 (Knowledge) ---");
+    var e3Mechs = ((all.e3 || {}).mechanism_references || []).length;
+    var e3Methods = ((all.e3 || {}).method_coverage || []).length;
+    check("Engine 3 returned mechanism references", e3Mechs >= 1);
+    check("Engine 3 returned method coverage matrix", e3Methods >= 1);
+
+    console.log("");
+    console.log("--- ENGINE 2 + SUPERBRAIN (AI) ---");
+    check("Engine 2 returned analysis", !!all.e2 && (!!all.e2.analysis || !!all.e2.ai_analysis || !!all.e2.version));
+    check("Superbrain returned synthesis", !!all.sb && (!!all.sb.synthesis || !!all.sb.ai_synthesis || !!all.sb.version));
+
+    // FINAL TALLY
+    var yesCount = 0;
+    var noCount = 0;
+    for (var t = 0; t < checks.length; t++) {
+      if (checks[t].passed) yesCount++;
+      else noCount++;
+    }
+
+    console.log("");
+    console.log(divider);
+    console.log("FINAL SCORE: " + yesCount + " / " + checks.length + " capabilities demonstrated (" + noCount + " gaps)");
+    console.log(divider);
+
+    if (noCount === 0) {
+      console.log("VERDICT: UNTOUCHABLE. Every capability fired. Full authority resolution, compound damage, multi-engine synthesis.");
+    } else if (noCount <= 3) {
+      console.log("VERDICT: ELITE. Minor gaps only -- system handled the core complexity.");
+    } else if (noCount <= 8) {
+      console.log("VERDICT: STRONG. System covered most scenarios but has addressable gaps.");
+    } else {
+      console.log("VERDICT: DEVELOPING. Significant gaps remain for this complexity level.");
+    }
+
+    console.log(divider);
+
+  }).catch(function(err) {
+    console.log("[FATAL ERROR] " + (err.message || String(err)));
+    console.log(err.stack || "");
+  });
+
+})();

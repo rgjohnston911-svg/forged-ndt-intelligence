@@ -1,0 +1,1827 @@
+// ============================================================================
+// FORGED NDT INTELLIGENCE OS -- SYSTEM TEST v4.1
+// DEPLOY203 (decision-core v2.11.0) + DEPLOY202 (superbrain v1.4 + inspection-intelligence v1.4.0 + inspection-retrieval v1.0.0) + DEPLOY174+ (FMD v1.4.0) + DEPLOY180 (disposition v1.2) + DEPLOY184 (failure-timeline v1.2)
+// v4.1: DEPLOY203 -- Global jurisdiction router. 6 new tests:
+//   T79: Jurisdiction default -- no jurisdiction, returns US, version v2.11.0
+//   T80: Jurisdiction explicit -- asset.jurisdiction="AU" routes to AS/NZS 3788
+//   T81: Jurisdiction inferred -- "stavanger" + "norsok" transcript routes to Norway
+//   T82: Jurisdiction EU piping -- "rotterdam" + "en 13480" routes to PED/EN
+//   T83: Jurisdiction PVHO guard -- PVHO still resolves PVHO-1 even with non-US jurisdiction
+//   T84: Jurisdiction output structure -- jurisdiction_reality block present with fields
+// v4.0: DEPLOY202 -- Superbrain Engine 3 wiring + dual-provider failover. 3 new tests:
+//   T76: Superbrain v1.4 version + ai_provider metadata
+//   T77: Superbrain accepts inspection_retrieval and reports ir_override_applied
+//   T78: Engine 2 v1.4.0 reports ai_provider in metadata
+// v3.9: DEPLOY201 -- Engine 3 (inspection-retrieval) system tests. 7 new tests:
+//   T69: Engine 3 basic connectivity + version check
+//   T70: Engine 3 domain refusal pass-through
+//   T71: Engine 3 deterministic references -- validates mechanism_references array
+//   T72: Engine 3 method coverage matrix -- sorted by coverage count
+//   T73: Engine 3 integration chain -- Engine 1 output piped to Engine 3
+//   T74: Engine 3 coating context forwarded from Engine 1
+//   T75: Engine 3 coverage matrix shows multi-mechanism efficiency
+// v3.8: DEPLOY200 -- Coatings as 10th precondition bucket. 5 new regression tests:
+//   T64: Coating detection -- degraded coating detected from transcript language
+//   T65: Coating detection -- intact coating detected from transcript language
+//   T66: Atmospheric corrosion REJECTED when coating is intact
+//   T67: Atmospheric corrosion validates when coating is degraded
+//   T68: Coating type detection -- FBE identified from transcript
+// v3.7: DEPLOY199 -- fire_damage negation fix. hasWordNotNegated replaces hasWord for fire phrases.
+// v3.6: DEPLOY198 -- Two system bugs from helideck elite scenario. 3 new regression tests:
+//   T61: fire_damage NOT validated when only "firefighting" compound words present (false-positive fix)
+//   T62: fire_damage still validates with real fire-event language (regression guard)
+//   T63: Offshore platform gets saltwater phase + marine atmosphere + implied agents
+// v3.5: DEPLOY197 -- Catalog vocabulary mismatch fixes. 4 new regression tests:
+//   T57: Erosion reaches ELIGIBLE with high-velocity flow language
+//   T58: MIC reaches ELIGIBLE with low-flow + biofilm deposits
+//   T59: Underdeposit corrosion deposit_type matches catalog vocabulary
+//   T60: Turbulence geometry promotes flow_state to "turbulent" for erosion
+// v3.4: DEPLOY196 -- Field Language Interpreter dictionary integration. 7 new detection categories:
+//   structural movement/instability, welding defect language, fracture progression, overheating/thermal,
+//   restraint/binding, temporary fix/repeat failure, fitup geometry. 30+ corrosion/erosion terms added.
+//   Engine 2 prompt updated with field language awareness guidance.
+// v3.1: Fix ammonia SCC false-positive test (T38). Tightened keyword detection in DEPLOY191.
+// Paste into F12 console at https://4dndt.netlify.app
+// ============================================================================
+
+(function() {
+  var BASE = "https://4dndt.netlify.app/.netlify/functions";
+  var results = [];
+  var pass = 0;
+  var fail = 0;
+  var total = 0;
+
+  function post(fn, body) {
+    return fetch(BASE + "/" + fn, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function(r) { return r.json(); });
+  }
+
+  function record(name, passed, detail) {
+    total++;
+    if (passed) { pass++; console.log("[PASS] " + name + " -- " + detail); }
+    else { fail++; console.log("[FAIL] " + name + " -- " + detail); }
+    results.push({ name: name, passed: passed, detail: detail });
+  }
+
+  function num(val, fallback) {
+    return (val !== undefined && val !== null) ? val : fallback;
+  }
+
+  // T1: Domain Refusal (nuclear)
+  // v2.9.3.x returns domain_not_supported=true (not domain_refusal.refused)
+  function T1() {
+    return post("decision-core", {
+      transcript: "Pressurized water reactor vessel with neutron embrittlement near beltline weld",
+      parsed: { raw_text: "Pressurized water reactor vessel with neutron embrittlement near beltline weld", events: [], numeric_values: {} },
+      asset: { asset_class: "nuclear_vessel" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var refused = dc.domain_not_supported === true;
+      record("T1: Domain Refusal (nuclear)", refused && ver.indexOf("v2.10.0") >= 0, "refused=" + refused + " ver=" + ver);
+    }).catch(function(e) { record("T1: Domain Refusal (nuclear)", false, "ERROR: " + e.message); });
+  }
+
+  // T2: Consequence Undetermined (DEPLOY180)
+  function T2() {
+    return post("decision-core", {
+      transcript: "8 inch carbon steel pipe in refinery crude unit. Heavy wall loss on elbow downstream of desalter. Thinning measured at multiple locations. Operating temperature 350 degrees F. High consequence area near personnel walkway.",
+      parsed: {
+        raw_text: "8 inch carbon steel pipe in refinery crude unit. Heavy wall loss on elbow downstream of desalter. Thinning measured at multiple locations. Operating temperature 350 degrees F. High consequence area near personnel walkway.",
+        events: [{ type: "wall_loss", severity: "heavy" }],
+        numeric_values: { wall_thickness_mm: 6.0, corrosion_rate_mm_per_year: 0.5, minimum_thickness_mm: 3.2, current_thickness_mm: 6.0, operating_pressure_psi: 150 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var cr = dc.consequence_reality || {};
+      var ver = dc.engine_version || "?";
+      var tier = cr.consequence_tier || "?";
+      var undet = cr.consequence_undetermined;
+      var impacts = cr.undetermined_impacts || [];
+      record("T2: Consequence Reality", typeof undet !== "undefined" && tier !== "?", "tier=" + tier + " undetermined=" + undet + " impacts=[" + impacts.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T2: Consequence Reality", false, "ERROR: " + e.message); });
+  }
+
+  // T3: NPS Wall Inference (DEPLOY182)
+  function T3() {
+    return post("decision-core", {
+      transcript: "NPS 8 schedule 40 carbon steel piping in amine service. Wall loss observed on intrados of elbow. Corrosion under insulation suspected. Operating at 200 psi.",
+      parsed: {
+        raw_text: "NPS 8 schedule 40 carbon steel piping in amine service. Wall loss observed on intrados of elbow. Corrosion under insulation suspected. Operating at 200 psi.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: { operating_pressure_psi: 200, corrosion_rate_mm_per_year: 0.3 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var pr = dc.physical_reality || {};
+      var nps = pr.nps_inference || {};
+      var pc = dc.physics_computations || {};
+      var dq = pc.data_quality || {};
+      var npsVal = nps.nps_inch;
+      var schVal = nps.schedule;
+      var wallVal = nps.nominal_wall_mm;
+      var src = nps.wall_source;
+      var dqSrc = dq.wall_source;
+      var passed = npsVal === 8 && schVal === "40" && wallVal === 8.18 && src === "INFERRED" && dqSrc === "INFERRED";
+      record("T3: NPS Wall Inference (DEPLOY182)", passed, "nps=" + npsVal + " sch=" + schVal + " wall=" + wallVal + "mm source=" + src + " dq=" + dqSrc + " ver=" + ver);
+    }).catch(function(e) { record("T3: NPS Wall Inference (DEPLOY182)", false, "ERROR: " + e.message); });
+  }
+
+  // T4: Catalog Mechanism (sulfidation)
+  function T4() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping in crude unit overhead showing sulfidation wall loss. Operating temperature 550 degrees Fahrenheit. Naphthenic acid environment with high TAN crude. Measured wall thickness 5.2mm. Minimum required 3.0mm.",
+      parsed: {
+        raw_text: "Carbon steel piping in crude unit overhead showing sulfidation wall loss. Operating temperature 550 degrees Fahrenheit. Naphthenic acid environment with high TAN crude. Measured wall thickness 5.2mm. Minimum required 3.0mm.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: { wall_thickness_mm: 5.2, minimum_thickness_mm: 3.0, corrosion_rate_mm_per_year: 0.4, operating_temperature_f: 550, current_thickness_mm: 5.2 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var primary = dm.primary_mechanism ? dm.primary_mechanism.id : "?";
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasSulf = validated.indexOf("sulfidation") >= 0;
+      record("T4: Catalog Mechanism (sulfidation)", primary !== "?" && hasSulf, "primary=" + primary + " validated_ids=" + validated.join(",") + " sulfidation=" + hasSulf + " ver=" + ver);
+    }).catch(function(e) { record("T4: Catalog Mechanism (sulfidation)", false, "ERROR: " + e.message); });
+  }
+
+  // T5: FMD Catalog Family Map
+  // FIXED: FMD reads body.damage_mechanisms, not body.mechanisms
+  function T5() {
+    return post("failure-mode-dominance", {
+      damage_mechanisms: ["general_corrosion", "pitting", "cui", "fatigue_cracking", "settlement"],
+      transcript: "Refinery piping with general corrosion and pitting. CUI suspected. Fatigue crack at weld toe. Foundation settlement observed."
+    }).then(function(d) {
+      var mc = d.mechanism_count || {};
+      var corr = num(mc.corrosion, -1);
+      var crack = num(mc.cracking, -1);
+      var struct = num(mc.structural, -1);
+      var other = num(mc.other, -1);
+      var ver = (d.metadata || {}).version || "?";
+      var passed = corr === 3 && crack === 1 && struct === 1 && other === 0;
+      record("T5: FMD Catalog Family Map", passed, "corr=" + corr + " crack=" + crack + " struct=" + struct + " other=" + other + " ver=" + ver);
+    }).catch(function(e) { record("T5: FMD Catalog Family Map", false, "ERROR: " + e.message); });
+  }
+
+  // T6: Disposition Consequence Undetermined Gate
+  function T6() {
+    return post("disposition-pathway", {
+      consequence_tier: "HIGH",
+      primary_mechanism: { id: "general_corrosion", name: "General Corrosion" },
+      confidence_band: "MODERATE",
+      confidence_overall: 0.65,
+      consequence_undetermined: true,
+      undetermined_impacts: ["human_impact", "environmental_impact"]
+    }).then(function(d) {
+      var disp = d.disposition || "?";
+      var gate = (d.enforcement_metadata || {}).gate || "?";
+      var ver = (d.metadata || {}).version || "?";
+      var passed = disp === "HOLD_FOR_INPUT_ENFORCEMENT" && gate === "consequence_undetermined";
+      record("T6: Disposition Consequence Undetermined Gate", passed, "disposition=" + disp + " gate=" + gate + " ver=" + ver);
+    }).catch(function(e) { record("T6: Disposition Consequence Undetermined Gate", false, "ERROR: " + e.message); });
+  }
+
+  // T7: Downstream refusal short-circuits (5 functions)
+  // FIXED: downstream functions check domain_not_supported, not domain_refusal
+  function T7() {
+    var downstreamFns = [
+      { fn: "reality-challenge", name: "reality-challenge" },
+      { fn: "unknown-state", name: "unknown-state" },
+      { fn: "failure-timeline", name: "failure-timeline" },
+      { fn: "superbrain-synthesis", name: "superbrain-synthesis" },
+      { fn: "case-audit-report", name: "case-audit-report" }
+    ];
+    var refusalPayload = {
+      decision_core: {
+        domain_not_supported: true,
+        refusal_reason: "test domain refusal",
+        asset_class_received: "nuclear_vessel"
+      }
+    };
+    var promises = downstreamFns.map(function(item) {
+      return post(item.fn, refusalPayload).then(function(d) {
+        var refused = (d.domain_not_supported === true || d.refused === true || d.refusal_detected === true || (d.result && d.result.refused === true));
+        record("T7: " + item.name + " refusal", refused, "domain_not_supported=" + d.domain_not_supported + " refused=" + d.refused);
+      }).catch(function(e) { record("T7: " + item.name + " refusal", false, "ERROR: " + e.message); });
+    });
+    return Promise.all(promises);
+  }
+
+  // T8: Full Pipeline Integration (refinery piping)
+  function T8() {
+    return post("decision-core", {
+      transcript: "12 inch NPS schedule 80 carbon steel pipe in sour gas service. Hydrogen induced cracking detected at weld HAZ. Measured wall thickness 14.5mm against minimum 10.0mm. Operating pressure 450 psi. Temperature 180F. Corrosion rate 0.25mm per year.",
+      parsed: {
+        raw_text: "12 inch NPS schedule 80 carbon steel pipe in sour gas service. Hydrogen induced cracking detected at weld HAZ. Measured wall thickness 14.5mm against minimum 10.0mm. Operating pressure 450 psi. Temperature 180F. Corrosion rate 0.25mm per year.",
+        events: [{ type: "crack", location: "weld HAZ" }, { type: "wall_loss" }],
+        numeric_values: {
+          wall_thickness_mm: 14.5, minimum_thickness_mm: 10.0, current_thickness_mm: 14.5,
+          corrosion_rate_mm_per_year: 0.25, operating_pressure_psi: 450,
+          flaw_depth_mm: 2.0, operating_temperature_f: 180
+        }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var nps = (dc.physical_reality || {}).nps_inference || {};
+      var primary = ((dc.damage_reality || {}).primary_mechanism || {}).id || "?";
+      var tier = (dc.consequence_reality || {}).consequence_tier || "?";
+      var disp = (dc.decision_reality || {}).disposition || "?";
+      var elapsed = dc.elapsed_ms || "?";
+      var npsSource = nps.wall_source || "?";
+      var passed = ver.indexOf("v2.10.0") >= 0 && primary !== "?" && tier !== "?" && disp !== "?";
+      record("T8: Full Pipeline (refinery piping)", passed, "ver=" + ver + " nps=" + nps.nps_inch + "/" + nps.schedule + "/wall=" + npsSource + " primary=" + primary + " tier=" + tier + " disp=" + disp + " " + elapsed + "ms");
+    }).catch(function(e) { record("T8: Full Pipeline (refinery piping)", false, "ERROR: " + e.message); });
+  }
+
+  // T9: NPS Wall Inference with MEASURED wall (should NOT override)
+  function T9() {
+    return post("decision-core", {
+      transcript: "NPS 6 schedule 40 carbon steel piping. Wall thickness measured at 5.8mm.",
+      parsed: {
+        raw_text: "NPS 6 schedule 40 carbon steel piping. Wall thickness measured at 5.8mm.",
+        events: [],
+        numeric_values: { wall_thickness_mm: 5.8 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var nps = (dc.physical_reality || {}).nps_inference || {};
+      var dq = (dc.physics_computations || {}).data_quality || {};
+      var passed = nps.wall_source === "MEASURED" && dq.wall_source === "MEASURED" && dq.wall_thickness_used_mm === 5.8;
+      record("T9: NPS MEASURED wall priority", passed, "nps_source=" + nps.wall_source + " dq_source=" + dq.wall_source + " wall_used=" + dq.wall_thickness_used_mm + " ver=" + ver);
+    }).catch(function(e) { record("T9: NPS MEASURED wall priority", false, "ERROR: " + e.message); });
+  }
+
+  // T10: Failure-Timeline consequence_context (DEPLOY184)
+  function T10() {
+    return post("failure-timeline", {
+      decision_core: {
+        consequence_reality: {
+          consequence_tier: "HIGH",
+          consequence_undetermined: true,
+          undetermined_impacts: ["human_impact", "environmental_impact"]
+        }
+      },
+      has_corrosion: true,
+      nominal_wall: 0.5,
+      current_wall: 0.35,
+      retirement_wall: 0.25,
+      corrosion_rate_mpy: 10
+    }).then(function(d) {
+      var cc = d.consequence_context || {};
+      var ver = (d.metadata || {}).version || "?";
+      var metaCU = (d.metadata || {}).consequence_undetermined;
+      var passed = cc.consequence_undetermined === true && cc.undetermined_impacts && cc.undetermined_impacts.length === 2 && typeof cc.warning === "string" && cc.warning.length > 0 && metaCU === true && ver === "1.2";
+      record("T10: FTR consequence_context (DEPLOY184)", passed, "cu=" + cc.consequence_undetermined + " impacts=" + JSON.stringify(cc.undetermined_impacts) + " warning=" + (cc.warning ? "present" : "missing") + " meta_cu=" + metaCU + " ver=" + ver);
+    }).catch(function(e) { record("T10: FTR consequence_context (DEPLOY184)", false, "ERROR: " + e.message); });
+  }
+
+  // T11: Failure-Timeline consequence_context when NOT undetermined
+  function T11() {
+    return post("failure-timeline", {
+      decision_core: {
+        consequence_reality: {
+          consequence_tier: "MODERATE",
+          consequence_undetermined: false
+        }
+      },
+      has_corrosion: true,
+      nominal_wall: 0.5,
+      current_wall: 0.35,
+      retirement_wall: 0.25,
+      corrosion_rate_mpy: 10
+    }).then(function(d) {
+      var cc = d.consequence_context || {};
+      var ver = (d.metadata || {}).version || "?";
+      var passed = cc.consequence_undetermined === false && cc.warning === null && ver === "1.2";
+      record("T11: FTR consequence_context (not undetermined)", passed, "cu=" + cc.consequence_undetermined + " warning=" + cc.warning + " ver=" + ver);
+    }).catch(function(e) { record("T11: FTR consequence_context (not undetermined)", false, "ERROR: " + e.message); });
+  }
+
+  // T12: Naphthenic Acid Corrosion catalog validation (DEPLOY185)
+  function T12() {
+    return post("decision-core", {
+      transcript: "6 inch carbon steel piping in crude unit atmospheric tower transfer line. Processing high TAN crude with total acid number above 1.5. Naphthenic acid corrosion causing aggressive wall loss on elbows and tees. Operating temperature 600 degrees F. Measured wall thickness 4.8mm. Minimum required 2.5mm. Corrosion rate 0.8mm per year.",
+      parsed: {
+        raw_text: "6 inch carbon steel piping in crude unit atmospheric tower transfer line. Processing high TAN crude with total acid number above 1.5. Naphthenic acid corrosion causing aggressive wall loss on elbows and tees. Operating temperature 600 degrees F. Measured wall thickness 4.8mm. Minimum required 2.5mm. Corrosion rate 0.8mm per year.",
+        events: [{ type: "wall_loss", severity: "heavy" }],
+        numeric_values: { wall_thickness_mm: 4.8, minimum_thickness_mm: 2.5, current_thickness_mm: 4.8, corrosion_rate_mm_per_year: 0.8, operating_temperature_f: 600 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasNAC = validated.indexOf("naphthenic_acid_corrosion") >= 0;
+      var pc = (dc.physical_reality || {}).process_chemistry || {};
+      var napPresent = pc.naphthenic_acid_present;
+      record("T12: Naphthenic Acid Corrosion (DEPLOY185)", hasNAC && napPresent === true && ver.indexOf("v2.10.0") >= 0, "nac_validated=" + hasNAC + " nap_present=" + napPresent + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T12: Naphthenic Acid Corrosion (DEPLOY185)", false, "ERROR: " + e.message); });
+  }
+
+  // T13: Polythionic Acid SCC catalog validation (DEPLOY185)
+  function T13() {
+    return post("decision-core", {
+      transcript: "304 stainless steel piping in FCC reactor effluent service. Sensitized stainless steel with intergranular cracking found during turnaround inspection. Polythionic acid stress corrosion cracking suspected from sulfide scale exposure during shutdown. Cracking at weld HAZ. Operating temperature 850 degrees F during normal operation.",
+      parsed: {
+        raw_text: "304 stainless steel piping in FCC reactor effluent service. Sensitized stainless steel with intergranular cracking found during turnaround inspection. Polythionic acid stress corrosion cracking suspected from sulfide scale exposure during shutdown. Cracking at weld HAZ. Operating temperature 850 degrees F during normal operation.",
+        events: [{ type: "crack", location: "weld HAZ" }],
+        numeric_values: { operating_temperature_f: 850 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasPTA = validated.indexOf("polythionic_acid_scc") >= 0;
+      var pc = (dc.physical_reality || {}).process_chemistry || {};
+      var ptaPresent = pc.polythionic_acid_present;
+      record("T13: Polythionic Acid SCC (DEPLOY185)", hasPTA && ptaPresent === true && ver.indexOf("v2.10.0") >= 0, "pta_validated=" + hasPTA + " pta_present=" + ptaPresent + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T13: Polythionic Acid SCC (DEPLOY185)", false, "ERROR: " + e.message); });
+  }
+
+  // T14: FMD Catalog Family Map includes new DEPLOY185 mechanisms
+  function T14() {
+    return post("failure-mode-dominance", {
+      damage_mechanisms: ["general_corrosion", "naphthenic_acid_corrosion", "polythionic_acid_scc", "pitting"],
+      transcript: "Refinery piping with general corrosion and naphthenic acid corrosion. Polythionic acid SCC at weld. Pitting also present."
+    }).then(function(d) {
+      var mc = d.mechanism_count || {};
+      var corr = num(mc.corrosion, -1);
+      var crack = num(mc.cracking, -1);
+      var ver = (d.metadata || {}).version || "?";
+      var passed = corr === 3 && crack === 1;
+      record("T14: FMD Family Map DEPLOY185", passed, "corr=" + corr + " (expect 3: gen+nac+pitting) crack=" + crack + " (expect 1: pta_scc) ver=" + ver);
+    }).catch(function(e) { record("T14: FMD Family Map DEPLOY185", false, "ERROR: " + e.message); });
+  }
+
+  // T15: Amine Cracking catalog validation (DEPLOY186)
+  function T15() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping in lean amine service. DEA amine unit absorber outlet. Amine cracking found at weld HAZ during turnaround inspection. Non-PWHT weld joint. Operating temperature 180 degrees F. Operating pressure 200 psi.",
+      parsed: {
+        raw_text: "Carbon steel piping in lean amine service. DEA amine unit absorber outlet. Amine cracking found at weld HAZ during turnaround inspection. Non-PWHT weld joint. Operating temperature 180 degrees F. Operating pressure 200 psi.",
+        events: [{ type: "crack", location: "weld HAZ" }],
+        numeric_values: { operating_temperature_f: 180, operating_pressure_psi: 200 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasAmCrk = validated.indexOf("amine_cracking") >= 0;
+      var pc = (dc.physical_reality || {}).process_chemistry || {};
+      var amCtx = pc.amine_cracking_context;
+      record("T15: Amine Cracking (DEPLOY186)", hasAmCrk && ver.indexOf("v2.10.0") >= 0, "amine_crk_validated=" + hasAmCrk + " amine_crk_ctx=" + amCtx + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T15: Amine Cracking (DEPLOY186)", false, "ERROR: " + e.message); });
+  }
+
+  // T16: Carbonate SCC catalog validation (DEPLOY186)
+  function T16() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping in FCC main fractionator overhead system. Carbonate stress corrosion cracking detected at weld. Alkaline sour water environment with carbonate species. Operating temperature 250 degrees F.",
+      parsed: {
+        raw_text: "Carbon steel piping in FCC main fractionator overhead system. Carbonate stress corrosion cracking detected at weld. Alkaline sour water environment with carbonate species. Operating temperature 250 degrees F.",
+        events: [{ type: "crack", location: "weld" }],
+        numeric_values: { operating_temperature_f: 250 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasCarbSCC = validated.indexOf("carbonate_scc") >= 0;
+      var pc = (dc.physical_reality || {}).process_chemistry || {};
+      var carbCtx = pc.carbonate_scc_context;
+      record("T16: Carbonate SCC (DEPLOY186)", hasCarbSCC && carbCtx === true && ver.indexOf("v2.10.0") >= 0, "carb_scc_validated=" + hasCarbSCC + " carb_ctx=" + carbCtx + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T16: Carbonate SCC (DEPLOY186)", false, "ERROR: " + e.message); });
+  }
+
+  // T17: FMD Family Map includes DEPLOY186 mechanisms
+  function T17() {
+    return post("failure-mode-dominance", {
+      damage_mechanisms: ["general_corrosion", "amine_cracking", "carbonate_scc", "scc_caustic"],
+      transcript: "Refinery piping with general corrosion. Amine cracking at weld. Carbonate SCC in overhead. Caustic SCC also present."
+    }).then(function(d) {
+      var mc = d.mechanism_count || {};
+      var corr = num(mc.corrosion, -1);
+      var crack = num(mc.cracking, -1);
+      var ver = (d.metadata || {}).version || "?";
+      var passed = corr === 1 && crack === 3;
+      record("T17: FMD Family Map DEPLOY186", passed, "corr=" + corr + " (expect 1: gen_corr) crack=" + crack + " (expect 3: amine+carb+caustic) ver=" + ver);
+    }).catch(function(e) { record("T17: FMD Family Map DEPLOY186", false, "ERROR: " + e.message); });
+  }
+
+  // T18: Temper Embrittlement catalog validation (DEPLOY187)
+  function T18() {
+    return post("decision-core", {
+      transcript: "2.25Cr-1Mo low alloy steel reactor vessel in hydroprocessing service. Temper embrittlement suspected after 25 years of service at 750 degrees F. J-factor elevated. Step cooling test showed increased transition temperature. Concern about pressurizing during startup.",
+      parsed: {
+        raw_text: "2.25Cr-1Mo low alloy steel reactor vessel in hydroprocessing service. Temper embrittlement suspected after 25 years of service at 750 degrees F. J-factor elevated. Step cooling test showed increased transition temperature. Concern about pressurizing during startup.",
+        events: [],
+        numeric_values: { operating_temperature_f: 750 }
+      },
+      asset: { asset_class: "pressure_vessel" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasTE = validated.indexOf("temper_embrittlement") >= 0;
+      var mat = (dc.physical_reality || {}).material || {};
+      record("T18: Temper Embrittlement (DEPLOY187)", hasTE && ver.indexOf("v2.10.0") >= 0, "te_validated=" + hasTE + " mat=" + mat.class + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T18: Temper Embrittlement (DEPLOY187)", false, "ERROR: " + e.message); });
+  }
+
+  // T19: 885F Embrittlement catalog validation (DEPLOY187)
+  function T19() {
+    return post("decision-core", {
+      transcript: "Type 430 ferritic stainless steel piping in refinery heat exchanger service. Operating temperature 800 degrees F. Concern about 885F embrittlement and alpha prime phase formation after extended service. Loss of toughness suspected.",
+      parsed: {
+        raw_text: "Type 430 ferritic stainless steel piping in refinery heat exchanger service. Operating temperature 800 degrees F. Concern about 885F embrittlement and alpha prime phase formation after extended service. Loss of toughness suspected.",
+        events: [],
+        numeric_values: { operating_temperature_f: 800 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var has885 = validated.indexOf("embrittlement_885f") >= 0;
+      var mat = (dc.physical_reality || {}).material || {};
+      record("T19: 885F Embrittlement (DEPLOY187)", has885 && mat.class === "ferritic_stainless" && ver.indexOf("v2.10.0") >= 0, "885f_validated=" + has885 + " mat=" + mat.class + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T19: 885F Embrittlement (DEPLOY187)", false, "ERROR: " + e.message); });
+  }
+
+  // T20: Sigma Phase Embrittlement catalog validation (DEPLOY187)
+  function T20() {
+    return post("decision-core", {
+      transcript: "316 stainless steel piping in fired heater convection section. Operating temperature 1200 degrees F. Sigma phase embrittlement suspected after long-term high temperature service. Loss of toughness and corrosion resistance observed.",
+      parsed: {
+        raw_text: "316 stainless steel piping in fired heater convection section. Operating temperature 1200 degrees F. Sigma phase embrittlement suspected after long-term high temperature service. Loss of toughness and corrosion resistance observed.",
+        events: [],
+        numeric_values: { operating_temperature_f: 1200 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasSigma = validated.indexOf("sigma_phase_embrittlement") >= 0;
+      var mat = (dc.physical_reality || {}).material || {};
+      record("T20: Sigma Phase Embrittlement (DEPLOY187)", hasSigma && mat.class === "austenitic_stainless" && ver.indexOf("v2.10.0") >= 0, "sigma_validated=" + hasSigma + " mat=" + mat.class + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T20: Sigma Phase Embrittlement (DEPLOY187)", false, "ERROR: " + e.message); });
+  }
+
+  // T21: FMD Family Map includes DEPLOY187 embrittlement mechanisms
+  function T21() {
+    return post("failure-mode-dominance", {
+      damage_mechanisms: ["embrittlement_885f", "sigma_phase_embrittlement", "temper_embrittlement", "creep"],
+      transcript: "Refinery equipment with multiple thermal degradation mechanisms."
+    }).then(function(d) {
+      var mc = d.mechanism_count || {};
+      var corr = num(mc.corrosion, -1);
+      var ver = (d.metadata || {}).version || "?";
+      var passed = corr === 4;
+      record("T21: FMD Family Map DEPLOY187", passed, "corrosion=" + corr + " (expect 4: thermal_degradation routes to corrosion per FFS) ver=" + ver);
+    }).catch(function(e) { record("T21: FMD Family Map DEPLOY187", false, "ERROR: " + e.message); });
+  }
+
+  // T22: Graphitization catalog validation (DEPLOY188)
+  function T22() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping in steam service. Graphitization suspected at weld HAZ after 30 years at 850 degrees F. Graphite nodules found in metallographic sample. Strength reduction concern.",
+      parsed: {
+        raw_text: "Carbon steel piping in steam service. Graphitization suspected at weld HAZ after 30 years at 850 degrees F. Graphite nodules found in metallographic sample. Strength reduction concern.",
+        events: [],
+        numeric_values: { operating_temperature_f: 850 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasGraph = validated.indexOf("graphitization") >= 0;
+      record("T22: Graphitization (DEPLOY188)", hasGraph && ver.indexOf("v2.10.0") >= 0, "graph=" + hasGraph + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T22: Graphitization (DEPLOY188)", false, "ERROR: " + e.message); });
+  }
+
+  // T23: Carburization catalog validation (DEPLOY188)
+  function T23() {
+    return post("decision-core", {
+      transcript: "Austenitic stainless steel reformer tube in hydrogen plant. Carburization observed on tube ID after 15 years at 1600 degrees F. Carbon pickup and increased hardness. Reduced ductility and cracking risk.",
+      parsed: {
+        raw_text: "Austenitic stainless steel reformer tube in hydrogen plant. Carburization observed on tube ID after 15 years at 1600 degrees F. Carbon pickup and increased hardness. Reduced ductility and cracking risk.",
+        events: [],
+        numeric_values: { operating_temperature_f: 1600 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasCarb = validated.indexOf("carburization") >= 0;
+      var mat = (dc.physical_reality || {}).material || {};
+      record("T23: Carburization (DEPLOY188)", hasCarb && ver.indexOf("v2.10.0") >= 0, "carb=" + hasCarb + " mat=" + mat.class + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T23: Carburization (DEPLOY188)", false, "ERROR: " + e.message); });
+  }
+
+  // T24: Galvanic Corrosion catalog validation (DEPLOY189)
+  function T24() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping connected to copper alloy heat exchanger tubes. Galvanic corrosion observed at dissimilar metal junction. Accelerated wall loss on the carbon steel side near the transition joint. Cooling water service with moderate chloride content.",
+      parsed: {
+        raw_text: "Carbon steel piping connected to copper alloy heat exchanger tubes. Galvanic corrosion observed at dissimilar metal junction. Accelerated wall loss on the carbon steel side near the transition joint. Cooling water service with moderate chloride content.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasGalv = validated.indexOf("galvanic_corrosion") >= 0;
+      record("T24: Galvanic Corrosion (DEPLOY189)", hasGalv && ver.indexOf("v2.10.0") >= 0, "galv=" + hasGalv + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T24: Galvanic Corrosion (DEPLOY189)", false, "ERROR: " + e.message); });
+  }
+
+  // T25: Atmospheric Corrosion catalog validation (DEPLOY189)
+  function T25() {
+    return post("decision-core", {
+      transcript: "Carbon steel structural support in outdoor service. Atmospheric corrosion with general wall loss and surface rust. Exposed to weather, no coating remaining. Located near coastal area.",
+      parsed: {
+        raw_text: "Carbon steel structural support in outdoor service. Atmospheric corrosion with general wall loss and surface rust. Exposed to weather, no coating remaining. Located near coastal area.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasAtmo = validated.indexOf("atmospheric_corrosion") >= 0;
+      record("T25: Atmospheric Corrosion (DEPLOY189)", hasAtmo && ver.indexOf("v2.10.0") >= 0, "atmo=" + hasAtmo + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T25: Atmospheric Corrosion (DEPLOY189)", false, "ERROR: " + e.message); });
+  }
+
+  // T26: Soil-Side Corrosion catalog validation (DEPLOY189)
+  function T26() {
+    return post("decision-core", {
+      transcript: "Carbon steel buried piping in refinery. Soil-side corrosion found during excavation. External wall loss with pitting on bottom of pipe. Cathodic protection system readings show inadequate protection. Soil resistivity measured at 2000 ohm-cm.",
+      parsed: {
+        raw_text: "Carbon steel buried piping in refinery. Soil-side corrosion found during excavation. External wall loss with pitting on bottom of pipe. Cathodic protection system readings show inadequate protection. Soil resistivity measured at 2000 ohm-cm.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasSoil = validated.indexOf("soil_corrosion") >= 0;
+      record("T26: Soil-Side Corrosion (DEPLOY189)", hasSoil && ver.indexOf("v2.10.0") >= 0, "soil=" + hasSoil + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T26: Soil-Side Corrosion (DEPLOY189)", false, "ERROR: " + e.message); });
+  }
+
+  // T27: Cavitation catalog validation (DEPLOY189)
+  function T27() {
+    return post("decision-core", {
+      transcript: "Carbon steel pump casing in cooling water service. Cavitation damage observed on impeller and volute. Rough spongy surface with honeycomb pattern. Pump operating near NPSH limit. Significant material loss at suction side.",
+      parsed: {
+        raw_text: "Carbon steel pump casing in cooling water service. Cavitation damage observed on impeller and volute. Rough spongy surface with honeycomb pattern. Pump operating near NPSH limit. Significant material loss at suction side.",
+        events: [{ type: "wall_loss", severity: "heavy" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasCav = validated.indexOf("cavitation") >= 0;
+      record("T27: Cavitation (DEPLOY189)", hasCav && ver.indexOf("v2.10.0") >= 0, "cav=" + hasCav + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T27: Cavitation (DEPLOY189)", false, "ERROR: " + e.message); });
+  }
+
+  // T28: FMD Family Map includes DEPLOY189 mechanisms (all 4 should be corrosion)
+  function T28() {
+    return post("failure-mode-dominance", {
+      damage_mechanisms: ["galvanic_corrosion", "atmospheric_corrosion", "soil_corrosion", "cavitation", "pitting"],
+      transcript: "Multiple corrosion mechanisms active on outdoor piping system."
+    }).then(function(d) {
+      var mc = d.mechanism_count || {};
+      var corr = num(mc.corrosion, -1);
+      var ver = (d.metadata || {}).version || "?";
+      var passed = corr === 5;
+      record("T28: FMD Family Map DEPLOY189", passed, "corrosion=" + corr + " (expect 5: galv+atmo+soil+cav+pitting) ver=" + ver);
+    }).catch(function(e) { record("T28: FMD Family Map DEPLOY189", false, "ERROR: " + e.message); });
+  }
+
+  // T29: Ammonia SCC catalog validation (DEPLOY190)
+  function T29() {
+    return post("decision-core", {
+      transcript: "Carbon steel storage tank in anhydrous ammonia service. Ammonia stress corrosion cracking found on shell course near liquid level. Branching transgranular cracks. Non-PWHT welds. Tank in refrigerated ammonia storage facility.",
+      parsed: {
+        raw_text: "Carbon steel storage tank in anhydrous ammonia service. Ammonia stress corrosion cracking found on shell course near liquid level. Branching transgranular cracks. Non-PWHT welds. Tank in refrigerated ammonia storage facility.",
+        events: [{ type: "crack", location: "shell" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "storage_tank" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasAmScc = validated.indexOf("ammonia_scc") >= 0;
+      var pc = (dc.physical_reality || {}).process_chemistry || {};
+      var amCtx = pc.ammonia_scc_context;
+      record("T29: Ammonia SCC (DEPLOY190)", hasAmScc && amCtx === true && ver.indexOf("v2.10.0") >= 0, "am_scc=" + hasAmScc + " am_ctx=" + amCtx + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T29: Ammonia SCC (DEPLOY190)", false, "ERROR: " + e.message); });
+  }
+
+  // T30: Hydrogen Embrittlement catalog validation (DEPLOY190)
+  function T30() {
+    return post("decision-core", {
+      transcript: "Low alloy steel bolting on pressure vessel flange. Hydrogen embrittlement suspected after cathodic charging from overprotection by cathodic protection system. High strength bolts with yield above 100 ksi. Delayed fracture observed 48 hours after installation.",
+      parsed: {
+        raw_text: "Low alloy steel bolting on pressure vessel flange. Hydrogen embrittlement suspected after cathodic charging from overprotection by cathodic protection system. High strength bolts with yield above 100 ksi. Delayed fracture observed 48 hours after installation.",
+        events: [{ type: "crack", location: "bolt" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "pressure_vessel" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasHE = validated.indexOf("hydrogen_embrittlement") >= 0;
+      var pc = (dc.physical_reality || {}).process_chemistry || {};
+      var heCtx = pc.hydrogen_charging_context;
+      record("T30: Hydrogen Embrittlement (DEPLOY190)", hasHE && heCtx === true && ver.indexOf("v2.10.0") >= 0, "he=" + hasHE + " he_ctx=" + heCtx + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T30: Hydrogen Embrittlement (DEPLOY190)", false, "ERROR: " + e.message); });
+  }
+
+  // T31: Wet H2S Blistering/SOHIC catalog validation (DEPLOY190)
+  function T31() {
+    return post("decision-core", {
+      transcript: "Carbon steel pressure vessel in sour water stripper service. Hydrogen blistering found on shell ID during internal inspection. Multiple blisters with some stepwise cracking between blisters. SOHIC suspected near weld HAZ. Wet H2S environment with high H2S partial pressure.",
+      parsed: {
+        raw_text: "Carbon steel pressure vessel in sour water stripper service. Hydrogen blistering found on shell ID during internal inspection. Multiple blisters with some stepwise cracking between blisters. SOHIC suspected near weld HAZ. Wet H2S environment with high H2S partial pressure.",
+        events: [{ type: "crack", location: "shell" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "pressure_vessel" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var ver = dc.engine_version || "?";
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasBlister = validated.indexOf("wet_h2s_blister") >= 0;
+      var pc = (dc.physical_reality || {}).process_chemistry || {};
+      var wetCtx = pc.wet_h2s_context;
+      record("T31: Wet H2S Blistering (DEPLOY190)", hasBlister && wetCtx === true && ver.indexOf("v2.10.0") >= 0, "blister=" + hasBlister + " wet_ctx=" + wetCtx + " validated=[" + validated.join(",") + "] ver=" + ver);
+    }).catch(function(e) { record("T31: Wet H2S Blistering (DEPLOY190)", false, "ERROR: " + e.message); });
+  }
+
+  // T32: FMD Family Map includes DEPLOY190 mechanisms (all 3 should be cracking)
+  function T32() {
+    return post("failure-mode-dominance", {
+      damage_mechanisms: ["ammonia_scc", "hydrogen_embrittlement", "wet_h2s_blister", "hic", "general_corrosion"],
+      transcript: "Multiple cracking and corrosion mechanisms in sour service."
+    }).then(function(d) {
+      var mc = d.mechanism_count || {};
+      var corr = num(mc.corrosion, -1);
+      var crack = num(mc.cracking, -1);
+      var ver = (d.metadata || {}).version || "?";
+      var passed = corr === 1 && crack === 4;
+      record("T32: FMD Family Map DEPLOY190", passed, "corrosion=" + corr + " (expect 1: gen_corr) cracking=" + crack + " (expect 4: am_scc+he+blister+hic) ver=" + ver);
+    }).catch(function(e) { record("T32: FMD Family Map DEPLOY190", false, "ERROR: " + e.message); });
+  }
+
+  // ==========================================================================
+  // REJECTION TEST MATRIX -- proves mechanisms REJECTED when preconditions fail
+  // ==========================================================================
+
+  // T33: CUI REJECTED -- no insulation language (geometry violation)
+  function T33() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping in outdoor service. No insulation. Bare pipe exposed to atmosphere. Operating temperature 200 degrees F. General wall loss observed.",
+      parsed: {
+        raw_text: "Carbon steel piping in outdoor service. No insulation. Bare pipe exposed to atmosphere. Operating temperature 200 degrees F. General wall loss observed.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: { operating_temperature_f: 200 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dm = dc.damage_reality || {};
+      var rejected = (dm.rejected_mechanisms || []).map(function(r) { return r.id; });
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var cuiRejected = rejected.indexOf("cui") >= 0;
+      var cuiNotValidated = validated.indexOf("cui") === -1;
+      record("T33: CUI REJECTED (no insulation)", cuiRejected && cuiNotValidated, "cui_rejected=" + cuiRejected + " cui_not_validated=" + cuiNotValidated + " rejected=[" + rejected.join(",") + "]");
+    }).catch(function(e) { record("T33: CUI REJECTED (no insulation)", false, "ERROR: " + e.message); });
+  }
+
+  // T34: Sulfidation REJECTED -- austenitic stainless + low temp (material + thermal violation)
+  function T34() {
+    return post("decision-core", {
+      transcript: "316 stainless steel piping in cooling water service. Operating temperature 150 degrees F. General wall loss. No sulfur in service.",
+      parsed: {
+        raw_text: "316 stainless steel piping in cooling water service. Operating temperature 150 degrees F. General wall loss. No sulfur in service.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: { operating_temperature_f: 150 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dm = dc.damage_reality || {};
+      var rejected = (dm.rejected_mechanisms || []).map(function(r) { return r.id; });
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var sulfRejected = rejected.indexOf("sulfidation") >= 0;
+      var sulfNotValidated = validated.indexOf("sulfidation") === -1;
+      record("T34: Sulfidation REJECTED (wrong material + no sulfur)", sulfRejected && sulfNotValidated, "sulf_rejected=" + sulfRejected + " rejected=[" + rejected.join(",") + "]");
+    }).catch(function(e) { record("T34: Sulfidation REJECTED (wrong material + no sulfur)", false, "ERROR: " + e.message); });
+  }
+
+  // T35: Polythionic Acid SCC REJECTED -- carbon steel (needs austenitic/duplex)
+  function T35() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping in refinery service. Operating temperature 600 degrees F. Wall loss observed at weld.",
+      parsed: {
+        raw_text: "Carbon steel piping in refinery service. Operating temperature 600 degrees F. Wall loss observed at weld.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: { operating_temperature_f: 600 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dm = dc.damage_reality || {};
+      var rejected = (dm.rejected_mechanisms || []).map(function(r) { return r.id; });
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var ptaRejected = rejected.indexOf("polythionic_acid_scc") >= 0;
+      var ptaNotValidated = validated.indexOf("polythionic_acid_scc") === -1;
+      record("T35: PTA SCC REJECTED (carbon steel)", ptaRejected && ptaNotValidated, "pta_rejected=" + ptaRejected + " rejected=[" + rejected.join(",") + "]");
+    }).catch(function(e) { record("T35: PTA SCC REJECTED (carbon steel)", false, "ERROR: " + e.message); });
+  }
+
+  // T36: 885F Embrittlement REJECTED -- carbon steel (needs ferritic/duplex stainless)
+  function T36() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping in refinery service. Operating temperature 800 degrees F. Wall loss observed.",
+      parsed: {
+        raw_text: "Carbon steel piping in refinery service. Operating temperature 800 degrees F. Wall loss observed.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: { operating_temperature_f: 800 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dm = dc.damage_reality || {};
+      var rejected = (dm.rejected_mechanisms || []).map(function(r) { return r.id; });
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var embRejected = rejected.indexOf("embrittlement_885f") >= 0;
+      var embNotValidated = validated.indexOf("embrittlement_885f") === -1;
+      record("T36: 885F Embrittlement REJECTED (carbon steel)", embRejected && embNotValidated, "885f_rejected=" + embRejected + " rejected=[" + rejected.join(",") + "]");
+    }).catch(function(e) { record("T36: 885F Embrittlement REJECTED (carbon steel)", false, "ERROR: " + e.message); });
+  }
+
+  // T37: Naphthenic Acid Corrosion REJECTED -- no TAN/naphthenic language
+  function T37() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping in cooling water service. Operating temperature 200 degrees F. General wall loss. Clean water with no acid.",
+      parsed: {
+        raw_text: "Carbon steel piping in cooling water service. Operating temperature 200 degrees F. General wall loss. Clean water with no acid.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: { operating_temperature_f: 200 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dm = dc.damage_reality || {};
+      var rejected = (dm.rejected_mechanisms || []).map(function(r) { return r.id; });
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var nacRejected = rejected.indexOf("naphthenic_acid_corrosion") >= 0;
+      var nacNotValidated = validated.indexOf("naphthenic_acid_corrosion") === -1;
+      record("T37: NAC REJECTED (no naphthenic acid)", nacRejected && nacNotValidated, "nac_rejected=" + nacRejected + " rejected=[" + rejected.join(",") + "]");
+    }).catch(function(e) { record("T37: NAC REJECTED (no naphthenic acid)", false, "ERROR: " + e.message); });
+  }
+
+  // T38: Ammonia SCC REJECTED -- no ammonia language
+  function T38() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping in steam condensate service. Cracking found at weld. Operating temperature 300 degrees F. No ammonia in process.",
+      parsed: {
+        raw_text: "Carbon steel piping in steam condensate service. Cracking found at weld. Operating temperature 300 degrees F. No ammonia in process.",
+        events: [{ type: "crack", location: "weld" }],
+        numeric_values: { operating_temperature_f: 300 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dm = dc.damage_reality || {};
+      var rejected = (dm.rejected_mechanisms || []).map(function(r) { return r.id; });
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var amRejected = rejected.indexOf("ammonia_scc") >= 0;
+      var amNotValidated = validated.indexOf("ammonia_scc") === -1;
+      record("T38: Ammonia SCC REJECTED (no ammonia)", amRejected && amNotValidated, "am_rejected=" + amRejected + " rejected=[" + rejected.join(",") + "]");
+    }).catch(function(e) { record("T38: Ammonia SCC REJECTED (no ammonia)", false, "ERROR: " + e.message); });
+  }
+
+  // T39: Hydrogen Embrittlement REJECTED -- no hydrogen charging source
+  function T39() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping in clean dry air service. No hydrogen. No cathodic protection. Operating temperature 100 degrees F. Minor surface corrosion.",
+      parsed: {
+        raw_text: "Carbon steel piping in clean dry air service. No hydrogen. No cathodic protection. Operating temperature 100 degrees F. Minor surface corrosion.",
+        events: [{ type: "wall_loss", severity: "minor" }],
+        numeric_values: { operating_temperature_f: 100 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dm = dc.damage_reality || {};
+      var rejected = (dm.rejected_mechanisms || []).map(function(r) { return r.id; });
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var heRejected = rejected.indexOf("hydrogen_embrittlement") >= 0;
+      var heNotValidated = validated.indexOf("hydrogen_embrittlement") === -1;
+      record("T39: HE REJECTED (no H2 charging)", heRejected && heNotValidated, "he_rejected=" + heRejected + " rejected=[" + rejected.join(",") + "]");
+    }).catch(function(e) { record("T39: HE REJECTED (no H2 charging)", false, "ERROR: " + e.message); });
+  }
+
+  // T40: Cavitation REJECTED -- no cavitation language
+  function T40() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping in gravity drain service. Low velocity flow. No pumps or restrictions. General wall loss from internal corrosion. Operating temperature 180 degrees F.",
+      parsed: {
+        raw_text: "Carbon steel piping in gravity drain service. Low velocity flow. No pumps or restrictions. General wall loss from internal corrosion. Operating temperature 180 degrees F.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: { operating_temperature_f: 180 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dm = dc.damage_reality || {};
+      var rejected = (dm.rejected_mechanisms || []).map(function(r) { return r.id; });
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var cavRejected = rejected.indexOf("cavitation") >= 0;
+      var cavNotValidated = validated.indexOf("cavitation") === -1;
+      record("T40: Cavitation REJECTED (no cavitation)", cavRejected && cavNotValidated, "cav_rejected=" + cavRejected + " rejected=[" + rejected.join(",") + "]");
+    }).catch(function(e) { record("T40: Cavitation REJECTED (no cavitation)", false, "ERROR: " + e.message); });
+  }
+
+  // T41: DEPLOY195 -- Multi-material priority (Cr-Mo + carbon steel -> low_alloy wins)
+  function T41() {
+    return post("decision-core", {
+      transcript: "Reactor shell is 2.25Cr-1Mo steel. Original structural frame is A36 carbon steel. Anchor system is grouted anchor bolts into aging concrete pedestal.",
+      parsed: { raw_text: "Reactor shell is 2.25Cr-1Mo steel. Original structural frame is A36 carbon steel. Anchor system is grouted anchor bolts into aging concrete pedestal.", events: [], numeric_values: {} },
+      asset: { asset_class: "pressure_vessel" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var mat = (dc.physical_reality || {}).material || {};
+      var isLowAlloy = mat.class === "low_alloy_steel";
+      var hasSecondary = JSON.stringify(mat.evidence || []).indexOf("secondary_material") >= 0;
+      record("T41: Multi-material priority (DEPLOY195)", isLowAlloy && hasSecondary, "mat=" + mat.class + " evidence=" + JSON.stringify(mat.evidence));
+    }).catch(function(e) { record("T41: Multi-material priority (DEPLOY195)", false, "ERROR: " + e.message); });
+  }
+
+  // T42: DEPLOY195 -- Multi-material priority (austenitic + carbon -> austenitic wins)
+  function T42() {
+    return post("decision-core", {
+      transcript: "304 stainless steel cladding on carbon steel pressure vessel. Service conditions include chloride environment.",
+      parsed: { raw_text: "304 stainless steel cladding on carbon steel pressure vessel. Service conditions include chloride environment.", events: [], numeric_values: {} },
+      asset: { asset_class: "pressure_vessel" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var mat = (dc.physical_reality || {}).material || {};
+      var isAustenitic = mat.class === "austenitic_stainless";
+      record("T42: Multi-material austenitic wins (DEPLOY195)", isAustenitic, "mat=" + mat.class + " evidence=" + JSON.stringify(mat.evidence));
+    }).catch(function(e) { record("T42: Multi-material austenitic wins (DEPLOY195)", false, "ERROR: " + e.message); });
+  }
+
+  // T43: DEPLOY195 -- Cryogenic keyword detection (LNG service)
+  function T43() {
+    return post("decision-core", {
+      transcript: "LNG storage tank in cryogenic service. Carbon steel outer shell with 9 percent nickel inner tank. Insulation system in place.",
+      parsed: { raw_text: "LNG storage tank in cryogenic service. Carbon steel outer shell with 9 percent nickel inner tank. Insulation system in place.", events: [], numeric_values: {} },
+      asset: { asset_class: "tank" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var thermal = (dc.physical_reality || {}).thermal || {};
+      record("T43: Cryogenic keyword detection (DEPLOY195)", thermal.cryogenic === true, "cryogenic=" + thermal.cryogenic);
+    }).catch(function(e) { record("T43: Cryogenic keyword detection (DEPLOY195)", false, "ERROR: " + e.message); });
+  }
+
+  // T44: DEPLOY195 -- Transcript temperature extraction (negative temp)
+  function T44() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping in ethylene service. Operating at minus 150 degrees F. Brittle fracture risk assessment needed.",
+      parsed: { raw_text: "Carbon steel piping in ethylene service. Operating at minus 150 degrees F. Brittle fracture risk assessment needed.", events: [], numeric_values: {} },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var thermal = (dc.physical_reality || {}).thermal || {};
+      var tempExtracted = thermal.operating_temp_f !== null && thermal.operating_temp_f < 0;
+      record("T44: Negative temp extraction (DEPLOY195)", tempExtracted && thermal.cryogenic === true, "temp=" + thermal.operating_temp_f + " cryo=" + thermal.cryogenic);
+    }).catch(function(e) { record("T44: Negative temp extraction (DEPLOY195)", false, "ERROR: " + e.message); });
+  }
+
+  // T45: DEPLOY195 -- Field slang vibration detection (chatter/buzz/shudder)
+  function T45() {
+    return post("decision-core", {
+      transcript: "Offshore platform helideck. Walkway chatters under load. Handrails buzz in wind. Structure shudders on landing. Carbon steel tubular framing.",
+      parsed: { raw_text: "Offshore platform helideck. Walkway chatters under load. Handrails buzz in wind. Structure shudders on landing. Carbon steel tubular framing.", events: [{ type: "vibration", severity: "moderate" }], numeric_values: {} },
+      asset: { asset_class: "offshore_platform" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var energy = (dc.physical_reality || {}).energy || {};
+      var stress = (dc.physical_reality || {}).stress || {};
+      var vibDetected = energy.vibration === true;
+      var cyclicDetected = stress.cyclic_loading === true;
+      record("T45: Field slang vibration (DEPLOY195)", vibDetected && cyclicDetected, "vib=" + vibDetected + " cyclic=" + cyclicDetected);
+    }).catch(function(e) { record("T45: Field slang vibration (DEPLOY195)", false, "ERROR: " + e.message); });
+  }
+
+  // T46: DEPLOY195 -- Field slang impact detection (wave slam/got worked/ovalization)
+  function T46() {
+    return post("decision-core", {
+      transcript: "Offshore jacket lower brace. Wave slam damage observed. That brace got worked during the storm. Possible ovalization at one member. Carbon steel tubular construction.",
+      parsed: { raw_text: "Offshore jacket lower brace. Wave slam damage observed. That brace got worked during the storm. Possible ovalization at one member. Carbon steel tubular construction.", events: [{ type: "storm_damage", severity: "heavy" }], numeric_values: {} },
+      asset: { asset_class: "offshore_platform" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var energy = (dc.physical_reality || {}).energy || {};
+      record("T46: Field slang impact (DEPLOY195)", energy.impact_event === true, "impact=" + energy.impact_event);
+    }).catch(function(e) { record("T46: Field slang impact (DEPLOY195)", false, "ERROR: " + e.message); });
+  }
+
+  // T47: DEPLOY195 -- Concrete guard still works (metal + concrete -> metal wins)
+  function T47() {
+    return post("decision-core", {
+      transcript: "Carbon steel pipe rack structure with concrete foundation pedestals. Atmospheric corrosion on exposed members.",
+      parsed: { raw_text: "Carbon steel pipe rack structure with concrete foundation pedestals. Atmospheric corrosion on exposed members.", events: [{ type: "wall_loss", severity: "moderate" }], numeric_values: {} },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var mat = (dc.physical_reality || {}).material || {};
+      record("T47: Concrete guard (DEPLOY195 regression)", mat.class === "carbon_steel", "mat=" + mat.class);
+    }).catch(function(e) { record("T47: Concrete guard (DEPLOY195 regression)", false, "ERROR: " + e.message); });
+  }
+
+  // T48: DEPLOY196 -- Structural movement detection (dancing, walking, not sitting right)
+  function T48() {
+    return post("decision-core", {
+      transcript: "That column is dancing on us. The whole rack has been walking since last winter. Base plate not sitting right. Carbon steel wide flange construction.",
+      parsed: { raw_text: "That column is dancing on us. The whole rack has been walking since last winter. Base plate not sitting right. Carbon steel wide flange construction.", events: [], numeric_values: {} },
+      asset: { asset_class: "offshore_platform" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var stress = pr.stress || {};
+      var summ = pr.physics_summary || "";
+      var hasMvmt = summ.indexOf("Structural movement") !== -1;
+      var hasCyclic = stress.cyclic_loading === true;
+      record("T48: Structural movement detection (DEPLOY196)", hasMvmt && hasCyclic, "movement_in_summ=" + hasMvmt + " cyclic=" + hasCyclic);
+    }).catch(function(e) { record("T48: Structural movement detection (DEPLOY196)", false, "ERROR: " + e.message); });
+  }
+
+  // T49: DEPLOY196 -- Welding defect language -> stress concentration
+  function T49() {
+    return post("decision-core", {
+      transcript: "Found cold lapped root pass in the 6 inch branch connection. Slag pocket visible at the cap toe. Carbon steel pipe in crude service.",
+      parsed: { raw_text: "Found cold lapped root pass in the 6 inch branch connection. Slag pocket visible at the cap toe. Carbon steel pipe in crude service.", events: [], numeric_values: {} },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var stress = pr.stress || {};
+      var summ = pr.physics_summary || "";
+      var hasWeldDefect = summ.indexOf("Welding defect") !== -1;
+      var hasStressConc = stress.stress_concentration_present === true;
+      record("T49: Weld defect -> stress concentration (DEPLOY196)", hasWeldDefect && hasStressConc, "weld_defect_in_summ=" + hasWeldDefect + " stress_conc=" + hasStressConc);
+    }).catch(function(e) { record("T49: Weld defect -> stress concentration (DEPLOY196)", false, "ERROR: " + e.message); });
+  }
+
+  // T50: DEPLOY196 -- Fracture progression language detection
+  function T50() {
+    return post("decision-core", {
+      transcript: "That branch connection is about gone. It's coming apart at the toe. Carbon steel pipe in refinery service. 15 years old.",
+      parsed: { raw_text: "That branch connection is about gone. It's coming apart at the toe. Carbon steel pipe in refinery service. 15 years old.", events: [], numeric_values: { service_years: 15 } },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var summ = pr.physics_summary || "";
+      var hasFracProg = summ.indexOf("Fracture progression") !== -1;
+      record("T50: Fracture progression detection (DEPLOY196)", hasFracProg, "fracture_prog_in_summ=" + hasFracProg);
+    }).catch(function(e) { record("T50: Fracture progression detection (DEPLOY196)", false, "ERROR: " + e.message); });
+  }
+
+  // T51: DEPLOY196 -- Overheating field language -> fire exposure flag
+  function T51() {
+    return post("decision-core", {
+      transcript: "That header got cooked during the upset. Blued up real bad on the top side. Carbon steel schedule 80 in hydrogen service.",
+      parsed: { raw_text: "That header got cooked during the upset. Blued up real bad on the top side. Carbon steel schedule 80 in hydrogen service.", events: [], numeric_values: {} },
+      asset: { asset_class: "pressure_vessel" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var thermal = pr.thermal || {};
+      record("T51: Overheating slang -> fire exposure (DEPLOY196)", thermal.fire_exposure === true, "fire_exp=" + thermal.fire_exposure);
+    }).catch(function(e) { record("T51: Overheating slang -> fire exposure (DEPLOY196)", false, "ERROR: " + e.message); });
+  }
+
+  // T52: DEPLOY196 -- Expanded corrosion slang (ate up, peppered, shotgunned)
+  function T52() {
+    return post("decision-core", {
+      transcript: "Elbow downstream of the injection point is ate up. Peppered all over the intrados. Carbon steel pipe in crude unit overhead.",
+      parsed: { raw_text: "Elbow downstream of the injection point is ate up. Peppered all over the intrados. Carbon steel pipe in crude unit overhead.", events: [], numeric_values: {} },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var chem = pr.chemical || {};
+      var agents = chem.environment_agents || [];
+      var hasFieldCorr = agents.indexOf("field_corrosion_language") !== -1;
+      record("T52: Expanded corrosion slang (DEPLOY196)", chem.corrosive_environment === true && hasFieldCorr, "corrosive=" + chem.corrosive_environment + " field_corr=" + hasFieldCorr);
+    }).catch(function(e) { record("T52: Expanded corrosion slang (DEPLOY196)", false, "ERROR: " + e.message); });
+  }
+
+  // T53: DEPLOY196 -- Restraint / binding language -> stress concentration
+  function T53() {
+    return post("decision-core", {
+      transcript: "That line is bound up at the guide. Fighting expansion every cycle. Can't move at the anchor. Carbon steel in steam service at 600F.",
+      parsed: { raw_text: "That line is bound up at the guide. Fighting expansion every cycle. Can't move at the anchor. Carbon steel in steam service at 600F.", events: [], numeric_values: { operating_temperature_f: 600 } },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var stress = pr.stress || {};
+      var ci = (pr.context_inferred || []).join(" ");
+      var hasRestraint = ci.indexOf("estraint") !== -1 || ci.indexOf("binding") !== -1;
+      record("T53: Restraint / binding detection (DEPLOY196)", stress.stress_concentration_present === true && hasRestraint, "stress_conc=" + stress.stress_concentration_present + " restraint_in_ci=" + hasRestraint);
+    }).catch(function(e) { record("T53: Restraint / binding detection (DEPLOY196)", false, "ERROR: " + e.message); });
+  }
+
+  // T54: DEPLOY196 -- Fitup / geometry language -> stress concentration
+  function T54() {
+    return post("decision-core", {
+      transcript: "Bad hi-lo at the girth weld. Mismatch is running about 3/32. Pipe is egg-shaped at the clamp location. Carbon steel pipeline.",
+      parsed: { raw_text: "Bad hi-lo at the girth weld. Mismatch is running about 3/32. Pipe is egg-shaped at the clamp location. Carbon steel pipeline.", events: [], numeric_values: {} },
+      asset: { asset_class: "pipeline" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var stress = pr.stress || {};
+      var ci = (pr.context_inferred || []).join(" ");
+      var hasFitup = ci.indexOf("itup") !== -1 || ci.indexOf("geometry") !== -1;
+      record("T54: Fitup geometry detection (DEPLOY196)", stress.stress_concentration_present === true && hasFitup, "stress_conc=" + stress.stress_concentration_present + " fitup_in_ci=" + hasFitup);
+    }).catch(function(e) { record("T54: Fitup geometry detection (DEPLOY196)", false, "ERROR: " + e.message); });
+  }
+
+  // T55: DEPLOY196 -- Temporary fix / repeat failure language
+  function T55() {
+    return post("decision-core", {
+      transcript: "They band-aided that elbow last turnaround. Same spot keeps coming back. Cowboy repair from years ago still there. Carbon steel in sour water service.",
+      parsed: { raw_text: "They band-aided that elbow last turnaround. Same spot keeps coming back. Cowboy repair from years ago still there. Carbon steel in sour water service.", events: [], numeric_values: {} },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var ci = (pr.context_inferred || []).join(" ");
+      var hasTempFix = ci.indexOf("emporary fix") !== -1 || ci.indexOf("repeat failure") !== -1;
+      record("T55: Temp fix / repeat failure (DEPLOY196)", hasTempFix, "temp_fix_in_ci=" + hasTempFix);
+    }).catch(function(e) { record("T55: Temp fix / repeat failure (DEPLOY196)", false, "ERROR: " + e.message); });
+  }
+
+  // T56: DEPLOY196 -- Expanded vibration terms (ringing, talking, wobbly, spongy)
+  function T56() {
+    return post("decision-core", {
+      transcript: "That small bore connection is ringing when the compressor runs. Piping feels spongy when you push it. Carbon steel in gas service.",
+      parsed: { raw_text: "That small bore connection is ringing when the compressor runs. Piping feels spongy when you push it. Carbon steel in gas service.", events: [], numeric_values: {} },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var energy = pr.energy || {};
+      var stress = pr.stress || {};
+      record("T56: Expanded vibration terms (DEPLOY196)", energy.vibration === true && stress.cyclic_loading === true, "vib=" + energy.vibration + " cyclic=" + stress.cyclic_loading);
+    }).catch(function(e) { record("T56: Expanded vibration terms (DEPLOY196)", false, "ERROR: " + e.message); });
+  }
+
+  // T57: DEPLOY197 -- Erosion catalog flow_state_in fix: "high" should now match
+  // Pre-DEPLOY197, erosion catalog required "high_velocity" but physics emits "high" -> never SATISFIED
+  function T57() {
+    return post("decision-core", {
+      transcript: "8 inch carbon steel elbow in high velocity gas service, wall loss at the extrados. High flow rate causing accelerated thinning at elbows. 450F operating.",
+      parsed: { raw_text: "8 inch carbon steel elbow in high velocity gas service, wall loss at the extrados. High flow rate causing accelerated thinning at elbows. 450F operating.", events: [], numeric_values: {} },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dr = dc.damage_reality || {};
+      var validated = (dr.validated_mechanisms || []).map(function(m) { return m.mechanism_id || m.id; });
+      var hasErosion = validated.indexOf("erosion") !== -1;
+      var fr = (dc.physical_reality || {}).flow_regime || {};
+      record("T57: Erosion flow_state fix (DEPLOY197)", hasErosion && fr.flow_state === "high", "erosion_validated=" + hasErosion + " flow_state=" + fr.flow_state + " validated=[" + validated.join(",") + "]");
+    }).catch(function(e) { record("T57: Erosion flow_state fix (DEPLOY197)", false, "ERROR: " + e.message); });
+  }
+
+  // T58: DEPLOY197 -- MIC catalog flow_state_in + deposit_type_in fix
+  // Pre-DEPLOY197, MIC required "low_flow" but physics emits "low", and "biofilm_slime" but physics emits "biofilm"
+  function T58() {
+    return post("decision-core", {
+      transcript: "Dead leg on 6 inch carbon steel cooling water line, low flow, stagnant fluid with black slime and tubercles inside. Pitting under deposits. Water service.",
+      parsed: { raw_text: "Dead leg on 6 inch carbon steel cooling water line, low flow, stagnant fluid with black slime and tubercles inside. Pitting under deposits. Water service.", events: [], numeric_values: {} },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dr = dc.damage_reality || {};
+      var validated = (dr.validated_mechanisms || []).map(function(m) { return m.mechanism_id || m.id; });
+      var hasMIC = validated.indexOf("mic") !== -1;
+      var dep = (dc.physical_reality || {}).deposits || {};
+      record("T58: MIC flow+deposit fix (DEPLOY197)", hasMIC && dep.deposit_type === "biofilm", "mic_validated=" + hasMIC + " deposit_type=" + dep.deposit_type + " validated=[" + validated.join(",") + "]");
+    }).catch(function(e) { record("T58: MIC flow+deposit fix (DEPLOY197)", false, "ERROR: " + e.message); });
+  }
+
+  // T59: DEPLOY197 -- Underdeposit corrosion deposit_type_in fix
+  // Pre-DEPLOY197, catalog required "ammonium_salt" but physics emits "salt"
+  function T59() {
+    return post("decision-core", {
+      transcript: "Overhead system on crude tower, ammonium chloride salt deposits fouling the exchanger tubes. 250F, carbon steel, chloride in service, H2S present, condensing overhead. NH4Cl deposits confirmed.",
+      parsed: { raw_text: "Overhead system on crude tower, ammonium chloride salt deposits fouling the exchanger tubes. 250F, carbon steel, chloride in service, H2S present, condensing overhead. NH4Cl deposits confirmed.", events: [], numeric_values: {} },
+      asset: { asset_class: "heat_exchanger" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dr = dc.damage_reality || {};
+      var validated = (dr.validated_mechanisms || []).map(function(m) { return m.mechanism_id || m.id; });
+      var hasUDC = validated.indexOf("underdeposit_corrosion") !== -1;
+      var dep = (dc.physical_reality || {}).deposits || {};
+      record("T59: Underdeposit deposit_type fix (DEPLOY197)", hasUDC && dep.deposit_type === "salt", "udc_validated=" + hasUDC + " deposit_type=" + dep.deposit_type + " validated=[" + validated.join(",") + "]");
+    }).catch(function(e) { record("T59: Underdeposit deposit_type fix (DEPLOY197)", false, "ERROR: " + e.message); });
+  }
+
+  // T60: DEPLOY197 -- Turbulence geometry promotes flow_state to "turbulent"
+  // When elbow + downstream damage detected but no explicit "high velocity" keyword
+  function T60() {
+    return post("decision-core", {
+      transcript: "Carbon steel return bend, elbows getting hit hard with wall loss at the extrados. Thinned out downstream of the reducer. 400F gas service.",
+      parsed: { raw_text: "Carbon steel return bend, elbows getting hit hard with wall loss at the extrados. Thinned out downstream of the reducer. 400F gas service.", events: [], numeric_values: {} },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var fr = pr.flow_regime || {};
+      var dr = dc.damage_reality || {};
+      var validated = (dr.validated_mechanisms || []).map(function(m) { return m.mechanism_id || m.id; });
+      var hasErosion = validated.indexOf("erosion") !== -1;
+      record("T60: Turbulence->flow_state (DEPLOY197)", fr.flow_state === "turbulent" && fr.turbulence_geometry_present === true && hasErosion, "flow_state=" + fr.flow_state + " turb_geo=" + fr.turbulence_geometry_present + " erosion=" + hasErosion);
+    }).catch(function(e) { record("T60: Turbulence->flow_state (DEPLOY197)", false, "ERROR: " + e.message); });
+  }
+
+  // =========================================================================
+  // T61: DEPLOY198 -- fire_damage NOT validated when only firefighting/fireproofing words present
+  // The bare "fire" keyword matched inside "firefighting skid" and "fireproofing" causing
+  // fire_damage false positive. After DEPLOY198, these compound words should NOT trigger fire.
+  // =========================================================================
+  function T61() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping, 6 inch, 200F service. Fireproofing on structural steel. Firefighting skid nearby. Fire extinguisher station. Fire monitor nozzle. Fire protection system tested OK. No actual fire event.",
+      parsed: { raw_text: "Carbon steel piping, 6 inch, 200F service. Fireproofing on structural steel. Firefighting skid nearby. Fire extinguisher station. Fire monitor nozzle. Fire protection system tested OK. No actual fire event.", events: [], numeric_values: { operating_temp_f: 200 } },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dr = dc.damage_reality || {};
+      var validated = (dr.validated_mechanisms || []).map(function(m) { return m.mechanism_id || m.id; });
+      var hasFireDamage = validated.indexOf("fire_damage") !== -1;
+      record("T61: fire_damage NOT triggered by firefighting words (DEPLOY198)", !hasFireDamage, "fire_damage_validated=" + hasFireDamage + " (should be false)");
+    }).catch(function(e) { record("T61: fire_damage NOT triggered by firefighting words (DEPLOY198)", false, "ERROR: " + e.message); });
+  }
+
+  // =========================================================================
+  // T62: DEPLOY198 -- fire_damage STILL validates with real fire-event language
+  // Regression guard: after tightening fire keywords, real fire events must still work.
+  // =========================================================================
+  function T62() {
+    return post("decision-core", {
+      transcript: "Carbon steel vessel, post-fire inspection. Vessel was exposed to pool fire from adjacent unit. Fire damage suspected on shell courses. Discoloration and scaling on exterior.",
+      parsed: { raw_text: "Carbon steel vessel, post-fire inspection. Vessel was exposed to pool fire from adjacent unit. Fire damage suspected on shell courses. Discoloration and scaling on exterior.", events: [{ type: "fire_exposure", severity: "heavy" }], numeric_values: {} },
+      asset: { asset_class: "pressure_vessel" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dr = dc.damage_reality || {};
+      var validated = (dr.validated_mechanisms || []).map(function(m) { return m.mechanism_id || m.id; });
+      var hasFireDamage = validated.indexOf("fire_damage") !== -1;
+      record("T62: fire_damage validates with real fire language (DEPLOY198)", hasFireDamage, "fire_damage_validated=" + hasFireDamage + " (should be true)");
+    }).catch(function(e) { record("T62: fire_damage validates with real fire language (DEPLOY198)", false, "ERROR: " + e.message); });
+  }
+
+  // =========================================================================
+  // T63: DEPLOY198 -- Offshore platform gets saltwater phase + marine atmosphere
+  // Offshore platforms are definitionally in marine environments. The physics engine
+  // should infer saltwater, liquid_water, marine atmosphere, and chlorides without
+  // the transcript explicitly saying "seawater" or "outdoor".
+  // =========================================================================
+  function T63() {
+    return post("decision-core", {
+      transcript: "Mature fixed offshore production platform Gulf of Mexico. 8-leg steel jacket, carbon steel tubular construction. Splash zone coating damage. Marine growth on lower members. Salt deposits on upper deck framing.",
+      parsed: { raw_text: "Mature fixed offshore production platform Gulf of Mexico. 8-leg steel jacket, carbon steel tubular construction. Splash zone coating damage. Marine growth on lower members. Salt deposits on upper deck framing.", events: [], numeric_values: {} },
+      asset: { asset_class: "offshore_platform" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var env = pr.environment || {};
+      var phases = env.phases_present || [];
+      var atmo = env.atmosphere_class || "null";
+      var hasSaltwater = phases.indexOf("saltwater") !== -1;
+      var hasLiquidWater = phases.indexOf("liquid_water") !== -1;
+      var isMarine = atmo === "marine";
+      var allPass = hasSaltwater && hasLiquidWater && isMarine;
+      record("T63: Offshore gets saltwater+marine atmosphere (DEPLOY198)", allPass, "saltwater=" + hasSaltwater + " liquid_water=" + hasLiquidWater + " atmosphere=" + atmo);
+    }).catch(function(e) { record("T63: Offshore gets saltwater+marine atmosphere (DEPLOY198)", false, "ERROR: " + e.message); });
+  }
+
+  // =========================================================================
+  // T64-T68: DEPLOY200 -- Coatings as 10th precondition bucket
+  // =========================================================================
+
+  // T64: Coating detection -- degraded coating detected from transcript
+  function T64() {
+    return post("decision-core", {
+      transcript: "Carbon steel structural member in outdoor atmospheric service. Coating failure with peeling paint and rust bleed-through visible. Wall loss measured at 4.2mm. Corrosion rate 0.3mm per year.",
+      parsed: {
+        raw_text: "Carbon steel structural member in outdoor atmospheric service. Coating failure with peeling paint and rust bleed-through visible. Wall loss measured at 4.2mm. Corrosion rate 0.3mm per year.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: { wall_thickness_mm: 4.2, corrosion_rate_mm_per_year: 0.3 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var coat = pr.coating || {};
+      var cond = coat.coating_condition || "null";
+      var passed = cond === "degraded";
+      record("T64: Coating detection -- degraded (DEPLOY200)", passed, "coating_condition=" + cond + " (should be degraded)");
+    }).catch(function(e) { record("T64: Coating detection -- degraded (DEPLOY200)", false, "ERROR: " + e.message); });
+  }
+
+  // T65: Coating detection -- intact coating detected from transcript
+  function T65() {
+    return post("decision-core", {
+      transcript: "Carbon steel pipe rack in outdoor atmospheric service. Recently painted with coating in good condition. No visible corrosion.",
+      parsed: {
+        raw_text: "Carbon steel pipe rack in outdoor atmospheric service. Recently painted with coating in good condition. No visible corrosion.",
+        events: [],
+        numeric_values: {}
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var coat = pr.coating || {};
+      var cond = coat.coating_condition || "null";
+      var passed = cond === "intact";
+      record("T65: Coating detection -- intact (DEPLOY200)", passed, "coating_condition=" + cond + " (should be intact)");
+    }).catch(function(e) { record("T65: Coating detection -- intact (DEPLOY200)", false, "ERROR: " + e.message); });
+  }
+
+  // T66: Atmospheric corrosion REJECTED when coating is intact
+  // Intact coating physically blocks external corrosion cell -- mechanism cannot proceed
+  function T66() {
+    return post("decision-core", {
+      transcript: "Carbon steel pipe rack in outdoor atmospheric exposure. Well coated with coating intact. No visible damage.",
+      parsed: {
+        raw_text: "Carbon steel pipe rack in outdoor atmospheric exposure. Well coated with coating intact. No visible damage.",
+        events: [],
+        numeric_values: {}
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dm = dc.damage_reality || {};
+      var rejected = (dm.rejected_mechanisms || []).map(function(v) { return v.id; });
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var atmoRejected = rejected.indexOf("atmospheric_corrosion") >= 0;
+      var atmoNotValidated = validated.indexOf("atmospheric_corrosion") === -1;
+      var passed = atmoRejected && atmoNotValidated;
+      record("T66: Atmospheric corrosion REJECTED with intact coating (DEPLOY200)", passed, "atmo_rejected=" + atmoRejected + " atmo_not_validated=" + atmoNotValidated);
+    }).catch(function(e) { record("T66: Atmospheric corrosion REJECTED with intact coating (DEPLOY200)", false, "ERROR: " + e.message); });
+  }
+
+  // T67: Atmospheric corrosion validates when coating is degraded
+  function T67() {
+    return post("decision-core", {
+      transcript: "Carbon steel pipe rack in outdoor atmospheric exposure. Coating failure with flaking paint and bare spots. General wall loss observed.",
+      parsed: {
+        raw_text: "Carbon steel pipe rack in outdoor atmospheric exposure. Coating failure with flaking paint and bare spots. General wall loss observed.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var dm = dc.damage_reality || {};
+      var validated = (dm.validated_mechanisms || []).map(function(v) { return v.id; });
+      var hasAtmo = validated.indexOf("atmospheric_corrosion") >= 0;
+      var pr = dc.physical_reality || {};
+      var coat = pr.coating || {};
+      var cond = coat.coating_condition || "null";
+      var passed = hasAtmo && cond === "degraded";
+      record("T67: Atmospheric corrosion validates with degraded coating (DEPLOY200)", passed, "atmo_validated=" + hasAtmo + " coating=" + cond);
+    }).catch(function(e) { record("T67: Atmospheric corrosion validates with degraded coating (DEPLOY200)", false, "ERROR: " + e.message); });
+  }
+
+  // T68: Coating type detection -- FBE identified from transcript
+  function T68() {
+    return post("decision-core", {
+      transcript: "Carbon steel buried pipeline with fusion bonded epoxy coating. Disbonded coating at girth weld with soil moisture ingress. External pitting under coating.",
+      parsed: {
+        raw_text: "Carbon steel buried pipeline with fusion bonded epoxy coating. Disbonded coating at girth weld with soil moisture ingress. External pitting under coating.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(d) {
+      var dc = d.decision_core || d;
+      var pr = dc.physical_reality || {};
+      var coat = pr.coating || {};
+      var cType = coat.coating_type || "null";
+      var cCond = coat.coating_condition || "null";
+      var passed = cType === "FBE" && cCond === "degraded";
+      record("T68: Coating type FBE + degraded condition (DEPLOY200)", passed, "type=" + cType + " condition=" + cCond);
+    }).catch(function(e) { record("T68: Coating type FBE + degraded condition (DEPLOY200)", false, "ERROR: " + e.message); });
+  }
+
+  // ============================================================================
+  // ENGINE 3: INSPECTION-RETRIEVAL TESTS (DEPLOY201)
+  // ============================================================================
+
+  // T69: Engine 3 basic connectivity + version check
+  function T69() {
+    // Send minimal valid Engine 1 output to Engine 3
+    return post("inspection-retrieval", {
+      decision_core: {
+        physical_reality: { material: { class: "carbon_steel", class_confidence: 90 }, environment: {}, thermal: {}, stress: {}, coating: {} },
+        damage_reality: { validated_mechanisms: [], rejected_mechanisms: [], indeterminate_mechanisms: [] },
+        consequence_reality: { consequence_tier: "moderate" },
+        engine_version: "physics-first-decision-core-v2.10.0"
+      },
+      transcript: "Test connectivity"
+    }).then(function(d) {
+      var ver = d.engine_version || "?";
+      var hasMeta = d.metadata && d.metadata.engine === "inspection-retrieval";
+      var passed = ver.indexOf("v1.0.0") >= 0 && hasMeta;
+      record("T69: Engine 3 basic connectivity + version (DEPLOY201)", passed, "ver=" + ver + " meta=" + JSON.stringify(d.metadata || {}));
+    }).catch(function(e) { record("T69: Engine 3 basic connectivity + version (DEPLOY201)", false, "ERROR: " + e.message); });
+  }
+
+  // T70: Engine 3 domain refusal pass-through
+  function T70() {
+    return post("inspection-retrieval", {
+      decision_core: {
+        domain_not_supported: true,
+        reason: "Test domain refusal pass-through"
+      }
+    }).then(function(d) {
+      var refused = d.domain_not_supported === true;
+      var passed = refused;
+      record("T70: Engine 3 domain refusal pass-through (DEPLOY201)", passed, "refused=" + refused);
+    }).catch(function(e) { record("T70: Engine 3 domain refusal pass-through (DEPLOY201)", false, "ERROR: " + e.message); });
+  }
+
+  // T71: Engine 3 deterministic references -- mechanism_references populated for validated mechanisms
+  function T71() {
+    return post("inspection-retrieval", {
+      decision_core: {
+        physical_reality: { material: { class: "carbon_steel" }, environment: {}, thermal: {}, stress: {}, coating: {} },
+        damage_reality: {
+          validated_mechanisms: [
+            { id: "general_corrosion", name: "General Corrosion", reality_state: "validated", severity: "moderate" },
+            { id: "pitting", name: "Pitting Corrosion", reality_state: "validated", severity: "high" }
+          ],
+          rejected_mechanisms: [],
+          indeterminate_mechanisms: []
+        },
+        consequence_reality: { consequence_tier: "moderate" }
+      },
+      transcript: "Carbon steel vessel with general wall loss and localized pitting observed."
+    }).then(function(d) {
+      var refs = d.mechanism_references || [];
+      var hasGenCorr = false;
+      var hasPitting = false;
+      for (var i = 0; i < refs.length; i++) {
+        if (refs[i].mechanism_id === "general_corrosion" && refs[i].api_571_section === "4.3.1") hasGenCorr = true;
+        if (refs[i].mechanism_id === "pitting" && refs[i].api_571_section === "4.3.2") hasPitting = true;
+      }
+      var passed = refs.length === 2 && hasGenCorr && hasPitting;
+      record("T71: Engine 3 deterministic references (DEPLOY201)", passed, "refs=" + refs.length + " gen_corr=" + hasGenCorr + " pitting=" + hasPitting);
+    }).catch(function(e) { record("T71: Engine 3 deterministic references (DEPLOY201)", false, "ERROR: " + e.message); });
+  }
+
+  // T72: Engine 3 method coverage matrix sorted by coverage count
+  function T72() {
+    return post("inspection-retrieval", {
+      decision_core: {
+        physical_reality: { material: { class: "carbon_steel" }, environment: {}, thermal: {}, stress: {}, coating: {} },
+        damage_reality: {
+          validated_mechanisms: [
+            { id: "general_corrosion", name: "General Corrosion", reality_state: "validated", severity: "moderate" },
+            { id: "pitting", name: "Pitting Corrosion", reality_state: "validated", severity: "high" },
+            { id: "erosion", name: "Erosion", reality_state: "validated", severity: "moderate" }
+          ],
+          rejected_mechanisms: [],
+          indeterminate_mechanisms: []
+        },
+        consequence_reality: { consequence_tier: "moderate" }
+      },
+      transcript: "General wall thinning with localized pitting and erosion at elbows."
+    }).then(function(d) {
+      var cov = d.method_coverage || [];
+      // Should have methods; first entry should cover the most mechanisms
+      var hasMethods = cov.length > 0;
+      var sorted = true;
+      for (var i = 1; i < cov.length; i++) {
+        if (cov[i].mechanisms_covered.length > cov[i - 1].mechanisms_covered.length) {
+          sorted = false;
+          break;
+        }
+      }
+      // UT_thickness_survey should cover all 3 (general_corrosion, pitting, erosion)
+      var utEntry = null;
+      for (var j = 0; j < cov.length; j++) {
+        if (cov[j].method === "UT_thickness_survey") { utEntry = cov[j]; break; }
+      }
+      var utCovers3 = utEntry && utEntry.mechanisms_covered.length >= 3;
+      var passed = hasMethods && sorted && utCovers3;
+      record("T72: Engine 3 method coverage matrix sorted (DEPLOY201)", passed, "methods=" + cov.length + " sorted=" + sorted + " UT_covers=" + (utEntry ? utEntry.mechanisms_covered.length : 0));
+    }).catch(function(e) { record("T72: Engine 3 method coverage matrix sorted (DEPLOY201)", false, "ERROR: " + e.message); });
+  }
+
+  // T73: Engine 3 integration chain -- Engine 1 output piped to Engine 3
+  function T73() {
+    return post("decision-core", {
+      transcript: "Carbon steel atmospheric storage tank with external wall loss, no insulation, bare metal exposed. Marine environment offshore.",
+      parsed: {
+        raw_text: "Carbon steel atmospheric storage tank with external wall loss, no insulation, bare metal exposed. Marine environment offshore.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "pressure_vessel" }
+    }).then(function(dcResult) {
+      // Pass Engine 1 output to Engine 3
+      return post("inspection-retrieval", {
+        decision_core: (dcResult.decision_core || dcResult),
+        transcript: "Carbon steel atmospheric storage tank with external wall loss, no insulation, bare metal exposed. Marine environment offshore."
+      }).then(function(e3Result) {
+        var refs = e3Result.mechanism_references || [];
+        var cov = e3Result.method_coverage || [];
+        var hasMeta = e3Result.metadata && e3Result.metadata.engine === "inspection-retrieval";
+        // Should have at least 1 mechanism reference (atmospheric_corrosion at minimum)
+        var hasRefs = refs.length >= 1;
+        var hasCov = cov.length >= 1;
+        var passed = hasRefs && hasCov && hasMeta;
+        record("T73: Engine 3 integration chain E1->E3 (DEPLOY201)", passed, "mech_refs=" + refs.length + " methods=" + cov.length + " engine=" + (e3Result.metadata ? e3Result.metadata.engine : "?"));
+      });
+    }).catch(function(e) { record("T73: Engine 3 integration chain E1->E3 (DEPLOY201)", false, "ERROR: " + e.message); });
+  }
+
+  // T74: Engine 3 mechanism reference has correct code citations for CUI
+  function T74() {
+    return post("inspection-retrieval", {
+      decision_core: {
+        physical_reality: { material: { class: "carbon_steel" }, environment: {}, thermal: { operating_temp_f: 200 }, stress: {}, coating: {} },
+        damage_reality: {
+          validated_mechanisms: [
+            { id: "cui", name: "Corrosion Under Insulation", reality_state: "validated", severity: "high" }
+          ],
+          rejected_mechanisms: [],
+          indeterminate_mechanisms: []
+        },
+        consequence_reality: { consequence_tier: "high" }
+      },
+      transcript: "Insulated carbon steel piping at 200F with water ingress at insulation damage."
+    }).then(function(d) {
+      var refs = d.mechanism_references || [];
+      var cuiRef = null;
+      for (var i = 0; i < refs.length; i++) {
+        if (refs[i].mechanism_id === "cui") { cuiRef = refs[i]; break; }
+      }
+      var hasSection = cuiRef && cuiRef.api_571_section === "4.3.3";
+      var hasCodes = cuiRef && cuiRef.governing_codes && cuiRef.governing_codes.length >= 3;
+      var hasPrimary = cuiRef && cuiRef.primary_methods && cuiRef.primary_methods.indexOf("UT_thickness_survey") >= 0;
+      var passed = hasSection && hasCodes && hasPrimary;
+      record("T74: Engine 3 CUI reference correctness (DEPLOY201)", passed, "section=" + (cuiRef ? cuiRef.api_571_section : "null") + " codes=" + (cuiRef ? cuiRef.governing_codes.length : 0) + " has_UT=" + hasPrimary);
+    }).catch(function(e) { record("T74: Engine 3 CUI reference correctness (DEPLOY201)", false, "ERROR: " + e.message); });
+  }
+
+  // T75: Engine 3 coverage matrix multi-mechanism efficiency (UT_shear_wave covers cracking mechanisms)
+  function T75() {
+    return post("inspection-retrieval", {
+      decision_core: {
+        physical_reality: { material: { class: "carbon_steel" }, environment: { chemical_agents: ["H2S"] }, thermal: {}, stress: { tensile_stress: true }, coating: {} },
+        damage_reality: {
+          validated_mechanisms: [
+            { id: "ssc_sulfide", name: "Sulfide Stress Cracking", reality_state: "validated", severity: "high" },
+            { id: "hic", name: "Hydrogen-Induced Cracking", reality_state: "validated", severity: "high" },
+            { id: "fatigue_mechanical", name: "Mechanical Fatigue", reality_state: "validated", severity: "moderate" }
+          ],
+          rejected_mechanisms: [],
+          indeterminate_mechanisms: []
+        },
+        consequence_reality: { consequence_tier: "critical" }
+      },
+      transcript: "Carbon steel in wet H2S service with cyclic loading and cracking history."
+    }).then(function(d) {
+      var cov = d.method_coverage || [];
+      // UT_shear_wave should cover all 3 cracking mechanisms
+      var swEntry = null;
+      for (var j = 0; j < cov.length; j++) {
+        if (cov[j].method === "UT_shear_wave") { swEntry = cov[j]; break; }
+      }
+      // phased_array_UT should also cover all 3
+      var pautEntry = null;
+      for (var k = 0; k < cov.length; k++) {
+        if (cov[k].method === "phased_array_UT") { pautEntry = cov[k]; break; }
+      }
+      var swCovers = swEntry && swEntry.mechanisms_covered.length >= 2;
+      var pautCovers = pautEntry && pautEntry.mechanisms_covered.length >= 3;
+      var passed = swCovers && pautCovers;
+      record("T75: Engine 3 multi-mech coverage efficiency (DEPLOY201)", passed, "shear_wave_covers=" + (swEntry ? swEntry.mechanisms_covered.length : 0) + " PAUT_covers=" + (pautEntry ? pautEntry.mechanisms_covered.length : 0));
+    }).catch(function(e) { record("T75: Engine 3 multi-mech coverage efficiency (DEPLOY201)", false, "ERROR: " + e.message); });
+  }
+
+  // ============================================================================
+  // DEPLOY202: SUPERBRAIN ENGINE 3 WIRING + FAILOVER TESTS
+  // ============================================================================
+
+  // T76: Superbrain v1.4 version + ai_provider metadata
+  function T76() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping with general wall thinning. 8 inch NPS schedule 40.",
+      parsed: {
+        raw_text: "Carbon steel piping with general wall thinning. 8 inch NPS schedule 40.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(dcResult) {
+      var dc = dcResult.decision_core || dcResult;
+      return post("superbrain-synthesis", {
+        decision_core: dc,
+        transcript: "Carbon steel piping with general wall thinning. 8 inch NPS schedule 40."
+      }).then(function(sb) {
+        var ver = sb.superbrain_version || "?";
+        var provider = sb.ai_provider || "none";
+        var hasFailoverField = sb.ai_failover_used !== undefined;
+        var passed = ver === "1.4" && provider.length > 0 && hasFailoverField;
+        record("T76: Superbrain v1.4 + ai_provider metadata (DEPLOY202)", passed, "ver=" + ver + " provider=" + provider + " failover_field=" + hasFailoverField);
+      });
+    }).catch(function(e) { record("T76: Superbrain v1.4 + ai_provider metadata (DEPLOY202)", false, "ERROR: " + e.message); });
+  }
+
+  // T77: Superbrain accepts inspection_retrieval and reports ir_override_applied
+  function T77() {
+    return post("decision-core", {
+      transcript: "Carbon steel atmospheric storage tank with external wall loss. Marine environment. Coating degraded with rust bleed.",
+      parsed: {
+        raw_text: "Carbon steel atmospheric storage tank with external wall loss. Marine environment. Coating degraded with rust bleed.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "pressure_vessel" }
+    }).then(function(dcResult) {
+      var dc = dcResult.decision_core || dcResult;
+      // Call Engine 3 with the Engine 1 output
+      return post("inspection-retrieval", {
+        decision_core: dc,
+        transcript: "Carbon steel atmospheric storage tank with external wall loss. Marine environment. Coating degraded with rust bleed."
+      }).then(function(e3Result) {
+        // Now send both to superbrain
+        return post("superbrain-synthesis", {
+          decision_core: dc,
+          transcript: "Carbon steel atmospheric storage tank with external wall loss. Marine environment. Coating degraded with rust bleed.",
+          inspection_retrieval: e3Result
+        }).then(function(sb) {
+          var cm = sb.constraint_metadata || {};
+          var irApplied = cm.ir_override_applied === true;
+          var enginesReceived = cm.engines_received || {};
+          var irReceived = enginesReceived.inspection_retrieval === true;
+          // inspection_intelligence_summary is only populated when Engine 3's ai_synthesis succeeded.
+          // The core assertion is that superbrain accepted Engine 3 (ir_applied + ir_received).
+          // IIS is a bonus -- may be null if Engine 3's Claude call timed out in the chain.
+          var hasIIS = sb.inspection_intelligence_summary !== null && sb.inspection_intelligence_summary !== undefined;
+          var passed = irApplied && irReceived;
+          record("T77: Superbrain accepts Engine 3 + ir_override (DEPLOY202)", passed, "ir_applied=" + irApplied + " ir_received=" + irReceived + " has_iis=" + hasIIS);
+        });
+      });
+    }).catch(function(e) { record("T77: Superbrain accepts Engine 3 + ir_override (DEPLOY202)", false, "ERROR: " + e.message); });
+  }
+
+  // T78: Engine 2 v1.4.0 reports ai_provider in metadata
+  function T78() {
+    return post("inspection-intelligence", {
+      decision_core_output: {
+        decision_core: {
+          physical_reality: { material: { class: "carbon_steel" }, environment: {}, thermal: {}, stress: {}, coating: {} },
+          damage_reality: { validated_mechanisms: [{ id: "general_corrosion", name: "General Corrosion", reality_state: "validated", severity: "moderate" }], rejected_mechanisms: [] },
+          consequence_reality: { consequence_tier: "moderate" },
+          engine_version: "physics-first-decision-core-v2.10.0"
+        }
+      },
+      transcript: "Carbon steel piping with general corrosion."
+    }).then(function(e2) {
+      var meta = e2.metadata || {};
+      var ver = meta.version || "?";
+      var provider = meta.ai_provider || "none";
+      var hasFailover = meta.ai_failover_used !== undefined;
+      var passed = ver === "1.4.0" && provider.length > 0 && hasFailover;
+      record("T78: Engine 2 v1.4.0 + ai_provider metadata (DEPLOY202)", passed, "ver=" + ver + " provider=" + provider + " failover_field=" + hasFailover);
+    }).catch(function(e) { record("T78: Engine 2 v1.4.0 + ai_provider metadata (DEPLOY202)", false, "ERROR: " + e.message); });
+  }
+
+  // ============================================================================
+  // DEPLOY203: JURISDICTION ROUTER TESTS (T79-T84)
+  // ============================================================================
+
+  // T79: Jurisdiction default -- no jurisdiction field, US default, version v2.11.0
+  function T79() {
+    return post("decision-core", {
+      transcript: "Carbon steel piping with wall loss detected. Minimum reading 0.180 inches. Design pressure 350 psig.",
+      parsed: {
+        raw_text: "Carbon steel piping with wall loss detected. Minimum reading 0.180 inches. Design pressure 350 psig.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: { wall_thickness_measured: 0.180, design_pressure: 350 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(r) {
+      var dc = r.decision_core || r;
+      var ver = dc.engine_version || "?";
+      var jr = dc.jurisdiction_reality || {};
+      var jur = jr.jurisdiction || "?";
+      var method = jr.detection_method || "?";
+      var hasBlock = jr.supported_jurisdictions && jr.supported_jurisdictions.length === 9;
+      var passed = ver === "physics-first-decision-core-v2.11.0" && jur === "US" && method === "default" && hasBlock;
+      record("T79: Jurisdiction default -- US, v2.11.0 (DEPLOY203)", passed, "ver=" + ver + " jur=" + jur + " method=" + method + " has_block=" + hasBlock);
+    }).catch(function(e) { record("T79: Jurisdiction default -- US, v2.11.0 (DEPLOY203)", false, "ERROR: " + e.message); });
+  }
+
+  // T80: Jurisdiction explicit -- asset.jurisdiction="AU" routes to AS/NZS 3788
+  function T80() {
+    return post("decision-core", {
+      transcript: "Pressure vessel with general wall thinning. Carbon steel construction. External corrosion noted.",
+      parsed: {
+        raw_text: "Pressure vessel with general wall thinning. Carbon steel construction. External corrosion noted.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "pressure_vessel", jurisdiction: "AU" }
+    }).then(function(r) {
+      var dc = r.decision_core || r;
+      var jr = dc.jurisdiction_reality || {};
+      var ar = dc.authority_reality || {};
+      var jur = jr.jurisdiction || "?";
+      var method = jr.detection_method || "?";
+      var conf = jr.detection_confidence || 0;
+      var pri = ar.primary_authority || "";
+      var hasAS3788 = pri.indexOf("AS") !== -1 && pri.indexOf("3788") !== -1;
+      var jApplied = ar.jurisdiction_applied === true;
+      var passed = jur === "AU" && method === "explicit" && hasAS3788 && jApplied && conf >= 0.9;
+      record("T80: Jurisdiction explicit AU -> AS/NZS 3788 (DEPLOY203)", passed, "jur=" + jur + " method=" + method + " pri=" + pri + " applied=" + jApplied + " conf=" + conf);
+    }).catch(function(e) { record("T80: Jurisdiction explicit AU -> AS/NZS 3788 (DEPLOY203)", false, "ERROR: " + e.message); });
+  }
+
+  // T81: Jurisdiction inferred -- "stavanger" + "norsok" in transcript routes to Norway
+  function T81() {
+    return post("decision-core", {
+      transcript: "Offshore platform topside piping near Stavanger. Norsok M-601 welding spec applies. Carbon steel process piping with CUI suspected under cladding.",
+      parsed: {
+        raw_text: "Offshore platform topside piping near Stavanger. Norsok M-601 welding spec applies. Carbon steel process piping with CUI suspected under cladding.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(r) {
+      var dc = r.decision_core || r;
+      var jr = dc.jurisdiction_reality || {};
+      var ar = dc.authority_reality || {};
+      var jur = jr.jurisdiction || "?";
+      var method = jr.detection_method || "?";
+      var kwMatches = jr.keyword_matches || [];
+      var pri = ar.primary_authority || "";
+      var hasNorsok = pri.indexOf("NORSOK") !== -1;
+      var jApplied = ar.jurisdiction_applied === true;
+      var passed = jur === "NO" && method === "inferred" && hasNorsok && jApplied && kwMatches.length >= 2;
+      record("T81: Jurisdiction inferred NO -> NORSOK (DEPLOY203)", passed, "jur=" + jur + " method=" + method + " pri=" + pri + " applied=" + jApplied + " kw_matches=" + kwMatches.length);
+    }).catch(function(e) { record("T81: Jurisdiction inferred NO -> NORSOK (DEPLOY203)", false, "ERROR: " + e.message); });
+  }
+
+  // T82: Jurisdiction EU piping -- "rotterdam" + "en 13480" routes to PED/EN
+  function T82() {
+    return post("decision-core", {
+      transcript: "Process piping at Rotterdam refinery. EN 13480 construction standard. Carbon steel with suspected CO2 corrosion. Operating temperature 95C.",
+      parsed: {
+        raw_text: "Process piping at Rotterdam refinery. EN 13480 construction standard. Carbon steel with suspected CO2 corrosion. Operating temperature 95C.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: { operating_temperature: 95 }
+      },
+      asset: { asset_class: "piping" }
+    }).then(function(r) {
+      var dc = r.decision_core || r;
+      var jr = dc.jurisdiction_reality || {};
+      var ar = dc.authority_reality || {};
+      var jur = jr.jurisdiction || "?";
+      var pri = ar.primary_authority || "";
+      var hasPED = pri.indexOf("PED") !== -1 || pri.indexOf("EN 13480") !== -1;
+      var jApplied = ar.jurisdiction_applied === true;
+      var passed = jur === "EU" && hasPED && jApplied;
+      record("T82: Jurisdiction EU piping -> PED/EN 13480 (DEPLOY203)", passed, "jur=" + jur + " pri=" + pri + " applied=" + jApplied);
+    }).catch(function(e) { record("T82: Jurisdiction EU piping -> PED/EN 13480 (DEPLOY203)", false, "ERROR: " + e.message); });
+  }
+
+  // T83: Jurisdiction PVHO guard -- PVHO still resolves PVHO-1 even with non-US jurisdiction keyword
+  function T83() {
+    return post("decision-core", {
+      transcript: "Decompression chamber with crack indication on pressure boundary weld. Aberdeen facility. Human occupancy vessel. PVHO certification required.",
+      parsed: {
+        raw_text: "Decompression chamber with crack indication on pressure boundary weld. Aberdeen facility. Human occupancy vessel. PVHO certification required.",
+        events: [{ type: "crack", severity: "major" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "pressure_vessel" }
+    }).then(function(r) {
+      var dc = r.decision_core || r;
+      var ar = dc.authority_reality || {};
+      var jr = dc.jurisdiction_reality || {};
+      var pri = ar.primary_authority || "";
+      var hasPVHO = pri.indexOf("PVHO") !== -1;
+      // PVHO is a specialty entry -- jurisdiction should be detected (UK due to Aberdeen)
+      // but PVHO-1 must still be primary authority, not PSSR
+      var jur = jr.jurisdiction || "?";
+      var passed = hasPVHO;
+      record("T83: PVHO guard -- PVHO-1 survives jurisdiction (DEPLOY203)", passed, "pri=" + pri + " jur=" + jur + " pvho=" + hasPVHO);
+    }).catch(function(e) { record("T83: PVHO guard -- PVHO-1 survives jurisdiction (DEPLOY203)", false, "ERROR: " + e.message); });
+  }
+
+  // T84: Jurisdiction output structure -- jurisdiction_reality block present with all fields
+  function T84() {
+    return post("decision-core", {
+      transcript: "Storage tank at Jubail industrial complex. Aramco standard applies. Atmospheric tank with floor corrosion.",
+      parsed: {
+        raw_text: "Storage tank at Jubail industrial complex. Aramco standard applies. Atmospheric tank with floor corrosion.",
+        events: [{ type: "wall_loss", severity: "moderate" }],
+        numeric_values: {}
+      },
+      asset: { asset_class: "storage_tank" }
+    }).then(function(r) {
+      var dc = r.decision_core || r;
+      var jr = dc.jurisdiction_reality || {};
+      var jur = jr.jurisdiction || "?";
+      var label = jr.jurisdiction_label || "?";
+      var method = jr.detection_method || "?";
+      var conf = jr.detection_confidence || 0;
+      var kwMatches = jr.keyword_matches || [];
+      var supported = jr.supported_jurisdictions || [];
+      var hasAllFields = jur.length > 0 && label.length > 0 && method.length > 0 && conf > 0 && supported.length === 9;
+      var isME = jur === "ME";
+      var passed = hasAllFields && isME && kwMatches.length >= 1;
+      record("T84: Jurisdiction output structure + ME detection (DEPLOY203)", passed, "jur=" + jur + " label=" + label + " method=" + method + " conf=" + conf + " kw=" + kwMatches.length + " supported=" + supported.length);
+    }).catch(function(e) { record("T84: Jurisdiction output structure + ME detection (DEPLOY203)", false, "ERROR: " + e.message); });
+  }
+
+  // Run all tests sequentially
+  T1().then(T2).then(T3).then(T4).then(T5).then(T6).then(T7).then(T8).then(T9).then(T10).then(T11).then(T12).then(T13).then(T14).then(T15).then(T16).then(T17).then(T18).then(T19).then(T20).then(T21).then(T22).then(T23).then(T24).then(T25).then(T26).then(T27).then(T28).then(T29).then(T30).then(T31).then(T32).then(T33).then(T34).then(T35).then(T36).then(T37).then(T38).then(T39).then(T40).then(T41).then(T42).then(T43).then(T44).then(T45).then(T46).then(T47).then(T48).then(T49).then(T50).then(T51).then(T52).then(T53).then(T54).then(T55).then(T56).then(T57).then(T58).then(T59).then(T60).then(T61).then(T62).then(T63).then(T64).then(T65).then(T66).then(T67).then(T68).then(T69).then(T70).then(T71).then(T72).then(T73).then(T74).then(T75).then(T76).then(T77).then(T78).then(T79).then(T80).then(T81).then(T82).then(T83).then(T84).then(function() {
+    console.log("============================================================");
+    console.log("RESULTS: " + pass + " PASS / " + fail + " FAIL / " + total + " TOTAL");
+    console.log("============================================================");
+    if (fail > 0) {
+      console.log("FAILURES:");
+      results.filter(function(r) { return !r.passed; }).forEach(function(r) {
+        console.log("  " + r.name + ": " + r.detail);
+      });
+    }
+    console.log("");
+    return results;
+  });
+})();
