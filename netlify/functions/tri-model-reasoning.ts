@@ -36,7 +36,7 @@ var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 var openaiKey = process.env.OPENAI_API_KEY || "";
 var anthropicKey = process.env.ANTHROPIC_API_KEY || "";
 
-var ENGINE_VERSION = "tri-model-reasoning/1.0.0";
+var ENGINE_VERSION = "tri-model-reasoning/2.0.0";
 
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -87,13 +87,19 @@ var MODEL_A_PROMPT = "You are MODEL A — the Physics Engine for the FORGED NDT 
   + " with zero sulfide cracking evidence, that demands explanation — either protection is working"
   + " perfectly, or inspection is looking in the wrong place with the wrong method."
   + "\nAbsence of expected damage is evidence that requires explanation."
-  + "\n\n=== METHOD RELIABILITY + BLIND SPOTS ==="
-  + "\nFor every inspection method used, identify:"
+  + "\n\n=== METHOD SUFFICIENCY ENFORCEMENT ==="
+  + "\nThis is not optional. For every inspection method used or proposed, you MUST state:"
   + "\n- What it CAN reliably detect in this specific geometry, material, and access condition"
   + "\n- What it CANNOT detect (blind spots)"
+  + "\n- What it CANNOT size even if detected"
+  + "\n- What access requirements it needs that may not exist"
   + "\n- Sizing uncertainty vs detection uncertainty vs characterization uncertainty"
   + "\n'Can detect' is not 'can size' is not 'can characterize' is not 'can trend'"
   + "\nNo method is accepted by reputation alone."
+  + "\nAfter evaluating all methods, answer this explicit question:"
+  + "\n'Is the current or proposed inspection scope SUFFICIENT to support a continued-operation decision?'"
+  + "\nIf the answer is NO, state what is missing and what decision limitation that creates."
+  + "\nDo NOT allow a limited inspection to produce a full-confidence conclusion."
   + "\n\n=== SENSORY FUSION ==="
   + "\nWhen multiple methods examined the same zone, FUSE the results into a unified physical picture."
   + "\nUT + RT + MPI on the same weld tells you more combined than any method alone."
@@ -119,7 +125,8 @@ var MODEL_A_PROMPT = "You are MODEL A — the Physics Engine for the FORGED NDT 
   + "\n  \"degradation_paths\": [{\"path\": \"...\", \"rate_estimate\": \"...\", \"physics_basis\": \"...\"}],"
   + "\n  \"inverse_reasoning\": {\"observed_pattern\": \"...\", \"required_history\": \"...\", \"constrained_conditions\": [\"...\"]},"
   + "\n  \"absence_analysis\": [{\"expected_evidence\": \"...\", \"explanation_if_absent\": \"...\"}],"
-  + "\n  \"method_reliability\": [{\"method\": \"...\", \"strengths_here\": [\"...\"], \"blind_spots\": [\"...\"], \"reliability_score\": 0.0}],"
+  + "\n  \"method_reliability\": [{\"method\": \"...\", \"strengths_here\": [\"...\"], \"blind_spots\": [\"...\"], \"cannot_size\": [\"...\"], \"access_requirements\": [\"...\"], \"reliability_score\": 0.0}],"
+  + "\n  \"method_sufficiency\": {\"sufficient_for_operation_decision\": false, \"missing_capabilities\": [\"...\"], \"conclusion\": \"...\"},"
   + "\n  \"sensory_fusion\": \"...\","
   + "\n  \"evidence_quality\": [{\"evidence\": \"...\", \"class\": \"...\", \"reliability\": 0.0}],"
   + "\n  \"physics_confidence\": 0.0"
@@ -149,6 +156,22 @@ var MODEL_B_PROMPT = "You are MODEL B — the Engineering and Code Authority Eng
   + "\nFor each boundary, state: current side, trigger conditions, evidence, uncertainty."
   + "\nAnswer not just 'what is happening' but 'when does this stop being okay?'"
   + "\nHigh uncertainty near a severe boundary must bias toward escalation."
+  + "\n\n=== HARD DECISION BOUNDARIES (IF/THEN) ==="
+  + "\nFor every critical variable, define enforced thresholds with explicit IF/THEN logic:"
+  + "\nFormat: IF [condition] THEN [required action — non-negotiable]"
+  + "\nExamples of boundaries you MUST define when relevant:"
+  + "\n- Leak status: IF leak cannot be ruled out within [timeframe] THEN [escalation action]"
+  + "\n- Wall thickness: IF no current baseline AND active corrosion drivers THEN [operation status]"
+  + "\n- Structural signals: IF secondary members show movement THEN [inspection scope required]"
+  + "\n- VIV/span: IF span exceeds onset threshold THEN [flow/stabilization action]"
+  + "\n- Support integrity: IF any support is compromised THEN [immediate intervention]"
+  + "\nThese are NOT recommendations. They are enforced gates. The output must be decision-forcing."
+  + "\n\n=== BURDEN OF PROOF INVERSION ==="
+  + "\nWhen consequence is HIGH or CRITICAL and uncertainty is HIGH:"
+  + "\nThe question is NOT 'do we have enough proof to shut down?'"
+  + "\nThe question IS 'do we have enough proof to justify continued operation?'"
+  + "\nThose are not the same question. Apply the correct one."
+  + "\nIf you cannot prove continued operation is safe, you cannot recommend it."
   + "\n\n=== CASUALTY TOPOLOGY + COLLATERAL ==="
   + "\nThis is CRITICAL. Track cascading consequences:"
   + "\n- Initiating event -> first-order effects -> second-order -> third-order"
@@ -212,7 +235,9 @@ var MODEL_B_PROMPT = "You are MODEL B — the Engineering and Code Authority Eng
   + "\n  \"applicable_codes\": [{\"code\": \"...\", \"relevance\": \"...\", \"key_requirements\": [\"...\"]}],"
   + "\n  \"repair_paths\": [{\"option\": \"...\", \"governing_code\": \"...\", \"new_failure_modes\": [\"...\"], \"post_repair_inspection\": [\"...\"], \"lifecycle_confidence\": \"LOW|MEDIUM|HIGH\"}],"
   + "\n  \"constraints\": {\"dominant\": [\"...\"], \"blocked_decisions\": [\"...\"], \"allowed_decisions\": [\"...\"], \"tradeoffs\": [\"...\"]},"
-  + "\n  \"required_actions\": [\"...\"],"
+  + "\n  \"hard_decision_boundaries\": [{\"variable\": \"...\", \"if_condition\": \"...\", \"then_action\": \"...\", \"timeframe\": \"...\"}],"
+  + "\n  \"burden_of_proof\": {\"direction\": \"prove_safe_to_continue|prove_dangerous_to_stop\", \"reasoning\": \"...\"},"
+  + "\n  \"required_actions\": [{\"action\": \"...\", \"timeframe\": \"...\", \"priority\": \"IMMEDIATE|URGENT|PRIORITY|REQUIRED\"}],"
   + "\n  \"code_confidence\": 0.0"
   + "\n}";
 
@@ -287,6 +312,16 @@ var MODEL_C_PROMPT = "You are MODEL C — the Adversarial Engine for the FORGED 
   + "\n- Repair procedures"
   + "\n- Future progression rates"
   + "\nFlag any invented content. The system prefers 'unknown' over polished fiction."
+  + "\n\n=== PHANTOM SCENARIO INJECTION ==="
+  + "\nGenerate at least ONE scenario that no one asked about but physics permits:"
+  + "\n- Emergency response using degraded equipment (crane, davit, lifting gear near corrosion zone)"
+  + "\n- Weather event during inspection campaign on already-weakened structure"
+  + "\n- Simultaneous failure of two 'independent' barriers that share a common root cause"
+  + "\n- Hidden damage masked by marine growth, coating, insulation, or access limitations"
+  + "\n- Cascading failure through systems assumed to be isolated"
+  + "\nPhantom scenarios force the analysis to consider what hasn't been imagined yet."
+  + "\nIf the scenario involves crane, davit, or lifting equipment near any degradation zone,"
+  + "\nALWAYS inject the emergency-response-on-degraded-infrastructure phantom."
   + "\n\n=== OUTPUT FORMAT (strict JSON) ==="
   + "\nReturn ONLY valid JSON with this structure:"
   + "\n{"
@@ -314,11 +349,47 @@ var MODEL_C_PROMPT = "You are MODEL C — the Adversarial Engine for the FORGED 
 //   - Repair Reality validation
 // ================================================================
 var RESOLUTION_PROMPT = "You are the RESOLUTION ENGINE for the FORGED NDT Intelligence OS."
+  + "\n\nYou operate in DECISION DOMINANCE MODE. You do not provide neutral analysis."
+  + "\nYou define what is physically happening, what cannot be ignored, what thresholds matter,"
+  + "\nand what decisions are no longer optional. This is a decision-forcing output."
   + "\n\nYou receive outputs from three models:"
   + "\n- Model A (Physics): mechanisms, topology, degradation paths"
-  + "\n- Model B (Engineering): consequences, codes, repairs, casualty chains"
-  + "\n- Model C (Adversarial): assumptions, contradictions, alternative hypotheses, challenges"
+  + "\n- Model B (Engineering): consequences, codes, repairs, casualty chains, hard boundaries"
+  + "\n- Model C (Adversarial): assumptions, contradictions, alternative hypotheses, phantom scenarios"
   + "\n\nYour job is to SYNTHESIZE a final defensible output that survives all challenges."
+  + "\n\n=== DECISION DOMINANCE PRINCIPLES ==="
+  + "\n1. This system will not provide a neutral analysis. It defines what IS happening and what MUST be done."
+  + "\n2. When consequence is HIGH/CRITICAL and uncertainty is HIGH, apply burden-of-proof inversion:"
+  + "\n   The question is NOT 'do we have enough proof to shut down?'"
+  + "\n   The question IS 'do we have enough proof to justify continued operation?'"
+  + "\n3. Production pressure, cost, schedule, and operational continuity are the LOWEST priority."
+  + "\n   They cannot override life safety, containment integrity, or evidence sufficiency."
+  + "\n4. If you cannot prove containment integrity under current conditions, you cannot justify continued operation."
+  + "\n\n=== CONSTRAINT DOMINANCE HIERARCHY ==="
+  + "\nC1: Life Safety — dominates all other constraints"
+  + "\nC2: Physical Possibility — physics cannot be overridden"
+  + "\nC3: Containment Integrity — loss of containment risk dominates optimization"
+  + "\nC4: Evidence Sufficiency — decisions require current measured reality, not assumptions"
+  + "\nC5: Regulatory Exposure — compliance obligations are not optional"
+  + "\nC6: Production/Cost — lowest priority, cannot override C1-C5"
+  + "\n\n=== HARD DECISION BOUNDARIES ==="
+  + "\nProduce explicit IF/THEN decision boundaries for every critical variable."
+  + "\nThese are enforced thresholds, not recommendations."
+  + "\nFormat each as: IF [measured/observed condition] THEN [required action — non-negotiable]"
+  + "\n\n=== ESCALATION TRIGGERS ==="
+  + "\nDefine explicit triggers that force immediate escalation:"
+  + "\n- Any confirmed loss of containment -> IMMEDIATE SHUTDOWN"
+  + "\n- Containment cannot be ruled out within defined timeframe -> RATE REDUCTION + ESCALATION"
+  + "\n- Critical structural threshold exceeded -> INTERVENTION BEFORE CONTINUED OPERATION"
+  + "\n- Conflicting inspection results -> HOLD — REBUILD REALITY MODEL"
+  + "\n- Wall condition unknown with active degradation drivers -> PROVISIONAL ONLY"
+  + "\n\n=== PARALLEL SCENARIO OUTCOMES ==="
+  + "\nModel at least 3 parallel futures with probability bands and consequence levels:"
+  + "\n- Continue operation unchanged"
+  + "\n- Controlled rate reduction + targeted inspection"
+  + "\n- Active leak exists (unresolved)"
+  + "\n- Hidden geometry/support change"
+  + "\nIdentify which scenarios OVERLAP and what the combined risk profile looks like."
   + "\n\n=== TRACEABILITY ==="
   + "\nEvery major conclusion must trace back through:"
   + "\nobservation -> inference -> mechanism -> topology path -> consequence -> constraint -> authority"
@@ -335,6 +406,11 @@ var RESOLUTION_PROMPT = "You are the RESOLUTION ENGINE for the FORGED NDT Intell
   + "\n7. Consequence uncertainty (do we know what happens when it fails?)"
   + "\n8. Repair uncertainty (will the proposed fix actually work?)"
   + "\nEach category scored 0-1. High consequence + high uncertainty = HOLD, not FINAL."
+  + "\nLow confidence is not a weakness. Low confidence is the correct output when unknowns dominate."
+  + "\n\n=== METHOD SUFFICIENCY VERDICT ==="
+  + "\nExplicitly state whether the current inspection posture is sufficient to support a"
+  + "\ncontinued-operation decision. If it is NOT, state what is missing."
+  + "\nA limited inspection cannot produce a full-confidence conclusion."
   + "\n\n=== GOVERNANCE LOCK ==="
   + "\nFinal output ONLY allowed if:"
   + "\n- Traceability is sufficient"
@@ -344,6 +420,8 @@ var RESOLUTION_PROMPT = "You are the RESOLUTION ENGINE for the FORGED NDT Intell
   + "\n- Method blind spots explicit"
   + "\n- Uncertainty allows finalization"
   + "\n- Contradictions below blocking threshold"
+  + "\n- Hard decision boundaries are defined"
+  + "\n- Escalation triggers are enumerated"
   + "\nOtherwise: PROVISIONAL or HOLD."
   + "\n\n=== CROSS-DOMAIN ANALOGY ==="
   + "\nIf reasoning from one domain illuminates this case, use it — but flag that it is an analogy."
@@ -371,7 +449,12 @@ var RESOLUTION_PROMPT = "You are the RESOLUTION ENGINE for the FORGED NDT Intell
   + "\n  \"consensus_fragility\": \"ROBUST|MODERATE|FRAGILE|EXTREMELY_FRAGILE\","
   + "\n  \"temporal_projection\": {\"past\": \"...\", \"present\": \"...\", \"near_future\": \"...\", \"long_term\": \"...\", \"if_nothing_done\": \"...\"},"
   + "\n  \"casualty_chain\": {\"initiating_event\": \"...\", \"propagation\": [\"...\"], \"human_impact\": [\"...\"], \"collateral\": [\"...\"], \"breakpoints\": [\"...\"]},"
-  + "\n  \"required_actions\": [\"...\"],"
+  + "\n  \"hard_decision_boundaries\": [{\"variable\": \"...\", \"if_condition\": \"...\", \"then_action\": \"...\", \"timeframe\": \"...\", \"non_negotiable\": true}],"
+  + "\n  \"escalation_triggers\": [{\"trigger\": \"...\", \"action\": \"...\", \"severity\": \"CRITICAL|HIGH\"}],"
+  + "\n  \"parallel_scenarios\": [{\"scenario\": \"...\", \"probability\": \"LOW|MODERATE|HIGH\", \"consequence\": \"LOW|MEDIUM|HIGH|CRITICAL\", \"outcome_30_90_days\": \"...\"}],"
+  + "\n  \"method_sufficiency_verdict\": {\"sufficient_for_operation_decision\": false, \"missing\": [\"...\"], \"limitation\": \"...\"},"
+  + "\n  \"constraint_hierarchy\": {\"dominant_constraints\": [\"...\"], \"overridden_by_safety\": [\"...\"], \"burden_of_proof\": \"...\"},"
+  + "\n  \"required_actions\": [{\"action\": \"...\", \"timeframe\": \"...\", \"priority\": \"IMMEDIATE|URGENT|PRIORITY|REQUIRED\", \"non_negotiable\": true}],"
   + "\n  \"code_references\": [\"...\"],"
   + "\n  \"governance_lock\": {"
   + "\n    \"final_allowed\": false,"
@@ -380,7 +463,8 @@ var RESOLUTION_PROMPT = "You are the RESOLUTION ENGINE for the FORGED NDT Intell
   + "\n    \"required_before_final\": [\"...\"]"
   + "\n  },"
   + "\n  \"final_status\": \"FINAL|PROVISIONAL|HOLD\","
-  + "\n  \"severity\": \"LOW|MEDIUM|HIGH|CRITICAL\""
+  + "\n  \"severity\": \"LOW|MEDIUM|HIGH|CRITICAL\","
+  + "\n  \"final_line\": \"...\""
   + "\n}";
 
 // ================================================================
@@ -609,15 +693,17 @@ export var handler: Handler = async function(event) {
           reasoning_disciplines: [
             "reality_topology_klein_bottle",
             "physics_dominance",
-            "method_reliability_blind_spots",
+            "method_sufficiency_enforcement",
             "evidence_quality_weighting",
             "inverse_problem_reasoning",
             "inference_from_absence",
             "sensory_fusion",
             "failure_boundary",
+            "hard_decision_boundaries",
+            "burden_of_proof_inversion",
             "code_authority",
             "repair_reality",
-            "constraint_dominance",
+            "constraint_dominance_hierarchy",
             "casualty_topology_collateral",
             "cascading_asset_graph",
             "temporal_simulation_4d",
@@ -629,11 +715,14 @@ export var handler: Handler = async function(event) {
             "consensus_fragility",
             "reality_drift_detection",
             "anti_hallucination",
+            "phantom_scenario_injection",
             "traceability",
             "uncertainty_discipline_8cat",
+            "decision_dominance_mode",
+            "escalation_triggers",
+            "parallel_scenario_outcomes",
             "governance_lock",
             "cross_domain_analogy",
-            "phantom_scenario_detection",
             "learning_loop"
           ],
           superbrain_rules: [
@@ -646,7 +735,9 @@ export var handler: Handler = async function(event) {
             "Never treat stale knowledge as authoritative",
             "Never give false precision with missing evidence",
             "Never trust all input sources equally",
-            "Never separate damage-evidence-consequence-repair into silos"
+            "Never separate damage-evidence-consequence-repair into silos",
+            "If you cannot prove it is safe, you cannot recommend continued operation",
+            "Production pressure is the lowest priority constraint"
           ],
           status: "operational"
         })
@@ -731,9 +822,16 @@ export var handler: Handler = async function(event) {
     // ================================================================
     // STEP 4: RESOLUTION — Synthesis + Governance (Claude)
     // ================================================================
-    var resolutionMessage = "Synthesize the outputs of all three models into a final defensible output."
-      + " Apply traceability, uncertainty discipline, and governance lock."
+    var resolutionMessage = "DECISION DOMINANCE MODE. This is not a neutral analysis."
+      + " Synthesize all three models into a decision-forcing output."
+      + " Define hard IF/THEN decision boundaries for every critical variable."
+      + " Define escalation triggers with explicit actions."
+      + " Model parallel scenario outcomes with probability bands."
+      + " Apply burden-of-proof inversion: if you cannot prove it is safe to continue, you cannot recommend it."
+      + " Produce a method sufficiency verdict: is current inspection sufficient for an operation decision?"
+      + " Apply traceability, uncertainty discipline (8 categories), and governance lock."
       + " Preserve dangerous alternatives. Do NOT collapse uncertainty into a single score."
+      + " End with a final_line: one sentence that captures the governing reality."
       + " Determine if the output can be FINAL, PROVISIONAL, or must HOLD."
       + "\n\n=== MODEL A (PHYSICS) ===\n"
       + JSON.stringify(modelAOutput, null, 2)
@@ -809,12 +907,18 @@ export var handler: Handler = async function(event) {
           uncertainty_profile: resolutionOutput.uncertainty_profile || null,
           casualty_chain: resolutionOutput.casualty_chain || null,
           temporal_projection: resolutionOutput.temporal_projection || null,
+          hard_decision_boundaries: resolutionOutput.hard_decision_boundaries || [],
+          escalation_triggers: resolutionOutput.escalation_triggers || [],
+          parallel_scenarios: resolutionOutput.parallel_scenarios || [],
+          method_sufficiency_verdict: resolutionOutput.method_sufficiency_verdict || null,
+          constraint_hierarchy: resolutionOutput.constraint_hierarchy || null,
           required_actions: resolutionOutput.required_actions || [],
           code_references: resolutionOutput.code_references || [],
           governance_lock: resolutionOutput.governance_lock || null,
           consensus_fragility: resolutionOutput.consensus_fragility || "UNKNOWN",
           key_assumptions: resolutionOutput.key_assumptions || [],
-          contradiction_resolution: resolutionOutput.contradiction_resolution || []
+          contradiction_resolution: resolutionOutput.contradiction_resolution || [],
+          final_line: resolutionOutput.final_line || ""
         },
         stored: stored
       }, null, 2)
