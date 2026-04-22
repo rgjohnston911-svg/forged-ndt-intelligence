@@ -221,7 +221,7 @@ function runQuery() {
 
   document.getElementById("queryBtn").disabled = true;
   document.getElementById("spinner").className = "spinner active";
-  document.getElementById("queryStatus").textContent = "Generating report...";
+  document.getElementById("queryStatus").textContent = "Starting report generation...";
 
   var payload = { action: "query_session", session_id: sessId };
   if (preset) payload.preset = preset;
@@ -232,18 +232,28 @@ function runQuery() {
   xhr.setRequestHeader("Content-Type", "application/json");
   xhr.onreadystatechange = function() {
     if (xhr.readyState === 4) {
-      document.getElementById("queryBtn").disabled = false;
-      document.getElementById("spinner").className = "spinner";
-      document.getElementById("queryStatus").textContent = "";
-      if (xhr.status === 200) {
+      if (xhr.status === 202 || xhr.status === 200) {
         try {
           var data = JSON.parse(xhr.responseText);
-          lastReportJson = data;
-          renderReport(data);
+          if (data.report_id) {
+            document.getElementById("queryStatus").textContent = "Report accepted. Generating with Claude AI...";
+            pollForReport(data.report_id, 0);
+          } else {
+            document.getElementById("queryBtn").disabled = false;
+            document.getElementById("spinner").className = "spinner";
+            document.getElementById("queryStatus").textContent = "";
+            showStatus("No report_id returned", "error");
+          }
         } catch(e) {
-          showStatus("Failed to parse report response", "error");
+          document.getElementById("queryBtn").disabled = false;
+          document.getElementById("spinner").className = "spinner";
+          document.getElementById("queryStatus").textContent = "";
+          showStatus("Failed to parse response", "error");
         }
       } else {
+        document.getElementById("queryBtn").disabled = false;
+        document.getElementById("spinner").className = "spinner";
+        document.getElementById("queryStatus").textContent = "";
         var errMsg = "HTTP " + xhr.status;
         try { errMsg += " — " + JSON.parse(xhr.responseText).error; } catch(e) {}
         showStatus("Report generation failed: " + errMsg, "error");
@@ -251,6 +261,54 @@ function runQuery() {
     }
   };
   xhr.send(JSON.stringify(payload));
+}
+
+function pollForReport(reportId, attempt) {
+  if (attempt > 40) {
+    document.getElementById("queryBtn").disabled = false;
+    document.getElementById("spinner").className = "spinner";
+    document.getElementById("queryStatus").textContent = "";
+    showStatus("Report generation timed out after 2 minutes. Check report history.", "error");
+    return;
+  }
+
+  var dots = "";
+  for (var d = 0; d < (attempt % 4); d++) dots += ".";
+  document.getElementById("queryStatus").textContent = "Generating report with Claude AI" + dots + " (" + (attempt * 3) + "s)";
+
+  setTimeout(function() {
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/superbrain-report", true);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200) {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            if (data.status === "complete" && data.report) {
+              document.getElementById("queryBtn").disabled = false;
+              document.getElementById("spinner").className = "spinner";
+              document.getElementById("queryStatus").textContent = "";
+              lastReportJson = data;
+              renderReport(data);
+            } else if (data.status === "error") {
+              document.getElementById("queryBtn").disabled = false;
+              document.getElementById("spinner").className = "spinner";
+              document.getElementById("queryStatus").textContent = "";
+              showStatus("Report generation failed. Check Netlify logs.", "error");
+            } else {
+              pollForReport(reportId, attempt + 1);
+            }
+          } catch(e) {
+            pollForReport(reportId, attempt + 1);
+          }
+        } else {
+          pollForReport(reportId, attempt + 1);
+        }
+      }
+    };
+    xhr.send(JSON.stringify({ action: "get_report_status", report_id: reportId }));
+  }, 3000);
 }
 
 function renderReport(data) {

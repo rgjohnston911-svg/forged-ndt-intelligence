@@ -3,21 +3,22 @@
  * DEPLOY271 - superbrain-report.ts
  * netlify/functions/superbrain-report.ts
  *
- * SUPERBRAIN REPORT QUERY ENGINE v1.0.0
+ * SUPERBRAIN REPORT QUERY ENGINE v1.0.0 — ROUTER
  * Engine #64 — AI-powered dynamic report generation from Superbrain v6 sessions.
  *
- * Users ask natural language questions about completed Superbrain sessions.
- * The engine loads the full session data, sends it to Claude with the query,
- * and returns a structured, professional report response.
+ * This is the ROUTER. Fast actions (get_registry, list_sessions, get_report,
+ * get_report_history) are handled here. The query_session action creates a
+ * report record with status "processing" and invokes the background function.
  *
- * No canned templates. Every report is dynamically generated from the actual
- * reasoning pipeline output, engine enrichment data, and proof chains.
+ * The background function (superbrain-report-background.ts) does the heavy
+ * Claude API call and updates the report record when done.
  *
- * 5 actions:
- *   get_registry     — engine overview
- *   query_session    — ask a natural language question about a session
- *   list_sessions    — list available sessions for reporting
- *   get_report       — retrieve a previously generated report by ID
+ * 6 actions:
+ *   get_registry       — engine overview
+ *   query_session      — start report generation (async, returns report_id)
+ *   get_report_status  — poll for report completion
+ *   list_sessions      — list available sessions for reporting
+ *   get_report         — retrieve a completed report by ID
  *   get_report_history — list reports generated for a session
  *
  * var only. String concatenation only. No backticks.
@@ -28,7 +29,6 @@ import { createClient } from "@supabase/supabase-js";
 
 var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-var anthropicKey = process.env.ANTHROPIC_API_KEY || "";
 
 var ENGINE_VERSION = "superbrain-report/1.0.0";
 
@@ -41,43 +41,6 @@ var corsHeaders = {
 
 function ok(body) { return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(body) }; }
 function errResp(code, msg) { return { statusCode: code, headers: corsHeaders, body: JSON.stringify({ error: msg }) }; }
-
-// ============================================================
-// REPORT SYSTEM PROMPT
-// Tells Claude how to generate professional NDT reports
-// from Superbrain v6 session data.
-// ============================================================
-var REPORT_SYSTEM_PROMPT = "You are the FORGED NDT Intelligence OS Report Engine. " +
-  "You generate professional engineering reports from Superbrain v6 adversarial reasoning sessions. " +
-  "\n\n" +
-  "CONTEXT: You will receive the full output of a Superbrain v6 pipeline run, which includes:\n" +
-  "- Model A (GPT-4o): Physics analysis, claim graphs, component-level proof chains, calculations\n" +
-  "- Model B (Claude): Engineering standards authority, assumption mapping, repair credibility\n" +
-  "- Model C (GPT-4o): Adversarial analysis, disproof paths, proof breaks, confidence scores\n" +
-  "- Resolution (Claude): Decision proof, regulatory defensibility, governance lock\n" +
-  "- Engine Enrichment: Code authority validations, corrosion loop analysis, fatigue/vibration assessments, cascade failure paths, inspection planning workpacks\n" +
-  "\n" +
-  "INSTRUCTIONS:\n" +
-  "1. Answer the user's query using ONLY data from the session. Do not invent findings.\n" +
-  "2. Use precise technical language appropriate for NDT/inspection engineers.\n" +
-  "3. Reference specific proof chains, claim IDs, and engine outputs when available.\n" +
-  "4. Structure your response with clear sections using markdown headers.\n" +
-  "5. Include a CONFIDENCE statement at the end rating how well the session data answers the query.\n" +
-  "6. If the session data does not contain enough information to answer, say so explicitly.\n" +
-  "7. When citing standards, use exact editions from the code authority data.\n" +
-  "8. For executive audiences, lead with the decision and risk level, then supporting evidence.\n" +
-  "9. For technical audiences, lead with the proof chain, then calculations, then standards basis.\n" +
-  "\n" +
-  "OUTPUT FORMAT:\n" +
-  "Return a JSON object with these fields:\n" +
-  "- report_title: A concise professional title for this report\n" +
-  "- report_type: One of: executive_summary, technical_analysis, proof_chain, inspection_plan, risk_assessment, standards_compliance, custom\n" +
-  "- sections: Array of {heading: string, content: string} objects\n" +
-  "- key_findings: Array of 3-7 bullet point strings summarizing the most important findings\n" +
-  "- recommendations: Array of action items with priority (critical/high/medium/low)\n" +
-  "- metadata: {confidence: 0-100, data_completeness: 0-100, applicable_standards: string[]}\n" +
-  "\n" +
-  "Return ONLY valid JSON. No markdown wrapping. No explanation outside the JSON.";
 
 // ============================================================
 // QUERY PRESETS — common report types with tuned prompts
@@ -113,7 +76,7 @@ var QUERY_PRESETS = {
 };
 
 // ============================================================
-// HANDLER
+// HANDLER (ROUTER)
 // ============================================================
 export var handler: Handler = async function(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
@@ -131,11 +94,13 @@ export var handler: Handler = async function(event) {
         description: "AI-powered dynamic report generation from Superbrain v6 sessions",
         deploy: "DEPLOY271",
         engine_number: 64,
+        architecture: "async-background",
         actions: [
           { name: "get_registry", description: "Engine overview and capabilities" },
-          { name: "query_session", description: "Ask a natural language question about a session", params: "session_id (required), query (required or use preset), preset (optional: executive_summary, proof_chain, inspection_plan, risk_assessment, standards_compliance, full_technical)" },
+          { name: "query_session", description: "Start async report generation", params: "session_id (required), query (required or use preset), preset (optional)" },
+          { name: "get_report_status", description: "Poll for report completion", params: "report_id (required)" },
           { name: "list_sessions", description: "List available reasoning sessions", params: "limit (optional, default 20), status (optional, default complete)" },
-          { name: "get_report", description: "Retrieve a previously generated report", params: "report_id (required)" },
+          { name: "get_report", description: "Retrieve a completed report", params: "report_id (required)" },
           { name: "get_report_history", description: "List reports for a session", params: "session_id (required)" }
         ],
         presets: Object.keys(QUERY_PRESETS),
@@ -143,6 +108,7 @@ export var handler: Handler = async function(event) {
         capabilities: [
           "Natural language querying of Superbrain v6 session data",
           "Dynamic report generation — no canned templates",
+          "Async background processing — no timeout issues",
           "Executive summaries, technical analyses, proof chain traces",
           "Cross-references engine enrichment (corrosion, fatigue, cascade, inspection)",
           "Standards compliance auditing via code authority data",
@@ -194,6 +160,49 @@ export var handler: Handler = async function(event) {
       });
     }
 
+    // --- get_report_status ---
+    if (action === "get_report_status") {
+      if (!body.report_id) return errResp(400, "report_id required");
+      if (!supabaseUrl || !supabaseKey) return errResp(500, "SUPABASE not configured");
+      var sb = createClient(supabaseUrl, supabaseKey);
+
+      var statRes = await sb.from("superbrain_reports")
+        .select("id, session_id, report_status, report_title, report_type, report_content, claude_duration_ms, input_tokens, output_tokens, created_at, updated_at")
+        .eq("id", body.report_id)
+        .single();
+
+      if (statRes.error || !statRes.data) return errResp(404, "Report not found");
+
+      var rep = statRes.data;
+      var isComplete = rep.report_status === "complete" || rep.report_status === "error";
+
+      if (!isComplete) {
+        return ok({
+          engine: "superbrain-report",
+          action: "get_report_status",
+          report_id: rep.id,
+          status: rep.report_status || "processing",
+          message: "Report is being generated. Poll again in 3 seconds."
+        });
+      }
+
+      // Complete — return full report
+      return ok({
+        engine: "superbrain-report",
+        version: ENGINE_VERSION,
+        action: "get_report_status",
+        report_id: rep.id,
+        session_id: rep.session_id,
+        status: rep.report_status,
+        claude_duration_ms: rep.claude_duration_ms,
+        tokens: {
+          input: rep.input_tokens,
+          output: rep.output_tokens
+        },
+        report: rep.report_content
+      });
+    }
+
     // --- get_report_history ---
     if (action === "get_report_history") {
       if (!body.session_id) return errResp(400, "session_id required");
@@ -201,7 +210,7 @@ export var handler: Handler = async function(event) {
       var sb = createClient(supabaseUrl, supabaseKey);
 
       var histRes = await sb.from("superbrain_reports")
-        .select("id, session_id, query, preset, report_title, report_type, created_at")
+        .select("id, session_id, query, preset, report_title, report_type, report_status, created_at")
         .eq("session_id", body.session_id)
         .order("created_at", { ascending: false });
 
@@ -216,189 +225,86 @@ export var handler: Handler = async function(event) {
       });
     }
 
-    // --- query_session (main action) ---
-    if (action === "query_session" || !action) {
+    // --- query_session (async — creates record, invokes background) ---
+    if (action === "query_session") {
       if (!body.session_id) return errResp(400, "session_id required");
       if (!body.query && !body.preset) return errResp(400, "query or preset required");
       if (!supabaseUrl || !supabaseKey) return errResp(500, "SUPABASE not configured");
-      if (!anthropicKey) return errResp(500, "ANTHROPIC_API_KEY not configured");
 
       var sb = createClient(supabaseUrl, supabaseKey);
 
-      // Load the full session
-      var sessRes = await sb.from("reasoning_sessions")
-        .select("*")
+      // Verify the session exists and is complete
+      var sessCheck = await sb.from("reasoning_sessions")
+        .select("id, pipeline_status")
         .eq("id", body.session_id)
         .single();
 
-      if (sessRes.error || !sessRes.data) return errResp(404, "Session not found: " + body.session_id);
-
-      var session = sessRes.data;
-      if (session.pipeline_status !== "complete") {
-        return errResp(400, "Session pipeline is not complete. Status: " + session.pipeline_status);
+      if (sessCheck.error || !sessCheck.data) return errResp(404, "Session not found: " + body.session_id);
+      if (sessCheck.data.pipeline_status !== "complete") {
+        return errResp(400, "Session pipeline is not complete. Status: " + sessCheck.data.pipeline_status);
       }
 
-      // Build the query
+      // Build the full query text
       var userQuery = body.query || "";
       if (body.preset && QUERY_PRESETS[body.preset]) {
         userQuery = QUERY_PRESETS[body.preset] + (userQuery ? "\n\nAdditional context: " + userQuery : "");
       }
 
-      // Build the session context for Claude
-      var sessionContext = "=== SUPERBRAIN V6 SESSION DATA ===\n\n";
-      sessionContext += "Session ID: " + session.id + "\n";
-      sessionContext += "Case ID: " + (session.case_id || "direct input") + "\n";
-      sessionContext += "Pipeline Version: " + (session.pipeline_version || "unknown") + "\n";
-      sessionContext += "Status: " + session.pipeline_status + "\n";
-      sessionContext += "Total Duration: " + (session.total_duration_ms || "unknown") + " ms\n\n";
-
-      // Input summary
-      if (session.input_summary) {
-        sessionContext += "=== INPUT ===\n";
-        sessionContext += JSON.stringify(session.input_summary, null, 2) + "\n\n";
-      }
-
-      // Model A output
-      if (session.model_a_output) {
-        sessionContext += "=== MODEL A OUTPUT (Physics + Proof Chain) ===\n";
-        var modelAStr = typeof session.model_a_output === "string" ? session.model_a_output : JSON.stringify(session.model_a_output, null, 2);
-        // Truncate if over 15k chars to stay within token limits
-        if (modelAStr.length > 15000) modelAStr = modelAStr.substring(0, 15000) + "\n... [truncated]";
-        sessionContext += modelAStr + "\n\n";
-      }
-
-      // Model B output
-      if (session.model_b_output) {
-        sessionContext += "=== MODEL B OUTPUT (Engineering + Standards Authority) ===\n";
-        var modelBStr = typeof session.model_b_output === "string" ? session.model_b_output : JSON.stringify(session.model_b_output, null, 2);
-        if (modelBStr.length > 15000) modelBStr = modelBStr.substring(0, 15000) + "\n... [truncated]";
-        sessionContext += modelBStr + "\n\n";
-      }
-
-      // Model C output
-      if (session.model_c_output) {
-        sessionContext += "=== MODEL C OUTPUT (Adversarial + Proof Break Detection) ===\n";
-        var modelCStr = typeof session.model_c_output === "string" ? session.model_c_output : JSON.stringify(session.model_c_output, null, 2);
-        if (modelCStr.length > 15000) modelCStr = modelCStr.substring(0, 15000) + "\n... [truncated]";
-        sessionContext += modelCStr + "\n\n";
-      }
-
-      // Resolution output
-      if (session.resolution_output) {
-        sessionContext += "=== RESOLUTION OUTPUT (Decision Proof + Governance Lock) ===\n";
-        var resStr = typeof session.resolution_output === "string" ? session.resolution_output : JSON.stringify(session.resolution_output, null, 2);
-        if (resStr.length > 15000) resStr = resStr.substring(0, 15000) + "\n... [truncated]";
-        sessionContext += resStr + "\n\n";
-      }
-
-      // Final output (includes engine_enrichment)
-      if (session.final_output) {
-        sessionContext += "=== FINAL OUTPUT (with Engine Enrichment) ===\n";
-        var finalStr = typeof session.final_output === "string" ? session.final_output : JSON.stringify(session.final_output, null, 2);
-        if (finalStr.length > 20000) finalStr = finalStr.substring(0, 20000) + "\n... [truncated]";
-        sessionContext += finalStr + "\n\n";
-      }
-
-      // Call Claude
-      var startTime = Date.now();
-      var claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": anthropicKey,
-          "anthropic-version": "2023-06-01"
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 8000,
-          system: REPORT_SYSTEM_PROMPT,
-          messages: [
-            {
-              role: "user",
-              content: "SESSION DATA:\n\n" + sessionContext + "\n\n---\n\nQUERY:\n" + userQuery
-            }
-          ]
-        })
-      });
-
-      var claudeDuration = Date.now() - startTime;
-
-      if (!claudeResp.ok) {
-        var errText = "";
-        try { errText = await claudeResp.text(); } catch(e) { errText = "unknown"; }
-        return errResp(502, "Claude API error: HTTP " + claudeResp.status + " — " + errText.substring(0, 500));
-      }
-
-      var claudeJson = await claudeResp.json();
-      var rawResponse = "";
-      if (claudeJson.content && claudeJson.content.length > 0) {
-        rawResponse = claudeJson.content[0].text || "";
-      }
-
-      // Parse the structured report from Claude's response
-      var report = null;
-      try {
-        // Try to extract JSON if wrapped in markdown code blocks
-        var jsonStr = rawResponse;
-        if (jsonStr.indexOf("```") >= 0) {
-          var jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-          if (jsonMatch) jsonStr = jsonMatch[1].trim();
-        }
-        report = JSON.parse(jsonStr);
-      } catch(parseErr) {
-        // If Claude didn't return valid JSON, wrap the raw text
-        report = {
-          report_title: "Superbrain Session Analysis",
-          report_type: "custom",
-          sections: [{ heading: "Analysis", content: rawResponse }],
-          key_findings: [],
-          recommendations: [],
-          metadata: { confidence: 50, data_completeness: 50, applicable_standards: [], parse_note: "Raw text response — structured parsing failed" }
-        };
-      }
-
-      // Save to database
-      var reportRecord = {
+      // Create a report record with status "processing"
+      var reportInsert = await sb.from("superbrain_reports").insert({
         session_id: body.session_id,
         query: body.query || null,
         preset: body.preset || null,
-        report_title: report.report_title || "Untitled Report",
-        report_type: report.report_type || "custom",
-        report_content: report,
-        raw_response: rawResponse,
-        claude_model: "claude-sonnet-4-20250514",
-        claude_duration_ms: claudeDuration,
-        input_tokens: claudeJson.usage ? claudeJson.usage.input_tokens : null,
-        output_tokens: claudeJson.usage ? claudeJson.usage.output_tokens : null,
+        report_title: "Generating...",
+        report_type: body.preset || "custom",
+        report_status: "processing",
+        report_content: null,
+        raw_response: null,
         created_at: new Date().toISOString()
-      };
+      }).select("id").single();
 
-      var saveRes = await sb.from("superbrain_reports").insert(reportRecord).select("id").single();
-      var reportId = (saveRes.data && saveRes.data.id) ? saveRes.data.id : null;
-
-      if (saveRes.error) {
-        // Still return the report even if save fails
-        console.log("Warning: failed to save report — " + saveRes.error.message);
+      if (reportInsert.error || !reportInsert.data) {
+        return errResp(500, "Failed to create report record: " + (reportInsert.error ? reportInsert.error.message : "unknown"));
       }
 
-      return ok({
-        engine: "superbrain-report",
-        version: ENGINE_VERSION,
-        action: "query_session",
-        report_id: reportId,
-        session_id: body.session_id,
-        query: body.query || null,
-        preset: body.preset || null,
-        claude_duration_ms: claudeDuration,
-        tokens: {
-          input: claudeJson.usage ? claudeJson.usage.input_tokens : null,
-          output: claudeJson.usage ? claudeJson.usage.output_tokens : null
-        },
-        report: report
-      });
+      var reportId = reportInsert.data.id;
+
+      // Invoke the background function
+      var siteUrl = process.env.URL || process.env.DEPLOY_PRIME_URL || "https://4dndt.netlify.app";
+      try {
+        var bgResp = await fetch(siteUrl + "/.netlify/functions/superbrain-report-background", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            report_id: reportId,
+            session_id: body.session_id,
+            query: userQuery
+          })
+        });
+        console.log("Background function invoked, status: " + bgResp.status);
+      } catch (bgErr) {
+        // Update report as error
+        await sb.from("superbrain_reports")
+          .update({ report_status: "error", raw_response: "Failed to invoke background function: " + String(bgErr) })
+          .eq("id", reportId);
+        return errResp(500, "Failed to start report generation: " + String(bgErr));
+      }
+
+      // Return immediately with report_id for polling
+      return {
+        statusCode: 202,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          engine: "superbrain-report",
+          action: "query_session",
+          report_id: reportId,
+          status: "accepted",
+          message: "Report generation started. Poll with {action:'get_report_status', report_id:'" + reportId + "'}"
+        })
+      };
     }
 
-    return errResp(400, "Unknown action: " + action + ". Valid: get_registry, query_session, list_sessions, get_report, get_report_history");
+    return errResp(400, "Unknown action: " + action + ". Valid: get_registry, query_session, get_report_status, list_sessions, get_report, get_report_history");
 
   } catch (err) {
     return errResp(500, String(err && err.message ? err.message : err));
