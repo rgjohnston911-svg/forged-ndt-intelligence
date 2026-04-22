@@ -51,7 +51,8 @@ var CRITICAL_TABLES = [
   { name: "cascade_scenarios", deploy: "DEPLOY269", critical: false },
   { name: "asset_interactions", deploy: "DEPLOY269", critical: false },
   { name: "code_authority_registry", deploy: "DEPLOY270", critical: false },
-  { name: "code_authority_lookups", deploy: "DEPLOY270", critical: false }
+  { name: "code_authority_lookups", deploy: "DEPLOY270", critical: false },
+  { name: "superbrain_reports", deploy: "DEPLOY271", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -117,7 +118,8 @@ var ENGINE_REGISTRY = [
   { name: "corrosion-loop-engine", deploy: "DEPLOY267", mode: "deterministic", path: "/api/corrosion-loop-engine" },
   { name: "fatigue-vibration-proof", deploy: "DEPLOY268", mode: "deterministic", path: "/api/fatigue-vibration-proof" },
   { name: "multi-asset-cascade", deploy: "DEPLOY269", mode: "deterministic", path: "/api/multi-asset-cascade" },
-  { name: "live-code-authority", deploy: "DEPLOY270", mode: "deterministic", path: "/api/live-code-authority" }
+  { name: "live-code-authority", deploy: "DEPLOY270", mode: "deterministic", path: "/api/live-code-authority" },
+  { name: "superbrain-report", deploy: "DEPLOY271", mode: "ai_assisted", path: "/api/superbrain-report" }
 ];
 
 function countByMode(mode) {
