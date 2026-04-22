@@ -696,11 +696,46 @@ export var handler: Handler = async function(event) {
     if (domains.multi_asset) {
       await updateSession({ pipeline_step: "cascade_analysis" });
       try {
+        // Build components array from adjacent_assets in direct input or case context
+        var cascadeComponents = [];
+        if (directInput && directInput.adjacent_assets) {
+          // Primary asset is the subject
+          var primaryComp = {
+            id: "primary_asset",
+            name: directInput.asset || directInput.component || "Primary Asset",
+            type: "primary",
+            criticality: "CRITICAL",
+            condition: "DEGRADED",
+            failure_modes: ["corrosion", "fatigue", "structural"],
+            connected_to: []
+          };
+          for (var ai = 0; ai < directInput.adjacent_assets.length; ai++) {
+            var adjName = directInput.adjacent_assets[ai];
+            var adjId = "adj_" + ai;
+            primaryComp.connected_to.push({ target: adjId, type: "flow_dependency", strength: "HIGH" });
+            var adjType = "flow_dependency";
+            if (adjName.toLowerCase().indexOf("valve") >= 0 || adjName.toLowerCase().indexOf("esd") >= 0) adjType = "control_signal";
+            else if (adjName.toLowerCase().indexOf("umbilical") >= 0) adjType = "control_signal";
+            else if (adjName.toLowerCase().indexOf("riser") >= 0) adjType = "pressure_coupling";
+            else if (adjName.toLowerCase().indexOf("manifold") >= 0) adjType = "pressure_coupling";
+            cascadeComponents.push({
+              id: adjId,
+              name: adjName,
+              type: "adjacent",
+              criticality: "HIGH",
+              condition: "UNKNOWN",
+              failure_modes: [],
+              connected_to: [{ target: "primary_asset", type: adjType, strength: "MEDIUM" }]
+            });
+          }
+          cascadeComponents.unshift(primaryComp);
+        }
+
         var cascadeResult = await callEngine("multi-asset-cascade", {
-          action: "analyze_cascades",
+          action: "build_graph",
           case_id: caseId || null,
-          context: caseContext.substring(0, 2000),
-          model_b_output: JSON.stringify(modelBOutput).substring(0, 2000)
+          components: cascadeComponents,
+          graph_name: (directInput && directInput.asset) || "Production System"
         });
         if (cascadeResult && !cascadeResult.engine_call_error) {
           engineEnrichment.cascade_analysis = cascadeResult;
@@ -810,25 +845,41 @@ export var handler: Handler = async function(event) {
       }
 
       if (missingEvidence.length > 0 || weakComponents.length > 0 || requiredActions.length > 0) {
-        var planInput = {
+        // Convert component_proof_summary from array to object keyed by component name
+        // The workpack generator expects: { "component_name": { component_status: "...", ... } }
+        var compSummaryObj = {};
+        for (var cso = 0; cso < componentSummary.length; cso++) {
+          var csItem = componentSummary[cso];
+          if (csItem) {
+            var csName = csItem.component || csItem.name || csItem.component_name || ("component_" + cso);
+            compSummaryObj[csName] = csItem;
+          }
+        }
+        // If component summary was empty but we have weak components, create entries
+        if (Object.keys(compSummaryObj).length === 0 && weakComponents.length > 0) {
+          for (var wci = 0; wci < weakComponents.length; wci++) {
+            compSummaryObj[weakComponents[wci]] = { component_status: "NO_PROOF", proof_strength: "LOW" };
+          }
+        }
+
+        // Also convert missing_evidence strings into proof_break-like objects for the planner
+        var enrichedBreaks = [];
+        for (var ebi = 0; ebi < proofBreaks.length; ebi++) {
+          enrichedBreaks.push(proofBreaks[ebi]);
+        }
+        for (var mei = 0; mei < missingEvidence.length; mei++) {
+          enrichedBreaks.push({ type: "MISSING_EVIDENCE", description: missingEvidence[mei], severity: "HIGH" });
+        }
+
+        var planResult = await callEngine("inspection-planning-proof", {
           action: "generate_plan",
           case_id: caseId || null,
-          input: {
-            proof_breaks: proofBreaks,
-            component_proof_summary: componentSummary,
-            missing_evidence: missingEvidence,
-            weak_components: weakComponents,
-            required_actions: requiredActions,
-            severity: resolutionOutput.severity || "UNKNOWN",
-            final_status: resolutionOutput.final_status || "UNKNOWN"
-          }
-        };
-        // Also set fields at top level for the engine's input detection
-        planInput.proof_breaks = proofBreaks;
-        planInput.component_proof_summary = componentSummary;
-        planInput.missing_evidence = missingEvidence;
-        planInput.severity = resolutionOutput.severity || "UNKNOWN";
-        var planResult = await callEngine("inspection-planning-proof", planInput);
+          component_proof_summary: compSummaryObj,
+          proof_breaks: enrichedBreaks,
+          missing_evidence: missingEvidence,
+          severity: resolutionOutput.severity || "UNKNOWN",
+          urgency: (resolutionOutput.final_status === "SHUTDOWN" || resolutionOutput.final_status === "NO_GO") ? "IMMEDIATE" : "7D"
+        });
         if (planResult && !planResult.engine_call_error) {
           engineEnrichment.inspection_plan = planResult;
         }
