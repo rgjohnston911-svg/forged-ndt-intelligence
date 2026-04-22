@@ -76,6 +76,14 @@ var STANDARDS_DB = [
   { body: "API", designation: "API RP 14C", title: "Analysis, Design, Installation, and Testing of Safety Systems for Offshore Production Facilities", current_edition: "8th Edition", current_year: 2017, domains: ["offshore", "safety_systems"], materials: [], damage_modes: [], thresholds: {} },
   { body: "API", designation: "API RP 14J", title: "Design and Hazards Analysis for Offshore Production Facilities", current_edition: "2nd Edition", current_year: 2013, domains: ["offshore", "fire_blast"], materials: [], damage_modes: [], thresholds: {} },
 
+  // API — Materials / Line Pipe
+  { body: "API", designation: "API 5L", title: "Specification for Line Pipe", current_edition: "46th Edition", current_year: 2018, previous_edition: "45th Edition", previous_year: 2012, domains: ["pipelines", "line_pipe", "offshore", "subsea"], materials: ["carbon_steel", "HSLA", "X42", "X52", "X60", "X65", "X70", "X80"], damage_modes: ["corrosion", "fatigue", "SCC"], thresholds: {} },
+  { body: "API", designation: "API 5CT", title: "Specification for Casing and Tubing", current_edition: "10th Edition", current_year: 2018, domains: ["downhole", "casing", "tubing", "well_completion"], materials: ["carbon_steel", "CRA", "martensitic"], damage_modes: ["corrosion", "collapse", "burst"], thresholds: {} },
+
+  // API — Risers
+  { body: "API", designation: "API RP 2RD", title: "Design of Risers for Floating Production Systems (FPSs) and Tension-Leg Platforms (TLPs)", current_edition: "2nd Edition", current_year: 2013, previous_edition: "1st Edition", previous_year: 1998, domains: ["offshore", "risers", "deepwater", "subsea", "FPS", "TLP"], materials: ["carbon_steel", "CRA", "flexible", "composite"], damage_modes: ["fatigue", "VIV", "corrosion", "buckling", "erosion"], thresholds: { fatigue_safety_factor: 10.0, viv_safety_factor: 20.0 } },
+  { body: "API", designation: "API STD 2RD", title: "Dynamic Risers for Floating Production Installations", current_edition: "1st Edition", current_year: 2009, domains: ["offshore", "risers", "deepwater"], materials: ["carbon_steel", "CRA"], damage_modes: ["fatigue", "VIV"], thresholds: {} },
+
   // API — Pipeline
   { body: "API", designation: "API 1104", title: "Welding of Pipelines and Related Facilities", current_edition: "22nd Edition", current_year: 2019, previous_edition: "21st Edition", previous_year: 2013, domains: ["pipelines", "welding"], materials: ["carbon_steel", "low_alloy"], damage_modes: ["weld_defects"], thresholds: {} },
 
@@ -158,7 +166,7 @@ function resolveStandard(query) {
     }
   }
 
-  if (!bestMatch || bestScore < 20) {
+  if (!bestMatch || bestScore < 40) {
     return { resolved: false, query: query, message: "No matching standard found in registry", suggestion: "Check designation or use get_full_registry to browse" };
   }
 

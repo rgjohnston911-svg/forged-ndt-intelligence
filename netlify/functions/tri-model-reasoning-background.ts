@@ -697,7 +697,7 @@ export var handler: Handler = async function(event) {
       await updateSession({ pipeline_step: "cascade_analysis" });
       try {
         var cascadeResult = await callEngine("multi-asset-cascade", {
-          action: "run_cascade",
+          action: "analyze_cascades",
           case_id: caseId || null,
           context: caseContext.substring(0, 2000),
           model_b_output: JSON.stringify(modelBOutput).substring(0, 2000)
@@ -810,17 +810,25 @@ export var handler: Handler = async function(event) {
       }
 
       if (missingEvidence.length > 0 || weakComponents.length > 0 || requiredActions.length > 0) {
-        var planResult = await callEngine("inspection-planning-proof", {
+        var planInput = {
           action: "generate_plan",
           case_id: caseId || null,
-          proof_breaks: proofBreaks,
-          component_proof_summary: componentSummary,
-          missing_evidence: missingEvidence,
-          weak_components: weakComponents,
-          required_actions: requiredActions,
-          severity: resolutionOutput.severity || "UNKNOWN",
-          final_status: resolutionOutput.final_status || "UNKNOWN"
-        });
+          input: {
+            proof_breaks: proofBreaks,
+            component_proof_summary: componentSummary,
+            missing_evidence: missingEvidence,
+            weak_components: weakComponents,
+            required_actions: requiredActions,
+            severity: resolutionOutput.severity || "UNKNOWN",
+            final_status: resolutionOutput.final_status || "UNKNOWN"
+          }
+        };
+        // Also set fields at top level for the engine's input detection
+        planInput.proof_breaks = proofBreaks;
+        planInput.component_proof_summary = componentSummary;
+        planInput.missing_evidence = missingEvidence;
+        planInput.severity = resolutionOutput.severity || "UNKNOWN";
+        var planResult = await callEngine("inspection-planning-proof", planInput);
         if (planResult && !planResult.engine_call_error) {
           engineEnrichment.inspection_plan = planResult;
         }
