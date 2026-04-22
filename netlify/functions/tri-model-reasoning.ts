@@ -19,7 +19,7 @@
  * Pipeline:
  *   INPUT -> NORMALIZE
  *   -> CODE AUTHORITY PRE-FLIGHT (DEPLOY270)
- *   -> DOMAIN ENRICHMENT (DEPLOY267 corrosion + DEPLOY268 fatigue/vibration)
+ *   -> DOMAIN ENRICHMENT (DEPLOY267 corrosion + DEPLOY268 fatigue/vibration + DEPLOY272 weld)
  *   -> MODEL A (Physics + Proof Chain Build)
  *   -> MODEL B (Engineering + Standards Authority + Assumption Mapping)
  *   -> CASCADE ANALYSIS (DEPLOY269 multi-asset)
@@ -63,7 +63,7 @@ var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 var openaiKey = process.env.OPENAI_API_KEY || "";
 var anthropicKey = process.env.ANTHROPIC_API_KEY || "";
 
-var ENGINE_VERSION = "tri-model-reasoning/6.0.0";
+var ENGINE_VERSION = "tri-model-reasoning/6.1.0";
 
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -995,7 +995,8 @@ export var handler: Handler = async function(event) {
             pre_flight: { engine: "live-code-authority", deploy: "DEPLOY270", phase: "before_model_a", purpose: "validate all standards references" },
             domain_enrichment: [
               { engine: "corrosion-loop-engine", deploy: "DEPLOY267", trigger: "corrosion keywords detected", purpose: "mechanism + rate + remaining life" },
-              { engine: "fatigue-vibration-proof", deploy: "DEPLOY268", trigger: "fatigue/vibration keywords detected", purpose: "S-N curves + VIV screening" }
+              { engine: "fatigue-vibration-proof", deploy: "DEPLOY268", trigger: "fatigue/vibration keywords detected", purpose: "S-N curves + VIV screening" },
+              { engine: "weld-acceptance-authority", deploy: "DEPLOY272", trigger: "weld keywords detected", purpose: "CWI-level code routing + acceptance criteria + service conditions" }
             ],
             cascade_analysis: { engine: "multi-asset-cascade", deploy: "DEPLOY269", phase: "after_model_b", trigger: "multi-asset keywords detected", purpose: "failure propagation paths + SPOF" },
             post_resolution: { engine: "inspection-planning-proof", deploy: "DEPLOY266", phase: "after_resolution", purpose: "proof gaps to inspection workpacks" }

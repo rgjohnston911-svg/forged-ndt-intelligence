@@ -28,7 +28,7 @@ var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 var openaiKey = process.env.OPENAI_API_KEY || "";
 var anthropicKey = process.env.ANTHROPIC_API_KEY || "";
 
-var ENGINE_VERSION = "tri-model-reasoning/6.0.0";
+var ENGINE_VERSION = "tri-model-reasoning/6.1.0";
 
 var siteUrl = process.env.URL || process.env.DEPLOY_URL || "https://4dndt.netlify.app";
 
@@ -270,7 +270,7 @@ function callEngine(enginePath, payload) {
 // ================================================================
 function detectDomains(caseContext) {
   var ctx = (caseContext || "").toLowerCase();
-  var domains = { corrosion: false, fatigue: false, vibration: false, multi_asset: false };
+  var domains = { corrosion: false, fatigue: false, vibration: false, multi_asset: false, weld: false };
 
   // Corrosion keywords
   var corrWords = ["corrosion", "corroded", "rust", "pitting", "wall loss", "thinning",
@@ -300,6 +300,21 @@ function detectDomains(caseContext) {
     "multiple assets", "process unit", "train"];
   for (var mi = 0; mi < maWords.length; mi++) {
     if (ctx.indexOf(maWords[mi]) !== -1) { domains.multi_asset = true; break; }
+  }
+
+  // Weld keywords (DEPLOY272)
+  var weldWords = ["weld", "welding", "welder", "fillet", "butt weld", "groove weld",
+    "smaw", "gmaw", "gtaw", "fcaw", "saw", "tig", "mig", "stick weld",
+    "undercut", "porosity", "lack of fusion", "incomplete fusion", "incomplete penetration",
+    "lack of penetration", "burn-through", "burnthrough", "slag", "crater crack",
+    "toe crack", "root crack", "haz", "heat affected zone", "preheat", "pwht",
+    "post weld heat treatment", "wps", "pqr", "wqr", "cwi", "d1.1", "d1.5",
+    "api 1104", "nace mr0175", "hydrogen crack", "hot crack", "cold crack",
+    "lamellar tear", "overlap", "cold lap", "arc strike", "spatter",
+    "reinforcement", "convexity", "concavity", "filler metal", "electrode",
+    "weld toe", "weld root", "backing", "consumable insert", "joint preparation"];
+  for (var wi = 0; wi < weldWords.length; wi++) {
+    if (ctx.indexOf(weldWords[wi]) !== -1) { domains.weld = true; break; }
   }
 
   return domains;
@@ -538,6 +553,7 @@ export var handler: Handler = async function(event) {
       corrosion_loop: null,
       fatigue_assessment: null,
       vibration_assessment: null,
+      weld_acceptance: null,
       cascade_analysis: null,
       inspection_plan: null
     };
@@ -572,7 +588,7 @@ export var handler: Handler = async function(event) {
     }
 
     // ================================================================
-    // STEP 0B: DOMAIN ENRICHMENT (DEPLOY267 + DEPLOY268)
+    // STEP 0B: DOMAIN ENRICHMENT (DEPLOY267 + DEPLOY268 + DEPLOY272)
     // Auto-detect damage domains and run specialized engines
     // ================================================================
     await updateSession({ pipeline_step: "domain_enrichment" });
@@ -639,6 +655,39 @@ export var handler: Handler = async function(event) {
         }
       } catch (vibErr) {
         engineEnrichment.vibration_assessment = { error: String(vibErr), note: "non-fatal" };
+      }
+    }
+
+    // Weld Acceptance Authority (DEPLOY272)
+    if (domains.weld) {
+      try {
+        var weldResult = await callEngine("weld-acceptance-authority", {
+          action: "route_code",
+          application: caseContext.substring(0, 500),
+          material: null
+        });
+        if (weldResult && !weldResult.engine_call_error) {
+          engineEnrichment.weld_acceptance = {
+            routed_code: weldResult.code_key || "unknown",
+            code_name: weldResult.code_name || "unknown",
+            edition: weldResult.edition || "unknown",
+            acceptance_tables: weldResult.acceptance_tables || [],
+            loading_conditions: weldResult.loading_conditions || [],
+            routing_basis: weldResult.routing_basis || "auto_routed"
+          };
+          caseContext = caseContext + "\n\n=== WELD ACCEPTANCE AUTHORITY (DEPLOY272 — AUTOMATED ENRICHMENT) ==="
+            + "\nGoverning code: " + (weldResult.code_name || "unknown")
+            + "\nEdition: " + (weldResult.edition || "unknown")
+            + "\nAcceptance tables: " + (weldResult.acceptance_tables ? weldResult.acceptance_tables.join(", ") : "unknown")
+            + "\nLoading conditions: " + (weldResult.loading_conditions ? weldResult.loading_conditions.join(", ") : "unknown")
+            + "\nRouting basis: " + (weldResult.routing_basis || "auto")
+            + "\nNOTE: Full CWI-level acceptance criteria available via weld-acceptance-authority engine."
+            + " Includes real numeric limits for cracks, undercut, porosity, LOF, LOP, slag, reinforcement."
+            + " Service condition modifiers available: sour, cryogenic, high-temp, cyclic, seismic, lethal, hydrogen."
+            + " 65+ discontinuity types (ISO 6520), 15 material families, 15 processes, 10 damage models.";
+        }
+      } catch (weldErr) {
+        engineEnrichment.weld_acceptance = { error: String(weldErr), note: "non-fatal" };
       }
     }
 
