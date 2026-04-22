@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FORGED NDT - Superbrain AI Report</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #e6edf3; font-family: Inter, system-ui, sans-serif; padding: 32px; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 24px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin-bottom: 12px; color: #58a6ff; }
+  label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 4px; margin-top: 12px; }
+  input, textarea, select { width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 10px; color: #e6edf3; font-family: inherit; font-size: 13px; }
+  textarea { min-height: 80px; resize: vertical; }
+  select { cursor: pointer; }
+  .btn-row { display: flex; gap: 8px; margin-top: 16px; }
+  button { background: #238636; color: #fff; border: none; border-radius: 8px; padding: 10px 20px; font-size: 13px; font-weight: 700; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: #30363d; }
+  button.secondary:hover { background: #3d444d; }
+  .sessions-list { max-height: 200px; overflow-y: auto; }
+  .session-item { padding: 8px 12px; border-bottom: 1px solid #21262d; cursor: pointer; font-size: 12px; display: flex; justify-content: space-between; }
+  .session-item:hover { background: #1c2129; }
+  .session-item.selected { background: #1f3a5f; border-left: 3px solid #58a6ff; }
+  .session-meta { color: #8b949e; }
+  .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px; letter-spacing: 1px; display: inline-block; }
+  .pass { background: #22c55e22; color: #22c55e; border: 1px solid #22c55e44; }
+  .warn { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b44; }
+  .fail { background: #ef444422; color: #ef4444; border: 1px solid #ef444444; }
+  .info { background: #3b82f622; color: #3b82f6; border: 1px solid #3b82f644; }
+  .spinner { display: none; }
+  .spinner.active { display: inline-block; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .report-output { display: none; }
+  .report-output.visible { display: block; }
+  .report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .report-section { margin-bottom: 16px; }
+  .report-section h3 { font-size: 14px; color: #58a6ff; margin-bottom: 8px; border-bottom: 1px solid #21262d; padding-bottom: 4px; }
+  .report-section .content { font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+  .finding { padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 13px; }
+  .recommendation { padding: 8px; margin-bottom: 4px; border-radius: 6px; font-size: 13px; }
+  .recommendation.critical { background: #ef444415; border-left: 3px solid #ef4444; }
+  .recommendation.high { background: #f59e0b15; border-left: 3px solid #f59e0b; }
+  .recommendation.medium { background: #3b82f615; border-left: 3px solid #3b82f6; }
+  .recommendation.low { background: #22c55e15; border-left: 3px solid #22c55e; }
+  .meta-bar { display: flex; gap: 16px; margin-top: 12px; font-size: 11px; color: #8b949e; }
+  .mono { font-family: monospace; font-size: 11px; color: #6e7681; }
+  .status-msg { padding: 12px; border-radius: 6px; margin-top: 12px; font-size: 13px; }
+  .status-msg.error { background: #ef444415; color: #ef4444; }
+  .status-msg.info { background: #3b82f615; color: #3b82f6; }
+  .print-btn { background: #1f6feb; }
+  @media print {
+    body { background: #fff; color: #000; }
+    .card { border: 1px solid #ccc; }
+    .no-print { display: none; }
+    .report-section h3 { color: #0366d6; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Superbrain AI Report Engine</h1>
+<p class="subtitle">DEPLOY271 — Dynamic AI-powered reports from Superbrain v6 sessions</p>
+
+<!-- Step 1: Load Sessions -->
+<div class="card no-print">
+  <h2>1. Select Session</h2>
+  <div class="btn-row">
+    <button id="loadBtn" onclick="loadSessions()">Load Sessions</button>
+    <span style="line-height:36px;font-size:12px;color:#8b949e">or enter ID directly:</span>
+    <input id="directSessionId" style="max-width:340px" placeholder="Paste session UUID...">
+  </div>
+  <div id="sessionsList" class="sessions-list" style="margin-top:12px"></div>
+  <div id="selectedSession" style="margin-top:8px;font-size:12px;color:#58a6ff"></div>
+</div>
+
+<!-- Step 2: Query -->
+<div class="card no-print">
+  <h2>2. Ask a Question</h2>
+  <label>Preset Report Type (optional)</label>
+  <select id="presetSelect">
+    <option value="">— Custom Query —</option>
+    <option value="executive_summary">Executive Summary</option>
+    <option value="proof_chain">Proof Chain Trace</option>
+    <option value="inspection_plan">Inspection Plan</option>
+    <option value="risk_assessment">Risk Assessment</option>
+    <option value="standards_compliance">Standards Compliance Audit</option>
+    <option value="full_technical">Full Technical Analysis</option>
+  </select>
+  <label>Your Question</label>
+  <textarea id="queryInput" placeholder="e.g., What are the top 3 risks and what inspections close the proof gaps?"></textarea>
+  <div class="btn-row">
+    <button id="queryBtn" onclick="runQuery()" disabled>Generate Report</button>
+    <span class="spinner" id="spinner">&#9881;</span>
+    <span id="queryStatus" style="line-height:36px;font-size:12px;color:#8b949e"></span>
+  </div>
+</div>
+
+<!-- Report Output -->
+<div id="reportOutput" class="report-output">
+  <div class="card">
+    <div class="report-header">
+      <div>
+        <h2 id="reportTitle">Report Title</h2>
+        <span class="badge info" id="reportType">custom</span>
+        <span class="mono" id="reportMeta"></span>
+      </div>
+      <div class="btn-row no-print">
+        <button class="print-btn" onclick="window.print()">Print / PDF</button>
+        <button class="secondary" onclick="copyReport()">Copy JSON</button>
+      </div>
+    </div>
+
+    <div id="reportSections"></div>
+
+    <div id="reportFindings" style="margin-top:16px">
+      <h3 style="font-size:14px;color:#58a6ff;margin-bottom:8px">Key Findings</h3>
+      <div id="findingsList"></div>
+    </div>
+
+    <div id="reportRecs" style="margin-top:16px">
+      <h3 style="font-size:14px;color:#58a6ff;margin-bottom:8px">Recommendations</h3>
+      <div id="recsList"></div>
+    </div>
+
+    <div class="meta-bar" id="reportMetaBar"></div>
+  </div>
+</div>
+
+<!-- Report History -->
+<div class="card no-print">
+  <h2>Report History</h2>
+  <button class="secondary" onclick="loadHistory()">Load History</button>
+  <div id="historyList" style="margin-top:12px"></div>
+</div>
+
+<div id="statusMsg"></div>
+
+<script>
+var selectedSessionId = null;
+var lastReportJson = null;
+
+function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+function showStatus(msg, type) {
+  var el = document.getElementById("statusMsg");
+  el.className = "status-msg " + (type || "info");
+  el.textContent = msg;
+  el.style.display = "block";
+  if (type !== "error") setTimeout(function() { el.style.display = "none"; }, 5000);
+}
+
+function loadSessions() {
+  document.getElementById("loadBtn").disabled = true;
+  document.getElementById("loadBtn").textContent = "Loading...";
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/superbrain-report", true);
+  xhr.setRequestHeader("Content-Type", "application/json");
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState === 4) {
+      document.getElementById("loadBtn").disabled = false;
+      document.getElementById("loadBtn").textContent = "Load Sessions";
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          renderSessions(data.sessions || []);
+        } catch(e) {
+          showStatus("Failed to parse sessions response", "error");
+        }
+      } else {
+        showStatus("Failed to load sessions: HTTP " + xhr.status, "error");
+      }
+    }
+  };
+  xhr.send(JSON.stringify({ action: "list_sessions" }));
+}
+
+function renderSessions(sessions) {
+  var el = document.getElementById("sessionsList");
+  if (sessions.length === 0) {
+    el.innerHTML = '<div style="padding:12px;color:#8b949e;font-size:12px">No completed sessions found. Run a Superbrain v6 analysis first.</div>';
+    return;
+  }
+  var html = "";
+  for (var i = 0; i < sessions.length; i++) {
+    var s = sessions[i];
+    var date = s.created_at ? new Date(s.created_at).toLocaleString() : "unknown";
+    var dur = s.total_duration_ms ? (s.total_duration_ms / 1000).toFixed(1) + "s" : "—";
+    html += '<div class="session-item" onclick="selectSession(\'' + s.id + '\')" id="sess-' + s.id + '">';
+    html += '<span>' + esc(s.id.substring(0, 8)) + '... <span class="session-meta">' + esc(s.pipeline_version || "") + '</span></span>';
+    html += '<span class="session-meta">' + esc(date) + ' | ' + dur + '</span>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function selectSession(id) {
+  selectedSessionId = id;
+  document.getElementById("selectedSession").textContent = "Selected: " + id;
+  document.getElementById("queryBtn").disabled = false;
+  // Highlight
+  var items = document.querySelectorAll(".session-item");
+  for (var i = 0; i < items.length; i++) items[i].className = "session-item";
+  var sel = document.getElementById("sess-" + id);
+  if (sel) sel.className = "session-item selected";
+}
+
+function getSessionId() {
+  var direct = document.getElementById("directSessionId").value.trim();
+  return direct || selectedSessionId;
+}
+
+function runQuery() {
+  var sessId = getSessionId();
+  if (!sessId) { showStatus("Select a session or paste a session ID", "error"); return; }
+
+  var preset = document.getElementById("presetSelect").value;
+  var query = document.getElementById("queryInput").value.trim();
+  if (!preset && !query) { showStatus("Enter a question or select a preset", "error"); return; }
+
+  document.getElementById("queryBtn").disabled = true;
+  document.getElementById("spinner").className = "spinner active";
+  document.getElementById("queryStatus").textContent = "Generating report...";
+
+  var payload = { action: "query_session", session_id: sessId };
+  if (preset) payload.preset = preset;
+  if (query) payload.query = query;
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/superbrain-report", true);
+  xhr.setRequestHeader("Content-Type", "application/json");
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState === 4) {
+      document.getElementById("queryBtn").disabled = false;
+      document.getElementById("spinner").className = "spinner";
+      document.getElementById("queryStatus").textContent = "";
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          lastReportJson = data;
+          renderReport(data);
+        } catch(e) {
+          showStatus("Failed to parse report response", "error");
+        }
+      } else {
+        var errMsg = "HTTP " + xhr.status;
+        try { errMsg += " — " + JSON.parse(xhr.responseText).error; } catch(e) {}
+        showStatus("Report generation failed: " + errMsg, "error");
+      }
+    }
+  };
+  xhr.send(JSON.stringify(payload));
+}
+
+function renderReport(data) {
+  var report = data.report;
+  if (!report) { showStatus("No report data in response", "error"); return; }
+
+  document.getElementById("reportTitle").textContent = report.report_title || "Report";
+  document.getElementById("reportType").textContent = (report.report_type || "custom").toUpperCase();
+  document.getElementById("reportMeta").textContent = "  |  " + (data.claude_duration_ms || 0) + "ms  |  " + (data.tokens ? (data.tokens.input || 0) + " in / " + (data.tokens.output || 0) + " out tokens" : "");
+
+  // Sections
+  var sectionsHtml = "";
+  var sections = report.sections || [];
+  for (var i = 0; i < sections.length; i++) {
+    sectionsHtml += '<div class="report-section"><h3>' + esc(sections[i].heading || "Section " + (i+1)) + '</h3>';
+    sectionsHtml += '<div class="content">' + esc(sections[i].content || "") + '</div></div>';
+  }
+  document.getElementById("reportSections").innerHTML = sectionsHtml;
+
+  // Key findings
+  var findingsHtml = "";
+  var findings = report.key_findings || [];
+  for (var i = 0; i < findings.length; i++) {
+    findingsHtml += '<div class="finding">' + esc(findings[i]) + '</div>';
+  }
+  document.getElementById("findingsList").innerHTML = findingsHtml || '<div style="color:#8b949e;font-size:12px">No key findings extracted</div>';
+
+  // Recommendations
+  var recsHtml = "";
+  var recs = report.recommendations || [];
+  for (var i = 0; i < recs.length; i++) {
+    var rec = recs[i];
+    var priority = "medium";
+    var text = "";
+    if (typeof rec === "string") {
+      text = rec;
+    } else {
+      priority = rec.priority || "medium";
+      text = rec.action || rec.text || rec.description || JSON.stringify(rec);
+    }
+    recsHtml += '<div class="recommendation ' + esc(priority) + '">';
+    recsHtml += '<span class="badge ' + (priority === "critical" ? "fail" : priority === "high" ? "warn" : priority === "low" ? "pass" : "info") + '">' + esc(priority.toUpperCase()) + '</span> ';
+    recsHtml += esc(text);
+    recsHtml += '</div>';
+  }
+  document.getElementById("recsList").innerHTML = recsHtml || '<div style="color:#8b949e;font-size:12px">No recommendations</div>';
+
+  // Metadata
+  var meta = report.metadata || {};
+  var metaHtml = "Confidence: " + (meta.confidence || "—") + "% | ";
+  metaHtml += "Data Completeness: " + (meta.data_completeness || "—") + "% | ";
+  metaHtml += "Standards: " + ((meta.applicable_standards || []).join(", ") || "none cited");
+  if (data.report_id) metaHtml += " | Report ID: " + data.report_id;
+  document.getElementById("reportMetaBar").textContent = metaHtml;
+
+  document.getElementById("reportOutput").className = "report-output visible";
+  document.getElementById("reportOutput").scrollIntoView({ behavior: "smooth" });
+}
+
+function copyReport() {
+  if (!lastReportJson) return;
+  var text = JSON.stringify(lastReportJson, null, 2);
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text);
+    showStatus("Report JSON copied to clipboard", "info");
+  }
+}
+
+function loadHistory() {
+  var sessId = getSessionId();
+  if (!sessId) { showStatus("Select a session first", "error"); return; }
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/superbrain-report", true);
+  xhr.setRequestHeader("Content-Type", "application/json");
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState === 4) {
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          var reports = data.reports || [];
+          var html = "";
+          if (reports.length === 0) {
+            html = '<div style="color:#8b949e;font-size:12px;padding:8px">No reports yet for this session</div>';
+          }
+          for (var i = 0; i < reports.length; i++) {
+            var r = reports[i];
+            var date = r.created_at ? new Date(r.created_at).toLocaleString() : "";
+            html += '<div class="session-item" onclick="loadReport(\'' + r.id + '\')">';
+            html += '<span>' + esc(r.report_title || "Untitled") + ' <span class="badge info">' + esc(r.report_type || "custom") + '</span></span>';
+            html += '<span class="session-meta">' + esc(date) + '</span>';
+            html += '</div>';
+          }
+          document.getElementById("historyList").innerHTML = html;
+        } catch(e) {
+          showStatus("Failed to parse history", "error");
+        }
+      }
+    }
+  };
+  xhr.send(JSON.stringify({ action: "get_report_history", session_id: sessId }));
+}
+
+function loadReport(reportId) {
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/superbrain-report", true);
+  xhr.setRequestHeader("Content-Type", "application/json");
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState === 4 && xhr.status === 200) {
+      try {
+        var data = JSON.parse(xhr.responseText);
+        var report = data.report;
+        if (report && report.report_content) {
+          lastReportJson = { report: report.report_content, report_id: report.id, claude_duration_ms: report.claude_duration_ms, tokens: { input: report.input_tokens, output: report.output_tokens } };
+          renderReport(lastReportJson);
+        }
+      } catch(e) {
+        showStatus("Failed to load report", "error");
+      }
+    }
+  };
+  xhr.send(JSON.stringify({ action: "get_report", report_id: reportId }));
+}
+</script>
+
+</body>
+</html>
