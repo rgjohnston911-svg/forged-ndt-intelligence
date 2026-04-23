@@ -87,4 +87,84 @@ function evaluateMotion(input) {
     if (slammingRisk === "none") slammingRisk = "low";
     else if (slammingRisk === "low") slammingRisk = "moderate";
     else if (slammingRisk === "moderate") slammingRisk = "significant";
-    else if (slamm
+    else if (slammingRisk === "significant") slammingRisk = "high";
+  }
+
+  var hs = (seaDef.hs_m.min + seaDef.hs_m.max) / 2;
+  var operationsAffected = [];
+  var opKeys = Object.keys(OPERATIONAL_LIMITS);
+  for (var i = 0; i < opKeys.length; i++) {
+    var limit = OPERATIONAL_LIMITS[opKeys[i]];
+    if (hs > limit.max_hs_m) {
+      operationsAffected.push({ operation: opKeys[i], description: limit.description, limit_hs: limit.max_hs_m, exceeded: true });
+    }
+  }
+
+  return {
+    sea_state: seaState, sea_state_description: seaDef.description, significant_wave_height_m: hs, heading: heading, speed_kts: speed_kts,
+    motion_factors: { roll_factor: Math.round(rollFactor * 100) / 100, pitch_factor: Math.round(pitchFactor * 100) / 100, slamming_factor: Math.round(slammingFactor * 100) / 100 },
+    fatigue: { base_factor: seaDef.fatigue_factor, effective_factor: Math.round(effectiveFatigueFactor * 100) / 100, note: effectiveFatigueFactor > 2.0 ? "HIGH fatigue accumulation rate." : (effectiveFatigueFactor > 1.0 ? "Elevated fatigue accumulation." : "Normal fatigue rate.") },
+    slamming: { risk: slammingRisk, types_at_risk: slammingRisk === "none" ? [] : (heading === "head_seas" ? ["bow_slamming", "whipping"] : (heading === "following_seas" ? ["stern_slamming"] : ["bottom_slamming"])), speed_recommendation: slammingRisk === "significant" || slammingRisk === "high" || slammingRisk === "severe" || slammingRisk === "extreme" ? "REDUCE SPEED to minimize slamming." : "Current speed acceptable." },
+    operations_affected: operationsAffected, operational_impact: seaDef.operational_impact,
+    klein_bottle_note: "Every wave cycle is a fatigue cycle. The sea state is not external to the structure — it IS the loading."
+  };
+}
+
+function assessFatigueFromMotion(input) {
+  var seaState = input.sea_state || "moderate";
+  var hoursInState = input.hours || 24;
+  var wavePeriod = input.wave_period_s || 8;
+  var existingDamage = input.existing_damage_ratio || 0;
+
+  var seaDef = SEA_STATES[seaState];
+  if (!seaDef) return { error: "Unknown sea state" };
+
+  var cyclesPerHour = 3600 / wavePeriod;
+  var totalCycles = cyclesPerHour * hoursInState;
+  var increment = totalCycles * seaDef.fatigue_factor * 1e-8;
+  var cumulative = existingDamage + increment;
+
+  var status = "safe";
+  if (cumulative > 1.0) status = "exceeded_design_life";
+  else if (cumulative > 0.8) status = "approaching_limit";
+  else if (cumulative > 0.5) status = "mid_life";
+
+  return { sea_state: seaState, hours: hoursInState, wave_period_s: wavePeriod, cycles: Math.round(totalCycles), fatigue_factor: seaDef.fatigue_factor, damage_increment: Math.round(increment * 1e6) / 1e6, existing_damage: existingDamage, cumulative_damage: Math.round(cumulative * 1e6) / 1e6, status: status, note: status === "exceeded_design_life" ? "Fatigue design life exceeded. Inspect hotspots." : (status === "approaching_limit" ? "Approaching fatigue limit. Plan inspection." : "Within design life.") };
+}
+
+export var handler: Handler = async function(event) {
+  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
+  if (event.httpMethod !== "POST") return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "POST only" }) };
+
+  try {
+    var body = JSON.parse(event.body || "{}");
+    var action = body.action || "get_registry";
+
+    if (action === "get_registry") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, deploy: DEPLOY, mode: "deterministic", purpose: "Vessel Motion + Hydrodynamics — sea state, slamming, fatigue, operational limits", sea_states: Object.keys(SEA_STATES).length, slamming_types: Object.keys(SLAMMING_TYPES).length, operational_limits: Object.keys(OPERATIONAL_LIMITS).length, actions: ["evaluate_motion", "assess_fatigue_from_motion", "get_sea_states", "get_operational_limits", "get_slamming_types", "get_registry"] }) };
+    }
+    if (action === "evaluate_motion") {
+      var motionResult = evaluateMotion(body);
+      try {
+        var sb = createClient(supabaseUrl, supabaseKey);
+        await sb.from("vessel_motion_assessments").insert({ org_id: body.org_id || null, case_id: body.case_id || null, sea_state: body.sea_state || "unknown", result_json: motionResult });
+      } catch (dbErr) { /* non-fatal */ }
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, result: motionResult }, null, 2) };
+    }
+    if (action === "assess_fatigue_from_motion") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, result: assessFatigueFromMotion(body) }, null, 2) };
+    }
+    if (action === "get_sea_states") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, sea_states: SEA_STATES }, null, 2) };
+    }
+    if (action === "get_operational_limits") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, limits: OPERATIONAL_LIMITS }, null, 2) };
+    }
+    if (action === "get_slamming_types") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, slamming: SLAMMING_TYPES }, null, 2) };
+    }
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Unknown action: " + action }) };
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
+  }
+};
