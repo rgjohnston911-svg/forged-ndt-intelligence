@@ -10,23 +10,18 @@
  *
  * var only. String concatenation only. No backticks.
  */
-
 import type { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-
 var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-
 var SYSTEM_VERSION = "FORGED-NDT/2.0.0";
-var BUILD_DATE = "2026-04-20";
-
+var BUILD_DATE = "2026-04-22";
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json"
 };
-
 var CRITICAL_TABLES = [
   { name: "inspection_cases", deploy: "core", critical: true },
   { name: "findings", deploy: "core", critical: true },
@@ -52,9 +47,18 @@ var CRITICAL_TABLES = [
   { name: "asset_interactions", deploy: "DEPLOY269", critical: false },
   { name: "code_authority_registry", deploy: "DEPLOY270", critical: false },
   { name: "code_authority_lookups", deploy: "DEPLOY270", critical: false },
-  { name: "superbrain_reports", deploy: "DEPLOY271", critical: false }
+  { name: "superbrain_reports", deploy: "DEPLOY271", critical: false },
+  { name: "evidence_contracts", deploy: "DEPLOY273", critical: false },
+  { name: "coating_assessments", deploy: "DEPLOY274", critical: false },
+  { name: "coating_audit_events", deploy: "DEPLOY274", critical: false },
+  { name: "uncertainty_records", deploy: "DEPLOY276", critical: false },
+  { name: "decision_audit_log", deploy: "DEPLOY277", critical: false },
+  { name: "interaction_mesh_results", deploy: "DEPLOY278", critical: false },
+  { name: "convergence_reports", deploy: "DEPLOY280", critical: false },
+  { name: "prevention_records", deploy: "DEPLOY281", critical: false },
+  { name: "fleet_exposure_mappings", deploy: "DEPLOY282", critical: false },
+  { name: "prevention_effectiveness", deploy: "DEPLOY282", critical: false }
 ];
-
 var ENGINE_REGISTRY = [
   { name: "decision-spine", deploy: "DEPLOY220", mode: "deterministic", path: "/api/decision-spine" },
   { name: "run-authority", deploy: "DEPLOY216", mode: "hybrid", path: "/api/run-authority" },
@@ -119,9 +123,16 @@ var ENGINE_REGISTRY = [
   { name: "fatigue-vibration-proof", deploy: "DEPLOY268", mode: "deterministic", path: "/api/fatigue-vibration-proof" },
   { name: "multi-asset-cascade", deploy: "DEPLOY269", mode: "deterministic", path: "/api/multi-asset-cascade" },
   { name: "live-code-authority", deploy: "DEPLOY270", mode: "deterministic", path: "/api/live-code-authority" },
-  { name: "superbrain-report", deploy: "DEPLOY271", mode: "ai_assisted", path: "/api/superbrain-report" }
+  { name: "superbrain-report", deploy: "DEPLOY271", mode: "ai_assisted", path: "/api/superbrain-report" },
+  { name: "evidence-contract-engine", deploy: "DEPLOY273", mode: "deterministic", path: "/api/evidence-contract-engine" },
+  { name: "coatings-intelligence-authority", deploy: "DEPLOY274", mode: "deterministic", path: "/api/coatings-intelligence-authority" },
+  { name: "mechanism-causality-engine", deploy: "DEPLOY275", mode: "deterministic", path: "/api/mechanism-causality-engine" },
+  { name: "uncertainty-boundary-engine", deploy: "DEPLOY276", mode: "deterministic", path: "/api/uncertainty-boundary-engine" },
+  { name: "decision-liability-engine", deploy: "DEPLOY277", mode: "deterministic", path: "/api/decision-liability-engine" },
+  { name: "interaction-mesh", deploy: "DEPLOY278", mode: "deterministic", path: "/api/interaction-mesh" },
+  { name: "convergence-reporter", deploy: "DEPLOY280", mode: "deterministic", path: "/api/convergence-reporter" },
+  { name: "root-cause-prevention", deploy: "DEPLOY281", mode: "deterministic", path: "/api/root-cause-prevention" }
 ];
-
 function countByMode(mode) {
   var c = 0;
   for (var i = 0; i < ENGINE_REGISTRY.length; i++) {
@@ -129,21 +140,17 @@ function countByMode(mode) {
   }
   return c;
 }
-
 export var handler: Handler = async function(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
   if (event.httpMethod !== "POST") return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "POST only" }) };
-
   try {
     var body = JSON.parse(event.body || "{}");
     var quick = body.quick === true;
     var startTime = Date.now();
-
     var checks = [];
     var errors = [];
     var warnings = [];
     var overallStatus = "healthy";
-
     // Check 1: Environment variables
     if (!supabaseUrl) {
       errors.push({ code: "E020", detail: "SUPABASE_URL not set" });
@@ -153,7 +160,6 @@ export var handler: Handler = async function(event) {
       errors.push({ code: "E020", detail: "SUPABASE_SERVICE_ROLE_KEY not set" });
       overallStatus = "critical";
     }
-
     if (overallStatus === "critical") {
       return {
         statusCode: 503,
@@ -161,9 +167,7 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({ status: "critical", system: SYSTEM_VERSION, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime })
       };
     }
-
     var sb = createClient(supabaseUrl, supabaseKey);
-
     // Check 2: Database connectivity
     var dbCheck = await sb.from("inspection_cases").select("id").limit(1);
     if (dbCheck.error) {
@@ -172,7 +176,6 @@ export var handler: Handler = async function(event) {
     } else {
       checks.push({ name: "database_connection", status: "pass", detail: "Supabase connected" });
     }
-
     // Quick mode: return after DB check
     if (quick) {
       return {
@@ -181,7 +184,6 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({ status: overallStatus, system: SYSTEM_VERSION, checks: checks, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime })
       };
     }
-
     // Check 3: Critical tables
     for (var ti = 0; ti < CRITICAL_TABLES.length; ti++) {
       var tbl = CRITICAL_TABLES[ti];
@@ -197,7 +199,6 @@ export var handler: Handler = async function(event) {
         checks.push({ name: "table_" + tbl.name, status: "pass", deploy: tbl.deploy });
       }
     }
-
     // Check 4: Signing key
     var keyCheck = await sb.from("org_signing_keys").select("id").eq("is_active", true).limit(1);
     if (keyCheck.error || !keyCheck.data || keyCheck.data.length === 0) {
@@ -205,7 +206,6 @@ export var handler: Handler = async function(event) {
     } else {
       checks.push({ name: "signing_key", status: "pass", detail: "Active key: " + keyCheck.data[0].id });
     }
-
     // Check 5: Case count
     var caseCount = 0;
     var recentCases = 0;
@@ -214,11 +214,9 @@ export var handler: Handler = async function(event) {
     var sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     var recentCheck = await sb.from("inspection_cases").select("id", { count: "exact", head: true }).gte("created_at", sevenDaysAgo);
     recentCases = recentCheck.count || 0;
-
     // Final status
     if (errors.length > 0 && overallStatus !== "critical") overallStatus = "degraded";
     if (errors.length === 0 && warnings.length > 0) overallStatus = "healthy_with_warnings";
-
     return {
       statusCode: overallStatus === "critical" ? 503 : 200,
       headers: corsHeaders,
@@ -239,3 +237,4 @@ export var handler: Handler = async function(event) {
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
   }
 };
+ 
