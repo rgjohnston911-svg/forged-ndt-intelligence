@@ -57,7 +57,11 @@ var CRITICAL_TABLES = [
   { name: "convergence_reports", deploy: "DEPLOY280", critical: false },
   { name: "prevention_records", deploy: "DEPLOY281", critical: false },
   { name: "fleet_exposure_mappings", deploy: "DEPLOY282", critical: false },
-  { name: "prevention_effectiveness", deploy: "DEPLOY282", critical: false }
+  { name: "prevention_effectiveness", deploy: "DEPLOY282", critical: false },
+  { name: "cp_assessments", deploy: "DEPLOY284", critical: false },
+  { name: "marine_growth_assessments", deploy: "DEPLOY285", critical: false },
+  { name: "external_events", deploy: "DEPLOY286", critical: false },
+  { name: "subsea_assessments", deploy: "DEPLOY287", critical: false }
 ];
 var ENGINE_REGISTRY = [
   { name: "decision-spine", deploy: "DEPLOY220", mode: "deterministic", path: "/api/decision-spine" },
@@ -131,7 +135,12 @@ var ENGINE_REGISTRY = [
   { name: "decision-liability-engine", deploy: "DEPLOY277", mode: "deterministic", path: "/api/decision-liability-engine" },
   { name: "interaction-mesh", deploy: "DEPLOY278", mode: "deterministic", path: "/api/interaction-mesh" },
   { name: "convergence-reporter", deploy: "DEPLOY280", mode: "deterministic", path: "/api/convergence-reporter" },
-  { name: "root-cause-prevention", deploy: "DEPLOY281", mode: "deterministic", path: "/api/root-cause-prevention" }
+  { name: "root-cause-prevention", deploy: "DEPLOY281", mode: "deterministic", path: "/api/root-cause-prevention" },
+  { name: "subsea-domain-registry", deploy: "DEPLOY283", mode: "deterministic", path: "/api/subsea-domain-registry" },
+  { name: "cp-intelligence", deploy: "DEPLOY284", mode: "deterministic", path: "/api/cp-intelligence" },
+  { name: "marine-growth-engine", deploy: "DEPLOY285", mode: "deterministic", path: "/api/marine-growth-engine" },
+  { name: "external-interaction-engine", deploy: "DEPLOY286", mode: "deterministic", path: "/api/external-interaction-engine" },
+  { name: "subsea-structures-orchestrator", deploy: "DEPLOY287", mode: "deterministic", path: "/api/subsea-structures-orchestrator" }
 ];
 function countByMode(mode) {
   var c = 0;
@@ -151,7 +160,6 @@ export var handler: Handler = async function(event) {
     var errors = [];
     var warnings = [];
     var overallStatus = "healthy";
-    // Check 1: Environment variables
     if (!supabaseUrl) {
       errors.push({ code: "E020", detail: "SUPABASE_URL not set" });
       overallStatus = "critical";
@@ -168,7 +176,6 @@ export var handler: Handler = async function(event) {
       };
     }
     var sb = createClient(supabaseUrl, supabaseKey);
-    // Check 2: Database connectivity
     var dbCheck = await sb.from("inspection_cases").select("id").limit(1);
     if (dbCheck.error) {
       errors.push({ code: "E001", detail: dbCheck.error.message });
@@ -176,7 +183,6 @@ export var handler: Handler = async function(event) {
     } else {
       checks.push({ name: "database_connection", status: "pass", detail: "Supabase connected" });
     }
-    // Quick mode: return after DB check
     if (quick) {
       return {
         statusCode: overallStatus === "critical" ? 503 : 200,
@@ -184,7 +190,6 @@ export var handler: Handler = async function(event) {
         body: JSON.stringify({ status: overallStatus, system: SYSTEM_VERSION, checks: checks, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime })
       };
     }
-    // Check 3: Critical tables
     for (var ti = 0; ti < CRITICAL_TABLES.length; ti++) {
       var tbl = CRITICAL_TABLES[ti];
       var tblCheck = await sb.from(tbl.name).select("*").limit(1);
@@ -199,14 +204,12 @@ export var handler: Handler = async function(event) {
         checks.push({ name: "table_" + tbl.name, status: "pass", deploy: tbl.deploy });
       }
     }
-    // Check 4: Signing key
     var keyCheck = await sb.from("org_signing_keys").select("id").eq("is_active", true).limit(1);
     if (keyCheck.error || !keyCheck.data || keyCheck.data.length === 0) {
       warnings.push({ code: "E010", detail: "No active signing key" });
     } else {
       checks.push({ name: "signing_key", status: "pass", detail: "Active key: " + keyCheck.data[0].id });
     }
-    // Check 5: Case count
     var caseCount = 0;
     var recentCases = 0;
     var countCheck = await sb.from("inspection_cases").select("id", { count: "exact", head: true });
@@ -214,7 +217,6 @@ export var handler: Handler = async function(event) {
     var sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     var recentCheck = await sb.from("inspection_cases").select("id", { count: "exact", head: true }).gte("created_at", sevenDaysAgo);
     recentCases = recentCheck.count || 0;
-    // Final status
     if (errors.length > 0 && overallStatus !== "critical") overallStatus = "degraded";
     if (errors.length === 0 && warnings.length > 0) overallStatus = "healthy_with_warnings";
     return {
@@ -237,4 +239,3 @@ export var handler: Handler = async function(event) {
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
   }
 };
- 
