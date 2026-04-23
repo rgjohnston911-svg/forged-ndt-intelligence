@@ -3,7 +3,7 @@
  * DEPLOY225 - health.ts
  * netlify/functions/health.ts
  *
- * PRODUCTION HEALTH CHECK — 87 ENGINES
+ * PRODUCTION HEALTH CHECK — 90 ENGINES
  *
  * POST /api/health {}         -> full health check
  * POST /api/health {quick:true} -> fast DB-only check
@@ -72,7 +72,10 @@ var CRITICAL_TABLES = [
   { name: "executive_decisions", deploy: "DEPLOY294", critical: false },
   { name: "underwater_ndt_assessments", deploy: "DEPLOY295", critical: false },
   { name: "underwater_weld_assessments", deploy: "DEPLOY296", critical: false },
-  { name: "subsea_inspection_conditions", deploy: "DEPLOY297", critical: false }
+  { name: "subsea_inspection_conditions", deploy: "DEPLOY297", critical: false },
+  { name: "process_condition_assessments", deploy: "DEPLOY298", critical: false },
+  { name: "refinery_mechanism_assessments", deploy: "DEPLOY299", critical: false },
+  { name: "refinery_code_authority_results", deploy: "DEPLOY300", critical: false }
 ];
 var ENGINE_REGISTRY = [
   { name: "decision-spine", deploy: "DEPLOY220", mode: "deterministic", path: "/api/decision-spine" },
@@ -161,7 +164,10 @@ var ENGINE_REGISTRY = [
   { name: "executive-decision-engine", deploy: "DEPLOY294", mode: "deterministic", path: "/api/executive-decision-engine" },
   { name: "underwater-ndt-authority", deploy: "DEPLOY295", mode: "deterministic", path: "/api/underwater-ndt-authority" },
   { name: "underwater-welding-authority", deploy: "DEPLOY296", mode: "deterministic", path: "/api/underwater-welding-authority" },
-  { name: "subsea-inspection-conditions", deploy: "DEPLOY297", mode: "deterministic", path: "/api/subsea-inspection-conditions" }
+  { name: "subsea-inspection-conditions", deploy: "DEPLOY297", mode: "deterministic", path: "/api/subsea-inspection-conditions" },
+  { name: "process-condition-authority", deploy: "DEPLOY298", mode: "deterministic", path: "/api/process-condition-authority" },
+  { name: "refinery-mechanism-authority", deploy: "DEPLOY299", mode: "deterministic", path: "/api/refinery-mechanism-authority" },
+  { name: "refinery-code-authority-router", deploy: "DEPLOY300", mode: "deterministic", path: "/api/refinery-code-authority-router" }
 ];
 function countByMode(mode) {
   var c = 0;
