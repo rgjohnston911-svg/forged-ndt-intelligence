@@ -135,4 +135,31 @@ export var handler: Handler = async function(event) {
   if (event.httpMethod !== "POST") return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "POST only" }) };
 
   try {
-    var body = JSON.parse(event.body ||
+    var body = JSON.parse(event.body || "{}");
+    var action = body.action || "get_registry";
+
+    if (action === "get_registry") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, deploy: DEPLOY, mode: "deterministic", purpose: "Stability + Ballast Engine — buoyancy, GM, flooding, safe-to-sail decisions", stability_criteria: Object.keys(STABILITY_CRITERIA).length, loading_conditions: Object.keys(LOADING_CONDITIONS).length, flooding_scenarios: Object.keys(FLOODING_SCENARIOS).length, actions: ["evaluate_stability", "simulate_flooding", "get_criteria", "get_loading_conditions", "get_registry"] }) };
+    }
+    if (action === "evaluate_stability") {
+      var stabResult = evaluateStability(body);
+      try {
+        var sb = createClient(supabaseUrl, supabaseKey);
+        await sb.from("stability_assessments").insert({ org_id: body.org_id || null, case_id: body.case_id || null, vessel_type: body.vessel_type || "unknown", overall_status: stabResult.overall_status, result_json: stabResult });
+      } catch (dbErr) { /* non-fatal */ }
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, result: stabResult }, null, 2) };
+    }
+    if (action === "simulate_flooding") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, result: simulateFlooding(body) }, null, 2) };
+    }
+    if (action === "get_criteria") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, criteria: STABILITY_CRITERIA }, null, 2) };
+    }
+    if (action === "get_loading_conditions") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, conditions: LOADING_CONDITIONS }, null, 2) };
+    }
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Unknown action: " + action }) };
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
+  }
+};
