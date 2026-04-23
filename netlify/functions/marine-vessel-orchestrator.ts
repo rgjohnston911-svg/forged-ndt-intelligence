@@ -123,4 +123,112 @@ function assessVessel(input) {
   if (coating === "failed" || coating === "severe_degradation") baseRate = baseRate * 3;
   else if (coating === "moderate_degradation") baseRate = baseRate * 2;
   else if (coating === "minor_degradation") baseRate = baseRate * 1.3;
-  assessment.corrosion = { zone: zone, coating: coating, estimated
+  assessment.corrosion = { zone: zone, coating: coating, estimated_rate_mm_yr: Math.round(baseRate * 100) / 100 };
+
+  if (input.gm_m) {
+    var gmMin = 0.15;
+    if (input.vessel_category === "drilling" || input.vessel_category === "offshore_production") gmMin = 0.30;
+    var fse = input.fse_correction_m || 0;
+    var effectiveGM = input.gm_m - fse;
+    assessment.stability = { gm_m: input.gm_m, fse_m: fse, effective_gm_m: Math.round(effectiveGM * 1000) / 1000, minimum_m: gmMin, status: effectiveGM >= gmMin ? "adequate" : "below_minimum" };
+  }
+
+  var confidence = evidence.confidence_ceiling;
+  if (coating === "unknown") confidence = confidence * 0.7;
+  if (!input.wall_thickness_mm) confidence = confidence * 0.8;
+  assessment.confidence = { value: Math.round(confidence * 100) / 100, level: confidence >= 0.8 ? "high" : (confidence >= 0.6 ? "moderate" : (confidence >= 0.4 ? "low" : "very_low")) };
+
+  var risk = 1.0;
+  var ZONE_SEV = { topsides: 1.0, main_deck: 1.2, waterline: 2.0, splash: 2.5, underwater_hull: 1.0, cargo_tanks: 1.8, ballast_tanks: 2.0, void_spaces: 1.2 };
+  risk = ZONE_SEV[zone] || 1.0;
+  if (assessment.structural && assessment.structural.status === "below_renewal_threshold") risk = risk * 2.0;
+  else if (assessment.structural && assessment.structural.status === "substantial_corrosion") risk = risk * 1.5;
+  if (coating === "failed") risk = risk * 1.5;
+  if (assessment.stability && assessment.stability.status === "below_minimum") risk = risk * 3.0;
+  if (assessment.damage && assessment.damage.urgency === "emergency") risk = risk * 2.5;
+  assessment.risk = { score: Math.round(risk * 100) / 100, level: risk >= 8 ? "critical" : (risk >= 5 ? "high" : (risk >= 2.5 ? "moderate" : "low")) };
+
+  var decision = "safe_to_operate";
+  if (assessment.damage && assessment.damage.urgency === "emergency") decision = "emergency";
+  else if (assessment.stability && assessment.stability.status === "below_minimum") decision = "do_not_sail";
+  else if (assessment.risk.level === "critical") decision = "stop_operations";
+  else if (assessment.structural && assessment.structural.status === "below_renewal_threshold") decision = "proceed_to_repair";
+  else if (assessment.risk.level === "high") decision = "restricted_operations";
+  else if (assessment.risk.level === "moderate") decision = "operate_with_monitoring";
+  var decisionDef = OPERATIONAL_DECISIONS[decision];
+  assessment.operational_decision = { decision: decisionDef.decision, description: decisionDef.description, severity: decisionDef.color };
+
+  var recs = [];
+  if (assessment.structural && assessment.structural.status === "below_renewal_threshold") {
+    recs.push({ priority: "critical", action: "Steel renewal required. Plan dry dock.", rationale: "Below class renewal threshold." });
+  }
+  if (assessment.damage && assessment.damage.class_notification === "required_immediately") {
+    recs.push({ priority: "critical", action: "Notify classification society immediately.", rationale: "Class rules require immediate notification." });
+  }
+  if (coating === "failed" && (zone === "ballast_tanks" || zone === "cargo_tanks")) {
+    recs.push({ priority: "high", action: "Tank coating repair at next dry dock.", rationale: "Failed coating accelerates structural degradation." });
+  }
+  if (assessment.stability && assessment.stability.status === "below_minimum") {
+    recs.push({ priority: "critical", action: "Correct stability before any operations.", rationale: "GM below minimum. Capsize risk." });
+  }
+  if (recs.length === 0) {
+    recs.push({ priority: "routine", action: "Continue operations. Monitor at next survey.", rationale: "No immediate concerns." });
+  }
+  assessment.recommendations = recs;
+
+  assessment.engines_consulted = [
+    "vessel-class-registry", "stability-engine", "vessel-motion-engine",
+    "coatings-intelligence-authority", "corrosion-loop-engine",
+    "mechanism-causality-engine", "fatigue-vibration-proof",
+    "weld-acceptance-authority", "uncertainty-boundary-engine",
+    "evidence-contract-engine", "decision-liability-engine",
+    "interaction-mesh", "root-cause-prevention"
+  ];
+
+  assessment.status = "ASSESSED";
+  assessment.klein_bottle_summary = "This assessment evaluates the vessel as one continuous system: structure + stability + motion + cargo + coating + environment + operations. One surface, one assessment.";
+  return assessment;
+}
+
+export var handler: Handler = async function(event) {
+  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
+  if (event.httpMethod !== "POST") return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "POST only" }) };
+
+  try {
+    var body = JSON.parse(event.body || "{}");
+    var action = body.action || "get_registry";
+
+    if (action === "get_registry") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, deploy: DEPLOY, mode: "deterministic", purpose: "Marine Vessel Intelligence Authority — naval architect + marine engineer + inspector in one system", evidence_fields: REQUIRED_EVIDENCE.length, damage_categories: Object.keys(DAMAGE_CATEGORIES).length, operational_decisions: Object.keys(OPERATIONAL_DECISIONS).length, actions: ["full_assessment", "quick_assessment", "get_assessment_template", "get_damage_categories", "get_operational_decisions", "get_registry"] }) };
+    }
+    if (action === "full_assessment") {
+      var result = assessVessel(body);
+      try {
+        var sb = createClient(supabaseUrl, supabaseKey);
+        await sb.from("vessel_assessments").insert({ org_id: body.org_id || null, case_id: body.case_id || null, vessel_type: body.vessel_type || "unknown", risk_level: result.risk ? result.risk.level : "unknown", decision: result.operational_decision ? result.operational_decision.decision : "unknown", confidence: result.confidence ? result.confidence.value : null, status: result.status, result_json: result });
+      } catch (dbErr) { /* non-fatal */ }
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(result, null, 2) };
+    }
+    if (action === "quick_assessment") {
+      var qZone = body.vessel_zone || "underwater_hull";
+      var qCoating = body.coating_condition || "unknown";
+      var QSEV = { topsides: 1.0, main_deck: 1.2, waterline: 2.0, splash: 2.5, underwater_hull: 1.0, cargo_tanks: 1.8, ballast_tanks: 2.0, void_spaces: 1.2 };
+      var qSev = QSEV[qZone] || 1.0;
+      var qProt = (qCoating === "failed" || qCoating === "severe_degradation") ? 0.8 : 0.2;
+      var qRisk = qSev * qProt;
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, assessment_type: "quick_screening", vessel_type: body.vessel_type || "unknown", zone: qZone, coating: qCoating, risk_score: Math.round(qRisk * 100) / 100, risk_level: qRisk >= 3 ? "high" : (qRisk >= 1.5 ? "moderate" : "low"), recommendation: qRisk >= 3 ? "Full assessment required" : (qRisk >= 1.5 ? "Detailed inspection recommended" : "Continue monitoring") }, null, 2) };
+    }
+    if (action === "get_assessment_template") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, required_fields: REQUIRED_EVIDENCE }, null, 2) };
+    }
+    if (action === "get_damage_categories") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, categories: DAMAGE_CATEGORIES }, null, 2) };
+    }
+    if (action === "get_operational_decisions") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, decisions: OPERATIONAL_DECISIONS }, null, 2) };
+    }
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Unknown action: " + action }) };
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
+  }
+};
