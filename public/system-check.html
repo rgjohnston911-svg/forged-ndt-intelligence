@@ -26,7 +26,7 @@
 </head>
 <body>
 <h1>FORGED NDT Intelligence OS — System Check</h1>
-<p class="subtitle">FORGED-NDT/2.0.0 — All 72 engines — Full endpoint verification</p>
+<p class="subtitle">FORGED-NDT/2.0.0 — All 77 engines — Full endpoint verification</p>
 <div class="summary-bar">
   <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
   <div class="summary-box"><div class="num" id="totalFail" style="color:#ef4444">-</div><div class="lbl">FAIL</div></div>
@@ -173,6 +173,11 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY278: Interaction Mesh", "/api/interaction-mesh", { action: "get_registry" });
   await testEndpoint("DEPLOY280: Convergence Reporter", "/api/convergence-reporter", { action: "get_registry" });
   await testEndpoint("DEPLOY281: Root Cause Prevention", "/api/root-cause-prevention", { action: "get_registry" });
+  await testEndpoint("DEPLOY283: Subsea Domain Registry", "/api/subsea-domain-registry", { action: "get_registry" });
+  await testEndpoint("DEPLOY284: CP Intelligence", "/api/cp-intelligence", { action: "get_registry" });
+  await testEndpoint("DEPLOY285: Marine Growth Engine", "/api/marine-growth-engine", { action: "get_registry" });
+  await testEndpoint("DEPLOY286: External Interaction Engine", "/api/external-interaction-engine", { action: "get_registry" });
+  await testEndpoint("DEPLOY287: Subsea Structures Orchestrator", "/api/subsea-structures-orchestrator", { action: "get_registry" });
   document.getElementById("runBtn").disabled = false;
   document.getElementById("runBtn").textContent = "Run Full System Check";
 }
