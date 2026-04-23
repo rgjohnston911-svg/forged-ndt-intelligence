@@ -238,4 +238,233 @@ function assessSubsea(input) {
   var GROWTH_CONFIDENCE = { none: 1.0, light: 0.95, moderate: 0.75, heavy: 0.45, extreme: 0.20 };
   growthConfidenceImpact = GROWTH_CONFIDENCE[marineGrowth] || 1.0;
 
-  assessment.marine_growth =
+  assessment.marine_growth = {
+    level: marineGrowth,
+    confidence_modifier: growthConfidenceImpact,
+    impact: growthConfidenceImpact < 0.5 ? "Marine growth severely limits inspection confidence. Clean before detailed assessment." : "Acceptable for current assessment."
+  };
+
+  // Step 6: External event (if present)
+  if (input.external_event) {
+    assessment.external_event = {
+      event_type: input.external_event,
+      note: "External event detected. Immediate and latent damage assessment required. Route to external-interaction-engine for detailed evaluation."
+    };
+  }
+
+  // Step 7: Consequence classification
+  var structuralRole = input.structural_role || "secondary";
+  var assetType = input.asset_type || "unknown";
+  var consequence = "moderate";
+
+  if (structuralRole === "primary" || assetType === "jacket" || assetType === "pile" || assetType === "mooring") {
+    consequence = "catastrophic";
+  } else if (assetType === "pipeline" || assetType === "riser_rigid" || assetType === "riser_flexible") {
+    consequence = "major";
+  } else if (structuralRole === "secondary") {
+    consequence = "moderate";
+  } else {
+    consequence = "minor";
+  }
+
+  if (protectionState === "unprotected" && consequence === "moderate") consequence = "major";
+  if (protectionState === "unprotected" && consequence === "major") consequence = "catastrophic";
+
+  var consequenceDef = CONSEQUENCE_MATRIX[consequence];
+  assessment.consequence = {
+    classification: consequence,
+    description: consequenceDef.description,
+    response_time: consequenceDef.response_time,
+    decision_mode: consequenceDef.decision_mode
+  };
+
+  // Step 8: Confidence calculation
+  var baseConfidence = evidence.confidence_ceiling;
+  baseConfidence = baseConfidence * growthConfidenceImpact;
+  if (coatingCondition === "unknown") baseConfidence = baseConfidence * 0.7;
+  if (cpStatus === "unknown") baseConfidence = baseConfidence * 0.8;
+
+  var confidenceLevel = "low";
+  if (baseConfidence >= 0.80) confidenceLevel = "high";
+  else if (baseConfidence >= 0.60) confidenceLevel = "moderate";
+  else if (baseConfidence >= 0.40) confidenceLevel = "low";
+  else confidenceLevel = "very_low";
+
+  assessment.confidence = {
+    value: Math.round(baseConfidence * 100) / 100,
+    level: confidenceLevel,
+    limiting_factors: []
+  };
+  if (evidence.missing_high.length > 0) assessment.confidence.limiting_factors.push("Missing high-importance evidence");
+  if (growthConfidenceImpact < 0.5) assessment.confidence.limiting_factors.push("Heavy marine growth limits inspection reliability");
+  if (coatingCondition === "unknown") assessment.confidence.limiting_factors.push("Coating condition unknown");
+  if (cpStatus === "unknown") assessment.confidence.limiting_factors.push("CP status unknown");
+
+  // Step 9: Overall risk score
+  var riskScore = zoneSeverity * (protectionState === "unprotected" ? 1.0 : protectionState === "compromised" ? 0.7 : protectionState === "degraded" ? 0.4 : 0.1);
+  if (assessment.internal_assessment) riskScore = riskScore + (assessment.internal_assessment.severity_factor * 2);
+  if (input.external_event) riskScore = riskScore * 1.5;
+
+  var riskLevel = "low";
+  if (riskScore >= 5.0) riskLevel = "critical";
+  else if (riskScore >= 3.0) riskLevel = "high";
+  else if (riskScore >= 1.5) riskLevel = "moderate";
+
+  assessment.risk = {
+    score: Math.round(riskScore * 100) / 100,
+    level: riskLevel
+  };
+
+  // Step 10: Recommendations
+  var recommendations = [];
+
+  if (protectionState === "unprotected") {
+    recommendations.push({ priority: "critical", action: "Restore protection barriers (coating + CP)", rationale: "Asset is fully unprotected. Maximum degradation rate." });
+  }
+  if (consequence === "catastrophic" && confidenceLevel === "low") {
+    recommendations.push({ priority: "critical", action: "Immediate detailed inspection with cleaning", rationale: "Catastrophic consequence asset with low confidence assessment." });
+  }
+  if (marineGrowth === "heavy" || marineGrowth === "extreme") {
+    recommendations.push({ priority: "high", action: "Clean and re-inspect", rationale: "Marine growth prevents meaningful assessment." });
+  }
+  if (cpStatus === "ineffective" || cpStatus === "depleted") {
+    recommendations.push({ priority: "high", action: "CP retrofit", rationale: "Cathodic protection not functional." });
+  }
+  if (zone === "splash" && coatingCondition !== "intact") {
+    recommendations.push({ priority: "high", action: "Splash zone coating repair", rationale: "Splash zone has highest corrosion rate and CP cannot protect it." });
+  }
+  if (input.external_event) {
+    recommendations.push({ priority: "high", action: "Detailed damage assessment of external event", rationale: "External event has both immediate and latent damage consequences." });
+  }
+  if (recommendations.length === 0) {
+    recommendations.push({ priority: "routine", action: "Continue monitoring at scheduled intervals", rationale: "No immediate concerns identified." });
+  }
+
+  assessment.recommendations = recommendations;
+
+  // Step 11: Engines to consult
+  assessment.engines_consulted = [
+    "subsea-domain-registry",
+    "coatings-intelligence-authority",
+    "corrosion-loop-engine",
+    "mechanism-causality-engine",
+    "uncertainty-boundary-engine",
+    "evidence-contract-engine",
+    "decision-liability-engine",
+    "interaction-mesh",
+    "root-cause-prevention"
+  ];
+  if (cpStatus !== "not_applicable") assessment.engines_consulted.push("cp-intelligence");
+  if (marineGrowth !== "none") assessment.engines_consulted.push("marine-growth-engine");
+  if (input.external_event) assessment.engines_consulted.push("external-interaction-engine");
+  if (structuralRole === "primary") {
+    assessment.engines_consulted.push("fatigue-vibration-proof");
+    assessment.engines_consulted.push("weld-acceptance-authority");
+    assessment.engines_consulted.push("multi-asset-cascade");
+  }
+
+  assessment.status = "ASSESSED";
+  assessment.klein_bottle_summary = "This assessment evaluates the asset as one continuous system: environment + structure + material + coating + CP + flow + events. No factor is assessed in isolation. Every finding affects every other domain through the interaction mesh.";
+
+  return assessment;
+}
+
+// ============================================================
+// HANDLER
+// ============================================================
+
+export var handler: Handler = async function(event) {
+  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
+  if (event.httpMethod !== "POST") return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "POST only" }) };
+
+  try {
+    var body = JSON.parse(event.body || "{}");
+    var action = body.action || "get_registry";
+
+    if (action === "get_registry") {
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          engine: ENGINE_ID,
+          version: ENGINE_VERSION,
+          deploy: DEPLOY,
+          mode: "deterministic",
+          purpose: "Subsea Structures Intelligence Authority — the orchestrator that thinks like a senior offshore integrity engineer",
+          principle: "Subsea assets fail from INTERACTION: environment + structure + material + coating + CP + flow + events",
+          evidence_fields: REQUIRED_EVIDENCE.length,
+          internal_conditions: Object.keys(INTERNAL_CONDITIONS).length,
+          consequence_classes: Object.keys(CONSEQUENCE_MATRIX).length,
+          actions: [
+            "full_assessment — complete subsea integrity assessment",
+            "quick_assessment — rapid screening assessment",
+            "get_assessment_template — required inputs for assessment",
+            "get_registry — engine metadata"
+          ]
+        })
+      };
+    }
+
+    if (action === "full_assessment") {
+      var result = assessSubsea(body);
+      try {
+        var sb = createClient(supabaseUrl, supabaseKey);
+        await sb.from("subsea_assessments").insert({
+          org_id: body.org_id || null,
+          case_id: body.case_id || null,
+          asset_type: body.asset_type || "unknown",
+          zone: body.zone || "unknown",
+          risk_level: result.risk ? result.risk.level : "unknown",
+          consequence: result.consequence ? result.consequence.classification : "unknown",
+          confidence: result.confidence ? result.confidence.value : null,
+          status: result.status,
+          result_json: result
+        });
+      } catch (dbErr) { /* non-fatal */ }
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(result, null, 2) };
+    }
+
+    if (action === "quick_assessment") {
+      var quickResult = {
+        engine: ENGINE_ID,
+        version: ENGINE_VERSION,
+        assessment_type: "quick_screening",
+        asset_type: body.asset_type || "unknown",
+        zone: body.zone || "submerged",
+        coating: body.coating_condition || "unknown",
+        cp: body.cp_status || "unknown"
+      };
+
+      var QUICK_ZONE = { atmospheric: 1.0, splash: 2.5, tidal: 1.8, submerged: 1.0, mudline: 1.5, buried: 1.2, internal: 1.5 };
+      var qZone = QUICK_ZONE[quickResult.zone] || 1.0;
+      var qProtection = (quickResult.coating === "failed" || quickResult.coating === "severe_degradation") ? 0.8 : 0.2;
+      if (quickResult.cp === "ineffective") qProtection = qProtection + 0.3;
+      var qRisk = qZone * qProtection;
+
+      quickResult.risk_score = Math.round(qRisk * 100) / 100;
+      quickResult.risk_level = qRisk >= 3.0 ? "high" : (qRisk >= 1.5 ? "moderate" : "low");
+      quickResult.recommendation = qRisk >= 3.0 ? "Full assessment required" : (qRisk >= 1.5 ? "Detailed inspection recommended" : "Continue monitoring");
+
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(quickResult, null, 2) };
+    }
+
+    if (action === "get_assessment_template") {
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          engine: ENGINE_ID,
+          version: ENGINE_VERSION,
+          action: action,
+          required_fields: REQUIRED_EVIDENCE,
+          internal_conditions: Object.keys(INTERNAL_CONDITIONS),
+          note: "Provide as many fields as possible. Missing critical fields will HOLD the assessment."
+        }, null, 2)
+      };
+    }
+
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Unknown action: " + action }) };
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
+  }
+};
