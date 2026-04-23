@@ -26,7 +26,7 @@
 </head>
 <body>
 <h1>FORGED NDT Intelligence OS — System Check</h1>
-<p class="subtitle">FORGED-NDT/2.0.0 — All 87 engines — Full endpoint verification</p>
+<p class="subtitle">FORGED-NDT/2.0.0 — All 90 engines — Full endpoint verification</p>
 <div class="summary-bar">
   <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
   <div class="summary-box"><div class="num" id="totalFail" style="color:#ef4444">-</div><div class="lbl">FAIL</div></div>
@@ -166,10 +166,10 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY270: Live Code Authority", "/api/live-code-authority", { action: "get_registry" });
   await testEndpoint("DEPLOY271: Superbrain Report", "/api/superbrain-report", { action: "get_registry" });
   await testEndpoint("DEPLOY273: Evidence Contract Engine", "/api/evidence-contract-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY274: Coatings Intelligence", "/api/coatings-intelligence-authority", { action: "get_registry" });
-  await testEndpoint("DEPLOY275: Mechanism Causality", "/api/mechanism-causality-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY276: Uncertainty Boundary", "/api/uncertainty-boundary-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY277: Decision Liability", "/api/decision-liability-engine", { action: "get_registry" });
+  await testEndpoint("DEPLOY274: Coatings Intelligence Authority", "/api/coatings-intelligence-authority", { action: "get_registry" });
+  await testEndpoint("DEPLOY275: Mechanism Causality Engine", "/api/mechanism-causality-engine", { action: "get_registry" });
+  await testEndpoint("DEPLOY276: Uncertainty Boundary Engine", "/api/uncertainty-boundary-engine", { action: "get_registry" });
+  await testEndpoint("DEPLOY277: Decision Liability Engine", "/api/decision-liability-engine", { action: "get_registry" });
   await testEndpoint("DEPLOY278: Interaction Mesh", "/api/interaction-mesh", { action: "get_registry" });
   await testEndpoint("DEPLOY280: Convergence Reporter", "/api/convergence-reporter", { action: "get_registry" });
   await testEndpoint("DEPLOY281: Root Cause Prevention", "/api/root-cause-prevention", { action: "get_registry" });
@@ -188,6 +188,9 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY295: Underwater NDT Authority", "/api/underwater-ndt-authority", { action: "get_registry" });
   await testEndpoint("DEPLOY296: Underwater Welding Authority", "/api/underwater-welding-authority", { action: "get_registry" });
   await testEndpoint("DEPLOY297: Subsea Inspection Conditions", "/api/subsea-inspection-conditions", { action: "get_registry" });
+  await testEndpoint("DEPLOY298: Process Condition Authority", "/api/process-condition-authority", { action: "get_registry" });
+  await testEndpoint("DEPLOY299: Refinery Mechanism Authority", "/api/refinery-mechanism-authority", { action: "get_registry" });
+  await testEndpoint("DEPLOY300: Refinery Code Authority Router", "/api/refinery-code-authority-router", { action: "get_registry" });
   document.getElementById("runBtn").disabled = false;
   document.getElementById("runBtn").textContent = "Run Full System Check";
 }
