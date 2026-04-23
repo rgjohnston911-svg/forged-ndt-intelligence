@@ -61,7 +61,10 @@ var CRITICAL_TABLES = [
   { name: "cp_assessments", deploy: "DEPLOY284", critical: false },
   { name: "marine_growth_assessments", deploy: "DEPLOY285", critical: false },
   { name: "external_events", deploy: "DEPLOY286", critical: false },
-  { name: "subsea_assessments", deploy: "DEPLOY287", critical: false }
+  { name: "subsea_assessments", deploy: "DEPLOY287", critical: false },
+  { name: "stability_assessments", deploy: "DEPLOY289", critical: false },
+  { name: "vessel_motion_assessments", deploy: "DEPLOY290", critical: false },
+  { name: "vessel_assessments", deploy: "DEPLOY291", critical: false }
 ];
 var ENGINE_REGISTRY = [
   { name: "decision-spine", deploy: "DEPLOY220", mode: "deterministic", path: "/api/decision-spine" },
@@ -140,7 +143,11 @@ var ENGINE_REGISTRY = [
   { name: "cp-intelligence", deploy: "DEPLOY284", mode: "deterministic", path: "/api/cp-intelligence" },
   { name: "marine-growth-engine", deploy: "DEPLOY285", mode: "deterministic", path: "/api/marine-growth-engine" },
   { name: "external-interaction-engine", deploy: "DEPLOY286", mode: "deterministic", path: "/api/external-interaction-engine" },
-  { name: "subsea-structures-orchestrator", deploy: "DEPLOY287", mode: "deterministic", path: "/api/subsea-structures-orchestrator" }
+  { name: "subsea-structures-orchestrator", deploy: "DEPLOY287", mode: "deterministic", path: "/api/subsea-structures-orchestrator" },
+  { name: "vessel-class-registry", deploy: "DEPLOY288", mode: "deterministic", path: "/api/vessel-class-registry" },
+  { name: "stability-engine", deploy: "DEPLOY289", mode: "deterministic", path: "/api/stability-engine" },
+  { name: "vessel-motion-engine", deploy: "DEPLOY290", mode: "deterministic", path: "/api/vessel-motion-engine" },
+  { name: "marine-vessel-orchestrator", deploy: "DEPLOY291", mode: "deterministic", path: "/api/marine-vessel-orchestrator" }
 ];
 function countByMode(mode) {
   var c = 0;
@@ -160,58 +167,30 @@ export var handler: Handler = async function(event) {
     var errors = [];
     var warnings = [];
     var overallStatus = "healthy";
-    if (!supabaseUrl) {
-      errors.push({ code: "E020", detail: "SUPABASE_URL not set" });
-      overallStatus = "critical";
-    }
-    if (!supabaseKey) {
-      errors.push({ code: "E020", detail: "SUPABASE_SERVICE_ROLE_KEY not set" });
-      overallStatus = "critical";
-    }
+    if (!supabaseUrl) { errors.push({ code: "E020", detail: "SUPABASE_URL not set" }); overallStatus = "critical"; }
+    if (!supabaseKey) { errors.push({ code: "E020", detail: "SUPABASE_SERVICE_ROLE_KEY not set" }); overallStatus = "critical"; }
     if (overallStatus === "critical") {
-      return {
-        statusCode: 503,
-        headers: corsHeaders,
-        body: JSON.stringify({ status: "critical", system: SYSTEM_VERSION, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime })
-      };
+      return { statusCode: 503, headers: corsHeaders, body: JSON.stringify({ status: "critical", system: SYSTEM_VERSION, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime }) };
     }
     var sb = createClient(supabaseUrl, supabaseKey);
     var dbCheck = await sb.from("inspection_cases").select("id").limit(1);
-    if (dbCheck.error) {
-      errors.push({ code: "E001", detail: dbCheck.error.message });
-      overallStatus = "critical";
-    } else {
-      checks.push({ name: "database_connection", status: "pass", detail: "Supabase connected" });
-    }
+    if (dbCheck.error) { errors.push({ code: "E001", detail: dbCheck.error.message }); overallStatus = "critical"; }
+    else { checks.push({ name: "database_connection", status: "pass", detail: "Supabase connected" }); }
     if (quick) {
-      return {
-        statusCode: overallStatus === "critical" ? 503 : 200,
-        headers: corsHeaders,
-        body: JSON.stringify({ status: overallStatus, system: SYSTEM_VERSION, checks: checks, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime })
-      };
+      return { statusCode: overallStatus === "critical" ? 503 : 200, headers: corsHeaders, body: JSON.stringify({ status: overallStatus, system: SYSTEM_VERSION, checks: checks, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime }) };
     }
     for (var ti = 0; ti < CRITICAL_TABLES.length; ti++) {
       var tbl = CRITICAL_TABLES[ti];
       var tblCheck = await sb.from(tbl.name).select("*").limit(1);
       if (tblCheck.error) {
-        if (tbl.critical) {
-          errors.push({ code: "E002", table: tbl.name, deploy: tbl.deploy, detail: tblCheck.error.message });
-          if (overallStatus === "healthy") overallStatus = "degraded";
-        } else {
-          warnings.push({ code: "E002", table: tbl.name, deploy: tbl.deploy, detail: "Table not found - run " + tbl.deploy + " migration" });
-        }
-      } else {
-        checks.push({ name: "table_" + tbl.name, status: "pass", deploy: tbl.deploy });
-      }
+        if (tbl.critical) { errors.push({ code: "E002", table: tbl.name, deploy: tbl.deploy, detail: tblCheck.error.message }); if (overallStatus === "healthy") overallStatus = "degraded"; }
+        else { warnings.push({ code: "E002", table: tbl.name, deploy: tbl.deploy, detail: "Table not found - run " + tbl.deploy + " migration" }); }
+      } else { checks.push({ name: "table_" + tbl.name, status: "pass", deploy: tbl.deploy }); }
     }
     var keyCheck = await sb.from("org_signing_keys").select("id").eq("is_active", true).limit(1);
-    if (keyCheck.error || !keyCheck.data || keyCheck.data.length === 0) {
-      warnings.push({ code: "E010", detail: "No active signing key" });
-    } else {
-      checks.push({ name: "signing_key", status: "pass", detail: "Active key: " + keyCheck.data[0].id });
-    }
-    var caseCount = 0;
-    var recentCases = 0;
+    if (keyCheck.error || !keyCheck.data || keyCheck.data.length === 0) { warnings.push({ code: "E010", detail: "No active signing key" }); }
+    else { checks.push({ name: "signing_key", status: "pass", detail: "Active key: " + keyCheck.data[0].id }); }
+    var caseCount = 0; var recentCases = 0;
     var countCheck = await sb.from("inspection_cases").select("id", { count: "exact", head: true });
     caseCount = countCheck.count || 0;
     var sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -219,22 +198,7 @@ export var handler: Handler = async function(event) {
     recentCases = recentCheck.count || 0;
     if (errors.length > 0 && overallStatus !== "critical") overallStatus = "degraded";
     if (errors.length === 0 && warnings.length > 0) overallStatus = "healthy_with_warnings";
-    return {
-      statusCode: overallStatus === "critical" ? 503 : 200,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        status: overallStatus,
-        system: SYSTEM_VERSION,
-        build_date: BUILD_DATE,
-        checked_at: new Date().toISOString(),
-        response_ms: Date.now() - startTime,
-        database: { connected: true, total_cases: caseCount, cases_last_7_days: recentCases },
-        engines: { total: ENGINE_REGISTRY.length, deterministic: countByMode("deterministic"), ai_assisted: countByMode("ai_assisted"), hybrid: countByMode("hybrid"), registry: ENGINE_REGISTRY },
-        checks: checks,
-        errors: errors,
-        warnings: warnings
-      }, null, 2)
-    };
+    return { statusCode: overallStatus === "critical" ? 503 : 200, headers: corsHeaders, body: JSON.stringify({ status: overallStatus, system: SYSTEM_VERSION, build_date: BUILD_DATE, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime, database: { connected: true, total_cases: caseCount, cases_last_7_days: recentCases }, engines: { total: ENGINE_REGISTRY.length, deterministic: countByMode("deterministic"), ai_assisted: countByMode("ai_assisted"), hybrid: countByMode("hybrid"), registry: ENGINE_REGISTRY }, checks: checks, errors: errors, warnings: warnings }, null, 2) };
   } catch (err) {
     return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
   }
