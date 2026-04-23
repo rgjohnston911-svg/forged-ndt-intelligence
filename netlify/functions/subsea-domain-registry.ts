@@ -619,4 +619,76 @@ export var handler: Handler = async function(event) {
   if (event.httpMethod !== "POST") return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "POST only" }) };
 
   try {
-    var body
+    var body = JSON.parse(event.body || "{}");
+    var action = body.action || "get_registry";
+
+    if (action === "get_registry") {
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          engine: ENGINE_ID,
+          version: ENGINE_VERSION,
+          deploy: DEPLOY,
+          mode: "deterministic",
+          purpose: "Subsea Domain Registry + Zone Severity Engine — routing brain for all subsea intelligence",
+          asset_classes: Object.keys(ASSET_CLASSES).length,
+          zones: Object.keys(ZONES).length,
+          actions: [
+            "classify_asset — identify asset class, geometry, load role",
+            "evaluate_zone — determine zone and severity multipliers",
+            "get_inspection_constraints — zone-specific inspection limitations",
+            "get_failure_locations — typical failure locations for asset class",
+            "route_engines — determine which engines to fire",
+            "get_asset_registry — full asset class database",
+            "get_zone_registry — full zone database",
+            "get_registry — engine metadata"
+          ]
+        })
+      };
+    }
+
+    if (action === "classify_asset") {
+      var assetType = body.asset_type;
+      if (!assetType) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "asset_type required" }) };
+      var classification = classifyAsset(assetType, body.context || {});
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, result: classification }, null, 2) };
+    }
+
+    if (action === "evaluate_zone") {
+      var zone = body.zone;
+      if (!zone) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "zone required" }) };
+      var zoneResult = evaluateZone(zone, body.asset_type || null, body.context || null);
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, result: zoneResult }, null, 2) };
+    }
+
+    if (action === "route_engines") {
+      var routeResult = routeEngines(body.asset_type || "unknown", body.zone || "submerged", body.context || {});
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, result: routeResult }, null, 2) };
+    }
+
+    if (action === "get_asset_registry") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, asset_classes: ASSET_CLASSES }, null, 2) };
+    }
+
+    if (action === "get_zone_registry") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, zones: ZONES }, null, 2) };
+    }
+
+    if (action === "get_failure_locations") {
+      var flAssetType = body.asset_type;
+      if (!flAssetType || !ASSET_CLASSES[flAssetType]) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Valid asset_type required" }) };
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, asset_type: flAssetType, failure_locations: ASSET_CLASSES[flAssetType].typical_failure_locations }, null, 2) };
+    }
+
+    if (action === "get_inspection_constraints") {
+      var icAssetType = body.asset_type;
+      if (!icAssetType || !ASSET_CLASSES[icAssetType]) return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Valid asset_type required" }) };
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ engine: ENGINE_ID, version: ENGINE_VERSION, action: action, asset_type: icAssetType, inspection_constraints: ASSET_CLASSES[icAssetType].inspection_constraints }, null, 2) };
+    }
+
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Unknown action: " + action }) };
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
+  }
+};
