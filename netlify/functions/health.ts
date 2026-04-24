@@ -3,7 +3,7 @@
  * DEPLOY225 - health.ts
  * netlify/functions/health.ts
  *
- * PRODUCTION HEALTH CHECK — 90 ENGINES
+ * PRODUCTION HEALTH CHECK — 94 ENGINES
  *
  * POST /api/health {}         -> full health check
  * POST /api/health {quick:true} -> fast DB-only check
@@ -75,7 +75,13 @@ var CRITICAL_TABLES = [
   { name: "subsea_inspection_conditions", deploy: "DEPLOY297", critical: false },
   { name: "process_condition_assessments", deploy: "DEPLOY298", critical: false },
   { name: "refinery_mechanism_assessments", deploy: "DEPLOY299", critical: false },
-  { name: "refinery_code_authority_results", deploy: "DEPLOY300", critical: false }
+  { name: "refinery_code_authority_results", deploy: "DEPLOY300", critical: false },
+  { name: "formula_categories", deploy: "DEPLOY301", critical: false },
+  { name: "formula_registry", deploy: "DEPLOY301", critical: false },
+  { name: "formula_execution_runs", deploy: "DEPLOY301", critical: false },
+  { name: "formula_chains", deploy: "DEPLOY302", critical: false },
+  { name: "formula_chain_runs", deploy: "DEPLOY302", critical: false },
+  { name: "formula_decision_cards", deploy: "DEPLOY303", critical: false }
 ];
 var ENGINE_REGISTRY = [
   { name: "decision-spine", deploy: "DEPLOY220", mode: "deterministic", path: "/api/decision-spine" },
@@ -111,7 +117,7 @@ var ENGINE_REGISTRY = [
   { name: "nuclear-vertical", deploy: "DEPLOY238", mode: "deterministic", path: "/api/nuclear-vertical" },
   { name: "aerospace-vertical", deploy: "DEPLOY239", mode: "deterministic", path: "/api/aerospace-vertical" },
   { name: "power-generation", deploy: "DEPLOY240", mode: "deterministic", path: "/api/power-generation" },
-  { name: "maritime-offshore", deploy: "DEPLOY241", mode: "deterministic", path: "/api/maritime-offshore" },
+  { name: "maritime-offshore", deploy: "DEPLOY241", mode: "deterministic", path: "/api/maritime-offline" },
   { name: "civil-infrastructure", deploy: "DEPLOY242", mode: "deterministic", path: "/api/civil-infrastructure" },
   { name: "space-systems", deploy: "DEPLOY243", mode: "deterministic", path: "/api/space-systems" },
   { name: "robotics-automation", deploy: "DEPLOY244", mode: "deterministic", path: "/api/robotics-automation" },
@@ -167,7 +173,11 @@ var ENGINE_REGISTRY = [
   { name: "subsea-inspection-conditions", deploy: "DEPLOY297", mode: "deterministic", path: "/api/subsea-inspection-conditions" },
   { name: "process-condition-authority", deploy: "DEPLOY298", mode: "deterministic", path: "/api/process-condition-authority" },
   { name: "refinery-mechanism-authority", deploy: "DEPLOY299", mode: "deterministic", path: "/api/refinery-mechanism-authority" },
-  { name: "refinery-code-authority-router", deploy: "DEPLOY300", mode: "deterministic", path: "/api/refinery-code-authority-router" }
+  { name: "refinery-code-authority-router", deploy: "DEPLOY300", mode: "deterministic", path: "/api/refinery-code-authority-router" },
+  { name: "formula-intelligence-core", deploy: "DEPLOY301", mode: "deterministic", path: "/api/formula-intelligence-core" },
+  { name: "formula-chain-executor", deploy: "DEPLOY302", mode: "deterministic", path: "/api/formula-chain-executor" },
+  { name: "formula-decision-authority", deploy: "DEPLOY303", mode: "deterministic", path: "/api/formula-decision-authority" },
+  { name: "multi-physics-4d-projection", deploy: "DEPLOY304", mode: "deterministic", path: "/api/multi-physics-4d-projection" }
 ];
 function countByMode(mode) {
   var c = 0;
