@@ -3,7 +3,7 @@
  * DEPLOY225 - health.ts
  * netlify/functions/health.ts
  *
- * PRODUCTION HEALTH CHECK — 100 ENGINES
+ * PRODUCTION HEALTH CHECK — 101 ENGINES
  *
  * POST /api/health {}         -> full health check
  * POST /api/health {quick:true} -> fast DB-only check
@@ -93,7 +93,8 @@ var CRITICAL_TABLES = [
   { name: "spatial_field_maps", deploy: "DEPLOY305", critical: false },
   { name: "optimization_runs", deploy: "DEPLOY305", critical: false },
   { name: "causal_models", deploy: "DEPLOY305", critical: false },
-  { name: "advanced_decision_cards", deploy: "DEPLOY305", critical: false }
+  { name: "advanced_decision_cards", deploy: "DEPLOY305", critical: false },
+  { name: "apmm_orchestrator_runs", deploy: "DEPLOY311", critical: false }
 ];
 var ENGINE_REGISTRY = [
   { name: "decision-spine", deploy: "DEPLOY220", mode: "deterministic", path: "/api/decision-spine" },
@@ -195,7 +196,8 @@ var ENGINE_REGISTRY = [
   { name: "advanced-transport-engine", deploy: "DEPLOY307", mode: "deterministic", path: "/api/advanced-transport-engine" },
   { name: "advanced-spatial-graph-engine", deploy: "DEPLOY308", mode: "deterministic", path: "/api/advanced-spatial-graph-engine" },
   { name: "advanced-decision-engine", deploy: "DEPLOY309", mode: "deterministic", path: "/api/advanced-decision-engine" },
-  { name: "advanced-physics-arbiter", deploy: "DEPLOY310", mode: "deterministic", path: "/api/advanced-physics-arbiter" }
+  { name: "advanced-physics-arbiter", deploy: "DEPLOY310", mode: "deterministic", path: "/api/advanced-physics-arbiter" },
+  { name: "apmm-orchestrator", deploy: "DEPLOY311", mode: "deterministic", path: "/api/apmm-orchestrator" }
 ];
 function countByMode(mode) {
   var c = 0;
