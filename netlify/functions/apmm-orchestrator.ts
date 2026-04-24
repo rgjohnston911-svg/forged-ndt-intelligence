@@ -11,6 +11,8 @@
  * internal HTTP calls to the 6 APMM functions, and feeds all results
  * through the Master Physics Arbiter (240) for consensus.
  *
+ * DEPLOY312 UPDATE: Added power_generation context type and engines 240-245.
+ *
  * Actions:
  *   run_orchestration - full auto-select and run
  *   get_engine_map    - returns context-to-engine mapping
@@ -25,7 +27,7 @@ import { createClient } from "@supabase/supabase-js";
 var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 var ENGINE_ID = "apmm-orchestrator";
-var ENGINE_VERSION = "1.0.0";
+var ENGINE_VERSION = "1.1.0";
 var DEPLOY = "DEPLOY311";
 var corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Allow-Methods": "POST, OPTIONS", "Content-Type": "application/json" };
 
@@ -183,9 +185,27 @@ var CONTEXT_ENGINE_MAP = {
       "safety_claim": [239]
     }
   },
+  "power_generation": {
+    description: "Power generation — boilers, HRSGs, turbines, steam piping, feedwater, condensate systems",
+    always: [201, 211, 216, 225, 235, 240, 241, 244, 245],
+    if_available: {
+      "stress_data": [210, 229],
+      "vibration_data": [232, 221, 243],
+      "thermal_data": [244],
+      "inspection_history": [212, 213],
+      "sensor_data": [214, 221],
+      "cost_data": [205, 237],
+      "code_limits": [236],
+      "fac_data": [242],
+      "turbine_data": [243],
+      "cycle_data": [241],
+      "creep_data": [240],
+      "graph_data": [203]
+    }
+  },
   "full_physics": {
     description: "Full physics sweep — run all available engines",
-    always: [201, 202, 204, 205, 206, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239],
+    always: [201, 202, 204, 205, 206, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245],
     if_available: {}
   }
 };
@@ -233,7 +253,13 @@ var ENGINE_HOST = {
   234: "advanced-decision-engine",
   236: "advanced-decision-engine",
   237: "advanced-decision-engine",
-  239: "advanced-decision-engine"
+  239: "advanced-decision-engine",
+  240: "apmm-power-gen-engines",
+  241: "apmm-power-gen-engines",
+  242: "apmm-power-gen-engines",
+  243: "apmm-power-gen-engines",
+  244: "apmm-power-gen-engines",
+  245: "apmm-power-gen-engines"
 };
 
 // ============================================================
@@ -416,7 +442,7 @@ export var handler: Handler = async function(event) {
         mode: "deterministic",
         purpose: "APMM Orchestrator — intelligent routing layer that selects relevant sub-engines based on context, runs them, and feeds results through the Master Physics Arbiter for consensus",
         available_contexts: Object.keys(CONTEXT_ENGINE_MAP),
-        total_sub_engines: 40,
+        total_sub_engines: 46,
         actions: ["run_orchestration", "get_engine_map", "get_registry"]
       }) };
     }
