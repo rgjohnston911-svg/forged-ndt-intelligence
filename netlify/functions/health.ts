@@ -3,7 +3,7 @@
  * DEPLOY225 - health.ts
  * netlify/functions/health.ts
  *
- * PRODUCTION HEALTH CHECK — 94 ENGINES
+ * PRODUCTION HEALTH CHECK — 100 ENGINES
  *
  * POST /api/health {}         -> full health check
  * POST /api/health {quick:true} -> fast DB-only check
@@ -81,7 +81,19 @@ var CRITICAL_TABLES = [
   { name: "formula_execution_runs", deploy: "DEPLOY301", critical: false },
   { name: "formula_chains", deploy: "DEPLOY302", critical: false },
   { name: "formula_chain_runs", deploy: "DEPLOY302", critical: false },
-  { name: "formula_decision_cards", deploy: "DEPLOY303", critical: false }
+  { name: "formula_decision_cards", deploy: "DEPLOY303", critical: false },
+  { name: "advanced_math_engine_registry", deploy: "DEPLOY305", critical: false },
+  { name: "advanced_math_engine_runs", deploy: "DEPLOY305", critical: false },
+  { name: "evidence_items", deploy: "DEPLOY305", critical: false },
+  { name: "mechanism_beliefs", deploy: "DEPLOY305", critical: false },
+  { name: "system_graph_nodes", deploy: "DEPLOY305", critical: false },
+  { name: "system_graph_edges", deploy: "DEPLOY305", critical: false },
+  { name: "digital_twin_state_vectors", deploy: "DEPLOY305", critical: false },
+  { name: "digital_twin_predictions", deploy: "DEPLOY305", critical: false },
+  { name: "spatial_field_maps", deploy: "DEPLOY305", critical: false },
+  { name: "optimization_runs", deploy: "DEPLOY305", critical: false },
+  { name: "causal_models", deploy: "DEPLOY305", critical: false },
+  { name: "advanced_decision_cards", deploy: "DEPLOY305", critical: false }
 ];
 var ENGINE_REGISTRY = [
   { name: "decision-spine", deploy: "DEPLOY220", mode: "deterministic", path: "/api/decision-spine" },
@@ -117,7 +129,7 @@ var ENGINE_REGISTRY = [
   { name: "nuclear-vertical", deploy: "DEPLOY238", mode: "deterministic", path: "/api/nuclear-vertical" },
   { name: "aerospace-vertical", deploy: "DEPLOY239", mode: "deterministic", path: "/api/aerospace-vertical" },
   { name: "power-generation", deploy: "DEPLOY240", mode: "deterministic", path: "/api/power-generation" },
-  { name: "maritime-offshore", deploy: "DEPLOY241", mode: "deterministic", path: "/api/maritime-offline" },
+  { name: "maritime-offshore", deploy: "DEPLOY241", mode: "deterministic", path: "/api/maritime-offshore" },
   { name: "civil-infrastructure", deploy: "DEPLOY242", mode: "deterministic", path: "/api/civil-infrastructure" },
   { name: "space-systems", deploy: "DEPLOY243", mode: "deterministic", path: "/api/space-systems" },
   { name: "robotics-automation", deploy: "DEPLOY244", mode: "deterministic", path: "/api/robotics-automation" },
@@ -177,7 +189,13 @@ var ENGINE_REGISTRY = [
   { name: "formula-intelligence-core", deploy: "DEPLOY301", mode: "deterministic", path: "/api/formula-intelligence-core" },
   { name: "formula-chain-executor", deploy: "DEPLOY302", mode: "deterministic", path: "/api/formula-chain-executor" },
   { name: "formula-decision-authority", deploy: "DEPLOY303", mode: "deterministic", path: "/api/formula-decision-authority" },
-  { name: "multi-physics-4d-projection", deploy: "DEPLOY304", mode: "deterministic", path: "/api/multi-physics-4d-projection" }
+  { name: "multi-physics-4d-projection", deploy: "DEPLOY304", mode: "deterministic", path: "/api/multi-physics-4d-projection" },
+  { name: "advanced-probability-engine", deploy: "DEPLOY305", mode: "deterministic", path: "/api/advanced-probability-engine" },
+  { name: "advanced-structural-engine", deploy: "DEPLOY306", mode: "deterministic", path: "/api/advanced-structural-engine" },
+  { name: "advanced-transport-engine", deploy: "DEPLOY307", mode: "deterministic", path: "/api/advanced-transport-engine" },
+  { name: "advanced-spatial-graph-engine", deploy: "DEPLOY308", mode: "deterministic", path: "/api/advanced-spatial-graph-engine" },
+  { name: "advanced-decision-engine", deploy: "DEPLOY309", mode: "deterministic", path: "/api/advanced-decision-engine" },
+  { name: "advanced-physics-arbiter", deploy: "DEPLOY310", mode: "deterministic", path: "/api/advanced-physics-arbiter" }
 ];
 function countByMode(mode) {
   var c = 0;
