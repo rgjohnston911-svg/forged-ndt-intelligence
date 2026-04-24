@@ -3,7 +3,7 @@
  * DEPLOY225 - health.ts
  * netlify/functions/health.ts
  *
- * PRODUCTION HEALTH CHECK — 102 ENGINES
+ * PRODUCTION HEALTH CHECK — 104 ENGINES
  *
  * POST /api/health {}         -> full health check
  * POST /api/health {quick:true} -> fast DB-only check
@@ -15,7 +15,7 @@ import { createClient } from "@supabase/supabase-js";
 var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 var SYSTEM_VERSION = "FORGED-NDT/2.0.0";
-var BUILD_DATE = "2026-04-23";
+var BUILD_DATE = "2026-04-24";
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
@@ -96,7 +96,11 @@ var CRITICAL_TABLES = [
   { name: "advanced_decision_cards", deploy: "DEPLOY305", critical: false },
   { name: "apmm_orchestrator_runs", deploy: "DEPLOY311", critical: false },
   { name: "engine_assumption_contracts", deploy: "DEPLOY279", critical: false },
-  { name: "contract_validation_results", deploy: "DEPLOY279", critical: false }
+  { name: "contract_validation_results", deploy: "DEPLOY279", critical: false },
+  { name: "pg_damage_mechanisms", deploy: "DEPLOY312", critical: false },
+  { name: "pg_operating_events", deploy: "DEPLOY312", critical: false },
+  { name: "pg_measurements", deploy: "DEPLOY312", critical: false },
+  { name: "pg_case_decisions", deploy: "DEPLOY312", critical: false }
 ];
 var ENGINE_REGISTRY = [
   { name: "decision-spine", deploy: "DEPLOY220", mode: "deterministic", path: "/api/decision-spine" },
@@ -200,7 +204,9 @@ var ENGINE_REGISTRY = [
   { name: "advanced-decision-engine", deploy: "DEPLOY309", mode: "deterministic", path: "/api/advanced-decision-engine" },
   { name: "advanced-physics-arbiter", deploy: "DEPLOY310", mode: "deterministic", path: "/api/advanced-physics-arbiter" },
   { name: "apmm-orchestrator", deploy: "DEPLOY311", mode: "deterministic", path: "/api/apmm-orchestrator" },
-  { name: "engine-assumption-contracts", deploy: "DEPLOY279", mode: "deterministic", path: "/api/engine-assumption-contracts" }
+  { name: "engine-assumption-contracts", deploy: "DEPLOY279", mode: "deterministic", path: "/api/engine-assumption-contracts" },
+  { name: "power-generation-authority", deploy: "DEPLOY312", mode: "deterministic", path: "/api/power-generation-authority" },
+  { name: "apmm-power-gen-engines", deploy: "DEPLOY312", mode: "deterministic", path: "/api/apmm-power-gen-engines" }
 ];
 function countByMode(mode) {
   var c = 0;
