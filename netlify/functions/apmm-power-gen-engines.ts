@@ -322,4 +322,165 @@ function runBoilerTubeDamage(input) {
   if (missing.length > 0) return holdResult(245, "BOILER_TUBE_DAMAGE", missing);
 
   var temp = input.temperature || input.operating_temperature || 0;
-  var location = (input.location || input.tube_bank || "").toLowerCase
+  var location = (input.location || input.tube_bank || "").toLowerCase();
+  var fuel = (input.fuel_type || "").toLowerCase();
+  var hasChemistry = !!(input.ph || input.dissolved_oxygen);
+  var wastageType = (input.wastage_type || "").toLowerCase();
+  var failureMode = (input.failure_mode || "").toLowerCase();
+
+  var mechanisms = [];
+  var primaryMechanism = "UNKNOWN";
+  var confidence = 0.3;
+
+  // High-temp zone + long service = creep
+  if (temp > 500 && (location.indexOf("superheat") !== -1 || location.indexOf("reheat") !== -1)) {
+    mechanisms.push({ mechanism: "CREEP", probability: 0.4 });
+  }
+
+  // Waterside wastage patterns
+  if (wastageType.indexOf("goug") !== -1 || wastageType.indexOf("caustic") !== -1) {
+    mechanisms.push({ mechanism: "CAUSTIC_GOUGING", probability: 0.6 });
+  }
+  if (wastageType.indexOf("pit") !== -1 || wastageType.indexOf("oxygen") !== -1) {
+    mechanisms.push({ mechanism: "OXYGEN_PITTING", probability: 0.55 });
+  }
+  if (wastageType.indexOf("under") !== -1 || wastageType.indexOf("deposit") !== -1) {
+    mechanisms.push({ mechanism: "UNDER_DEPOSIT_CORROSION", probability: 0.5 });
+  }
+
+  // Fireside
+  if (wastageType.indexOf("external") !== -1 || wastageType.indexOf("fireside") !== -1 ||
+      fuel === "coal" || fuel === "biomass") {
+    mechanisms.push({ mechanism: "FIRESIDE_CORROSION", probability: 0.45 });
+  }
+
+  // Hydrogen damage
+  if (wastageType.indexOf("hydrogen") !== -1 || wastageType.indexOf("fissur") !== -1 ||
+      failureMode.indexOf("window") !== -1) {
+    mechanisms.push({ mechanism: "HYDROGEN_DAMAGE", probability: 0.5 });
+  }
+
+  // Overheating
+  if (failureMode.indexOf("rupture") !== -1 || failureMode.indexOf("fish") !== -1 ||
+      failureMode.indexOf("bulge") !== -1) {
+    if (temp > 550) {
+      mechanisms.push({ mechanism: "LONG_TERM_OVERHEATING", probability: 0.5 });
+    } else {
+      mechanisms.push({ mechanism: "SHORT_TERM_OVERHEATING", probability: 0.4 });
+    }
+  }
+
+  // FAC in economizer
+  if (location.indexOf("econom") !== -1 && temp >= 100 && temp <= 250) {
+    mechanisms.push({ mechanism: "FAC", probability: 0.4 });
+  }
+
+  // Sort by probability
+  mechanisms.sort(function(a, b) { return b.probability - a.probability; });
+
+  if (mechanisms.length > 0) {
+    primaryMechanism = mechanisms[0].mechanism;
+    confidence = mechanisms[0].probability;
+  }
+
+  var severity = "low";
+  if (primaryMechanism === "HYDROGEN_DAMAGE" || primaryMechanism === "SHORT_TERM_OVERHEATING") severity = "critical";
+  else if (confidence > 0.5) severity = "high";
+  else if (confidence > 0.3) severity = "medium";
+
+  return buildResult(245, "BOILER_TUBE_DAMAGE",
+    { primary_mechanism: primaryMechanism, all_mechanisms: mechanisms,
+      mechanism_count: mechanisms.length,
+      location: location, temperature: temp },
+    "Primary mechanism: " + primaryMechanism + " (" + (Math.round(confidence * 100)) + "% confidence)" +
+      " | " + mechanisms.length + " candidate(s)",
+    confidence, severity, {}
+  );
+}
+
+// ================================================================
+// ENGINE MAP
+// ================================================================
+var ENGINE_MAP = {
+  "240": runCreepLife,
+  "241": runPowerFatigueCycle,
+  "242": runFACRate,
+  "243": runTurbineRisk,
+  "244": runThermalStressScreen,
+  "245": runBoilerTubeDamage,
+  "CREEP_LIFE": runCreepLife,
+  "POWER_FATIGUE_CYCLE": runPowerFatigueCycle,
+  "FAC_RATE": runFACRate,
+  "TURBINE_RISK": runTurbineRisk,
+  "THERMAL_STRESS_SCREEN": runThermalStressScreen,
+  "BOILER_TUBE_DAMAGE": runBoilerTubeDamage
+};
+
+// ================================================================
+// HANDLER
+// ================================================================
+export var handler: Handler = async function(event) {
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 204, headers: { "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "POST, OPTIONS" }, body: "" };
+  }
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: JSON.stringify({ error: "POST only" }) };
+  }
+
+  try {
+    var body = JSON.parse(event.body || "{}");
+    var action = body.action || "";
+
+    // Health check
+    if (action === "health") {
+      return {
+        statusCode: 200,
+        headers: { "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify({
+          status: "operational",
+          engine_version: ENGINE_VERSION,
+          engines: [
+            { number: 240, code: "CREEP_LIFE", name: "Larson-Miller Creep Life" },
+            { number: 241, code: "POWER_FATIGUE_CYCLE", name: "Power Fatigue Cycle Calculator" },
+            { number: 242, code: "FAC_RATE", name: "FAC Thinning Rate" },
+            { number: 243, code: "TURBINE_RISK", name: "Turbine Risk Scoring" },
+            { number: 244, code: "THERMAL_STRESS_SCREEN", name: "Thermal Stress Screening" },
+            { number: 245, code: "BOILER_TUBE_DAMAGE", name: "Boiler Tube Damage Classification" }
+          ],
+          timestamp: new Date().toISOString()
+        })
+      };
+    }
+
+    // Route to engine by number or code
+    var engineKey = body.engine || body.engine_number || body.engine_code || action;
+    var engineFn = ENGINE_MAP[String(engineKey)];
+
+    if (!engineFn) {
+      return {
+        statusCode: 200,
+        headers: { "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify({
+          error: "Unknown engine: " + engineKey,
+          available: ["240/CREEP_LIFE", "241/POWER_FATIGUE_CYCLE", "242/FAC_RATE",
+            "243/TURBINE_RISK", "244/THERMAL_STRESS_SCREEN", "245/BOILER_TUBE_DAMAGE"]
+        })
+      };
+    }
+
+    var result = engineFn(body);
+    return {
+      statusCode: 200,
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify(result)
+    };
+
+  } catch (err) {
+    return {
+      statusCode: 200,
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ error: String(err && err.message ? err.message : err) })
+    };
+  }
+};
