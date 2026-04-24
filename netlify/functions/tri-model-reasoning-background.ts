@@ -5,8 +5,9 @@
  *
  * BACKGROUND FUNCTION — 15 minute timeout (Netlify Pro)
  *
- * This runs the full Superbrain v6 Integrated Engine pipeline:
- *   Code Authority Pre-flight (DEPLOY270) -> Domain Enrichment (DEPLOY267/268)
+ * This runs the full Superbrain v6.2 Integrated Engine pipeline:
+ *   Code Authority Pre-flight (DEPLOY270) -> Domain Enrichment (DEPLOY267/268/272)
+ *   -> APMM Physics Orchestration (DEPLOY311) -> Contract Validation (DEPLOY279)
  *   -> Model A (GPT-4o) -> Model B (Claude) -> Cascade Analysis (DEPLOY269)
  *   -> Model C (GPT-4o) -> Resolution (Claude) -> Inspection Planning (DEPLOY266)
  *
@@ -19,26 +20,20 @@
  *
  * CRITICAL: var only. String concatenation only. No backticks.
  */
-
 import type { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-
 var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 var openaiKey = process.env.OPENAI_API_KEY || "";
 var anthropicKey = process.env.ANTHROPIC_API_KEY || "";
-
-var ENGINE_VERSION = "tri-model-reasoning/6.1.0";
-
+var ENGINE_VERSION = "tri-model-reasoning/6.2.0";
 var siteUrl = process.env.URL || process.env.DEPLOY_URL || "https://4dndt.netlify.app";
-
 // ================================================================
 // IMPORT PROMPTS — same prompts as the main file
 // We duplicate the prompt references here because Netlify functions
 // are independent serverless units. Each must be self-contained.
 // The prompts are defined in tri-model-reasoning.ts and duplicated here.
 // ================================================================
-
 // MODEL A — Physics + Proof Chain Engine (GPT-4o)
 var MODEL_A_PROMPT = "You are MODEL A — the Physics and Proof Chain Engine for the FORGED NDT Superbrain v5."
   + "\n\nYou are not a lookup tool. You are a physics reasoning engine AND a proof construction engine."
@@ -100,7 +95,6 @@ var MODEL_A_PROMPT = "You are MODEL A — the Physics and Proof Chain Engine for
   + "\nReturn ONLY valid JSON with: reality_topology, claim_graph, component_proof_chains,"
   + "\n derived_calculations, method_observability_proofs, mechanisms, degradation_paths,"
   + "\n inverse_reasoning, absence_analysis, sensory_fusion, evidence_quality, physics_confidence";
-
 // MODEL B — Engineering + Standards + Assumptions (Claude)
 var MODEL_B_PROMPT = "You are MODEL B — the Engineering, Standards Authority, and Assumption Engine for the FORGED NDT Superbrain v5."
   + "\n\nYou receive physics analysis from Model A including claim graphs, component proof chains,"
@@ -133,7 +127,6 @@ var MODEL_B_PROMPT = "You are MODEL B — the Engineering, Standards Authority, 
   + "\n failure_modes, consequence_level, unknown_constraints, casualty_topology, temporal_scenarios,"
   + "\n failure_boundaries, hard_decision_boundaries, constraint_dominance, burden_of_proof,"
   + "\n authority_updates, applicable_codes, repair_paths, required_actions, code_confidence";
-
 // MODEL C — Adversarial + Proof Attack (GPT-4o)
 var MODEL_C_PROMPT = "You are MODEL C — the Adversarial and Proof Attack Engine for the FORGED NDT Superbrain v5."
   + "\n\nYour SOLE PURPOSE is to ATTACK proof chains from Model A and Model B."
@@ -165,7 +158,6 @@ var MODEL_C_PROMPT = "You are MODEL C — the Adversarial and Proof Attack Engin
   + "\n assumptions, disconfirming_paths, hypotheses, repair_credibility_attack,"
   + "\n contradictions, phantom_scenarios, evidence_decay_flags, consensus_fragility,"
   + "\n fragility_reasoning, hallucination_flags, missing_inputs, challenge_questions, adversarial_confidence";
-
 // RESOLUTION — Decision Proof + Governance Lock v3 (Claude)
 var RESOLUTION_PROMPT = "You are the RESOLUTION ENGINE for the FORGED NDT Superbrain v5."
   + "\n\nABSOLUTE DECISION DOMINANCE MODE with PROOF AUTHORITY."
@@ -207,7 +199,6 @@ var RESOLUTION_PROMPT = "You are the RESOLUTION ENGINE for the FORGED NDT Superb
   + "\n escalation_triggers, constraint_dominance, required_actions, code_references,"
   + "\n decision_proof, regulatory_defensibility, governance_lock,"
   + "\n uncertainty_operational_behavior, final_status, severity, final_line";
-
 // ================================================================
 // API CALL HELPERS
 // ================================================================
@@ -230,7 +221,6 @@ function callOpenAI(systemPrompt, userMessage) {
     })
   }).then(function(r) { return r.json(); });
 }
-
 function callClaude(systemPrompt, userMessage) {
   return fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -250,7 +240,6 @@ function callClaude(systemPrompt, userMessage) {
     })
   }).then(function(r) { return r.json(); });
 }
-
 // ================================================================
 // INTERNAL ENGINE CALL HELPER
 // Calls DEPLOY266-270 engines via internal HTTP
@@ -264,14 +253,12 @@ function callEngine(enginePath, payload) {
     return { engine_call_error: String(err), engine: enginePath };
   });
 }
-
 // ================================================================
 // DOMAIN DETECTION — determines which engines to activate
 // ================================================================
 function detectDomains(caseContext) {
   var ctx = (caseContext || "").toLowerCase();
   var domains = { corrosion: false, fatigue: false, vibration: false, multi_asset: false, weld: false };
-
   // Corrosion keywords
   var corrWords = ["corrosion", "corroded", "rust", "pitting", "wall loss", "thinning",
     "cui", "cuf", "co2", "h2s", "mic", "erosion", "galvanic", "fac", "splash zone",
@@ -279,21 +266,18 @@ function detectDomains(caseContext) {
   for (var ci = 0; ci < corrWords.length; ci++) {
     if (ctx.indexOf(corrWords[ci]) !== -1) { domains.corrosion = true; break; }
   }
-
   // Fatigue keywords
   var fatWords = ["fatigue", "crack", "fracture", "cyclic", "s-n curve", "miner",
     "weld toe", "stress range", "notch", "haz crack", "propagation", "growth rate"];
   for (var fi = 0; fi < fatWords.length; fi++) {
     if (ctx.indexOf(fatWords[fi]) !== -1) { domains.fatigue = true; break; }
   }
-
   // Vibration keywords
   var vibWords = ["vibration", "viv", "vortex", "resonance", "natural frequency",
     "oscillation", "amplitude", "velocity rms", "displacement"];
   for (var vi = 0; vi < vibWords.length; vi++) {
     if (ctx.indexOf(vibWords[vi]) !== -1) { domains.vibration = true; break; }
   }
-
   // Multi-asset keywords
   var maWords = ["adjacent", "cascade", "propagat", "connected", "downstream",
     "upstream", "common cause", "blast", "fire", "dropped object", "platform",
@@ -301,7 +285,6 @@ function detectDomains(caseContext) {
   for (var mi = 0; mi < maWords.length; mi++) {
     if (ctx.indexOf(maWords[mi]) !== -1) { domains.multi_asset = true; break; }
   }
-
   // Weld keywords (DEPLOY272)
   var weldWords = ["weld", "welding", "welder", "fillet", "butt weld", "groove weld",
     "smaw", "gmaw", "gtaw", "fcaw", "saw", "tig", "mig", "stick weld",
@@ -316,10 +299,98 @@ function detectDomains(caseContext) {
   for (var wi = 0; wi < weldWords.length; wi++) {
     if (ctx.indexOf(weldWords[wi]) !== -1) { domains.weld = true; break; }
   }
-
   return domains;
 }
-
+// ================================================================
+// MAP DETECTED DOMAINS TO APMM CONTEXT TYPE
+// ================================================================
+function mapDomainsToAPMMContext(domains) {
+  // Count how many domains are active
+  var count = 0;
+  if (domains.corrosion) count++;
+  if (domains.fatigue) count++;
+  if (domains.vibration) count++;
+  if (domains.weld) count++;
+  if (domains.multi_asset) count++;
+  // If 3+ domains, run full physics sweep
+  if (count >= 3) return "full_physics";
+  // Single-domain mapping
+  if (count === 0) return "decision_support";
+  if (domains.corrosion && count === 1) return "corrosion";
+  if (domains.fatigue && count === 1) return "fatigue";
+  if (domains.vibration && count === 1) return "rotating_equipment";
+  if (domains.weld && count === 1) return "structural";
+  if (domains.multi_asset && count === 1) return "structural";
+  // Two-domain combos
+  if (domains.corrosion && domains.fatigue) return "process_piping";
+  if (domains.corrosion && domains.weld) return "process_piping";
+  if (domains.corrosion && domains.multi_asset) return "subsea";
+  if (domains.fatigue && domains.vibration) return "rotating_equipment";
+  if (domains.fatigue && domains.weld) return "structural";
+  if (domains.weld && domains.multi_asset) return "structural";
+  // Fallback
+  return "decision_support";
+}
+// ================================================================
+// BUILD AVAILABLE DATA MAP FOR APMM ORCHESTRATOR
+// ================================================================
+function buildAvailableData(caseContext, domains, engineEnrichment) {
+  var available = {};
+  var ctx = (caseContext || "").toLowerCase();
+  // Check for stress/load data
+  if (ctx.indexOf("stress") !== -1 || ctx.indexOf("load") !== -1 || ctx.indexOf("pressure") !== -1 || ctx.indexOf("force") !== -1) {
+    available.stress_data = true;
+  }
+  // Check for thermal data
+  if (ctx.indexOf("temperature") !== -1 || ctx.indexOf("thermal") !== -1 || ctx.indexOf("heat") !== -1 || ctx.indexOf("cryogenic") !== -1) {
+    available.thermal_data = true;
+  }
+  // Check for coating data
+  if (ctx.indexOf("coating") !== -1 || ctx.indexOf("paint") !== -1 || ctx.indexOf("lining") !== -1 || ctx.indexOf("wrap") !== -1) {
+    available.coating_data = true;
+  }
+  // Check for CP data
+  if (ctx.indexOf("cathodic") !== -1 || ctx.indexOf("cp ") !== -1 || ctx.indexOf("anode") !== -1 || ctx.indexOf("potential") !== -1) {
+    available.cp_data = true;
+  }
+  // Check for spatial data
+  if (ctx.indexOf("location") !== -1 || ctx.indexOf("coordinate") !== -1 || ctx.indexOf("grid") !== -1 || ctx.indexOf("tml") !== -1) {
+    available.spatial_data = true;
+  }
+  // Check for inspection history
+  if (ctx.indexOf("previous inspection") !== -1 || ctx.indexOf("last inspected") !== -1 || ctx.indexOf("history") !== -1 || ctx.indexOf("prior") !== -1) {
+    available.inspection_history = true;
+  }
+  // Check for sensor data
+  if (ctx.indexOf("sensor") !== -1 || ctx.indexOf("monitor") !== -1 || ctx.indexOf("continuous") !== -1 || ctx.indexOf("online") !== -1) {
+    available.sensor_data = true;
+  }
+  // Check for cost data
+  if (ctx.indexOf("cost") !== -1 || ctx.indexOf("budget") !== -1 || ctx.indexOf("economic") !== -1 || ctx.indexOf("npv") !== -1) {
+    available.cost_data = true;
+  }
+  // Check for code limits
+  if (ctx.indexOf("code") !== -1 || ctx.indexOf("standard") !== -1 || ctx.indexOf("limit") !== -1 || ctx.indexOf("allowable") !== -1) {
+    available.code_limits = true;
+  }
+  // Check for graph/topology data
+  if (domains.multi_asset || ctx.indexOf("graph") !== -1 || ctx.indexOf("topology") !== -1 || ctx.indexOf("network") !== -1) {
+    available.graph_data = true;
+  }
+  // Check for vibration data
+  if (domains.vibration || ctx.indexOf("vibration") !== -1 || ctx.indexOf("frequency") !== -1) {
+    available.vibration_data = true;
+  }
+  // Check for composite data
+  if (ctx.indexOf("composite") !== -1 || ctx.indexOf("frp") !== -1 || ctx.indexOf("grp") !== -1 || ctx.indexOf("laminate") !== -1) {
+    available.composite_data = true;
+  }
+  // Check for human factors
+  if (ctx.indexOf("human") !== -1 || ctx.indexOf("operator") !== -1 || ctx.indexOf("crew") !== -1 || ctx.indexOf("personnel") !== -1) {
+    available.human_factors = true;
+  }
+  return available;
+}
 // ================================================================
 // EXTRACT CODE REFERENCES FROM CASE CONTEXT
 // ================================================================
@@ -360,7 +431,6 @@ function extractCodeReferences(caseContext) {
   }
   return refs;
 }
-
 function parseAIResponse(resp, provider) {
   try {
     if (provider === "openai") {
@@ -376,7 +446,6 @@ function parseAIResponse(resp, provider) {
     return { parse_error: String(e), raw: resp };
   }
 }
-
 // ================================================================
 // BUILD CASE CONTEXT
 // ================================================================
@@ -433,7 +502,6 @@ function buildCaseContext(caseRow, findings, thickness, evidence) {
   }
   return parts.join("\n");
 }
-
 // ================================================================
 // BUILD DIRECT INPUT CONTEXT
 // ================================================================
@@ -495,7 +563,6 @@ function buildDirectContext(input) {
   }
   return parts.join("\n");
 }
-
 // ================================================================
 // BACKGROUND HANDLER — FULL PIPELINE (15 minute timeout)
 // ================================================================
@@ -507,23 +574,18 @@ export var handler: Handler = async function(event) {
     var action = body.action || "";
     var directInput = body.input || null;
     var startTime = Date.now();
-
     if (!sessionId) return { statusCode: 400, body: JSON.stringify({ error: "session_id required" }) };
     if (!supabaseUrl || !supabaseKey) return { statusCode: 500, body: JSON.stringify({ error: "SUPABASE not configured" }) };
     if (!openaiKey) return { statusCode: 500, body: JSON.stringify({ error: "OPENAI_API_KEY not configured" }) };
     if (!anthropicKey) return { statusCode: 500, body: JSON.stringify({ error: "ANTHROPIC_API_KEY not configured" }) };
-
     var sb = createClient(supabaseUrl, supabaseKey);
-
     // Helper to update session status
     function updateSession(fields) {
       fields.updated_at = new Date().toISOString();
       return sb.from("reasoning_sessions").update(fields).eq("id", sessionId);
     }
-
     // Build context
     var caseContext = "";
-
     if (caseId) {
       await updateSession({ pipeline_step: "loading_case" });
       var caseRes = await sb.from("inspection_cases").select("*").eq("id", caseId).single();
@@ -541,13 +603,11 @@ export var handler: Handler = async function(event) {
       await updateSession({ pipeline_status: "error", pipeline_error: "No case_id or input provided" });
       return { statusCode: 200, body: JSON.stringify({ error: "No input" }) };
     }
-
     // ================================================================
     // STEP 0A: LIVE CODE AUTHORITY PRE-FLIGHT (DEPLOY270)
     // Validate all standards references before any model runs
     // ================================================================
     await updateSession({ pipeline_step: "code_authority_preflight" });
-
     var engineEnrichment = {
       code_authority: null,
       corrosion_loop: null,
@@ -555,9 +615,10 @@ export var handler: Handler = async function(event) {
       vibration_assessment: null,
       weld_acceptance: null,
       cascade_analysis: null,
-      inspection_plan: null
+      inspection_plan: null,
+      apmm_orchestration: null,
+      contract_validation: null
     };
-
     var codeRefs = extractCodeReferences(caseContext);
     if (codeRefs.length > 0) {
       try {
@@ -586,15 +647,12 @@ export var handler: Handler = async function(event) {
         engineEnrichment.code_authority = { error: String(codeErr), note: "non-fatal, pipeline continues" };
       }
     }
-
     // ================================================================
     // STEP 0B: DOMAIN ENRICHMENT (DEPLOY267 + DEPLOY268 + DEPLOY272)
     // Auto-detect damage domains and run specialized engines
     // ================================================================
     await updateSession({ pipeline_step: "domain_enrichment" });
-
     var domains = detectDomains(caseContext);
-
     // Corrosion Loop Engine (DEPLOY267)
     if (domains.corrosion) {
       try {
@@ -617,7 +675,6 @@ export var handler: Handler = async function(event) {
         engineEnrichment.corrosion_loop = { error: String(corrErr), note: "non-fatal" };
       }
     }
-
     // Fatigue & Vibration Proof Engine (DEPLOY268)
     if (domains.fatigue) {
       try {
@@ -638,7 +695,6 @@ export var handler: Handler = async function(event) {
         engineEnrichment.fatigue_assessment = { error: String(fatErr), note: "non-fatal" };
       }
     }
-
     if (domains.vibration) {
       try {
         var vibResult = await callEngine("fatigue-vibration-proof", {
@@ -657,7 +713,6 @@ export var handler: Handler = async function(event) {
         engineEnrichment.vibration_assessment = { error: String(vibErr), note: "non-fatal" };
       }
     }
-
     // Weld Acceptance Authority (DEPLOY272)
     if (domains.weld) {
       try {
@@ -690,12 +745,148 @@ export var handler: Handler = async function(event) {
         engineEnrichment.weld_acceptance = { error: String(weldErr), note: "non-fatal" };
       }
     }
-
+    // ================================================================
+    // STEP 0C: APMM PHYSICS ORCHESTRATION (DEPLOY311)
+    // Auto-select and run relevant physics sub-engines based on
+    // detected domains. Feeds real calculations to AI models.
+    // ================================================================
+    await updateSession({ pipeline_step: "apmm_physics_orchestration" });
+    var apmmContextType = mapDomainsToAPMMContext(domains);
+    var apmmAvailableData = buildAvailableData(caseContext, domains, engineEnrichment);
+    try {
+      var apmmResult = await callEngine("apmm-orchestrator", {
+        action: "run_orchestration",
+        context_type: apmmContextType,
+        available_data: apmmAvailableData,
+        inputs: { all: {} },
+        case_id: caseId || null,
+        org_id: body.org_id || null,
+        asset_id: body.asset_id || null,
+        finding_id: body.finding_id || null
+      });
+      if (apmmResult && !apmmResult.engine_call_error && apmmResult.result) {
+        engineEnrichment.apmm_orchestration = {
+          context_type: apmmContextType,
+          engines_selected: apmmResult.result.orchestration ? apmmResult.result.orchestration.engines_selected : 0,
+          engines_with_results: apmmResult.result.orchestration ? apmmResult.result.orchestration.engines_with_results : 0,
+          execution_ms: apmmResult.result.orchestration ? apmmResult.result.orchestration.execution_ms : 0,
+          consensus: apmmResult.result.consensus || null,
+          engine_results_summary: []
+        };
+        // Build summary of engine results for context injection
+        var apmmEngineResults = apmmResult.result.engine_results || [];
+        var apmmSummaryLines = [];
+        for (var ari = 0; ari < apmmEngineResults.length; ari++) {
+          var er = apmmEngineResults[ari];
+          if (er && er.severity !== "hold_for_input") {
+            var erSummary = "Engine " + (er.engine_number || er.engine_code || "?")
+              + ": " + (er.engine_code || "")
+              + " | severity: " + (er.severity || "unknown")
+              + " | confidence: " + (er.confidence || "unknown")
+              + " | result: " + (er.result ? String(er.result).substring(0, 150) : "N/A");
+            apmmSummaryLines.push(erSummary);
+            engineEnrichment.apmm_orchestration.engine_results_summary.push({
+              engine_number: er.engine_number,
+              engine_code: er.engine_code,
+              severity: er.severity,
+              confidence: er.confidence
+            });
+          }
+        }
+        // Append APMM consensus to case context
+        caseContext = caseContext + "\n\n=== APMM PHYSICS ORCHESTRATION (DEPLOY311 — AUTOMATED) ==="
+          + "\nContext type: " + apmmContextType
+          + "\nEngines selected: " + (apmmResult.result.orchestration ? apmmResult.result.orchestration.engines_selected : 0)
+          + "\nEngines with results: " + (apmmResult.result.orchestration ? apmmResult.result.orchestration.engines_with_results : 0)
+          + "\nExecution time: " + (apmmResult.result.orchestration ? apmmResult.result.orchestration.execution_ms : 0) + " ms";
+        if (apmmResult.result.consensus) {
+          caseContext = caseContext
+            + "\nCONSENSUS SEVERITY: " + (apmmResult.result.consensus.severity || "unknown")
+            + "\nCONSENSUS CONFIDENCE: " + (apmmResult.result.consensus.confidence || "unknown")
+            + "\nCONFLICTS: " + JSON.stringify(apmmResult.result.consensus.conflicts || [])
+            + "\nHUMAN REVIEW REQUIRED: " + (apmmResult.result.consensus.human_review_required ? "YES" : "NO");
+        }
+        if (apmmSummaryLines.length > 0) {
+          caseContext = caseContext + "\n\n--- Sub-engine results ---";
+          for (var asl = 0; asl < Math.min(apmmSummaryLines.length, 20); asl++) {
+            caseContext = caseContext + "\n" + apmmSummaryLines[asl];
+          }
+        }
+        caseContext = caseContext
+          + "\n\nNOTE: APMM sub-engine results are DETERMINISTIC PHYSICS CALCULATIONS."
+          + " Models MUST weight these above narrative reasoning."
+          + " Any AI conclusion that contradicts a passing physics engine result requires explicit justification.";
+        // ================================================================
+        // STEP 0D: CONTRACT VALIDATION (DEPLOY279)
+        // Validate that APMM engine inputs met their declared contracts
+        // ================================================================
+        await updateSession({ pipeline_step: "contract_validation" });
+        try {
+          // Build batch validation request from engine results
+          var batchEngines = [];
+          for (var bvi = 0; bvi < apmmEngineResults.length; bvi++) {
+            var bvEngine = apmmEngineResults[bvi];
+            if (bvEngine && bvEngine.engine_number) {
+              batchEngines.push({
+                engine_number: bvEngine.engine_number,
+                engine_code: bvEngine.engine_code || "",
+                inputs: {},
+                original_severity: bvEngine.severity || null
+              });
+            }
+          }
+          if (batchEngines.length > 0) {
+            var contractResult = await callEngine("engine-assumption-contracts", {
+              action: "validate_batch",
+              engines: batchEngines,
+              case_id: caseId || null
+            });
+            if (contractResult && !contractResult.engine_call_error) {
+              engineEnrichment.contract_validation = {
+                engines_checked: contractResult.engines_checked || 0,
+                total_violations: contractResult.total_violations || 0,
+                all_passed: contractResult.all_passed || false,
+                results: contractResult.results || []
+              };
+              // If there are violations, append warning to context
+              if (contractResult.total_violations > 0) {
+                caseContext = caseContext + "\n\n=== CONTRACT VALIDATION WARNING (DEPLOY279) ==="
+                  + "\nTotal contract violations: " + contractResult.total_violations
+                  + "\nEngines checked: " + contractResult.engines_checked;
+                var cvResults = contractResult.results || [];
+                for (var cvi = 0; cvi < cvResults.length; cvi++) {
+                  var cvr = cvResults[cvi];
+                  if (cvr && cvr.validation && cvr.validation.contracts_violated > 0) {
+                    caseContext = caseContext + "\nEngine " + cvr.engine_number
+                      + ": " + cvr.validation.contracts_violated + " violations";
+                    if (cvr.severity_adjustment && cvr.severity_adjustment.escalated) {
+                      caseContext = caseContext + " | severity escalated: "
+                        + cvr.severity_adjustment.original + " -> " + cvr.severity_adjustment.adjusted;
+                    }
+                  }
+                }
+                caseContext = caseContext
+                  + "\nCAUTION: Some physics engine inputs did not meet their declared constraints."
+                  + " Models should treat violated engine results with reduced confidence.";
+              }
+            }
+          }
+        } catch (contractErr) {
+          engineEnrichment.contract_validation = { error: String(contractErr), note: "non-fatal" };
+        }
+      } else {
+        // APMM call returned no result or errored
+        engineEnrichment.apmm_orchestration = apmmResult && apmmResult.engine_call_error
+          ? { error: apmmResult.engine_call_error, note: "non-fatal" }
+          : { error: "No result returned", note: "non-fatal" };
+      }
+    } catch (apmmErr) {
+      engineEnrichment.apmm_orchestration = { error: String(apmmErr), note: "non-fatal, pipeline continues" };
+    }
     // ================================================================
     // STEP 1: MODEL A — Physics + Proof Chain Engine (GPT-4o)
     // ================================================================
     await updateSession({ pipeline_step: "model_a_physics" });
-
     var modelAMessage = "Analyze this inspection case using physics-first reasoning AND proof chain construction."
       + " Build the complete reality topology with proof-critical zones."
       + " Construct the CLAIM GRAPH with typed claim nodes and status."
@@ -707,36 +898,35 @@ export var handler: Handler = async function(event) {
       + " Identify what evidence is absent that should be present."
       + " Fuse multiple methods into unified pictures."
       + " CRITICAL: Every claim must be provable, not merely plausible."
+      + " CRITICAL V6.2: APMM physics engine results are included below. These are deterministic"
+      + " calculations from the Advanced Physics & Mathematics Master Core. Your physics reasoning"
+      + " MUST incorporate these results. If your analysis contradicts a passing APMM engine,"
+      + " you must explicitly state why and provide superior evidence."
       + "\n\n" + caseContext;
-
     var modelAResp = await callOpenAI(MODEL_A_PROMPT, modelAMessage);
     var modelAOutput = parseAIResponse(modelAResp, "openai");
     var modelATime = Date.now() - startTime;
-
     await updateSession({ pipeline_step: "model_a_complete", model_a_output: modelAOutput, model_a_duration_ms: modelATime });
-
     // ================================================================
     // STEP 2: MODEL B — Engineering + Standards + Assumptions (Claude)
     // ================================================================
     await updateSession({ pipeline_step: "model_b_engineering" });
-
     var modelBMessage = "You have the physics analysis and proof chains from Model A."
       + " Now determine consequences, validate EVERY standards claim to source authority level,"
       + " map EVERY assumption to the claims it carries, produce PROOF-LEVEL repair validation,"
       + " enforce unknowns as constraints, and simulate temporal futures."
       + " CRITICAL: Every standard must trace to body/edition/status."
+      + " CRITICAL V6.2: APMM physics engine consensus and contract validation results are included"
+      + " in the case context. Cross-reference your standards conclusions against APMM engine outputs."
       + "\n\n=== MODEL A PHYSICS + PROOF CHAIN OUTPUT ===\n"
       + JSON.stringify(modelAOutput, null, 2)
       + "\n\n=== ORIGINAL CASE CONTEXT ===\n"
       + caseContext;
-
     var modelBStart = Date.now();
     var modelBResp = await callClaude(MODEL_B_PROMPT, modelBMessage);
     var modelBOutput = parseAIResponse(modelBResp, "claude");
     var modelBTime = Date.now() - modelBStart;
-
     await updateSession({ pipeline_step: "model_b_complete", model_b_output: modelBOutput, model_b_duration_ms: modelBTime });
-
     // ================================================================
     // STEP 2B: MULTI-ASSET CASCADE (DEPLOY269)
     // If multi-asset context detected, run cascade analysis
@@ -779,7 +969,6 @@ export var handler: Handler = async function(event) {
           }
           cascadeComponents.unshift(primaryComp);
         }
-
         var cascadeResult = await callEngine("multi-asset-cascade", {
           action: "build_graph",
           case_id: caseId || null,
@@ -805,18 +994,19 @@ export var handler: Handler = async function(event) {
         engineEnrichment.cascade_analysis = { error: String(cascErr), note: "non-fatal" };
       }
     }
-
     // ================================================================
     // STEP 3: MODEL C — Adversarial + Proof Attack (GPT-4o)
     // ================================================================
     await updateSession({ pipeline_step: "model_c_adversarial" });
-
     var modelCMessage = "You have the outputs of Model A (Physics + Proof Chains) and Model B (Engineering + Standards + Assumptions)."
       + " ATTACK their PROOF CHAINS. Run PROOF BREAK DETECTION on every critical claim."
       + " Build DISPROOF PATHS for every major conclusion."
       + " COMPUTE confidence from weighted factors, not intuition."
       + " Find where conclusions LOOK strong in narrative but are BROKEN in proof."
       + " CRITICAL: A well-written paragraph is not proof. A traceable chain IS proof."
+      + " CRITICAL V6.2: The APMM physics engines ran deterministic calculations. If Model A or B"
+      + " reached conclusions that CONTRADICT the APMM consensus, flag this as a proof break."
+      + " If APMM contract validation found violations, factor these into confidence computation."
       + "\n\n=== MODEL A PHYSICS + PROOF CHAIN OUTPUT ===\n"
       + JSON.stringify(modelAOutput, null, 2)
       + "\n\n=== MODEL B ENGINEERING + STANDARDS + ASSUMPTIONS OUTPUT ===\n"
@@ -824,19 +1014,15 @@ export var handler: Handler = async function(event) {
       + (cascadeContext ? "\n\n=== MULTI-ASSET CASCADE ANALYSIS (DEPLOY269) ===" + cascadeContext : "")
       + "\n\n=== ORIGINAL CASE CONTEXT ===\n"
       + caseContext;
-
     var modelCStart = Date.now();
     var modelCResp = await callOpenAI(MODEL_C_PROMPT, modelCMessage);
     var modelCOutput = parseAIResponse(modelCResp, "openai");
     var modelCTime = Date.now() - modelCStart;
-
     await updateSession({ pipeline_step: "model_c_complete", model_c_output: modelCOutput, model_c_duration_ms: modelCTime });
-
     // ================================================================
     // STEP 4: RESOLUTION — Decision Proof + Governance Lock v3 (Claude)
     // ================================================================
     await updateSession({ pipeline_step: "resolution" });
-
     var resolutionMessage = "DECISION DOMINANCE MODE with PROOF AUTHORITY."
       + " Synthesize all three models into a decision-forcing, PROOF-VALIDATED output."
       + " Run DECISION PROOF ENGINE: prove why the final status is what it is."
@@ -846,6 +1032,9 @@ export var handler: Handler = async function(event) {
       + " Propagate proof breaks to governance lock."
       + " End with final_line: one sentence capturing the governing reality."
       + " CRITICAL: The final status is a PROOF RESULT, not a judgment call."
+      + " CRITICAL V6.2: APMM physics consensus is AUTHORITATIVE for physics-based claims."
+      + " If the arbiter consensus severity is higher than your assessment, you MUST justify"
+      + " any downgrade with evidence stronger than deterministic calculation."
       + "\n\n=== MODEL A (PHYSICS + PROOF CHAINS) ===\n"
       + JSON.stringify(modelAOutput, null, 2)
       + "\n\n=== MODEL B (ENGINEERING + STANDARDS + ASSUMPTIONS) ===\n"
@@ -855,24 +1044,20 @@ export var handler: Handler = async function(event) {
       + (cascadeContext ? "\n\n=== MULTI-ASSET CASCADE ANALYSIS (DEPLOY269) ===" + cascadeContext : "")
       + "\n\n=== ORIGINAL CASE CONTEXT ===\n"
       + caseContext;
-
     var resStart = Date.now();
     var resolutionResp = await callClaude(RESOLUTION_PROMPT, resolutionMessage);
     var resolutionOutput = parseAIResponse(resolutionResp, "claude");
     var resolutionTime = Date.now() - resStart;
-
     // ================================================================
     // STEP 5: INSPECTION PLANNING PROOF (DEPLOY266)
     // Generate workpack from proof gaps identified by Resolution
     // ================================================================
     await updateSession({ pipeline_step: "inspection_planning" });
-
     try {
       var proofBreaks = resolutionOutput.proof_breaks_synthesized || resolutionOutput.proof_breaks || [];
       var componentSummary = resolutionOutput.component_proof_summary || [];
       var requiredActions = resolutionOutput.required_actions || [];
       var missingEvidence = [];
-
       // Extract missing evidence from proof breaks
       for (var pbi = 0; pbi < proofBreaks.length; pbi++) {
         var pb = proofBreaks[pbi];
@@ -880,7 +1065,6 @@ export var handler: Handler = async function(event) {
           missingEvidence.push(pb.description || pb.type || pb.break_type || JSON.stringify(pb).substring(0, 200));
         }
       }
-
       // Extract components with weak/broken proof
       var weakComponents = [];
       for (var csi = 0; csi < componentSummary.length; csi++) {
@@ -892,10 +1076,8 @@ export var handler: Handler = async function(event) {
           }
         }
       }
-
       if (missingEvidence.length > 0 || weakComponents.length > 0 || requiredActions.length > 0) {
         // Convert component_proof_summary from array to object keyed by component name
-        // The workpack generator expects: { "component_name": { component_status: "...", ... } }
         var compSummaryObj = {};
         for (var cso = 0; cso < componentSummary.length; cso++) {
           var csItem = componentSummary[cso];
@@ -910,7 +1092,6 @@ export var handler: Handler = async function(event) {
             compSummaryObj[weakComponents[wci]] = { component_status: "NO_PROOF", proof_strength: "LOW" };
           }
         }
-
         // Also convert missing_evidence strings into proof_break-like objects for the planner
         var enrichedBreaks = [];
         for (var ebi = 0; ebi < proofBreaks.length; ebi++) {
@@ -919,7 +1100,6 @@ export var handler: Handler = async function(event) {
         for (var mei = 0; mei < missingEvidence.length; mei++) {
           enrichedBreaks.push({ type: "MISSING_EVIDENCE", description: missingEvidence[mei], severity: "HIGH" });
         }
-
         var planResult = await callEngine("inspection-planning-proof", {
           action: "generate_plan",
           case_id: caseId || null,
@@ -936,12 +1116,10 @@ export var handler: Handler = async function(event) {
     } catch (planErr) {
       engineEnrichment.inspection_plan = { error: String(planErr), note: "non-fatal" };
     }
-
     // ================================================================
     // STEP 6: STORE COMPLETE RESULT
     // ================================================================
     var totalTime = Date.now() - startTime;
-
     var finalOutput = {
       summary: resolutionOutput.reality_summary || "",
       dominant_hypothesis: resolutionOutput.dominant_hypothesis || null,
@@ -977,9 +1155,16 @@ export var handler: Handler = async function(event) {
       key_assumptions: resolutionOutput.key_assumptions || [],
       contradiction_resolution: resolutionOutput.contradiction_resolution || [],
       final_line: resolutionOutput.final_line || "",
+      apmm_consensus: engineEnrichment.apmm_orchestration ? {
+        context_type: engineEnrichment.apmm_orchestration.context_type || null,
+        severity: engineEnrichment.apmm_orchestration.consensus ? engineEnrichment.apmm_orchestration.consensus.severity : null,
+        confidence: engineEnrichment.apmm_orchestration.consensus ? engineEnrichment.apmm_orchestration.consensus.confidence : null,
+        engines_run: engineEnrichment.apmm_orchestration.engines_selected || 0,
+        human_review_required: engineEnrichment.apmm_orchestration.consensus ? engineEnrichment.apmm_orchestration.consensus.human_review_required : false,
+        contract_violations: engineEnrichment.contract_validation ? engineEnrichment.contract_validation.total_violations : 0
+      } : null,
       engine_enrichment: engineEnrichment
     };
-
     await updateSession({
       pipeline_step: "complete",
       pipeline_status: "complete",
@@ -988,9 +1173,7 @@ export var handler: Handler = async function(event) {
       total_duration_ms: totalTime,
       final_output: finalOutput
     });
-
     return { statusCode: 200, body: JSON.stringify({ status: "complete", session_id: sessionId, total_ms: totalTime }) };
-
   } catch (err) {
     // Try to update session with error
     try {
@@ -1004,7 +1187,6 @@ export var handler: Handler = async function(event) {
         }).eq("id", errBody.session_id);
       }
     } catch (e2) {}
-
     return { statusCode: 200, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
   }
 };
