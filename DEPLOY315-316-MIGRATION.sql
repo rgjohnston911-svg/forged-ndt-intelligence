@@ -4,6 +4,26 @@
 -- Run in Supabase SQL Editor
 -- ================================================================
 
+-- ── CLEAN SLATE: Drop any partially created tables from failed runs ──
+-- Order matters: drop tables with foreign keys first
+DROP TABLE IF EXISTS belief_updates CASCADE;
+DROP TABLE IF EXISTS case_concepts CASCADE;
+DROP TABLE IF EXISTS hypothesis_trees CASCADE;
+DROP TABLE IF EXISTS causal_chains CASCADE;
+DROP TABLE IF EXISTS cross_domain_analogies CASCADE;
+DROP TABLE IF EXISTS novelty_flags CASCADE;
+DROP TABLE IF EXISTS failure_trajectories CASCADE;
+DROP TABLE IF EXISTS predictive_data_sources CASCADE;
+DROP TABLE IF EXISTS learning_outcomes CASCADE;
+DROP TABLE IF EXISTS inspector_overrides CASCADE;
+DROP TABLE IF EXISTS evidence_value_records CASCADE;
+DROP TABLE IF EXISTS confidence_calibration_records CASCADE;
+DROP TABLE IF EXISTS learning_update_candidates CASCADE;
+DROP TABLE IF EXISTS learning_versions CASCADE;
+DROP TABLE IF EXISTS asset_twin_memory CASCADE;
+DROP TABLE IF EXISTS synthetic_scenarios CASCADE;
+DROP TABLE IF EXISTS concept_registry CASCADE;
+
 -- ── TABLE 1: concept_registry ─────────────────────────────────
 -- Master registry of engineering/physics concepts referenced in reasoning
 CREATE TABLE IF NOT EXISTS concept_registry (
@@ -249,7 +269,7 @@ CREATE TABLE IF NOT EXISTS learning_update_candidates (
   risk_score NUMERIC(4,3),
   status TEXT DEFAULT 'pending',
   human_approval_required BOOLEAN DEFAULT true,
-  approved_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  approved_by UUID,
   approved_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now()
 );
@@ -264,10 +284,10 @@ CREATE TABLE IF NOT EXISTS learning_versions (
   version_name TEXT NOT NULL,
   version_type TEXT,
   changes JSONB,
-  approved_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  approved_by UUID,
   approval_notes TEXT,
   active BOOLEAN DEFAULT false,
-  rollback_reference UUID REFERENCES learning_versions(id) ON DELETE SET NULL,
+  rollback_reference UUID,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 

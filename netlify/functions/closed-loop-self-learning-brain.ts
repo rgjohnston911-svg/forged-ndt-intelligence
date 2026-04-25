@@ -925,4 +925,4 @@ var handler = async function(event, context) {
   }
 };
 
-export var Handler = handler;
+export { handler };
