@@ -126,7 +126,15 @@ var CRITICAL_TABLES = [
   { name: "learning_update_candidates", deploy: "DEPLOY316", critical: false },
   { name: "learning_versions", deploy: "DEPLOY316", critical: false },
   { name: "asset_twin_memory", deploy: "DEPLOY316", critical: false },
-  { name: "synthetic_scenarios", deploy: "DEPLOY316", critical: false }
+  { name: "synthetic_scenarios", deploy: "DEPLOY316", critical: false },
+  { name: "world_model_simulations", deploy: "DEPLOY317", critical: false },
+  { name: "simulation_scenarios", deploy: "DEPLOY317", critical: false },
+  { name: "physics_model_registry", deploy: "DEPLOY318", critical: false },
+  { name: "physics_learning_events", deploy: "DEPLOY318", critical: false },
+  { name: "physics_model_versions", deploy: "DEPLOY318", critical: false },
+  { name: "twin_calibration_state", deploy: "DEPLOY319", critical: false },
+  { name: "twin_calibration_history", deploy: "DEPLOY319", critical: false },
+  { name: "twin_drift_records", deploy: "DEPLOY319", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -237,7 +245,10 @@ var ENGINE_REGISTRY = [
   { name: "regression-test-authority", deploy: "DEPLOY313", mode: "deterministic", path: "/api/regression-test-authority" },
   { name: "decision-proof-recorder", deploy: "DEPLOY314", mode: "deterministic", path: "/api/decision-proof-recorder" },
   { name: "conceptual-reasoning-brain", deploy: "DEPLOY315", mode: "deterministic", path: "/api/conceptual-reasoning-brain" },
-  { name: "closed-loop-self-learning-brain", deploy: "DEPLOY316", mode: "deterministic", path: "/api/closed-loop-self-learning-brain" }
+  { name: "closed-loop-self-learning-brain", deploy: "DEPLOY316", mode: "deterministic", path: "/api/closed-loop-self-learning-brain" },
+  { name: "inspection-world-model", deploy: "DEPLOY317", mode: "deterministic", path: "/api/inspection-world-model" },
+  { name: "physics-learning-engine", deploy: "DEPLOY318", mode: "deterministic", path: "/api/physics-learning-engine" },
+  { name: "self-calibrating-twin", deploy: "DEPLOY319", mode: "deterministic", path: "/api/self-calibrating-twin" }
 ];
 
 function countByMode(mode) {
