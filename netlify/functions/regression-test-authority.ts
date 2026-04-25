@@ -83,7 +83,7 @@ var TEST_VECTORS = [
     expect: {
       status_code: 200,
       has_fields: ["status", "system"],
-      field_values: { "system": "FORGED-NDT/2.0.0" },
+      field_values: { "system": "FORGED-NDT/3.0.0" },
       not_error: true
     },
     severity: "critical",

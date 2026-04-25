@@ -27,7 +27,7 @@
 <body>
 
 <h1>FORGED NDT Intelligence OS — System Check</h1>
-<p class="subtitle">FORGED-NDT/2.0.0 — All 106 engines — Full endpoint verification</p>
+<p class="subtitle">FORGED-NDT/3.0.0 — All 108 engines — Full endpoint verification</p>
 
 <div class="summary-bar">
   <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
@@ -236,6 +236,8 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY312: APMM Power Gen Engines", "/api/apmm-power-gen-engines", { action: "get_engine_map" });
   await testEndpoint("DEPLOY313: Regression Test Authority", "/api/regression-test-authority", { action: "get_registry" });
   await testEndpoint("DEPLOY314: Decision Proof Recorder", "/api/decision-proof-recorder", { action: "get_registry" });
+  await testEndpoint("DEPLOY315: Conceptual Reasoning Brain", "/api/conceptual-reasoning-brain", { action: "get_registry" });
+  await testEndpoint("DEPLOY316: Closed-Loop Self-Learning Brain", "/api/closed-loop-self-learning-brain", { action: "get_registry" });
 
   document.getElementById("runBtn").textContent = "Run Full System Check";
   document.getElementById("runBtn").disabled = false;

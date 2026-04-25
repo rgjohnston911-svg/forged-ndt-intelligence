@@ -17,8 +17,8 @@ import { createClient } from "@supabase/supabase-js";
 var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-var SYSTEM_VERSION = "FORGED-NDT/2.0.0";
-var BUILD_DATE = "2026-04-24";
+var SYSTEM_VERSION = "FORGED-NDT/3.0.0";
+var BUILD_DATE = "2026-04-25";
 
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -109,7 +109,24 @@ var CRITICAL_TABLES = [
   { name: "pg_measurements", deploy: "DEPLOY312", critical: false },
   { name: "pg_case_decisions", deploy: "DEPLOY312", critical: false },
   { name: "regression_test_runs", deploy: "DEPLOY313", critical: false },
-  { name: "decision_proofs", deploy: "DEPLOY314", critical: false }
+  { name: "decision_proofs", deploy: "DEPLOY314", critical: false },
+  { name: "concept_registry", deploy: "DEPLOY315", critical: false },
+  { name: "case_concepts", deploy: "DEPLOY315", critical: false },
+  { name: "hypothesis_trees", deploy: "DEPLOY315", critical: false },
+  { name: "causal_chains", deploy: "DEPLOY315", critical: false },
+  { name: "cross_domain_analogies", deploy: "DEPLOY315", critical: false },
+  { name: "novelty_flags", deploy: "DEPLOY315", critical: false },
+  { name: "belief_updates", deploy: "DEPLOY315", critical: false },
+  { name: "failure_trajectories", deploy: "DEPLOY315", critical: false },
+  { name: "predictive_data_sources", deploy: "DEPLOY315", critical: false },
+  { name: "learning_outcomes", deploy: "DEPLOY316", critical: false },
+  { name: "inspector_overrides", deploy: "DEPLOY316", critical: false },
+  { name: "evidence_value_records", deploy: "DEPLOY316", critical: false },
+  { name: "confidence_calibration_records", deploy: "DEPLOY316", critical: false },
+  { name: "learning_update_candidates", deploy: "DEPLOY316", critical: false },
+  { name: "learning_versions", deploy: "DEPLOY316", critical: false },
+  { name: "asset_twin_memory", deploy: "DEPLOY316", critical: false },
+  { name: "synthetic_scenarios", deploy: "DEPLOY316", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -218,7 +235,9 @@ var ENGINE_REGISTRY = [
   { name: "power-generation-authority", deploy: "DEPLOY312", mode: "deterministic", path: "/api/power-generation-authority" },
   { name: "apmm-power-gen-engines", deploy: "DEPLOY312", mode: "deterministic", path: "/api/apmm-power-gen-engines" },
   { name: "regression-test-authority", deploy: "DEPLOY313", mode: "deterministic", path: "/api/regression-test-authority" },
-  { name: "decision-proof-recorder", deploy: "DEPLOY314", mode: "deterministic", path: "/api/decision-proof-recorder" }
+  { name: "decision-proof-recorder", deploy: "DEPLOY314", mode: "deterministic", path: "/api/decision-proof-recorder" },
+  { name: "conceptual-reasoning-brain", deploy: "DEPLOY315", mode: "deterministic", path: "/api/conceptual-reasoning-brain" },
+  { name: "closed-loop-self-learning-brain", deploy: "DEPLOY316", mode: "deterministic", path: "/api/closed-loop-self-learning-brain" }
 ];
 
 function countByMode(mode) {
