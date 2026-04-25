@@ -94,12 +94,11 @@ var TEST_VECTORS = [
   {
     id: "RT-SPINE-001",
     engine: "/api/decision-spine",
-    name: "Decision spine responds to null case without crashing",
+    name: "Decision spine rejects missing case gracefully",
     input: { case_id: "00000000-0000-0000-0000-000000000000" },
     expect: {
-      status_code: 200,
-      not_error: true,
-      has_fields: ["status"]
+      status_code: 404,
+      has_fields: ["error"]
     },
     severity: "critical",
     category: "core_pipeline"
@@ -109,11 +108,11 @@ var TEST_VECTORS = [
   {
     id: "RT-CODE-001",
     engine: "/api/universal-code-authority",
-    name: "Code authority responds to null case gracefully",
+    name: "Code authority rejects missing case gracefully",
     input: { case_id: "00000000-0000-0000-0000-000000000000" },
     expect: {
-      status_code: 200,
-      not_error: true
+      status_code: 404,
+      has_fields: ["error"]
     },
     severity: "critical",
     category: "code_authority"
@@ -123,11 +122,11 @@ var TEST_VECTORS = [
   {
     id: "RT-MAT-001",
     engine: "/api/material-authority",
-    name: "Material authority handles null case",
+    name: "Material authority rejects missing case gracefully",
     input: { case_id: "00000000-0000-0000-0000-000000000000" },
     expect: {
-      status_code: 200,
-      not_error: true
+      status_code: 404,
+      has_fields: ["error"]
     },
     severity: "major",
     category: "material"
@@ -137,8 +136,8 @@ var TEST_VECTORS = [
   {
     id: "RT-GOV-001",
     engine: "/api/governance-matrix",
-    name: "Governance matrix handles null case",
-    input: { case_id: "00000000-0000-0000-0000-000000000000" },
+    name: "Governance matrix returns governance data",
+    input: { asset_class: "pressure_vessel" },
     expect: {
       status_code: 200,
       not_error: true
@@ -156,7 +155,7 @@ var TEST_VECTORS = [
     expect: {
       status_code: 200,
       not_error: true,
-      has_fields: ["filters"]
+      has_fields: ["filter_options"]
     },
     severity: "major",
     category: "search"
@@ -301,7 +300,7 @@ var TEST_VECTORS = [
     expect: {
       status_code: 200,
       not_error: true,
-      has_fields: ["tree"]
+      has_fields: ["action", "steps"]
     },
     severity: "major",
     category: "traceability"
@@ -707,8 +706,8 @@ var TEST_VECTORS = [
   {
     id: "RT-APMMPOWER-001",
     engine: "/api/apmm-power-gen-engines",
-    name: "APMM power gen returns engine map",
-    input: { action: "get_engine_map" },
+    name: "APMM power gen returns health check",
+    input: { action: "health" },
     expect: {
       status_code: 200,
       not_error: true

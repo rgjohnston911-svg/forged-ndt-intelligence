@@ -37,6 +37,23 @@
 </div>
 
 <button id="runBtn" onclick="runAllChecks()">Run Full System Check</button>
+<button id="regBtn" onclick="runRegressionSuite()" style="margin-left:12px;background:#6366f1">Run Regression Suite</button>
+<button id="regCoverBtn" onclick="runRegressionCoverage()" style="margin-left:12px;background:#0ea5e9">Coverage Report</button>
+
+<div id="regResults" style="margin-top:24px;display:none">
+  <div class="card" style="border-color:#6366f144">
+    <h2 style="color:#a5b4fc">Regression Suite Results</h2>
+    <div class="summary-bar" id="regSummaryBar" style="display:none">
+      <div class="summary-box"><div class="num" id="regVerdict" style="color:#a5b4fc">-</div><div class="lbl">VERDICT</div></div>
+      <div class="summary-box"><div class="num" id="regPassed" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
+      <div class="summary-box"><div class="num" id="regFailed" style="color:#ef4444">-</div><div class="lbl">FAIL</div></div>
+      <div class="summary-box"><div class="num" id="regRate" style="color:#3b82f6">-</div><div class="lbl">PASS RATE</div></div>
+      <div class="summary-box"><div class="num" id="regMs" style="color:#f59e0b">-</div><div class="lbl">TOTAL MS</div></div>
+    </div>
+    <div id="regDetail"></div>
+  </div>
+</div>
+
 <div id="results" style="margin-top:24px"></div>
 
 <script>
@@ -220,10 +237,123 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY313: Regression Test Authority", "/api/regression-test-authority", { action: "get_registry" });
   await testEndpoint("DEPLOY314: Decision Proof Recorder", "/api/decision-proof-recorder", { action: "get_registry" });
 
-  document.getElementById("runBtn").disabled = false;
   document.getElementById("runBtn").textContent = "Run Full System Check";
+  document.getElementById("runBtn").disabled = false;
 }
-</script>
 
+function runRegressionSuite() {
+  var btn = document.getElementById("regBtn");
+  btn.disabled = true;
+  btn.textContent = "Running Regression Suite...";
+  document.getElementById("regResults").style.display = "block";
+  document.getElementById("regDetail").innerHTML = '<p style="color:#8b949e">Running 45 test vectors across all engines... this may take 30-60 seconds.</p>';
+  document.getElementById("regSummaryBar").style.display = "none";
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/regression-test-authority", true);
+  xhr.setRequestHeader("Content-Type", "application/json");
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState === 4) {
+      btn.textContent = "Run Regression Suite";
+      btn.disabled = false;
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          renderRegressionResults(data);
+        } catch(e) {
+          document.getElementById("regDetail").innerHTML = '<p style="color:#ef4444">Failed to parse response</p>';
+        }
+      } else {
+        document.getElementById("regDetail").innerHTML = '<p style="color:#ef4444">HTTP ' + xhr.status + ' — Regression suite may have timed out. Try running from browser console.</p>';
+      }
+    }
+  };
+  xhr.onerror = function() {
+    btn.textContent = "Run Regression Suite";
+    btn.disabled = false;
+    document.getElementById("regDetail").innerHTML = '<p style="color:#ef4444">Network error</p>';
+  };
+  xhr.send(JSON.stringify({ action: "run_full_suite" }));
+}
+
+function renderRegressionResults(data) {
+  var s = data.summary || {};
+  document.getElementById("regSummaryBar").style.display = "flex";
+  var vc = s.verdict === "ALL_PASS" ? "#22c55e" : (s.verdict === "CRITICAL_REGRESSION" ? "#ef4444" : "#f59e0b");
+  document.getElementById("regVerdict").textContent = s.verdict || "UNKNOWN";
+  document.getElementById("regVerdict").style.color = vc;
+  document.getElementById("regPassed").textContent = s.passed || 0;
+  document.getElementById("regFailed").textContent = s.failed || 0;
+  document.getElementById("regRate").textContent = (s.pass_rate || 0) + "%";
+  document.getElementById("regMs").textContent = s.total_ms || 0;
+
+  var html = "";
+  var rr = data.results || [];
+  for (var i = 0; i < rr.length; i++) {
+    var r = rr[i];
+    var bc = r.status === "PASS" ? "pass" : "fail";
+    html += '<div class="card" style="padding:12px;margin-bottom:6px"><h2 style="font-size:13px"><span class="badge ' + bc + '">' + r.status + '</span> ' + esc(r.test_name || r.test_id) + ' <span class="mono">' + (r.ms || 0) + 'ms</span></h2>';
+    if (r.status === "FAIL") {
+      var failInfo = "";
+      if (r.failures) {
+        for (var fi = 0; fi < r.failures.length; fi++) {
+          failInfo += r.failures[fi] + "\n";
+        }
+      }
+      if (r.error) failInfo += r.error;
+      if (failInfo) html += '<div class="detail" style="margin-top:6px">' + esc(failInfo) + '</div>';
+    }
+    html += '</div>';
+  }
+  document.getElementById("regDetail").innerHTML = html;
+}
+
+function runRegressionCoverage() {
+  var btn = document.getElementById("regCoverBtn");
+  btn.disabled = true;
+  btn.textContent = "Loading Coverage...";
+  document.getElementById("regResults").style.display = "block";
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/regression-test-authority", true);
+  xhr.setRequestHeader("Content-Type", "application/json");
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState === 4) {
+      btn.textContent = "Coverage Report";
+      btn.disabled = false;
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          renderCoverage(data);
+        } catch(e) {
+          document.getElementById("regDetail").innerHTML = '<p style="color:#ef4444">Failed to parse coverage response</p>';
+        }
+      }
+    }
+  };
+  xhr.send(JSON.stringify({ action: "get_coverage" }));
+}
+
+function renderCoverage(data) {
+  document.getElementById("regSummaryBar").style.display = "none";
+  var html = '<h2 style="color:#a5b4fc;font-size:15px;margin-bottom:12px">Test Coverage Report</h2>';
+  html += '<p style="color:#8b949e;font-size:12px;margin-bottom:12px">Engines with test vectors: ' + (data.covered_count || 0) + ' / ' + (data.total_engines || 0) + ' (' + (data.coverage_pct || 0) + '%)</p>';
+
+  if (data.covered && data.covered.length) {
+    html += '<p style="color:#22c55e;font-size:12px;margin-bottom:4px">Covered:</p>';
+    for (var ci = 0; ci < data.covered.length; ci++) {
+      html += '<span class="badge pass" style="margin:2px">' + esc(data.covered[ci]) + '</span> ';
+    }
+  }
+  if (data.uncovered && data.uncovered.length) {
+    html += '<p style="color:#f59e0b;font-size:12px;margin-top:8px;margin-bottom:4px">Not Yet Covered:</p>';
+    for (var ui = 0; ui < data.uncovered.length; ui++) {
+      html += '<span class="badge warn" style="margin:2px">' + esc(data.uncovered[ui]) + '</span> ';
+    }
+  }
+  document.getElementById("regDetail").innerHTML = html;
+}
+
+</script>
 </body>
 </html>
