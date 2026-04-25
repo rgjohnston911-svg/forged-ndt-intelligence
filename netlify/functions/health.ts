@@ -134,7 +134,13 @@ var CRITICAL_TABLES = [
   { name: "physics_model_versions", deploy: "DEPLOY318", critical: false },
   { name: "twin_calibration_state", deploy: "DEPLOY319", critical: false },
   { name: "twin_calibration_history", deploy: "DEPLOY319", critical: false },
-  { name: "twin_drift_records", deploy: "DEPLOY319", critical: false }
+  { name: "twin_drift_records", deploy: "DEPLOY319", critical: false },
+  { name: "neurosymbolic_rules", deploy: "DEPLOY320", critical: false },
+  { name: "neurosymbolic_sessions", deploy: "DEPLOY320", critical: false },
+  { name: "conformal_calibration", deploy: "DEPLOY321", critical: false },
+  { name: "conformal_predictions", deploy: "DEPLOY321", critical: false },
+  { name: "inspection_priorities", deploy: "DEPLOY322", critical: false },
+  { name: "portfolio_uncertainty_state", deploy: "DEPLOY322", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -248,7 +254,10 @@ var ENGINE_REGISTRY = [
   { name: "closed-loop-self-learning-brain", deploy: "DEPLOY316", mode: "deterministic", path: "/api/closed-loop-self-learning-brain" },
   { name: "inspection-world-model", deploy: "DEPLOY317", mode: "deterministic", path: "/api/inspection-world-model" },
   { name: "physics-learning-engine", deploy: "DEPLOY318", mode: "deterministic", path: "/api/physics-learning-engine" },
-  { name: "self-calibrating-twin", deploy: "DEPLOY319", mode: "deterministic", path: "/api/self-calibrating-twin" }
+  { name: "self-calibrating-twin", deploy: "DEPLOY319", mode: "deterministic", path: "/api/self-calibrating-twin" },
+  { name: "neurosymbolic-reasoning", deploy: "DEPLOY320", mode: "deterministic", path: "/api/neurosymbolic-reasoning" },
+  { name: "conformal-prediction", deploy: "DEPLOY321", mode: "deterministic", path: "/api/conformal-prediction" },
+  { name: "active-inspection-optimizer", deploy: "DEPLOY322", mode: "deterministic", path: "/api/active-inspection-optimizer" }
 ];
 
 function countByMode(mode) {
