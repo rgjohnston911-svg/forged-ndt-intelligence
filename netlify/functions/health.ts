@@ -140,7 +140,15 @@ var CRITICAL_TABLES = [
   { name: "conformal_calibration", deploy: "DEPLOY321", critical: false },
   { name: "conformal_predictions", deploy: "DEPLOY321", critical: false },
   { name: "inspection_priorities", deploy: "DEPLOY322", critical: false },
-  { name: "portfolio_uncertainty_state", deploy: "DEPLOY322", critical: false }
+  { name: "portfolio_uncertainty_state", deploy: "DEPLOY322", critical: false },
+  { name: "constrained_inference_runs", deploy: "DEPLOY323", critical: false },
+  { name: "uncertainty_propagation_runs", deploy: "DEPLOY324", critical: false },
+  { name: "causal_discovery_results", deploy: "DEPLOY325", critical: false },
+  { name: "causal_relationships", deploy: "DEPLOY325", critical: false },
+  { name: "debate_sessions", deploy: "DEPLOY326", critical: false },
+  { name: "debate_arguments", deploy: "DEPLOY326", critical: false },
+  { name: "anomaly_fingerprints", deploy: "DEPLOY327", critical: false },
+  { name: "anomaly_matches", deploy: "DEPLOY327", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -257,7 +265,12 @@ var ENGINE_REGISTRY = [
   { name: "self-calibrating-twin", deploy: "DEPLOY319", mode: "deterministic", path: "/api/self-calibrating-twin" },
   { name: "neurosymbolic-reasoning", deploy: "DEPLOY320", mode: "deterministic", path: "/api/neurosymbolic-reasoning" },
   { name: "conformal-prediction", deploy: "DEPLOY321", mode: "deterministic", path: "/api/conformal-prediction" },
-  { name: "active-inspection-optimizer", deploy: "DEPLOY322", mode: "deterministic", path: "/api/active-inspection-optimizer" }
+  { name: "active-inspection-optimizer", deploy: "DEPLOY322", mode: "deterministic", path: "/api/active-inspection-optimizer" },
+  { name: "physics-constrained-inference", deploy: "DEPLOY323", mode: "deterministic", path: "/api/physics-constrained-inference" },
+  { name: "uncertainty-propagation", deploy: "DEPLOY324", mode: "deterministic", path: "/api/uncertainty-propagation" },
+  { name: "causal-discovery", deploy: "DEPLOY325", mode: "deterministic", path: "/api/causal-discovery" },
+  { name: "multi-agent-debate", deploy: "DEPLOY326", mode: "deterministic", path: "/api/multi-agent-debate" },
+  { name: "anomaly-fingerprint", deploy: "DEPLOY327", mode: "deterministic", path: "/api/anomaly-fingerprint" }
 ];
 
 function countByMode(mode) {
