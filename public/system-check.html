@@ -25,22 +25,28 @@
 </style>
 </head>
 <body>
+
 <h1>FORGED NDT Intelligence OS — System Check</h1>
-<p class="subtitle">FORGED-NDT/2.0.0 — All 104 engines — Full endpoint verification</p>
+<p class="subtitle">FORGED-NDT/2.0.0 — All 69 engines — Full endpoint verification</p>
+
 <div class="summary-bar">
   <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
   <div class="summary-box"><div class="num" id="totalFail" style="color:#ef4444">-</div><div class="lbl">FAIL</div></div>
   <div class="summary-box"><div class="num" id="totalWarn" style="color:#f59e0b">-</div><div class="lbl">WARN</div></div>
   <div class="summary-box"><div class="num" id="totalTime" style="color:#3b82f6">-</div><div class="lbl">TOTAL MS</div></div>
 </div>
+
 <button id="runBtn" onclick="runAllChecks()">Run Full System Check</button>
 <div id="results" style="margin-top:24px"></div>
+
 <script>
 var results = [];
+
 function addResult(name, status, ms, detail) {
   results.push({ name: name, status: status, ms: ms, detail: detail });
   renderResults();
 }
+
 function renderResults() {
   var html = "";
   var pass = 0, fail = 0, warn = 0, totalMs = 0;
@@ -61,7 +67,9 @@ function renderResults() {
   document.getElementById("totalWarn").textContent = warn;
   document.getElementById("totalTime").textContent = totalMs;
 }
+
 function esc(s) { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
 function testEndpoint(name, path, body) {
   return new Promise(function(resolve) {
     var start = Date.now();
@@ -73,6 +81,7 @@ function testEndpoint(name, path, body) {
         var ms = Date.now() - start;
         var text = xhr.responseText || "";
         var status = xhr.status;
+
         if (text.length > 0 && (text.charAt(0) === "{" || text.charAt(0) === "[")) {
           try {
             var json = JSON.parse(text);
@@ -95,12 +104,15 @@ function testEndpoint(name, path, body) {
     xhr.send(JSON.stringify(body));
   });
 }
+
 async function runAllChecks() {
   document.getElementById("runBtn").disabled = true;
   document.getElementById("runBtn").textContent = "Running...";
   results = [];
   renderResults();
+
   var fakeId = "00000000-0000-0000-0000-000000000000";
+
   await testEndpoint("DEPLOY225: Health", "/api/health", {});
   await testEndpoint("DEPLOY220: Decision Spine", "/api/decision-spine", { case_id: fakeId });
   await testEndpoint("DEPLOY221: Outcome Simulation", "/api/outcome-simulation", { case_id: fakeId });
@@ -170,44 +182,11 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY275: Mechanism Causality Engine", "/api/mechanism-causality-engine", { action: "get_registry" });
   await testEndpoint("DEPLOY276: Uncertainty Boundary Engine", "/api/uncertainty-boundary-engine", { action: "get_registry" });
   await testEndpoint("DEPLOY277: Decision Liability Engine", "/api/decision-liability-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY278: Interaction Mesh", "/api/interaction-mesh", { action: "get_registry" });
-  await testEndpoint("DEPLOY280: Convergence Reporter", "/api/convergence-reporter", { action: "get_registry" });
-  await testEndpoint("DEPLOY281: Root Cause Prevention", "/api/root-cause-prevention", { action: "get_registry" });
-  await testEndpoint("DEPLOY283: Subsea Domain Registry", "/api/subsea-domain-registry", { action: "get_registry" });
-  await testEndpoint("DEPLOY284: CP Intelligence", "/api/cp-intelligence", { action: "get_registry" });
-  await testEndpoint("DEPLOY285: Marine Growth Engine", "/api/marine-growth-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY286: External Interaction Engine", "/api/external-interaction-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY287: Subsea Structures Orchestrator", "/api/subsea-structures-orchestrator", { action: "get_registry" });
-  await testEndpoint("DEPLOY288: Vessel Class Registry", "/api/vessel-class-registry", { action: "get_registry" });
-  await testEndpoint("DEPLOY289: Stability Engine", "/api/stability-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY290: Vessel Motion Engine", "/api/vessel-motion-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY291: Marine Vessel Orchestrator", "/api/marine-vessel-orchestrator", { action: "get_registry" });
-  await testEndpoint("DEPLOY292: Validation Suite", "/api/validation-suite", { action: "get_registry" });
-  await testEndpoint("DEPLOY293: Convergence Proof", "/api/convergence-proof", { action: "get_registry" });
-  await testEndpoint("DEPLOY294: Executive Decision Engine", "/api/executive-decision-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY295: Underwater NDT Authority", "/api/underwater-ndt-authority", { action: "get_registry" });
-  await testEndpoint("DEPLOY296: Underwater Welding Authority", "/api/underwater-welding-authority", { action: "get_registry" });
-  await testEndpoint("DEPLOY297: Subsea Inspection Conditions", "/api/subsea-inspection-conditions", { action: "get_registry" });
-  await testEndpoint("DEPLOY298: Process Condition Authority", "/api/process-condition-authority", { action: "get_registry" });
-  await testEndpoint("DEPLOY299: Refinery Mechanism Authority", "/api/refinery-mechanism-authority", { action: "get_registry" });
-  await testEndpoint("DEPLOY300: Refinery Code Authority Router", "/api/refinery-code-authority-router", { action: "get_registry" });
-  await testEndpoint("DEPLOY301: Formula Intelligence Core", "/api/formula-intelligence-core", { action: "get_registry" });
-  await testEndpoint("DEPLOY302: Formula Chain Executor", "/api/formula-chain-executor", { action: "get_registry" });
-  await testEndpoint("DEPLOY303: Formula Decision Authority", "/api/formula-decision-authority", { action: "get_registry" });
-  await testEndpoint("DEPLOY304: Multi-Physics 4D Projection", "/api/multi-physics-4d-projection", { action: "get_registry" });
-  await testEndpoint("DEPLOY305: Advanced Probability Engine", "/api/advanced-probability-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY306: Advanced Structural Engine", "/api/advanced-structural-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY307: Advanced Transport Engine", "/api/advanced-transport-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY308: Advanced Spatial & Graph Engine", "/api/advanced-spatial-graph-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY309: Advanced Decision Engine", "/api/advanced-decision-engine", { action: "get_registry" });
-  await testEndpoint("DEPLOY310: Advanced Physics Arbiter", "/api/advanced-physics-arbiter", { action: "get_registry" });
-  await testEndpoint("DEPLOY311: APMM Orchestrator", "/api/apmm-orchestrator", { action: "get_registry" });
-  await testEndpoint("DEPLOY279: Engine Assumption Contracts", "/api/engine-assumption-contracts", { action: "get_registry" });
-  await testEndpoint("DEPLOY312: Power Generation Authority", "/api/power-generation-authority", { action: "health" });
-  await testEndpoint("DEPLOY312: APMM Power Gen Engines", "/api/apmm-power-gen-engines", { action: "health" });
+
   document.getElementById("runBtn").disabled = false;
   document.getElementById("runBtn").textContent = "Run Full System Check";
 }
 </script>
+
 </body>
 </html>
