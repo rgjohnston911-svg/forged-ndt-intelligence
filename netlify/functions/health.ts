@@ -3,25 +3,30 @@
  * DEPLOY225 - health.ts
  * netlify/functions/health.ts
  *
- * PRODUCTION HEALTH CHECK — 104 ENGINES
+ * PRODUCTION HEALTH CHECK
  *
  * POST /api/health {}         -> full health check
  * POST /api/health {quick:true} -> fast DB-only check
  *
  * var only. String concatenation only. No backticks.
  */
+
 import type { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
+
 var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
 var SYSTEM_VERSION = "FORGED-NDT/2.0.0";
-var BUILD_DATE = "2026-04-24";
+var BUILD_DATE = "2026-04-20";
+
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Content-Type": "application/json"
 };
+
 var CRITICAL_TABLES = [
   { name: "inspection_cases", deploy: "core", critical: true },
   { name: "findings", deploy: "core", critical: true },
@@ -47,61 +52,9 @@ var CRITICAL_TABLES = [
   { name: "asset_interactions", deploy: "DEPLOY269", critical: false },
   { name: "code_authority_registry", deploy: "DEPLOY270", critical: false },
   { name: "code_authority_lookups", deploy: "DEPLOY270", critical: false },
-  { name: "superbrain_reports", deploy: "DEPLOY271", critical: false },
-  { name: "evidence_contracts", deploy: "DEPLOY273", critical: false },
-  { name: "coating_assessments", deploy: "DEPLOY274", critical: false },
-  { name: "coating_audit_events", deploy: "DEPLOY274", critical: false },
-  { name: "uncertainty_records", deploy: "DEPLOY276", critical: false },
-  { name: "decision_audit_log", deploy: "DEPLOY277", critical: false },
-  { name: "interaction_mesh_results", deploy: "DEPLOY278", critical: false },
-  { name: "convergence_reports", deploy: "DEPLOY280", critical: false },
-  { name: "prevention_records", deploy: "DEPLOY281", critical: false },
-  { name: "fleet_exposure_mappings", deploy: "DEPLOY282", critical: false },
-  { name: "prevention_effectiveness", deploy: "DEPLOY282", critical: false },
-  { name: "subsea_domain_assessments", deploy: "DEPLOY283", critical: false },
-  { name: "cp_assessments", deploy: "DEPLOY284", critical: false },
-  { name: "marine_growth_assessments", deploy: "DEPLOY285", critical: false },
-  { name: "external_interaction_events", deploy: "DEPLOY286", critical: false },
-  { name: "subsea_orchestrator_results", deploy: "DEPLOY287", critical: false },
-  { name: "vessel_assessments", deploy: "DEPLOY288", critical: false },
-  { name: "stability_assessments", deploy: "DEPLOY289", critical: false },
-  { name: "motion_assessments", deploy: "DEPLOY290", critical: false },
-  { name: "vessel_orchestrator_results", deploy: "DEPLOY291", critical: false },
-  { name: "validation_results", deploy: "DEPLOY292", critical: false },
-  { name: "convergence_proof_results", deploy: "DEPLOY293", critical: false },
-  { name: "executive_decisions", deploy: "DEPLOY294", critical: false },
-  { name: "underwater_ndt_assessments", deploy: "DEPLOY295", critical: false },
-  { name: "underwater_weld_assessments", deploy: "DEPLOY296", critical: false },
-  { name: "subsea_inspection_conditions", deploy: "DEPLOY297", critical: false },
-  { name: "process_condition_assessments", deploy: "DEPLOY298", critical: false },
-  { name: "refinery_mechanism_assessments", deploy: "DEPLOY299", critical: false },
-  { name: "refinery_code_authority_results", deploy: "DEPLOY300", critical: false },
-  { name: "formula_categories", deploy: "DEPLOY301", critical: false },
-  { name: "formula_registry", deploy: "DEPLOY301", critical: false },
-  { name: "formula_execution_runs", deploy: "DEPLOY301", critical: false },
-  { name: "formula_chains", deploy: "DEPLOY302", critical: false },
-  { name: "formula_chain_runs", deploy: "DEPLOY302", critical: false },
-  { name: "formula_decision_cards", deploy: "DEPLOY303", critical: false },
-  { name: "advanced_math_engine_registry", deploy: "DEPLOY305", critical: false },
-  { name: "advanced_math_engine_runs", deploy: "DEPLOY305", critical: false },
-  { name: "evidence_items", deploy: "DEPLOY305", critical: false },
-  { name: "mechanism_beliefs", deploy: "DEPLOY305", critical: false },
-  { name: "system_graph_nodes", deploy: "DEPLOY305", critical: false },
-  { name: "system_graph_edges", deploy: "DEPLOY305", critical: false },
-  { name: "digital_twin_state_vectors", deploy: "DEPLOY305", critical: false },
-  { name: "digital_twin_predictions", deploy: "DEPLOY305", critical: false },
-  { name: "spatial_field_maps", deploy: "DEPLOY305", critical: false },
-  { name: "optimization_runs", deploy: "DEPLOY305", critical: false },
-  { name: "causal_models", deploy: "DEPLOY305", critical: false },
-  { name: "advanced_decision_cards", deploy: "DEPLOY305", critical: false },
-  { name: "apmm_orchestrator_runs", deploy: "DEPLOY311", critical: false },
-  { name: "engine_assumption_contracts", deploy: "DEPLOY279", critical: false },
-  { name: "contract_validation_results", deploy: "DEPLOY279", critical: false },
-  { name: "pg_damage_mechanisms", deploy: "DEPLOY312", critical: false },
-  { name: "pg_operating_events", deploy: "DEPLOY312", critical: false },
-  { name: "pg_measurements", deploy: "DEPLOY312", critical: false },
-  { name: "pg_case_decisions", deploy: "DEPLOY312", critical: false }
+  { name: "superbrain_reports", deploy: "DEPLOY271", critical: false }
 ];
+
 var ENGINE_REGISTRY = [
   { name: "decision-spine", deploy: "DEPLOY220", mode: "deterministic", path: "/api/decision-spine" },
   { name: "run-authority", deploy: "DEPLOY216", mode: "hybrid", path: "/api/run-authority" },
@@ -171,43 +124,9 @@ var ENGINE_REGISTRY = [
   { name: "coatings-intelligence-authority", deploy: "DEPLOY274", mode: "deterministic", path: "/api/coatings-intelligence-authority" },
   { name: "mechanism-causality-engine", deploy: "DEPLOY275", mode: "deterministic", path: "/api/mechanism-causality-engine" },
   { name: "uncertainty-boundary-engine", deploy: "DEPLOY276", mode: "deterministic", path: "/api/uncertainty-boundary-engine" },
-  { name: "decision-liability-engine", deploy: "DEPLOY277", mode: "deterministic", path: "/api/decision-liability-engine" },
-  { name: "interaction-mesh", deploy: "DEPLOY278", mode: "deterministic", path: "/api/interaction-mesh" },
-  { name: "convergence-reporter", deploy: "DEPLOY280", mode: "deterministic", path: "/api/convergence-reporter" },
-  { name: "root-cause-prevention", deploy: "DEPLOY281", mode: "deterministic", path: "/api/root-cause-prevention" },
-  { name: "subsea-domain-registry", deploy: "DEPLOY283", mode: "deterministic", path: "/api/subsea-domain-registry" },
-  { name: "cp-intelligence", deploy: "DEPLOY284", mode: "deterministic", path: "/api/cp-intelligence" },
-  { name: "marine-growth-engine", deploy: "DEPLOY285", mode: "deterministic", path: "/api/marine-growth-engine" },
-  { name: "external-interaction-engine", deploy: "DEPLOY286", mode: "deterministic", path: "/api/external-interaction-engine" },
-  { name: "subsea-structures-orchestrator", deploy: "DEPLOY287", mode: "deterministic", path: "/api/subsea-structures-orchestrator" },
-  { name: "vessel-class-registry", deploy: "DEPLOY288", mode: "deterministic", path: "/api/vessel-class-registry" },
-  { name: "stability-engine", deploy: "DEPLOY289", mode: "deterministic", path: "/api/stability-engine" },
-  { name: "vessel-motion-engine", deploy: "DEPLOY290", mode: "deterministic", path: "/api/vessel-motion-engine" },
-  { name: "marine-vessel-orchestrator", deploy: "DEPLOY291", mode: "deterministic", path: "/api/marine-vessel-orchestrator" },
-  { name: "validation-suite", deploy: "DEPLOY292", mode: "deterministic", path: "/api/validation-suite" },
-  { name: "convergence-proof", deploy: "DEPLOY293", mode: "deterministic", path: "/api/convergence-proof" },
-  { name: "executive-decision-engine", deploy: "DEPLOY294", mode: "deterministic", path: "/api/executive-decision-engine" },
-  { name: "underwater-ndt-authority", deploy: "DEPLOY295", mode: "deterministic", path: "/api/underwater-ndt-authority" },
-  { name: "underwater-welding-authority", deploy: "DEPLOY296", mode: "deterministic", path: "/api/underwater-welding-authority" },
-  { name: "subsea-inspection-conditions", deploy: "DEPLOY297", mode: "deterministic", path: "/api/subsea-inspection-conditions" },
-  { name: "process-condition-authority", deploy: "DEPLOY298", mode: "deterministic", path: "/api/process-condition-authority" },
-  { name: "refinery-mechanism-authority", deploy: "DEPLOY299", mode: "deterministic", path: "/api/refinery-mechanism-authority" },
-  { name: "refinery-code-authority-router", deploy: "DEPLOY300", mode: "deterministic", path: "/api/refinery-code-authority-router" },
-  { name: "formula-intelligence-core", deploy: "DEPLOY301", mode: "deterministic", path: "/api/formula-intelligence-core" },
-  { name: "formula-chain-executor", deploy: "DEPLOY302", mode: "deterministic", path: "/api/formula-chain-executor" },
-  { name: "formula-decision-authority", deploy: "DEPLOY303", mode: "deterministic", path: "/api/formula-decision-authority" },
-  { name: "multi-physics-4d-projection", deploy: "DEPLOY304", mode: "deterministic", path: "/api/multi-physics-4d-projection" },
-  { name: "advanced-probability-engine", deploy: "DEPLOY305", mode: "deterministic", path: "/api/advanced-probability-engine" },
-  { name: "advanced-structural-engine", deploy: "DEPLOY306", mode: "deterministic", path: "/api/advanced-structural-engine" },
-  { name: "advanced-transport-engine", deploy: "DEPLOY307", mode: "deterministic", path: "/api/advanced-transport-engine" },
-  { name: "advanced-spatial-graph-engine", deploy: "DEPLOY308", mode: "deterministic", path: "/api/advanced-spatial-graph-engine" },
-  { name: "advanced-decision-engine", deploy: "DEPLOY309", mode: "deterministic", path: "/api/advanced-decision-engine" },
-  { name: "advanced-physics-arbiter", deploy: "DEPLOY310", mode: "deterministic", path: "/api/advanced-physics-arbiter" },
-  { name: "apmm-orchestrator", deploy: "DEPLOY311", mode: "deterministic", path: "/api/apmm-orchestrator" },
-  { name: "engine-assumption-contracts", deploy: "DEPLOY279", mode: "deterministic", path: "/api/engine-assumption-contracts" },
-  { name: "power-generation-authority", deploy: "DEPLOY312", mode: "deterministic", path: "/api/power-generation-authority" },
-  { name: "apmm-power-gen-engines", deploy: "DEPLOY312", mode: "deterministic", path: "/api/apmm-power-gen-engines" }
+  { name: "decision-liability-engine", deploy: "DEPLOY277", mode: "deterministic", path: "/api/decision-liability-engine" }
 ];
+
 function countByMode(mode) {
   var c = 0;
   for (var i = 0; i < ENGINE_REGISTRY.length; i++) {
@@ -215,35 +134,84 @@ function countByMode(mode) {
   }
   return c;
 }
+
 export var handler: Handler = async function(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
   if (event.httpMethod !== "POST") return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "POST only" }) };
+
   try {
     var body = JSON.parse(event.body || "{}");
     var quick = body.quick === true;
     var startTime = Date.now();
+
     var checks = [];
     var errors = [];
     var warnings = [];
     var overallStatus = "healthy";
-    if (!supabaseUrl) { errors.push({ code: "E020", detail: "SUPABASE_URL not set" }); overallStatus = "critical"; }
-    if (!supabaseKey) { errors.push({ code: "E020", detail: "SUPABASE_SERVICE_ROLE_KEY not set" }); overallStatus = "critical"; }
-    if (overallStatus === "critical") { return { statusCode: 503, headers: corsHeaders, body: JSON.stringify({ status: "critical", system: SYSTEM_VERSION, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime }) }; }
+
+    // Check 1: Environment variables
+    if (!supabaseUrl) {
+      errors.push({ code: "E020", detail: "SUPABASE_URL not set" });
+      overallStatus = "critical";
+    }
+    if (!supabaseKey) {
+      errors.push({ code: "E020", detail: "SUPABASE_SERVICE_ROLE_KEY not set" });
+      overallStatus = "critical";
+    }
+
+    if (overallStatus === "critical") {
+      return {
+        statusCode: 503,
+        headers: corsHeaders,
+        body: JSON.stringify({ status: "critical", system: SYSTEM_VERSION, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime })
+      };
+    }
+
     var sb = createClient(supabaseUrl, supabaseKey);
+
+    // Check 2: Database connectivity
     var dbCheck = await sb.from("inspection_cases").select("id").limit(1);
-    if (dbCheck.error) { errors.push({ code: "E001", detail: dbCheck.error.message }); overallStatus = "critical"; } else { checks.push({ name: "database_connection", status: "pass", detail: "Supabase connected" }); }
-    if (quick) { return { statusCode: overallStatus === "critical" ? 503 : 200, headers: corsHeaders, body: JSON.stringify({ status: overallStatus, system: SYSTEM_VERSION, checks: checks, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime }) }; }
+    if (dbCheck.error) {
+      errors.push({ code: "E001", detail: dbCheck.error.message });
+      overallStatus = "critical";
+    } else {
+      checks.push({ name: "database_connection", status: "pass", detail: "Supabase connected" });
+    }
+
+    // Quick mode: return after DB check
+    if (quick) {
+      return {
+        statusCode: overallStatus === "critical" ? 503 : 200,
+        headers: corsHeaders,
+        body: JSON.stringify({ status: overallStatus, system: SYSTEM_VERSION, checks: checks, errors: errors, checked_at: new Date().toISOString(), response_ms: Date.now() - startTime })
+      };
+    }
+
+    // Check 3: Critical tables
     for (var ti = 0; ti < CRITICAL_TABLES.length; ti++) {
       var tbl = CRITICAL_TABLES[ti];
       var tblCheck = await sb.from(tbl.name).select("*").limit(1);
       if (tblCheck.error) {
-        if (tbl.critical) { errors.push({ code: "E002", table: tbl.name, deploy: tbl.deploy, detail: tblCheck.error.message }); if (overallStatus === "healthy") overallStatus = "degraded"; }
-        else { warnings.push({ code: "E002", table: tbl.name, deploy: tbl.deploy, detail: "Table not found - run " + tbl.deploy + " migration" }); }
-      } else { checks.push({ name: "table_" + tbl.name, status: "pass", deploy: tbl.deploy }); }
+        if (tbl.critical) {
+          errors.push({ code: "E002", table: tbl.name, deploy: tbl.deploy, detail: tblCheck.error.message });
+          if (overallStatus === "healthy") overallStatus = "degraded";
+        } else {
+          warnings.push({ code: "E002", table: tbl.name, deploy: tbl.deploy, detail: "Table not found - run " + tbl.deploy + " migration" });
+        }
+      } else {
+        checks.push({ name: "table_" + tbl.name, status: "pass", deploy: tbl.deploy });
+      }
     }
+
+    // Check 4: Signing key
     var keyCheck = await sb.from("org_signing_keys").select("id").eq("is_active", true).limit(1);
-    if (keyCheck.error || !keyCheck.data || keyCheck.data.length === 0) { warnings.push({ code: "E010", detail: "No active signing key" }); }
-    else { checks.push({ name: "signing_key", status: "pass", detail: "Active key: " + keyCheck.data[0].id }); }
+    if (keyCheck.error || !keyCheck.data || keyCheck.data.length === 0) {
+      warnings.push({ code: "E010", detail: "No active signing key" });
+    } else {
+      checks.push({ name: "signing_key", status: "pass", detail: "Active key: " + keyCheck.data[0].id });
+    }
+
+    // Check 5: Case count
     var caseCount = 0;
     var recentCases = 0;
     var countCheck = await sb.from("inspection_cases").select("id", { count: "exact", head: true });
@@ -251,8 +219,11 @@ export var handler: Handler = async function(event) {
     var sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     var recentCheck = await sb.from("inspection_cases").select("id", { count: "exact", head: true }).gte("created_at", sevenDaysAgo);
     recentCases = recentCheck.count || 0;
+
+    // Final status
     if (errors.length > 0 && overallStatus !== "critical") overallStatus = "degraded";
     if (errors.length === 0 && warnings.length > 0) overallStatus = "healthy_with_warnings";
+
     return {
       statusCode: overallStatus === "critical" ? 503 : 200,
       headers: corsHeaders,
@@ -264,11 +235,12 @@ export var handler: Handler = async function(event) {
         response_ms: Date.now() - startTime,
         database: { connected: true, total_cases: caseCount, cases_last_7_days: recentCases },
         engines: { total: ENGINE_REGISTRY.length, deterministic: countByMode("deterministic"), ai_assisted: countByMode("ai_assisted"), hybrid: countByMode("hybrid"), registry: ENGINE_REGISTRY },
-        tables: { total: CRITICAL_TABLES.length },
         checks: checks,
         errors: errors,
         warnings: warnings
       }, null, 2)
     };
-  } catch (err) { return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) }; }
+  } catch (err) {
+    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
+  }
 };
