@@ -696,7 +696,7 @@ var TEST_VECTORS = [
     expect: {
       status_code: 200,
       not_error: true,
-      has_fields: ["engine", "version"]
+      has_fields: ["engine_code", "engine_version"]
     },
     severity: "major",
     category: "power_generation"
