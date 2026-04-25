@@ -244,9 +244,9 @@ async function runAllChecks() {
 function runRegressionSuite() {
   var btn = document.getElementById("regBtn");
   btn.disabled = true;
-  btn.textContent = "Running Regression Suite...";
+  btn.textContent = "Fetching test vectors...";
   document.getElementById("regResults").style.display = "block";
-  document.getElementById("regDetail").innerHTML = '<p style="color:#8b949e">Running 45 test vectors across all engines... this may take 30-60 seconds.</p>';
+  document.getElementById("regDetail").innerHTML = '<p style="color:#8b949e">Loading test vectors...</p>';
   document.getElementById("regSummaryBar").style.display = "none";
 
   var xhr = new XMLHttpRequest();
@@ -254,54 +254,159 @@ function runRegressionSuite() {
   xhr.setRequestHeader("Content-Type", "application/json");
   xhr.onreadystatechange = function() {
     if (xhr.readyState === 4) {
-      btn.textContent = "Run Regression Suite";
-      btn.disabled = false;
       if (xhr.status === 200) {
         try {
           var data = JSON.parse(xhr.responseText);
-          renderRegressionResults(data);
+          var vectors = data.vectors || [];
+          if (vectors.length === 0) {
+            document.getElementById("regDetail").innerHTML = '<p style="color:#ef4444">No test vectors returned</p>';
+            btn.textContent = "Run Regression Suite";
+            btn.disabled = false;
+            return;
+          }
+          runVectorsFromBrowser(vectors, btn);
         } catch(e) {
-          document.getElementById("regDetail").innerHTML = '<p style="color:#ef4444">Failed to parse response</p>';
+          document.getElementById("regDetail").innerHTML = '<p style="color:#ef4444">Failed to parse test vectors</p>';
+          btn.textContent = "Run Regression Suite";
+          btn.disabled = false;
         }
       } else {
-        document.getElementById("regDetail").innerHTML = '<p style="color:#ef4444">HTTP ' + xhr.status + ' — Regression suite may have timed out. Try running from browser console.</p>';
+        document.getElementById("regDetail").innerHTML = '<p style="color:#ef4444">HTTP ' + xhr.status + ' — Could not fetch test vectors</p>';
+        btn.textContent = "Run Regression Suite";
+        btn.disabled = false;
       }
     }
   };
-  xhr.onerror = function() {
-    btn.textContent = "Run Regression Suite";
-    btn.disabled = false;
-    document.getElementById("regDetail").innerHTML = '<p style="color:#ef4444">Network error</p>';
-  };
-  xhr.send(JSON.stringify({ action: "run_full_suite" }));
+  xhr.send(JSON.stringify({ action: "get_test_vectors" }));
 }
 
-function renderRegressionResults(data) {
-  var s = data.summary || {};
-  document.getElementById("regSummaryBar").style.display = "flex";
-  var vc = s.verdict === "ALL_PASS" ? "#22c55e" : (s.verdict === "CRITICAL_REGRESSION" ? "#ef4444" : "#f59e0b");
-  document.getElementById("regVerdict").textContent = s.verdict || "UNKNOWN";
-  document.getElementById("regVerdict").style.color = vc;
-  document.getElementById("regPassed").textContent = s.passed || 0;
-  document.getElementById("regFailed").textContent = s.failed || 0;
-  document.getElementById("regRate").textContent = (s.pass_rate || 0) + "%";
-  document.getElementById("regMs").textContent = s.total_ms || 0;
+function runVectorsFromBrowser(vectors, btn) {
+  var regResults = [];
+  var idx = 0;
+  var totalStart = Date.now();
 
+  function updateProgress() {
+    var passed = 0, failed = 0;
+    for (var pi = 0; pi < regResults.length; pi++) {
+      if (regResults[pi].status === "PASS") passed++;
+      else failed++;
+    }
+    btn.textContent = "Running " + regResults.length + "/" + vectors.length + " (" + passed + " pass, " + failed + " fail)";
+  }
+
+  function runNext() {
+    if (idx >= vectors.length) {
+      btn.textContent = "Run Regression Suite";
+      btn.disabled = false;
+      finishRegression(regResults, Date.now() - totalStart);
+      return;
+    }
+    var v = vectors[idx];
+    idx++;
+    var start = Date.now();
+    var xr = new XMLHttpRequest();
+    xr.open("POST", v.engine, true);
+    xr.setRequestHeader("Content-Type", "application/json");
+    xr.onreadystatechange = function() {
+      if (xr.readyState === 4) {
+        var ms = Date.now() - start;
+        var result = validateVector(v, xr.status, xr.responseText, ms);
+        regResults.push(result);
+        updateProgress();
+        renderRegProgressResults(regResults);
+        runNext();
+      }
+    };
+    xr.onerror = function() {
+      regResults.push({ test_id: v.id, test_name: v.name, engine: v.engine, status: "FAIL", ms: Date.now() - start, failures: ["Network error"], passes: [] });
+      updateProgress();
+      renderRegProgressResults(regResults);
+      runNext();
+    };
+    xr.send(JSON.stringify(v.input));
+  }
+
+  runNext();
+}
+
+function validateVector(v, httpStatus, responseText, ms) {
+  var failures = [];
+  var passes = [];
+  var expect = v.expect || {};
+
+  if (expect.status_code && httpStatus !== expect.status_code) {
+    failures.push("Expected HTTP " + expect.status_code + " but got " + httpStatus);
+  } else {
+    passes.push("HTTP status: " + httpStatus);
+  }
+
+  var parsed = null;
+  try { parsed = JSON.parse(responseText); } catch(e) {
+    failures.push("Response is not valid JSON");
+    return { test_id: v.id, test_name: v.name, engine: v.engine, status: failures.length > 0 ? "FAIL" : "PASS", ms: ms, failures: failures, passes: passes };
+  }
+
+  if (expect.not_error && parsed && parsed.error) {
+    failures.push("Response contains error: " + String(parsed.error).substring(0, 200));
+  } else if (expect.not_error) {
+    passes.push("No error in response");
+  }
+
+  if (expect.has_fields && parsed) {
+    for (var fi = 0; fi < expect.has_fields.length; fi++) {
+      var fld = expect.has_fields[fi];
+      if (parsed[fld] === undefined) {
+        failures.push("Missing required field: " + fld);
+      } else {
+        passes.push("Field present: " + fld);
+      }
+    }
+  }
+
+  if (expect.field_values && parsed) {
+    var vkeys = Object.keys(expect.field_values);
+    for (var vi = 0; vi < vkeys.length; vi++) {
+      var vk = vkeys[vi];
+      if (parsed[vk] !== expect.field_values[vk]) {
+        failures.push("Field " + vk + ": expected " + JSON.stringify(expect.field_values[vk]) + " but got " + JSON.stringify(parsed[vk]));
+      } else {
+        passes.push("Field " + vk + " = " + JSON.stringify(expect.field_values[vk]));
+      }
+    }
+  }
+
+  return { test_id: v.id, test_name: v.name, engine: v.engine, status: failures.length > 0 ? "FAIL" : "PASS", ms: ms, failures: failures, passes: passes };
+}
+
+function finishRegression(regResults, totalMs) {
+  var passed = 0, failed = 0;
+  for (var i = 0; i < regResults.length; i++) {
+    if (regResults[i].status === "PASS") passed++;
+    else failed++;
+  }
+  var rate = regResults.length > 0 ? Math.round((passed / regResults.length) * 10000) / 100 : 0;
+  var verdict = failed === 0 ? "ALL_PASS" : (passed / regResults.length < 0.8 ? "CRITICAL_REGRESSION" : "REGRESSION_DETECTED");
+
+  document.getElementById("regSummaryBar").style.display = "flex";
+  var vc = verdict === "ALL_PASS" ? "#22c55e" : (verdict === "CRITICAL_REGRESSION" ? "#ef4444" : "#f59e0b");
+  document.getElementById("regVerdict").textContent = verdict;
+  document.getElementById("regVerdict").style.color = vc;
+  document.getElementById("regPassed").textContent = passed;
+  document.getElementById("regFailed").textContent = failed;
+  document.getElementById("regRate").textContent = rate + "%";
+  document.getElementById("regMs").textContent = totalMs;
+}
+
+function renderRegProgressResults(regResults) {
   var html = "";
-  var rr = data.results || [];
-  for (var i = 0; i < rr.length; i++) {
-    var r = rr[i];
+  for (var i = 0; i < regResults.length; i++) {
+    var r = regResults[i];
     var bc = r.status === "PASS" ? "pass" : "fail";
     html += '<div class="card" style="padding:12px;margin-bottom:6px"><h2 style="font-size:13px"><span class="badge ' + bc + '">' + r.status + '</span> ' + esc(r.test_name || r.test_id) + ' <span class="mono">' + (r.ms || 0) + 'ms</span></h2>';
-    if (r.status === "FAIL") {
+    if (r.status === "FAIL" && r.failures && r.failures.length > 0) {
       var failInfo = "";
-      if (r.failures) {
-        for (var fi = 0; fi < r.failures.length; fi++) {
-          failInfo += r.failures[fi] + "\n";
-        }
-      }
-      if (r.error) failInfo += r.error;
-      if (failInfo) html += '<div class="detail" style="margin-top:6px">' + esc(failInfo) + '</div>';
+      for (var fi = 0; fi < r.failures.length; fi++) { failInfo += r.failures[fi] + "\n"; }
+      html += '<div class="detail" style="margin-top:6px">' + esc(failInfo) + '</div>';
     }
     html += '</div>';
   }
