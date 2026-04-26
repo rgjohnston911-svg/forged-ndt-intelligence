@@ -73,8 +73,8 @@ var handler: Handler = async function(event) {
         .from("uncertainty_reliability_runs")
         .insert({
           action: action,
-          input_payload: body,
-          output_payload: result,
+          input_data: body,
+          result_data: result,
           created_at: now
         });
       if (insertResult.error) {
@@ -547,11 +547,30 @@ function runClassification(input) {
   var survivalResults = input.survival_results || {};
   var conformalConfidence = input.conformal_confidence || 1.0;
   var mcP05 = input.mc_p05_remaining || null;
+  var mechanism = input.mechanism || "";
 
   var timeHorizons = survivalResults.time_horizons || {};
   var failProb1y = timeHorizons["1y"]?.failure_probability || 0;
   var failProb3y = timeHorizons["3y"]?.failure_probability || 0;
   var failProb5y = timeHorizons["5y"]?.failure_probability || 0;
+
+  var HIGH_RISK_MECHANISMS = [
+    "CUI", "SCC", "SSC", "HIC", "SOHIC",
+    "fatigue_crack", "corrosion_fatigue",
+    "chemical_attack", "hydrogen_embrittlement",
+    "creep", "brittle_fracture",
+    "caustic_cracking", "chloride_SCC",
+    "sulfide_stress_cracking", "HF_alkylation"
+  ];
+
+  var mechanismNorm = String(mechanism).trim();
+  var isHighRiskMechanism = false;
+  for (var m = 0; m < HIGH_RISK_MECHANISMS.length; m++) {
+    if (mechanismNorm.toLowerCase() === HIGH_RISK_MECHANISMS[m].toLowerCase()) {
+      isHighRiskMechanism = true;
+      break;
+    }
+  }
 
   var reliabilityClass = "HOLD_FOR_INPUT";
   var authorityLockRequired = false;
@@ -567,6 +586,9 @@ function runClassification(input) {
     authorityLockRequired = true;
   } else if (failProb3y >= 0.10 || failProb5y >= 0.25) {
     reliabilityClass = "INCREASE_INSPECTION";
+    if (isHighRiskMechanism) {
+      authorityLockRequired = true;
+    }
   } else if (failProb5y >= 0.10) {
     reliabilityClass = "MONITOR";
   } else {
@@ -578,6 +600,8 @@ function runClassification(input) {
     recommendationText = "Continue normal inspection program with proof trace retained.";
   } else if (reliabilityClass === "MONITOR") {
     recommendationText = "Continue monitoring with documented uncertainty. Confirm trend at next interval.";
+  } else if (reliabilityClass === "INCREASE_INSPECTION" && authorityLockRequired) {
+    recommendationText = "Shorten inspection interval. High-risk mechanism requires engineering sign-off before disposition.";
   } else if (reliabilityClass === "INCREASE_INSPECTION") {
     recommendationText = "Shorten inspection interval and prioritize high-value measurements.";
   } else if (reliabilityClass === "ENGINEERING_REVIEW") {
@@ -592,6 +616,8 @@ function runClassification(input) {
     reliability_class: reliabilityClass,
     recommendation: recommendationText,
     authority_lock_required: authorityLockRequired,
+    authority_lock_reason: authorityLockRequired ? (isHighRiskMechanism && reliabilityClass === "INCREASE_INSPECTION" ? "high_risk_mechanism" : "threshold_exceeded") : null,
+    mechanism_risk: isHighRiskMechanism ? "HIGH" : "STANDARD",
     inspector_required_inputs: reliabilityClass === "HOLD_FOR_INPUT" ? true : false,
     confidence: conformalConfidence
   };
@@ -912,7 +938,8 @@ async function runFull(input) {
   var classificationResult = runClassification({
     survival_results: survivalResult.deterministic,
     conformal_confidence: conformalConfidence,
-    mc_p05_remaining: mcP05Remaining
+    mc_p05_remaining: mcP05Remaining,
+    mechanism: input.mechanism || ""
   });
 
   proofTrace.push({
@@ -934,31 +961,4 @@ async function runFull(input) {
   });
 
   return {
-    deterministic: {
-      monte_carlo: monteCarloResult.deterministic?.monte_carlo || null,
-      uncertainty_drivers: monteCarloResult.deterministic?.uncertainty_drivers || [],
-      survival: survivalResult.deterministic,
-      reliability_classification: classificationResult
-    },
-    interpreted: {
-      reliability_class: classificationResult.reliability_class,
-      recommendation: classificationResult.recommendation,
-      authority_lock_required: classificationResult.authority_lock_required,
-      inspector_required_inputs: classificationResult.inspector_required_inputs
-    },
-    provenance: {
-      engine: "uncertainty-reliability-core",
-      version: "URC-1.0.0",
-      deploy: "DEPLOY351",
-      modules_used: [
-        "MONTE_CARLO",
-        "SURVIVAL_ANALYSIS",
-        "RELIABILITY_CLASSIFICATION"
-      ],
-      timestamp: new Date().toISOString()
-    },
-    proof_trace: proofTrace
-  };
-}
-
-export { handler };
+  
