@@ -383,4 +383,50 @@ export var handler: Handler = async function(event) {
     recentCases = recentCheck.count || 0;
 
     // Final status
-    if (errors.length > 0 && overallStatus !== "critical") overallStatus = "degrad
+    if (errors.length > 0 && overallStatus !== "critical") overallStatus = "degraded";
+
+    // Engine count
+    var engineCount = ENGINE_REGISTRY.length;
+    var deterministicCount = countByMode("deterministic");
+    var hybridCount = countByMode("hybrid");
+
+    return {
+      statusCode: overallStatus === "critical" ? 503 : 200,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        status: overallStatus,
+        system: SYSTEM_VERSION,
+        build_date: BUILD_DATE,
+        engines: {
+          total: engineCount,
+          deterministic: deterministicCount,
+          hybrid: hybridCount
+        },
+        cases: {
+          total: caseCount,
+          recent_7d: recentCases
+        },
+        checks: checks,
+        warnings: warnings,
+        errors: errors,
+        checked_at: new Date().toISOString(),
+        response_ms: Date.now() - startTime
+      })
+    };
+
+  } catch (err) {
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        status: "critical",
+        system: SYSTEM_VERSION,
+        error: String(err && err.message ? err.message : err),
+        checked_at: new Date().toISOString(),
+        response_ms: Date.now() - startTime
+      })
+    };
+  }
+};
+
+export { handler };
