@@ -462,16 +462,19 @@ var fuse_evidence_action = function(multimodal_input, fusion_strategy) {
   return result;
 };
 
-var handler = function(event, context) {
-  if (event.httpMethod !== 'POST') {
+var handler: Handler = async function(event, context) {
+  var corsHeaders = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json"
+  };
+  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
+  if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ error: 'Method not allowed' })
+      headers: corsHeaders,
+      body: JSON.stringify({ error: "Method not allowed" })
     };
   }
   var request_body = event.body;
@@ -481,11 +484,8 @@ var handler = function(event, context) {
   } catch (e) {
     return {
       statusCode: 400,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ error: 'Invalid JSON in request body' })
+      headers: corsHeaders,
+      body: JSON.stringify({ error: "Invalid JSON in request body" })
     };
   }
   var action = request_data.action || 'fuse_evidence';
@@ -530,21 +530,15 @@ var handler = function(event, context) {
     } else {
       return {
         statusCode: 400,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ error: 'Unknown action: ' + action })
+        headers: corsHeaders,
+        body: JSON.stringify({ error: "Unknown action: " + action })
       };
     }
   } catch (e) {
     return {
       statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ error: 'Internal server error', detail: e.toString() })
+      headers: corsHeaders,
+      body: JSON.stringify({ error: "Internal server error", detail: String(e) })
     };
   }
   var db_write_task = function() {
@@ -564,12 +558,7 @@ var handler = function(event, context) {
   db_write_task();
   return {
     statusCode: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Content-Type': 'application/json'
-    },
+    headers: corsHeaders,
     body: JSON.stringify(response_payload)
   };
 };

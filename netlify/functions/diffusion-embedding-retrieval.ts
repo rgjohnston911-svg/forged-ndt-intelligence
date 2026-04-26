@@ -138,17 +138,19 @@ var ABBREVIATIONS = {
   h2s: "hydrogen_sulfide"
 };
 
-var handler = function(event) {
+var handler: Handler = async function(event) {
   var response = {
     statusCode: 200,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Content-Type": "application/json"
     },
     body: ""
   };
 
+  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: response.headers, body: "" };
   if (event.httpMethod !== "POST") {
     response.statusCode = 405;
     response.body = JSON.stringify({ error: "Method not allowed" });
