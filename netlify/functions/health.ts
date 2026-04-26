@@ -171,7 +171,9 @@ var CRITICAL_TABLES = [
   { name: "flow_assurance_assessments", deploy: "DEPLOY347", critical: false },
   { name: "riser_dynamics_assessments", deploy: "DEPLOY348", critical: false },
   { name: "embedding_retrieval_results", deploy: "DEPLOY349", critical: false },
-  { name: "multimodal_fusion_results", deploy: "DEPLOY350", critical: false }
+  { name: "multimodal_fusion_results", deploy: "DEPLOY350", critical: false },
+  { name: "uncertainty_reliability_runs", deploy: "DEPLOY351", critical: false },
+  { name: "distribution_sampler_results", deploy: "DEPLOY352", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -316,7 +318,9 @@ var ENGINE_REGISTRY = [
   { name: "flow-assurance-engine", deploy: "DEPLOY347", mode: "deterministic", path: "/api/flow-assurance-engine" },
   { name: "riser-dynamics-engine", deploy: "DEPLOY348", mode: "deterministic", path: "/api/riser-dynamics-engine" },
   { name: "diffusion-embedding-retrieval", deploy: "DEPLOY349", mode: "deterministic", path: "/api/diffusion-embedding-retrieval" },
-  { name: "multimodal-fusion-engine", deploy: "DEPLOY350", mode: "deterministic", path: "/api/multimodal-fusion-engine" }
+  { name: "multimodal-fusion-engine", deploy: "DEPLOY350", mode: "deterministic", path: "/api/multimodal-fusion-engine" },
+  { name: "uncertainty-reliability-core", deploy: "DEPLOY351", mode: "deterministic", path: "/api/uncertainty-reliability-core" },
+  { name: "distribution-sampler-engine", deploy: "DEPLOY352", mode: "deterministic", path: "/api/distribution-sampler-engine" }
 ];
 
 function countByMode(mode) {
