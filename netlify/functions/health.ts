@@ -422,11 +422,8 @@ export var handler: Handler = async function(event) {
         status: "critical",
         system: SYSTEM_VERSION,
         error: String(err && err.message ? err.message : err),
-        checked_at: new Date().toISOString(),
-        response_ms: Date.now() - startTime
+        checked_at: new Date().toISOString()
       })
     };
   }
 };
-
-export { handler };
