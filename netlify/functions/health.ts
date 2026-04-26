@@ -162,7 +162,8 @@ var CRITICAL_TABLES = [
   { name: "tank_assessments", deploy: "DEPLOY338", critical: false },
   { name: "pipeline_assessments", deploy: "DEPLOY339", critical: false },
   { name: "offshore_structural_assessments", deploy: "DEPLOY340", critical: false },
-  { name: "dde_assessments", deploy: "DEPLOY341", critical: false }
+  { name: "dde_assessments", deploy: "DEPLOY341", critical: false },
+  { name: "comprehensive_assessments", deploy: "DEPLOY342", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -298,7 +299,8 @@ var ENGINE_REGISTRY = [
   { name: "api653-tank-assessment", deploy: "DEPLOY338", mode: "deterministic", path: "/api/api653-tank-assessment" },
   { name: "pipeline-integrity-engine", deploy: "DEPLOY339", mode: "deterministic", path: "/api/pipeline-integrity-engine" },
   { name: "offshore-structural-assessment", deploy: "DEPLOY340", mode: "deterministic", path: "/api/offshore-structural-assessment" },
-  { name: "differential-diagnosis", deploy: "DEPLOY341", mode: "deterministic", path: "/api/differential-diagnosis" }
+  { name: "differential-diagnosis", deploy: "DEPLOY341", mode: "deterministic", path: "/api/differential-diagnosis" },
+  { name: "comprehensive-assessment", deploy: "DEPLOY342", mode: "deterministic", path: "/api/comprehensive-assessment" }
 ];
 
 function countByMode(mode) {
