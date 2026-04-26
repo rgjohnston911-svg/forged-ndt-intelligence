@@ -156,7 +156,12 @@ var CRITICAL_TABLES = [
   { name: "field_observations", deploy: "DEPLOY332", critical: false },
   { name: "batch_processing_runs", deploy: "DEPLOY333", critical: false },
   { name: "asset_registry", deploy: "DEPLOY334", critical: false },
-  { name: "event_bus_log", deploy: "DEPLOY335", critical: false }
+  { name: "event_bus_log", deploy: "DEPLOY335", critical: false },
+  { name: "api579_assessments", deploy: "DEPLOY336", critical: false },
+  { name: "rbi_assessments", deploy: "DEPLOY337", critical: false },
+  { name: "tank_assessments", deploy: "DEPLOY338", critical: false },
+  { name: "pipeline_assessments", deploy: "DEPLOY339", critical: false },
+  { name: "offshore_structural_assessments", deploy: "DEPLOY340", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -286,7 +291,12 @@ var ENGINE_REGISTRY = [
   { name: "field-observation-protocol", deploy: "DEPLOY332", mode: "deterministic", path: "/api/field-observation-protocol" },
   { name: "batch-processing-gateway", deploy: "DEPLOY333", mode: "deterministic", path: "/api/batch-processing-gateway" },
   { name: "asset-registry", deploy: "DEPLOY334", mode: "deterministic", path: "/api/asset-registry" },
-  { name: "event-bus", deploy: "DEPLOY335", mode: "deterministic", path: "/api/event-bus" }
+  { name: "event-bus", deploy: "DEPLOY335", mode: "deterministic", path: "/api/event-bus" },
+  { name: "api579-level2-part5", deploy: "DEPLOY336", mode: "deterministic", path: "/api/api579-level2-part5" },
+  { name: "api581-rbi-engine", deploy: "DEPLOY337", mode: "deterministic", path: "/api/api581-rbi-engine" },
+  { name: "api653-tank-assessment", deploy: "DEPLOY338", mode: "deterministic", path: "/api/api653-tank-assessment" },
+  { name: "pipeline-integrity-engine", deploy: "DEPLOY339", mode: "deterministic", path: "/api/pipeline-integrity-engine" },
+  { name: "offshore-structural-assessment", deploy: "DEPLOY340", mode: "deterministic", path: "/api/offshore-structural-assessment" }
 ];
 
 function countByMode(mode) {
