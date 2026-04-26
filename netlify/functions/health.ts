@@ -298,12 +298,7 @@ var ENGINE_REGISTRY = [
   { name: "api653-tank-assessment", deploy: "DEPLOY338", mode: "deterministic", path: "/api/api653-tank-assessment" },
   { name: "pipeline-integrity-engine", deploy: "DEPLOY339", mode: "deterministic", path: "/api/pipeline-integrity-engine" },
   { name: "offshore-structural-assessment", deploy: "DEPLOY340", mode: "deterministic", path: "/api/offshore-structural-assessment" },
-  { name: "differential-diagnosis", deploy: "DEPLOY341", mode: "deterministic", path: "/api/differential-diagnosis" },
-  { name: "dde-mechanism-kb-fixed", deploy: "DEPLOY341", mode: "deterministic", path: null },
-  { name: "dde-mechanism-kb-subsea", deploy: "DEPLOY341", mode: "deterministic", path: null },
-  { name: "dde-mechanism-kb-marine", deploy: "DEPLOY341", mode: "deterministic", path: null },
-  { name: "dde-prior-base-rates", deploy: "DEPLOY341", mode: "deterministic", path: null },
-  { name: "dde-evidence-mapper", deploy: "DEPLOY341", mode: "deterministic", path: null }
+  { name: "differential-diagnosis", deploy: "DEPLOY341", mode: "deterministic", path: "/api/differential-diagnosis" }
 ];
 
 function countByMode(mode) {
