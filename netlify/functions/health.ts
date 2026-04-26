@@ -163,7 +163,13 @@ var CRITICAL_TABLES = [
   { name: "pipeline_assessments", deploy: "DEPLOY339", critical: false },
   { name: "offshore_structural_assessments", deploy: "DEPLOY340", critical: false },
   { name: "dde_assessments", deploy: "DEPLOY341", critical: false },
-  { name: "comprehensive_assessments", deploy: "DEPLOY342", critical: false }
+  { name: "comprehensive_assessments", deploy: "DEPLOY342", critical: false },
+  { name: "floating_platform_assessments", deploy: "DEPLOY343", critical: false },
+  { name: "subsea_equipment_assessments", deploy: "DEPLOY344", critical: false },
+  { name: "mooring_assessments", deploy: "DEPLOY345", critical: false },
+  { name: "sour_service_assessments", deploy: "DEPLOY346", critical: false },
+  { name: "flow_assurance_assessments", deploy: "DEPLOY347", critical: false },
+  { name: "riser_dynamics_assessments", deploy: "DEPLOY348", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -300,7 +306,13 @@ var ENGINE_REGISTRY = [
   { name: "pipeline-integrity-engine", deploy: "DEPLOY339", mode: "deterministic", path: "/api/pipeline-integrity-engine" },
   { name: "offshore-structural-assessment", deploy: "DEPLOY340", mode: "deterministic", path: "/api/offshore-structural-assessment" },
   { name: "differential-diagnosis", deploy: "DEPLOY341", mode: "deterministic", path: "/api/differential-diagnosis" },
-  { name: "comprehensive-assessment", deploy: "DEPLOY342", mode: "deterministic", path: "/api/comprehensive-assessment" }
+  { name: "comprehensive-assessment", deploy: "DEPLOY342", mode: "deterministic", path: "/api/comprehensive-assessment" },
+  { name: "floating-platform-assessment", deploy: "DEPLOY343", mode: "deterministic", path: "/api/floating-platform-assessment" },
+  { name: "subsea-production-equipment", deploy: "DEPLOY344", mode: "deterministic", path: "/api/subsea-production-equipment" },
+  { name: "mooring-system-assessment", deploy: "DEPLOY345", mode: "deterministic", path: "/api/mooring-system-assessment" },
+  { name: "sour-service-corrosion", deploy: "DEPLOY346", mode: "deterministic", path: "/api/sour-service-corrosion" },
+  { name: "flow-assurance-engine", deploy: "DEPLOY347", mode: "deterministic", path: "/api/flow-assurance-engine" },
+  { name: "riser-dynamics-engine", deploy: "DEPLOY348", mode: "deterministic", path: "/api/riser-dynamics-engine" }
 ];
 
 function countByMode(mode) {

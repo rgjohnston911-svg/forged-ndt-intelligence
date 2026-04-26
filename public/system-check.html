@@ -27,7 +27,7 @@
 <body>
 
 <h1>FORGED NDT Intelligence OS — System Check</h1>
-<p class="subtitle">FORGED-NDT/3.0.0 — All 134 engines — Full endpoint verification</p>
+<p class="subtitle">FORGED-NDT/3.0.0 — All 140 engines — Full endpoint verification</p>
 
 <div class="summary-bar">
   <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
@@ -264,6 +264,12 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY340: Offshore Structural Assessment", "/api/offshore-structural-assessment", { action: "get_registry" });
   await testEndpoint("DEPLOY341: Differential Diagnosis Engine", "/api/differential-diagnosis", { action: "get_registry" });
   await testEndpoint("DEPLOY342: Comprehensive Assessment Orchestrator", "/api/comprehensive-assessment", { action: "get_registry" });
+  await testEndpoint("DEPLOY343: Floating Platform Assessment", "/api/floating-platform-assessment", { action: "get_registry" });
+  await testEndpoint("DEPLOY344: Subsea Production Equipment", "/api/subsea-production-equipment", { action: "get_registry" });
+  await testEndpoint("DEPLOY345: Mooring System Assessment", "/api/mooring-system-assessment", { action: "get_registry" });
+  await testEndpoint("DEPLOY346: Sour Service Corrosion", "/api/sour-service-corrosion", { action: "get_registry" });
+  await testEndpoint("DEPLOY347: Flow Assurance Engine", "/api/flow-assurance-engine", { action: "get_registry" });
+  await testEndpoint("DEPLOY348: Riser Dynamics Engine", "/api/riser-dynamics-engine", { action: "get_registry" });
 
   document.getElementById("runBtn").textContent = "Run Full System Check";
   document.getElementById("runBtn").disabled = false;
