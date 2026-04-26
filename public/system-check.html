@@ -27,7 +27,7 @@
 <body>
 
 <h1>FORGED NDT Intelligence OS — System Check</h1>
-<p class="subtitle">FORGED-NDT/3.0.0 — All 140 engines — Full endpoint verification</p>
+<p class="subtitle">FORGED-NDT/3.0.0 — All 142 engines — Full endpoint verification</p>
 
 <div class="summary-bar">
   <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
@@ -270,6 +270,8 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY346: Sour Service Corrosion", "/api/sour-service-corrosion", { action: "get_registry" });
   await testEndpoint("DEPLOY347: Flow Assurance Engine", "/api/flow-assurance-engine", { action: "get_registry" });
   await testEndpoint("DEPLOY348: Riser Dynamics Engine", "/api/riser-dynamics-engine", { action: "get_registry" });
+  await testEndpoint("DEPLOY349: Diffusion Embedding Retrieval", "/api/diffusion-embedding-retrieval", { action: "get_registry" });
+  await testEndpoint("DEPLOY350: Multimodal Fusion Engine", "/api/multimodal-fusion-engine", { action: "get_registry" });
 
   document.getElementById("runBtn").textContent = "Run Full System Check";
   document.getElementById("runBtn").disabled = false;

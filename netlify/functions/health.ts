@@ -169,7 +169,9 @@ var CRITICAL_TABLES = [
   { name: "mooring_assessments", deploy: "DEPLOY345", critical: false },
   { name: "sour_service_assessments", deploy: "DEPLOY346", critical: false },
   { name: "flow_assurance_assessments", deploy: "DEPLOY347", critical: false },
-  { name: "riser_dynamics_assessments", deploy: "DEPLOY348", critical: false }
+  { name: "riser_dynamics_assessments", deploy: "DEPLOY348", critical: false },
+  { name: "embedding_retrieval_results", deploy: "DEPLOY349", critical: false },
+  { name: "multimodal_fusion_results", deploy: "DEPLOY350", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -312,7 +314,9 @@ var ENGINE_REGISTRY = [
   { name: "mooring-system-assessment", deploy: "DEPLOY345", mode: "deterministic", path: "/api/mooring-system-assessment" },
   { name: "sour-service-corrosion", deploy: "DEPLOY346", mode: "deterministic", path: "/api/sour-service-corrosion" },
   { name: "flow-assurance-engine", deploy: "DEPLOY347", mode: "deterministic", path: "/api/flow-assurance-engine" },
-  { name: "riser-dynamics-engine", deploy: "DEPLOY348", mode: "deterministic", path: "/api/riser-dynamics-engine" }
+  { name: "riser-dynamics-engine", deploy: "DEPLOY348", mode: "deterministic", path: "/api/riser-dynamics-engine" },
+  { name: "diffusion-embedding-retrieval", deploy: "DEPLOY349", mode: "deterministic", path: "/api/diffusion-embedding-retrieval" },
+  { name: "multimodal-fusion-engine", deploy: "DEPLOY350", mode: "deterministic", path: "/api/multimodal-fusion-engine" }
 ];
 
 function countByMode(mode) {
