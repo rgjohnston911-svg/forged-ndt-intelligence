@@ -148,7 +148,10 @@ var CRITICAL_TABLES = [
   { name: "debate_sessions", deploy: "DEPLOY326", critical: false },
   { name: "debate_arguments", deploy: "DEPLOY326", critical: false },
   { name: "anomaly_fingerprints", deploy: "DEPLOY327", critical: false },
-  { name: "anomaly_matches", deploy: "DEPLOY327", critical: false }
+  { name: "anomaly_matches", deploy: "DEPLOY327", critical: false },
+  { name: "explainability_traces", deploy: "DEPLOY328", critical: false },
+  { name: "temporal_fusion_states", deploy: "DEPLOY329", critical: false },
+  { name: "regulatory_reports", deploy: "DEPLOY330", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -270,7 +273,10 @@ var ENGINE_REGISTRY = [
   { name: "uncertainty-propagation", deploy: "DEPLOY324", mode: "deterministic", path: "/api/uncertainty-propagation" },
   { name: "causal-discovery", deploy: "DEPLOY325", mode: "deterministic", path: "/api/causal-discovery" },
   { name: "multi-agent-debate", deploy: "DEPLOY326", mode: "deterministic", path: "/api/multi-agent-debate" },
-  { name: "anomaly-fingerprint", deploy: "DEPLOY327", mode: "deterministic", path: "/api/anomaly-fingerprint" }
+  { name: "anomaly-fingerprint", deploy: "DEPLOY327", mode: "deterministic", path: "/api/anomaly-fingerprint" },
+  { name: "explainability-engine", deploy: "DEPLOY328", mode: "deterministic", path: "/api/explainability-engine" },
+  { name: "temporal-fusion-engine", deploy: "DEPLOY329", mode: "deterministic", path: "/api/temporal-fusion-engine" },
+  { name: "regulatory-report-generator", deploy: "DEPLOY330", mode: "deterministic", path: "/api/regulatory-report-generator" }
 ];
 
 function countByMode(mode) {
