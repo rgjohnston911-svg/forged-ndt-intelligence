@@ -38,6 +38,8 @@ var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 import { MECHANISMS_FIXED } from "./dde-mechanism-kb-fixed";
 import { MECHANISMS_SUBSEA } from "./dde-mechanism-kb-subsea";
 import { MECHANISMS_MARINE } from "./dde-mechanism-kb-marine";
+import { MECHANISMS_FLOATING } from "./dde-mechanism-kb-floating";
+import { MECHANISMS_PRODUCTION } from "./dde-mechanism-kb-production";
 import { PRIORS } from "./dde-prior-base-rates";
 import { mapEvidence, assessCompleteness } from "./dde-evidence-mapper";
 
@@ -65,6 +67,8 @@ function loadKB(domain: string): any {
   if (domain === "fixed") return MECHANISMS_FIXED;
   if (domain === "subsea") return MECHANISMS_SUBSEA;
   if (domain === "marine") return MECHANISMS_MARINE;
+  if (domain === "floating") return MECHANISMS_FLOATING;
+  if (domain === "production") return MECHANISMS_PRODUCTION;
   return null;
 }
 
@@ -657,9 +661,11 @@ var handler: Handler = async function(event) {
           domains: {
             fixed: { mechanisms: Object.keys(MECHANISMS_FIXED).length, description: "Refining / petrochemical fixed equipment" },
             subsea: { mechanisms: Object.keys(MECHANISMS_SUBSEA).length, description: "Subsea pipelines, risers, jackets, offshore structures" },
-            marine: { mechanisms: Object.keys(MECHANISMS_MARINE).length, description: "Ship hulls, MODUs, marine vessels" }
+            marine: { mechanisms: Object.keys(MECHANISMS_MARINE).length, description: "Ship hulls, MODUs, marine vessels" },
+            floating: { mechanisms: Object.keys(MECHANISMS_FLOATING).length, description: "Floating production platforms — FPSO, TLP, Semi-Sub, SPAR, FLNG" },
+            production: { mechanisms: Object.keys(MECHANISMS_PRODUCTION).length, description: "Subsea production equipment, mooring systems, flow assurance" }
           },
-          total_mechanisms: Object.keys(MECHANISMS_FIXED).length + Object.keys(MECHANISMS_SUBSEA).length + Object.keys(MECHANISMS_MARINE).length,
+          total_mechanisms: Object.keys(MECHANISMS_FIXED).length + Object.keys(MECHANISMS_SUBSEA).length + Object.keys(MECHANISMS_MARINE).length + Object.keys(MECHANISMS_FLOATING).length + Object.keys(MECHANISMS_PRODUCTION).length,
           mathematics: "Bayesian inference with categorical evidence — P(M|E) = P(E|M) * P(M) / sum(P(E|M_i) * P(M_i))",
           what_this_is_not: [
             "Not multi-agent debate — deterministic Bayesian ranking",
