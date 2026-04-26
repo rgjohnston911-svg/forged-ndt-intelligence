@@ -961,4 +961,11 @@ async function runFull(input) {
   });
 
   return {
-  
+    deterministic: survivalResult.deterministic || {},
+    monte_carlo: monteCarloResult.deterministic?.monte_carlo || null,
+    classification: classificationResult,
+    proof_trace: proofTrace
+  };
+}
+
+export { handler };
