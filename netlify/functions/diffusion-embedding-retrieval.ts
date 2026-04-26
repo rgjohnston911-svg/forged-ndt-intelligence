@@ -1,6 +1,10 @@
 // @ts-nocheck
-var type = require("@netlify/functions");
-var supabase = require("@supabase/supabase-js");
+import type { Handler } from "@netlify/functions";
+import { createClient } from "@supabase/supabase-js";
+
+var supabaseUrl = process.env.SUPABASE_URL || "";
+var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+var sb = createClient(supabaseUrl, supabaseKey);
 
 var MECHANISMS = {
   hull_fatigue_fpso: { hull: 1.0, fatigue: 1.0, fpso: 0.9, hogging: 0.8, sagging: 0.8, wave: 0.7, bending: 0.7, crack: 0.6, structural: 0.5 },
@@ -191,18 +195,13 @@ var handler: Handler = async function(event) {
   response.body = JSON.stringify(result);
 
   try {
-    var supabaseUrl = process.env.SUPABASE_URL;
-    var supabaseKey = process.env.SUPABASE_KEY;
-    if (supabaseUrl && supabaseKey) {
-      var client = supabase.createClient(supabaseUrl, supabaseKey);
-      var payload = {
-        action: action,
-        text_snippet: text.substring(0, 200),
-        result_summary: JSON.stringify(result).substring(0, 500),
-        timestamp: new Date().toISOString()
-      };
-      client.from("embedding_retrieval_results").insert([payload]).then(function() {}).catch(function() {});
-    }
+    var payload = {
+      action: action,
+      input_data: { text: text.substring(0, 200) },
+      result_data: result,
+      created_at: new Date().toISOString()
+    };
+    sb.from("embedding_retrieval_results").insert([payload]).then(function() {}).catch(function() {});
   } catch (e) {}
 
   return response;

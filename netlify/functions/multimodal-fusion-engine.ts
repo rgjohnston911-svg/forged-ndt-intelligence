@@ -1,9 +1,9 @@
 // @ts-nocheck
-var type Handler = require('@netlify/functions').Handler;
-var createClient = require('@supabase/supabase-js').createClient;
+import type { Handler } from "@netlify/functions";
+import { createClient } from "@supabase/supabase-js";
 
-var supabaseUrl = process.env.SUPABASE_URL || '';
-var supabaseKey = process.env.SUPABASE_KEY || '';
+var supabaseUrl = process.env.SUPABASE_URL || "";
+var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 var supabase = createClient(supabaseUrl, supabaseKey);
 
 var modalityRegistry = {
