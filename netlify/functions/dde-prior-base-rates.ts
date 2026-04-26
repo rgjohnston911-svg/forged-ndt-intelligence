@@ -271,6 +271,123 @@ var PRIORS = {
     coating_breakdown: 0.08,
     erosion_corrosion_marine: 0.05,
     other: 0.12
+  },
+
+  // ── FLOATING PLATFORMS ──────────────────────────────────────────────────
+
+  // FPSO — carbon steel hull
+  "floating:fpso:carbon_steel": {
+    hull_fatigue_fpso: 0.20,
+    internal_corrosion_fpso: 0.18,
+    turret_bearing_wear: 0.12,
+    motion_induced_fatigue: 0.10,
+    green_water_damage: 0.08,
+    topside_interface_cracking: 0.08,
+    column_plate_buckling: 0.06,
+    tendon_fatigue_tlp: 0.01,
+    other: 0.17
+  },
+
+  // TLP — high strength steel tendons
+  "floating:tlp:high_strength_steel": {
+    tendon_fatigue_tlp: 0.25,
+    motion_induced_fatigue: 0.15,
+    topside_interface_cracking: 0.10,
+    column_plate_buckling: 0.12,
+    hull_fatigue_fpso: 0.05,
+    green_water_damage: 0.06,
+    turret_bearing_wear: 0.01,
+    internal_corrosion_fpso: 0.04,
+    other: 0.22
+  },
+
+  // Semi-sub — carbon steel columns
+  "floating:semi_sub:carbon_steel": {
+    column_plate_buckling: 0.18,
+    motion_induced_fatigue: 0.15,
+    topside_interface_cracking: 0.12,
+    hull_fatigue_fpso: 0.10,
+    green_water_damage: 0.10,
+    internal_corrosion_fpso: 0.08,
+    tendon_fatigue_tlp: 0.01,
+    turret_bearing_wear: 0.01,
+    other: 0.25
+  },
+
+  // SPAR — high strength steel
+  "floating:spar:high_strength_steel": {
+    motion_induced_fatigue: 0.22,
+    column_plate_buckling: 0.18,
+    topside_interface_cracking: 0.12,
+    hull_fatigue_fpso: 0.08,
+    green_water_damage: 0.05,
+    tendon_fatigue_tlp: 0.08,
+    internal_corrosion_fpso: 0.06,
+    turret_bearing_wear: 0.01,
+    other: 0.20
+  },
+
+  // Domain-level default for floating
+  "floating:default": {
+    hull_fatigue_fpso: 0.15,
+    turret_bearing_wear: 0.08,
+    tendon_fatigue_tlp: 0.08,
+    green_water_damage: 0.08,
+    column_plate_buckling: 0.12,
+    motion_induced_fatigue: 0.14,
+    topside_interface_cracking: 0.10,
+    internal_corrosion_fpso: 0.10,
+    other: 0.15
+  },
+
+  // ── SUBSEA PRODUCTION / MOORING / FLOW ASSURANCE ────────────────────────
+
+  // Subsea tree — carbon steel in sour service
+  "production:subsea_tree:carbon_steel": {
+    tree_seal_degradation: 0.25,
+    connector_make_break_fatigue: 0.15,
+    flow_erosion_sand: 0.12,
+    hydrate_wax_blockage: 0.10,
+    umbilical_armor_corrosion: 0.08,
+    mooring_chain_fatigue: 0.02,
+    synthetic_rope_creep: 0.01,
+    other: 0.27
+  },
+
+  // Mooring system — high strength steel chain
+  "production:mooring:high_strength_steel": {
+    mooring_chain_fatigue: 0.30,
+    synthetic_rope_creep: 0.15,
+    connector_make_break_fatigue: 0.10,
+    tree_seal_degradation: 0.02,
+    umbilical_armor_corrosion: 0.05,
+    flow_erosion_sand: 0.02,
+    hydrate_wax_blockage: 0.01,
+    other: 0.35
+  },
+
+  // Flowline — carbon steel multiphase
+  "production:flowline:carbon_steel": {
+    flow_erosion_sand: 0.22,
+    hydrate_wax_blockage: 0.18,
+    tree_seal_degradation: 0.05,
+    connector_make_break_fatigue: 0.10,
+    umbilical_armor_corrosion: 0.08,
+    mooring_chain_fatigue: 0.02,
+    synthetic_rope_creep: 0.01,
+    other: 0.34
+  },
+
+  // Domain-level default for production
+  "production:default": {
+    tree_seal_degradation: 0.15,
+    umbilical_armor_corrosion: 0.12,
+    connector_make_break_fatigue: 0.12,
+    mooring_chain_fatigue: 0.15,
+    synthetic_rope_creep: 0.08,
+    flow_erosion_sand: 0.12,
+    hydrate_wax_blockage: 0.10,
+    other: 0.16
   }
 };
 
