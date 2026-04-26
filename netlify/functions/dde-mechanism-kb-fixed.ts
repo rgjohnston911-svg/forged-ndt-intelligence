@@ -1,0 +1,792 @@
+// @ts-nocheck
+// ══════════════════════════════════════════════════════════════════════════════
+// DDE MECHANISM KNOWLEDGE BASE — FIXED EQUIPMENT
+// 15 damage mechanisms for refining / petrochemical fixed equipment
+//
+// Sources: API 571 (Damage Mechanisms Affecting Fixed Equipment in the
+// Refining Industry), API 579-1, NACE MR0175/ISO 15156
+//
+// Each mechanism has:
+//   prerequisites  — hard gates; if ANY fails, mechanism is eliminated
+//   indicators     — P(observation | mechanism) conditional probability tables
+//   synergistic_with / competes_with — mechanism interaction flags
+//   severity_default, typical_consequence, code_reference — display metadata
+//
+// Indicator dimensions for fixed equipment:
+//   crack_orientation, crack_location, morphology, service_temperature_f,
+//   wall_loss_pattern, wall_loss_percent_range, surface_condition,
+//   weld_proximity, ph_environment, crack_depth_ratio
+// ══════════════════════════════════════════════════════════════════════════════
+
+var MECHANISMS_FIXED = {
+
+  // ── 1. HIC — Hydrogen-Induced Cracking ──────────────────────────────────
+  HIC: {
+    id: "HIC",
+    display_name: "Hydrogen-Induced Cracking",
+    domain: "fixed",
+    prerequisites: {
+      service_contains_h2s: true,
+      material_family: ["carbon_steel", "low_alloy_steel"],
+      ph_range: [0, 7],
+      water_phase_present: true
+    },
+    indicators: {
+      crack_orientation: {
+        parallel_to_plate: 0.75,
+        perpendicular_to_plate: 0.05,
+        random: 0.15,
+        circumferential: 0.03,
+        axial: 0.02
+      },
+      crack_location: {
+        mid_wall: 0.70,
+        id_surface: 0.20,
+        od_surface: 0.03,
+        weld_toe: 0.05,
+        weld_root: 0.02
+      },
+      morphology: {
+        stepwise_blistering: 0.65,
+        single_planar: 0.20,
+        branched: 0.10,
+        transgranular: 0.03,
+        intergranular: 0.02
+      },
+      service_temperature_f: {
+        below_150: 0.60,
+        "150_to_300": 0.30,
+        "300_to_500": 0.08,
+        above_500: 0.02
+      },
+      wall_loss_pattern: {
+        localized_blistering: 0.70,
+        uniform: 0.05,
+        pitting: 0.10,
+        grooving: 0.05,
+        none_visible: 0.10
+      },
+      surface_condition: {
+        blistered: 0.75,
+        clean: 0.10,
+        corroded: 0.10,
+        scaled: 0.05
+      }
+    },
+    synergistic_with: ["SOHIC", "SSC"],
+    competes_with: ["fatigue", "creep", "naphthenic_acid_corrosion"],
+    severity_default: "high",
+    typical_consequence: "through_wall_leak",
+    code_reference: "API 571 §5.1.2.3, NACE MR0175/ISO 15156"
+  },
+
+  // ── 2. SSC — Sulfide Stress Cracking ────────────────────────────────────
+  SSC: {
+    id: "SSC",
+    display_name: "Sulfide Stress Cracking",
+    domain: "fixed",
+    prerequisites: {
+      service_contains_h2s: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "high_strength_steel"],
+      hardness_above_22hrc: true
+    },
+    indicators: {
+      crack_orientation: {
+        perpendicular_to_plate: 0.60,
+        parallel_to_plate: 0.10,
+        random: 0.10,
+        circumferential: 0.15,
+        axial: 0.05
+      },
+      crack_location: {
+        weld_toe: 0.40,
+        weld_root: 0.15,
+        id_surface: 0.25,
+        od_surface: 0.05,
+        mid_wall: 0.15
+      },
+      morphology: {
+        branched: 0.15,
+        single_planar: 0.45,
+        transgranular: 0.10,
+        intergranular: 0.25,
+        stepwise_blistering: 0.05
+      },
+      service_temperature_f: {
+        below_150: 0.55,
+        "150_to_300": 0.35,
+        "300_to_500": 0.08,
+        above_500: 0.02
+      },
+      weld_proximity: {
+        at_weld: 0.55,
+        near_weld_haz: 0.30,
+        away_from_weld: 0.15
+      },
+      crack_depth_ratio: {
+        shallow_lt_25pct: 0.20,
+        moderate_25_50pct: 0.35,
+        deep_gt_50pct: 0.45
+      }
+    },
+    synergistic_with: ["HIC", "SOHIC"],
+    competes_with: ["chloride_scc", "caustic_cracking", "fatigue"],
+    severity_default: "high",
+    typical_consequence: "sudden_brittle_fracture",
+    code_reference: "API 571 §5.1.2.2, NACE MR0175/ISO 15156, NACE TM0177"
+  },
+
+  // ── 3. SOHIC — Stress-Oriented HIC ─────────────────────────────────────
+  SOHIC: {
+    id: "SOHIC",
+    display_name: "Stress-Oriented Hydrogen-Induced Cracking",
+    domain: "fixed",
+    prerequisites: {
+      service_contains_h2s: true,
+      material_family: ["carbon_steel", "low_alloy_steel"],
+      water_phase_present: true,
+      residual_or_applied_stress: true
+    },
+    indicators: {
+      crack_orientation: {
+        perpendicular_to_plate: 0.65,
+        parallel_to_plate: 0.15,
+        random: 0.10,
+        circumferential: 0.05,
+        axial: 0.05
+      },
+      crack_location: {
+        weld_toe: 0.45,
+        weld_root: 0.15,
+        id_surface: 0.20,
+        mid_wall: 0.15,
+        od_surface: 0.05
+      },
+      morphology: {
+        stepwise_blistering: 0.35,
+        single_planar: 0.15,
+        branched: 0.10,
+        intergranular: 0.20,
+        transgranular: 0.20
+      },
+      service_temperature_f: {
+        below_150: 0.50,
+        "150_to_300": 0.35,
+        "300_to_500": 0.12,
+        above_500: 0.03
+      },
+      weld_proximity: {
+        at_weld: 0.50,
+        near_weld_haz: 0.35,
+        away_from_weld: 0.15
+      }
+    },
+    synergistic_with: ["HIC", "SSC"],
+    competes_with: ["fatigue", "caustic_cracking"],
+    severity_default: "high",
+    typical_consequence: "through_wall_crack_at_weld",
+    code_reference: "API 571 §5.1.2.4"
+  },
+
+  // ── 4. AMINE CRACKING ──────────────────────────────────────────────────
+  amine_cracking: {
+    id: "amine_cracking",
+    display_name: "Amine Stress Corrosion Cracking",
+    domain: "fixed",
+    prerequisites: {
+      service_contains_amine: true,
+      material_family: ["carbon_steel"],
+      residual_or_applied_stress: true
+    },
+    indicators: {
+      crack_orientation: {
+        parallel_to_plate: 0.10,
+        perpendicular_to_plate: 0.15,
+        random: 0.10,
+        circumferential: 0.50,
+        axial: 0.15
+      },
+      crack_location: {
+        weld_toe: 0.50,
+        weld_root: 0.20,
+        id_surface: 0.15,
+        od_surface: 0.05,
+        mid_wall: 0.10
+      },
+      morphology: {
+        intergranular: 0.65,
+        transgranular: 0.15,
+        branched: 0.10,
+        single_planar: 0.08,
+        stepwise_blistering: 0.02
+      },
+      service_temperature_f: {
+        below_150: 0.30,
+        "150_to_300": 0.50,
+        "300_to_500": 0.15,
+        above_500: 0.05
+      },
+      weld_proximity: {
+        at_weld: 0.60,
+        near_weld_haz: 0.25,
+        away_from_weld: 0.15
+      }
+    },
+    synergistic_with: ["general_corrosion"],
+    competes_with: ["caustic_cracking", "SSC", "chloride_scc"],
+    severity_default: "high",
+    typical_consequence: "through_wall_crack_at_weld",
+    code_reference: "API 571 §5.1.2.7, API RP 945"
+  },
+
+  // ── 5. CAUSTIC CRACKING (Caustic SCC) ──────────────────────────────────
+  caustic_cracking: {
+    id: "caustic_cracking",
+    display_name: "Caustic Stress Corrosion Cracking",
+    domain: "fixed",
+    prerequisites: {
+      service_contains_caustic: true,
+      material_family: ["carbon_steel", "low_alloy_steel"],
+      service_temp_above_f: 120
+    },
+    indicators: {
+      crack_orientation: {
+        circumferential: 0.40,
+        axial: 0.15,
+        perpendicular_to_plate: 0.20,
+        parallel_to_plate: 0.10,
+        random: 0.15
+      },
+      crack_location: {
+        weld_toe: 0.45,
+        weld_root: 0.20,
+        id_surface: 0.20,
+        od_surface: 0.05,
+        mid_wall: 0.10
+      },
+      morphology: {
+        intergranular: 0.70,
+        transgranular: 0.10,
+        branched: 0.10,
+        single_planar: 0.08,
+        stepwise_blistering: 0.02
+      },
+      service_temperature_f: {
+        below_150: 0.10,
+        "150_to_300": 0.50,
+        "300_to_500": 0.30,
+        above_500: 0.10
+      },
+      surface_condition: {
+        clean: 0.15,
+        corroded: 0.30,
+        scaled: 0.40,
+        blistered: 0.15
+      }
+    },
+    synergistic_with: [],
+    competes_with: ["amine_cracking", "SSC", "chloride_scc"],
+    severity_default: "high",
+    typical_consequence: "sudden_brittle_fracture",
+    code_reference: "API 571 §5.1.2.6, NACE SP0403"
+  },
+
+  // ── 6. CHLORIDE SCC ────────────────────────────────────────────────────
+  chloride_scc: {
+    id: "chloride_scc",
+    display_name: "Chloride Stress Corrosion Cracking",
+    domain: "fixed",
+    prerequisites: {
+      service_contains_chlorides: true,
+      material_family: ["austenitic_stainless", "duplex_stainless"],
+      service_temp_above_f: 140
+    },
+    indicators: {
+      crack_orientation: {
+        random: 0.35,
+        circumferential: 0.25,
+        axial: 0.20,
+        perpendicular_to_plate: 0.10,
+        parallel_to_plate: 0.10
+      },
+      crack_location: {
+        od_surface: 0.40,
+        id_surface: 0.25,
+        weld_toe: 0.20,
+        weld_root: 0.10,
+        mid_wall: 0.05
+      },
+      morphology: {
+        branched: 0.60,
+        transgranular: 0.25,
+        intergranular: 0.05,
+        single_planar: 0.08,
+        stepwise_blistering: 0.02
+      },
+      service_temperature_f: {
+        below_150: 0.05,
+        "150_to_300": 0.50,
+        "300_to_500": 0.35,
+        above_500: 0.10
+      },
+      surface_condition: {
+        corroded: 0.30,
+        clean: 0.20,
+        scaled: 0.15,
+        blistered: 0.35
+      }
+    },
+    synergistic_with: ["pitting_corrosion"],
+    competes_with: ["caustic_cracking", "amine_cracking", "SSC"],
+    severity_default: "high",
+    typical_consequence: "through_wall_crack",
+    code_reference: "API 571 §5.1.2.1, NACE SP0110"
+  },
+
+  // ── 7. NAPHTHENIC ACID CORROSION ───────────────────────────────────────
+  naphthenic_acid_corrosion: {
+    id: "naphthenic_acid_corrosion",
+    display_name: "Naphthenic Acid Corrosion",
+    domain: "fixed",
+    prerequisites: {
+      service_contains_naphthenic_acid: true,
+      service_temp_above_f: 425,
+      tan_above_threshold: true
+    },
+    indicators: {
+      wall_loss_pattern: {
+        grooving: 0.45,
+        uniform: 0.25,
+        pitting: 0.15,
+        localized_blistering: 0.05,
+        none_visible: 0.10
+      },
+      wall_loss_percent_range: {
+        lt_10: 0.10,
+        "10_to_25": 0.25,
+        "25_to_50": 0.40,
+        gt_50: 0.25
+      },
+      service_temperature_f: {
+        below_150: 0.01,
+        "150_to_300": 0.02,
+        "300_to_500": 0.17,
+        above_500: 0.80
+      },
+      surface_condition: {
+        corroded: 0.55,
+        clean: 0.05,
+        scaled: 0.25,
+        blistered: 0.15
+      },
+      crack_location: {
+        id_surface: 0.70,
+        od_surface: 0.05,
+        weld_toe: 0.10,
+        weld_root: 0.05,
+        mid_wall: 0.10
+      }
+    },
+    synergistic_with: ["sulfidation"],
+    competes_with: ["general_corrosion", "HIC"],
+    severity_default: "medium",
+    typical_consequence: "accelerated_thinning",
+    code_reference: "API 571 §5.1.1.2, NACE 34105"
+  },
+
+  // ── 8. GENERAL CORROSION ───────────────────────────────────────────────
+  general_corrosion: {
+    id: "general_corrosion",
+    display_name: "General / Uniform Corrosion",
+    domain: "fixed",
+    prerequisites: {
+      material_family: ["carbon_steel", "low_alloy_steel", "austenitic_stainless", "duplex_stainless"]
+    },
+    indicators: {
+      wall_loss_pattern: {
+        uniform: 0.65,
+        pitting: 0.10,
+        grooving: 0.10,
+        localized_blistering: 0.05,
+        none_visible: 0.10
+      },
+      wall_loss_percent_range: {
+        lt_10: 0.30,
+        "10_to_25": 0.35,
+        "25_to_50": 0.25,
+        gt_50: 0.10
+      },
+      surface_condition: {
+        corroded: 0.65,
+        scaled: 0.20,
+        clean: 0.10,
+        blistered: 0.05
+      },
+      crack_location: {
+        id_surface: 0.45,
+        od_surface: 0.35,
+        weld_toe: 0.10,
+        weld_root: 0.05,
+        mid_wall: 0.05
+      },
+      service_temperature_f: {
+        below_150: 0.25,
+        "150_to_300": 0.30,
+        "300_to_500": 0.30,
+        above_500: 0.15
+      }
+    },
+    synergistic_with: [],
+    competes_with: ["naphthenic_acid_corrosion", "CUI", "MIC", "erosion_corrosion"],
+    severity_default: "medium",
+    typical_consequence: "wall_thinning",
+    code_reference: "API 571 §5.1.1.1, API 579 Part 4/5"
+  },
+
+  // ── 9. CUI — Corrosion Under Insulation ────────────────────────────────
+  CUI: {
+    id: "CUI",
+    display_name: "Corrosion Under Insulation",
+    domain: "fixed",
+    prerequisites: {
+      insulation_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "austenitic_stainless"]
+    },
+    indicators: {
+      wall_loss_pattern: {
+        localized_blistering: 0.35,
+        uniform: 0.25,
+        pitting: 0.25,
+        grooving: 0.05,
+        none_visible: 0.10
+      },
+      crack_location: {
+        od_surface: 0.80,
+        id_surface: 0.05,
+        weld_toe: 0.05,
+        weld_root: 0.02,
+        mid_wall: 0.08
+      },
+      service_temperature_f: {
+        below_150: 0.25,
+        "150_to_300": 0.50,
+        "300_to_500": 0.20,
+        above_500: 0.05
+      },
+      surface_condition: {
+        corroded: 0.60,
+        blistered: 0.20,
+        scaled: 0.15,
+        clean: 0.05
+      },
+      wall_loss_percent_range: {
+        lt_10: 0.20,
+        "10_to_25": 0.35,
+        "25_to_50": 0.30,
+        gt_50: 0.15
+      }
+    },
+    synergistic_with: ["chloride_scc"],
+    competes_with: ["general_corrosion", "erosion_corrosion"],
+    severity_default: "high",
+    typical_consequence: "hidden_wall_loss_under_insulation",
+    code_reference: "API 571 §5.1.1.3, API RP 583, NACE SP0198"
+  },
+
+  // ── 10. MIC — Microbiologically Influenced Corrosion ───────────────────
+  MIC: {
+    id: "MIC",
+    display_name: "Microbiologically Influenced Corrosion",
+    domain: "fixed",
+    prerequisites: {
+      water_phase_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "austenitic_stainless"]
+    },
+    indicators: {
+      wall_loss_pattern: {
+        pitting: 0.60,
+        localized_blistering: 0.15,
+        uniform: 0.10,
+        grooving: 0.05,
+        none_visible: 0.10
+      },
+      crack_location: {
+        id_surface: 0.65,
+        weld_toe: 0.15,
+        weld_root: 0.10,
+        od_surface: 0.05,
+        mid_wall: 0.05
+      },
+      surface_condition: {
+        corroded: 0.40,
+        blistered: 0.30,
+        scaled: 0.20,
+        clean: 0.10
+      },
+      service_temperature_f: {
+        below_150: 0.60,
+        "150_to_300": 0.30,
+        "300_to_500": 0.08,
+        above_500: 0.02
+      },
+      wall_loss_percent_range: {
+        lt_10: 0.20,
+        "10_to_25": 0.30,
+        "25_to_50": 0.35,
+        gt_50: 0.15
+      }
+    },
+    synergistic_with: ["general_corrosion"],
+    competes_with: ["pitting_corrosion", "CUI"],
+    severity_default: "medium",
+    typical_consequence: "localized_pitting_perforation",
+    code_reference: "API 571 §5.1.1.4, NACE TM0194, NACE SP0106"
+  },
+
+  // ── 11. FATIGUE ────────────────────────────────────────────────────────
+  fatigue: {
+    id: "fatigue",
+    display_name: "Mechanical / Vibration Fatigue",
+    domain: "fixed",
+    prerequisites: {
+      cyclic_loading_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "austenitic_stainless", "duplex_stainless", "high_strength_steel"]
+    },
+    indicators: {
+      crack_orientation: {
+        perpendicular_to_plate: 0.60,
+        circumferential: 0.20,
+        axial: 0.10,
+        parallel_to_plate: 0.05,
+        random: 0.05
+      },
+      crack_location: {
+        weld_toe: 0.50,
+        weld_root: 0.20,
+        od_surface: 0.15,
+        id_surface: 0.10,
+        mid_wall: 0.05
+      },
+      morphology: {
+        transgranular: 0.55,
+        single_planar: 0.25,
+        branched: 0.05,
+        intergranular: 0.05,
+        stepwise_blistering: 0.10
+      },
+      surface_condition: {
+        clean: 0.55,
+        corroded: 0.25,
+        scaled: 0.10,
+        blistered: 0.10
+      },
+      crack_depth_ratio: {
+        shallow_lt_25pct: 0.30,
+        moderate_25_50pct: 0.40,
+        deep_gt_50pct: 0.30
+      }
+    },
+    synergistic_with: ["general_corrosion"],
+    competes_with: ["HIC", "SSC", "creep"],
+    severity_default: "high",
+    typical_consequence: "fatigue_crack_propagation",
+    code_reference: "API 571 §5.1.3.1, API 579 Part 9, BS 7910"
+  },
+
+  // ── 12. CREEP ──────────────────────────────────────────────────────────
+  creep: {
+    id: "creep",
+    display_name: "High Temperature Creep",
+    domain: "fixed",
+    prerequisites: {
+      service_temp_above_f: 700,
+      material_family: ["carbon_steel", "low_alloy_steel", "high_strength_steel"]
+    },
+    indicators: {
+      crack_orientation: {
+        random: 0.30,
+        circumferential: 0.25,
+        axial: 0.20,
+        perpendicular_to_plate: 0.15,
+        parallel_to_plate: 0.10
+      },
+      crack_location: {
+        weld_toe: 0.35,
+        weld_root: 0.25,
+        od_surface: 0.15,
+        id_surface: 0.15,
+        mid_wall: 0.10
+      },
+      morphology: {
+        intergranular: 0.65,
+        single_planar: 0.15,
+        branched: 0.10,
+        transgranular: 0.05,
+        stepwise_blistering: 0.05
+      },
+      service_temperature_f: {
+        below_150: 0.01,
+        "150_to_300": 0.02,
+        "300_to_500": 0.07,
+        above_500: 0.90
+      },
+      surface_condition: {
+        scaled: 0.50,
+        corroded: 0.25,
+        clean: 0.15,
+        blistered: 0.10
+      }
+    },
+    synergistic_with: ["sulfidation"],
+    competes_with: ["fatigue", "HIC"],
+    severity_default: "high",
+    typical_consequence: "creep_rupture",
+    code_reference: "API 571 §5.1.3.2, API 579 Part 10, API 530"
+  },
+
+  // ── 13. HYDROGEN EMBRITTLEMENT ─────────────────────────────────────────
+  hydrogen_embrittlement: {
+    id: "hydrogen_embrittlement",
+    display_name: "Hydrogen Embrittlement",
+    domain: "fixed",
+    prerequisites: {
+      hydrogen_charging_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "high_strength_steel"]
+    },
+    indicators: {
+      crack_orientation: {
+        perpendicular_to_plate: 0.50,
+        random: 0.20,
+        circumferential: 0.15,
+        axial: 0.10,
+        parallel_to_plate: 0.05
+      },
+      crack_location: {
+        weld_toe: 0.35,
+        weld_root: 0.20,
+        id_surface: 0.25,
+        od_surface: 0.10,
+        mid_wall: 0.10
+      },
+      morphology: {
+        intergranular: 0.55,
+        transgranular: 0.20,
+        single_planar: 0.15,
+        branched: 0.08,
+        stepwise_blistering: 0.02
+      },
+      service_temperature_f: {
+        below_150: 0.50,
+        "150_to_300": 0.35,
+        "300_to_500": 0.12,
+        above_500: 0.03
+      },
+      crack_depth_ratio: {
+        shallow_lt_25pct: 0.15,
+        moderate_25_50pct: 0.35,
+        deep_gt_50pct: 0.50
+      }
+    },
+    synergistic_with: ["SSC", "HIC"],
+    competes_with: ["fatigue", "creep"],
+    severity_default: "high",
+    typical_consequence: "sudden_brittle_fracture",
+    code_reference: "API 571 §5.1.2.5, NACE MR0175"
+  },
+
+  // ── 14. EROSION-CORROSION ──────────────────────────────────────────────
+  erosion_corrosion: {
+    id: "erosion_corrosion",
+    display_name: "Erosion-Corrosion",
+    domain: "fixed",
+    prerequisites: {
+      high_velocity_or_turbulent_flow: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "austenitic_stainless"]
+    },
+    indicators: {
+      wall_loss_pattern: {
+        grooving: 0.50,
+        uniform: 0.15,
+        pitting: 0.15,
+        localized_blistering: 0.10,
+        none_visible: 0.10
+      },
+      wall_loss_percent_range: {
+        lt_10: 0.10,
+        "10_to_25": 0.25,
+        "25_to_50": 0.40,
+        gt_50: 0.25
+      },
+      crack_location: {
+        id_surface: 0.70,
+        weld_toe: 0.10,
+        od_surface: 0.05,
+        weld_root: 0.05,
+        mid_wall: 0.10
+      },
+      surface_condition: {
+        corroded: 0.40,
+        clean: 0.30,
+        scaled: 0.15,
+        blistered: 0.15
+      },
+      service_temperature_f: {
+        below_150: 0.20,
+        "150_to_300": 0.35,
+        "300_to_500": 0.30,
+        above_500: 0.15
+      }
+    },
+    synergistic_with: ["general_corrosion"],
+    competes_with: ["CUI", "naphthenic_acid_corrosion"],
+    severity_default: "medium",
+    typical_consequence: "accelerated_thinning_at_bends",
+    code_reference: "API 571 §5.1.1.5, API RP 14E"
+  },
+
+  // ── 15. TEMPER EMBRITTLEMENT ───────────────────────────────────────────
+  temper_embrittlement: {
+    id: "temper_embrittlement",
+    display_name: "Temper Embrittlement",
+    domain: "fixed",
+    prerequisites: {
+      service_temp_above_f: 650,
+      material_family: ["low_alloy_steel", "carbon_steel"],
+      contains_tramp_elements: true
+    },
+    indicators: {
+      morphology: {
+        intergranular: 0.75,
+        transgranular: 0.10,
+        single_planar: 0.10,
+        branched: 0.03,
+        stepwise_blistering: 0.02
+      },
+      crack_location: {
+        weld_toe: 0.30,
+        weld_root: 0.20,
+        mid_wall: 0.25,
+        id_surface: 0.15,
+        od_surface: 0.10
+      },
+      service_temperature_f: {
+        below_150: 0.05,
+        "150_to_300": 0.05,
+        "300_to_500": 0.10,
+        above_500: 0.80
+      },
+      crack_depth_ratio: {
+        shallow_lt_25pct: 0.15,
+        moderate_25_50pct: 0.30,
+        deep_gt_50pct: 0.55
+      }
+    },
+    synergistic_with: ["creep"],
+    competes_with: ["hydrogen_embrittlement", "SSC"],
+    severity_default: "high",
+    typical_consequence: "brittle_fracture_on_cooldown",
+    code_reference: "API 571 §5.1.3.3, API 579 Part 3 (brittle fracture assessment)"
+  }
+};
+
+export { MECHANISMS_FIXED };
