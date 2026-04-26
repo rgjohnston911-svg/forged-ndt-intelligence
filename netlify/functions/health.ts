@@ -151,7 +151,12 @@ var CRITICAL_TABLES = [
   { name: "anomaly_matches", deploy: "DEPLOY327", critical: false },
   { name: "explainability_traces", deploy: "DEPLOY328", critical: false },
   { name: "temporal_fusion_states", deploy: "DEPLOY329", critical: false },
-  { name: "regulatory_reports", deploy: "DEPLOY330", critical: false }
+  { name: "regulatory_reports", deploy: "DEPLOY330", critical: false },
+  { name: "output_envelopes", deploy: "DEPLOY331", critical: false },
+  { name: "field_observations", deploy: "DEPLOY332", critical: false },
+  { name: "batch_processing_runs", deploy: "DEPLOY333", critical: false },
+  { name: "asset_registry", deploy: "DEPLOY334", critical: false },
+  { name: "event_bus_log", deploy: "DEPLOY335", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -276,7 +281,12 @@ var ENGINE_REGISTRY = [
   { name: "anomaly-fingerprint", deploy: "DEPLOY327", mode: "deterministic", path: "/api/anomaly-fingerprint" },
   { name: "explainability-engine", deploy: "DEPLOY328", mode: "deterministic", path: "/api/explainability-engine" },
   { name: "temporal-fusion-engine", deploy: "DEPLOY329", mode: "deterministic", path: "/api/temporal-fusion-engine" },
-  { name: "regulatory-report-generator", deploy: "DEPLOY330", mode: "deterministic", path: "/api/regulatory-report-generator" }
+  { name: "regulatory-report-generator", deploy: "DEPLOY330", mode: "deterministic", path: "/api/regulatory-report-generator" },
+  { name: "output-envelope", deploy: "DEPLOY331", mode: "deterministic", path: "/api/output-envelope" },
+  { name: "field-observation-protocol", deploy: "DEPLOY332", mode: "deterministic", path: "/api/field-observation-protocol" },
+  { name: "batch-processing-gateway", deploy: "DEPLOY333", mode: "deterministic", path: "/api/batch-processing-gateway" },
+  { name: "asset-registry", deploy: "DEPLOY334", mode: "deterministic", path: "/api/asset-registry" },
+  { name: "event-bus", deploy: "DEPLOY335", mode: "deterministic", path: "/api/event-bus" }
 ];
 
 function countByMode(mode) {
@@ -373,26 +383,4 @@ export var handler: Handler = async function(event) {
     recentCases = recentCheck.count || 0;
 
     // Final status
-    if (errors.length > 0 && overallStatus !== "critical") overallStatus = "degraded";
-    if (errors.length === 0 && warnings.length > 0) overallStatus = "healthy_with_warnings";
-
-    return {
-      statusCode: overallStatus === "critical" ? 503 : 200,
-      headers: corsHeaders,
-      body: JSON.stringify({
-        status: overallStatus,
-        system: SYSTEM_VERSION,
-        build_date: BUILD_DATE,
-        checked_at: new Date().toISOString(),
-        response_ms: Date.now() - startTime,
-        database: { connected: true, total_cases: caseCount, cases_last_7_days: recentCases },
-        engines: { total: ENGINE_REGISTRY.length, deterministic: countByMode("deterministic"), ai_assisted: countByMode("ai_assisted"), hybrid: countByMode("hybrid"), registry: ENGINE_REGISTRY },
-        checks: checks,
-        errors: errors,
-        warnings: warnings
-      }, null, 2)
-    };
-  } catch (err) {
-    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: String(err && err.message ? err.message : err) }) };
-  }
-};
+    if (errors.length > 0 && overallStatus !== "critical") overallStatus = "degrad

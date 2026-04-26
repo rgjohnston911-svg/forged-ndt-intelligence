@@ -27,7 +27,7 @@
 <body>
 
 <h1>FORGED NDT Intelligence OS — System Check</h1>
-<p class="subtitle">FORGED-NDT/3.0.0 — All 122 engines — Full endpoint verification</p>
+<p class="subtitle">FORGED-NDT/3.0.0 — All 127 engines — Full endpoint verification</p>
 
 <div class="summary-bar">
   <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
@@ -252,6 +252,11 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY328: Explainability Engine", "/api/explainability-engine", { action: "get_registry" });
   await testEndpoint("DEPLOY329: Temporal Fusion Engine", "/api/temporal-fusion-engine", { action: "get_registry" });
   await testEndpoint("DEPLOY330: Regulatory Report Generator", "/api/regulatory-report-generator", { action: "get_registry" });
+  await testEndpoint("DEPLOY331: Output Envelope", "/api/output-envelope", { action: "get_registry" });
+  await testEndpoint("DEPLOY332: Field Observation Protocol", "/api/field-observation-protocol", { action: "get_registry" });
+  await testEndpoint("DEPLOY333: Batch Processing Gateway", "/api/batch-processing-gateway", { action: "get_registry" });
+  await testEndpoint("DEPLOY334: Asset Registry", "/api/asset-registry", { action: "get_registry" });
+  await testEndpoint("DEPLOY335: Event Bus", "/api/event-bus", { action: "get_registry" });
 
   document.getElementById("runBtn").textContent = "Run Full System Check";
   document.getElementById("runBtn").disabled = false;
@@ -463,18 +468,4 @@ function renderCoverage(data) {
   if (data.covered && data.covered.length) {
     html += '<p style="color:#22c55e;font-size:12px;margin-bottom:4px">Covered:</p>';
     for (var ci = 0; ci < data.covered.length; ci++) {
-      html += '<span class="badge pass" style="margin:2px">' + esc(data.covered[ci]) + '</span> ';
-    }
-  }
-  if (data.uncovered && data.uncovered.length) {
-    html += '<p style="color:#f59e0b;font-size:12px;margin-top:8px;margin-bottom:4px">Not Yet Covered:</p>';
-    for (var ui = 0; ui < data.uncovered.length; ui++) {
-      html += '<span class="badge warn" style="margin:2px">' + esc(data.uncovered[ui]) + '</span> ';
-    }
-  }
-  document.getElementById("regDetail").innerHTML = html;
-}
-
-</script>
-</body>
-</html>
+      html += '<span class="badge pass" style="margin:2px">' 
