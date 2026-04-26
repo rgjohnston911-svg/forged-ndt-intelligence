@@ -83,7 +83,13 @@ function mapEvidence(observed: any, assetContext: any): any {
     "free_surface_state",
     "ballast_history",
     "ph_environment",
-    "inspection_effectiveness"
+    "inspection_effectiveness",
+    "platform_type",
+    "service_age_bracket",
+    "production_component",
+    "mooring_component",
+    "service_fluid",
+    "h2s_presence"
   ];
 
   for (var i = 0; i < directFields.length; i++) {
@@ -116,8 +122,9 @@ function mapEvidence(observed: any, assetContext: any): any {
     evidence.crack_depth_ratio = crackDepthBucket;
   }
 
-  // Water depth (subsea only)
-  if (assetContext && assetContext.domain === "subsea") {
+  // Water depth (subsea, floating, production)
+  var waterDomain = assetContext && assetContext.domain;
+  if (waterDomain === "subsea" || waterDomain === "floating" || waterDomain === "production") {
     var waterDepthBucket = bucketWaterDepth(observed.water_depth_m || (assetContext && assetContext.water_depth_m));
     if (waterDepthBucket !== null) {
       evidence.water_depth_range = waterDepthBucket;
@@ -147,6 +154,18 @@ function assessCompleteness(evidence: any, domain: string): any {
       "wall_loss_pattern", "structural_zone", "coating_condition",
       "slamming_exposure", "free_surface_state", "ballast_history",
       "service_temperature_f", "crack_depth_ratio"
+    ],
+    floating: [
+      "crack_orientation", "crack_location", "morphology",
+      "wall_loss_pattern", "structural_zone", "coating_condition",
+      "platform_type", "service_age_bracket", "cp_status",
+      "current_exposure", "zone_depth"
+    ],
+    production: [
+      "production_component", "mooring_component", "service_fluid",
+      "h2s_presence", "service_age_bracket", "water_depth_range",
+      "wall_loss_pattern", "coating_condition", "cp_status",
+      "current_exposure", "marine_growth_grade", "zone_depth"
     ]
   };
 
