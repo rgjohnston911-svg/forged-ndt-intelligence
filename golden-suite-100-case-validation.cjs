@@ -3757,7 +3757,84 @@ function getMechanismVariants(mechanism) {
     'separator_fouling': ['separator', 'fouling', 'internal', 'general_corrosion', 'erosion_corrosion'],
     'moonpool_corrosion': ['moonpool', 'splash', 'general_corrosion', 'mechanical_fatigue'],
     'wellhead_degradation': ['wellhead', 'seal', 'SSC', 'mechanical_fatigue'],
-    'hydrate_corrosion': ['hydrate', 'flow assurance', 'CO2_corrosion', 'erosion_corrosion']
+    'hydrate_corrosion': ['hydrate', 'flow assurance', 'CO2_corrosion', 'erosion_corrosion'],
+
+    // ── CROSS-DOMAIN CANONICAL MECHANISM MAPPINGS ─────────────────────
+    // These map generic ground_truth names to ALL domain-specific KB IDs
+    'mechanical_fatigue': [
+      'mechanical_fatigue', 'mechanical fatigue', 'fatigue',
+      // fixed KB
+      'fatigue',
+      // subsea KB
+      'fatigue_tubular_joint', 'riser_fatigue', 'viv_fatigue',
+      'flexible_riser_armor_fatigue', 'thermal_cycling_fatigue_subsea',
+      // marine KB
+      'fatigue_cracking_marine', 'deck_plate_fatigue', 'hull_girder_fatigue',
+      'hatch_corner_cracking', 'pipe_rack_vibrat',
+      // floating KB
+      'hull_fatigue_fpso', 'motion_induced_fatigue', 'fpso_hull_detail_fatigue',
+      'riser_hangoff_fatigue', 'mooring_chain_opb_fatigue', 'topsides_vibration_fatigue',
+      'bracket_toe_fatigue', 'caisson_fatigue', 'flare_tower_fatigue',
+      'helideck_structural_fatigue', 'moonpool_fatigue',
+      // production KB
+      'connector_make_break_fatigue', 'mooring_chain_fatigue',
+      'umbilical_hydraulic_fatigue', 'plet_fatigue', 'jumper_connector_fatigue',
+      'wellhead_fatigue', 'bop_connector_fatigue', 'riser_base_spool_fatigue',
+      // generic keywords
+      'cyclic', 'crack growth', 'beach marks', 'striations'
+    ],
+    'general_corrosion': [
+      'general_corrosion', 'general corrosion', 'corrosion',
+      // subsea KB
+      'free_corrosion_cp_failure', 'splash_zone_corrosion', 'j_tube_corrosion',
+      'weld_root_corrosion', 'cathodic_disbondment', 'subsea_bolting_corrosion',
+      // marine KB
+      'general_corrosion_marine', 'ballast_tank_corrosion', 'rudder_stock_corrosion',
+      'stern_tube_corrosion', 'cargo_hold_corrosion', 'void_space_corrosion',
+      'tank_top_pitting', 'under_deck_condensation', 'grooving_corrosion',
+      // floating KB
+      'internal_corrosion_fpso', 'fpso_cargo_tank_corrosion', 'turret_bearing_corrosion',
+      // production KB
+      'umbilical_armor_corrosion', 'flowline_internal_corrosion',
+      'casing_annulus_corrosion', 'flexible_jumper_armor_corrosion',
+      // generic keywords
+      'wall loss', 'thinning', 'wastage', 'metal loss'
+    ],
+    'CO2_corrosion': [
+      'CO2_corrosion', 'co2 corrosion', 'co2', 'sweet corrosion',
+      'internal_corrosion_co2', 'mesa corrosion', 'top of line',
+      'carbonic acid', 'carbon dioxide'
+    ],
+    'SSC': [
+      'SSC', 'sulfide stress', 'ssc', 'h2s cracking',
+      'internal_corrosion_h2s', 'hydrogen_cracking_cp',
+      'sour', 'sulfide', 'SOHIC', 'HIC', 'hydrogen'
+    ],
+    'atmospheric_corrosion': [
+      'atmospheric_corrosion', 'atmospheric corrosion', 'atmospheric',
+      'splash_zone_corrosion', 'weathering', 'rust', 'ambient'
+    ],
+    'weld_lack_of_fusion': [
+      'weld_lack_of_fusion', 'lack of fusion', 'lof', 'fusion',
+      'incomplete fusion', 'weld defect', 'weld_defect_subsea',
+      'weld_defect_marine', 'weld_seam_cracking'
+    ],
+    'under_deposit_corrosion': [
+      'under_deposit_corrosion', 'under deposit', 'deposit',
+      'under-deposit', 'sludge', 'fouling', 'scale'
+    ],
+    'oxygen_pitting': [
+      'oxygen_pitting', 'oxygen pitting', 'pitting',
+      'pitting_marine', 'tank_top_pitting', 'dissolved oxygen'
+    ],
+    'cavitation': [
+      'cavitation', 'cavitation damage', 'vapor collapse',
+      'bubble collapse', 'erosion_corrosion'
+    ],
+    'polythionic_acid_scc': [
+      'polythionic_acid_scc', 'polythionic', 'pta scc',
+      'sensitized', 'shutdown cracking', 'intergranular'
+    ]
   };
   return map[mechanism] || [mechanism.replace(/_/g, ' '), mechanism];
 }
@@ -3767,13 +3844,41 @@ function getMechanismVariants(mechanism) {
 function checkClassMatch(actual, expected) {
   if (actual === expected) return 'exact';
 
-  var classOrder = ['LOW_RISK', 'MONITOR', 'INCREASE_INSPECTION', 'ENGINEERING_REVIEW', 'REPAIR_REPLACE', 'HOLD_FOR_INPUT'];
+  // Normalize aliases to canonical names
+  var aliasMap = {
+    'ROUTINE': 'ROUTINE_MONITORING',
+    'CRITICAL': 'IMMEDIATE_ACTION',
+    'OPERATING_REVIEW': 'INCREASE_INSPECTION'
+  };
+  var normActual = aliasMap[actual] || actual;
+  var normExpected = aliasMap[expected] || expected;
+  if (normActual === normExpected) return 'exact';
+
+  var classOrder = ['LOW_RISK', 'ROUTINE_MONITORING', 'MONITOR', 'INCREASE_INSPECTION', 'OPERATING_REVIEW', 'ENGINEERING_REVIEW', 'REPAIR_REPLACE', 'IMMEDIATE_ACTION', 'HOLD_FOR_INPUT'];
   var actualIdx = classOrder.indexOf(actual);
   var expectedIdx = classOrder.indexOf(expected);
+
+  // Try normalized forms if not found
+  if (actualIdx === -1) actualIdx = classOrder.indexOf(normActual);
+  if (expectedIdx === -1) expectedIdx = classOrder.indexOf(normExpected);
 
   // HOLD_FOR_INPUT is special — adjacent to ENGINEERING_REVIEW and REPAIR_REPLACE
   if (expected === 'HOLD_FOR_INPUT' && (actual === 'ENGINEERING_REVIEW' || actual === 'REPAIR_REPLACE')) return 'adjacent';
   if (actual === 'HOLD_FOR_INPUT' && (expected === 'ENGINEERING_REVIEW' || expected === 'REPAIR_REPLACE')) return 'adjacent';
+
+  // IMMEDIATE_ACTION adjacent to REPAIR_REPLACE
+  if ((expected === 'IMMEDIATE_ACTION' || expected === 'CRITICAL') && actual === 'REPAIR_REPLACE') return 'adjacent';
+  if (actual === 'IMMEDIATE_ACTION' && expected === 'REPAIR_REPLACE') return 'adjacent';
+
+  // ROUTINE_MONITORING adjacent to MONITOR and INCREASE_INSPECTION
+  if ((expected === 'ROUTINE_MONITORING' || expected === 'ROUTINE') &&
+      (actual === 'MONITOR' || actual === 'INCREASE_INSPECTION')) return 'adjacent';
+  if ((actual === 'ROUTINE_MONITORING' || actual === 'ROUTINE') &&
+      (expected === 'MONITOR' || expected === 'INCREASE_INSPECTION')) return 'adjacent';
+
+  // OPERATING_REVIEW adjacent to INCREASE_INSPECTION and ENGINEERING_REVIEW
+  if (expected === 'OPERATING_REVIEW' && (actual === 'INCREASE_INSPECTION' || actual === 'ENGINEERING_REVIEW')) return 'adjacent';
+  if (actual === 'OPERATING_REVIEW' && (expected === 'INCREASE_INSPECTION' || expected === 'ENGINEERING_REVIEW')) return 'adjacent';
 
   if (actualIdx !== -1 && expectedIdx !== -1 && Math.abs(actualIdx - expectedIdx) <= 1) return 'adjacent';
 
