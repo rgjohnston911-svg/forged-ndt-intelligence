@@ -17,8 +17,8 @@ import { createClient } from "@supabase/supabase-js";
 var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-var SYSTEM_VERSION = "FORGED-NDT/3.0.0";
-var BUILD_DATE = "2026-04-25";
+var SYSTEM_VERSION = "FORGED-NDT/3.1.0";
+var BUILD_DATE = "2026-04-26";
 
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -173,7 +173,10 @@ var CRITICAL_TABLES = [
   { name: "embedding_retrieval_results", deploy: "DEPLOY349", critical: false },
   { name: "multimodal_fusion_results", deploy: "DEPLOY350", critical: false },
   { name: "uncertainty_reliability_runs", deploy: "DEPLOY351", critical: false },
-  { name: "distribution_sampler_results", deploy: "DEPLOY352", critical: false }
+  { name: "distribution_sampler_results", deploy: "DEPLOY352", critical: false },
+  { name: "cfi_context_patterns", deploy: "CFI-v1", critical: false },
+  { name: "cfi_case_findings", deploy: "CFI-v1", critical: false },
+  { name: "cfi_feedback_events", deploy: "CFI-v1", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -320,7 +323,8 @@ var ENGINE_REGISTRY = [
   { name: "diffusion-embedding-retrieval", deploy: "DEPLOY349", mode: "deterministic", path: "/api/diffusion-embedding-retrieval" },
   { name: "multimodal-fusion-engine", deploy: "DEPLOY350", mode: "deterministic", path: "/api/multimodal-fusion-engine" },
   { name: "uncertainty-reliability-core", deploy: "DEPLOY351", mode: "deterministic", path: "/api/uncertainty-reliability-core" },
-  { name: "distribution-sampler-engine", deploy: "DEPLOY352", mode: "deterministic", path: "/api/distribution-sampler-engine" }
+  { name: "distribution-sampler-engine", deploy: "DEPLOY352", mode: "deterministic", path: "/api/distribution-sampler-engine" },
+  { name: "cfi-engine", deploy: "CFI-v1", mode: "deterministic", path: "/api/cfi-engine" }
 ];
 
 function countByMode(mode) {
