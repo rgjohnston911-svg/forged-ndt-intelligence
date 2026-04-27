@@ -1,0 +1,43 @@
+name: "Run 100-Case Validation Harness"
+
+# Trigger: manually from GitHub UI (Actions tab → Run workflow)
+on:
+  workflow_dispatch:
+    inputs:
+      demo_mode:
+        description: "Use demo/mock mode (skip live API calls)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  validate:
+    name: "Enterprise Validation (100 cases)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+
+      - name: Run 100-case validation harness
+        env:
+          FORGED_URL: "https://4dndt.netlify.app"
+          DEMO_MODE: ${{ github.event.inputs.demo_mode }}
+        run: node golden-suite-100-case-validation.cjs 2>&1 | tee validation-results.txt
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-results-${{ github.run_number }}
+          path: validation-results.txt
+          retention-days: 90
