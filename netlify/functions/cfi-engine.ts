@@ -768,23 +768,23 @@ async function handleGetPatternLibrary(inp) {
 // MAIN HANDLER
 // ────────────────────────────────────────────────────────────────────────────
 
-var handler = async (request) => {
-  if (request.method === "OPTIONS") {
-    return new Response("", {
-      status: 200,
-      headers: corsHeaders
-    });
+var handler: Handler = async function(event) {
+  var headers = corsHeaders;
+
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 204, headers: headers, body: "" };
   }
 
-  if (request.method !== "POST") {
-    return new Response(
-      JSON.stringify({ status: "ERROR", error: "POST method required" }),
-      { status: 405, headers: corsHeaders }
-    );
+  if (event.httpMethod !== "POST") {
+    return {
+      statusCode: 405,
+      headers: headers,
+      body: JSON.stringify({ status: "ERROR", error: "POST method required" })
+    };
   }
 
   try {
-    var body = await request.json();
+    var body = JSON.parse(event.body || "{}");
     var action = body.action;
 
     var result = null;
@@ -827,19 +827,21 @@ var handler = async (request) => {
       };
     }
 
-    return new Response(JSON.stringify(result), {
-      status: 200,
-      headers: corsHeaders
-    });
+    return {
+      statusCode: 200,
+      headers: headers,
+      body: JSON.stringify(result)
+    };
   } catch (err) {
-    return new Response(
-      JSON.stringify({
+    return {
+      statusCode: 500,
+      headers: headers,
+      body: JSON.stringify({
         status: "ERROR",
         error: String(err),
         stage: "request_handling"
-      }),
-      { status: 500, headers: corsHeaders }
-    );
+      })
+    };
   }
 };
 
