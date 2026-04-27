@@ -17,8 +17,8 @@ import { createClient } from "@supabase/supabase-js";
 var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-var SYSTEM_VERSION = "FORGED-NDT/3.0.0";
-var BUILD_DATE = "2026-04-25";
+var SYSTEM_VERSION = "FORGED-NDT/3.1.0";
+var BUILD_DATE = "2026-04-26";
 
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -173,7 +173,10 @@ var CRITICAL_TABLES = [
   { name: "embedding_retrieval_results", deploy: "DEPLOY349", critical: false },
   { name: "multimodal_fusion_results", deploy: "DEPLOY350", critical: false },
   { name: "uncertainty_reliability_runs", deploy: "DEPLOY351", critical: false },
-  { name: "distribution_sampler_results", deploy: "DEPLOY352", critical: false }
+  { name: "distribution_sampler_results", deploy: "DEPLOY352", critical: false },
+  { name: "cfi_context_patterns", deploy: "CFI-v1", critical: false },
+  { name: "cfi_case_findings", deploy: "CFI-v1", critical: false },
+  { name: "cfi_feedback_events", deploy: "CFI-v1", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -207,15 +210,9 @@ var ENGINE_REGISTRY = [
   { name: "validation-engine", deploy: "DEPLOY235", mode: "deterministic", path: "/api/validation-engine" },
   { name: "data-ingestion", deploy: "DEPLOY236", mode: "deterministic", path: "/api/data-ingestion" },
   { name: "chemical-process", deploy: "DEPLOY237", mode: "deterministic", path: "/api/chemical-process" },
-  { name: "nuclear-vertical", deploy: "DEPLOY238", mode: "deterministic", path: "/api/nuclear-vertical" },
-  { name: "aerospace-vertical", deploy: "DEPLOY239", mode: "deterministic", path: "/api/aerospace-vertical" },
   { name: "power-generation", deploy: "DEPLOY240", mode: "deterministic", path: "/api/power-generation" },
   { name: "maritime-offshore", deploy: "DEPLOY241", mode: "deterministic", path: "/api/maritime-offshore" },
-  { name: "civil-infrastructure", deploy: "DEPLOY242", mode: "deterministic", path: "/api/civil-infrastructure" },
-  { name: "space-systems", deploy: "DEPLOY243", mode: "deterministic", path: "/api/space-systems" },
-  { name: "robotics-automation", deploy: "DEPLOY244", mode: "deterministic", path: "/api/robotics-automation" },
   { name: "human-intelligence", deploy: "DEPLOY245", mode: "deterministic", path: "/api/human-intelligence" },
-  { name: "medical-bio", deploy: "DEPLOY246", mode: "deterministic", path: "/api/medical-bio" },
   { name: "validation-benchmark", deploy: "DEPLOY247", mode: "deterministic", path: "/api/validation-benchmark" },
   { name: "decision-traceability", deploy: "DEPLOY248", mode: "deterministic", path: "/api/decision-traceability" },
   { name: "rules-version-control", deploy: "DEPLOY249", mode: "deterministic", path: "/api/rules-version-control" },
@@ -320,7 +317,8 @@ var ENGINE_REGISTRY = [
   { name: "diffusion-embedding-retrieval", deploy: "DEPLOY349", mode: "deterministic", path: "/api/diffusion-embedding-retrieval" },
   { name: "multimodal-fusion-engine", deploy: "DEPLOY350", mode: "deterministic", path: "/api/multimodal-fusion-engine" },
   { name: "uncertainty-reliability-core", deploy: "DEPLOY351", mode: "deterministic", path: "/api/uncertainty-reliability-core" },
-  { name: "distribution-sampler-engine", deploy: "DEPLOY352", mode: "deterministic", path: "/api/distribution-sampler-engine" }
+  { name: "distribution-sampler-engine", deploy: "DEPLOY352", mode: "deterministic", path: "/api/distribution-sampler-engine" },
+  { name: "cfi-engine", deploy: "CFI-v1", mode: "deterministic", path: "/api/cfi-engine" }
 ];
 
 function countByMode(mode) {

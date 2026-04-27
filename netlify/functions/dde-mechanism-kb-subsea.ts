@@ -1,7 +1,7 @@
 // @ts-nocheck
 // ══════════════════════════════════════════════════════════════════════════════
 // DDE MECHANISM KNOWLEDGE BASE — SUBSEA / OFFSHORE STRUCTURES
-// 12 damage mechanisms for subsea pipelines, risers, jackets, and nodes
+// 28 damage mechanisms for subsea pipelines, risers, jackets, and nodes
 //
 // Sources: DNV-RP-F101, DNV-RP-C203, API RP 2A-WSD, NORSOK M-001/M-503,
 //          DNVGL-RP-0005, ISO 19902, NACE SP0176
@@ -569,6 +569,583 @@ var MECHANISMS_SUBSEA = {
     severity_default: "medium",
     typical_consequence: "rebar_exposure_structural_degradation",
     code_reference: "ACI 318, DNV-OS-C502, ISO 19903"
+  },
+
+  // ── 13. INTERNAL CORROSION — CO2 ───────────────────────────────────────
+  internal_corrosion_co2: {
+    id: "internal_corrosion_co2",
+    display_name: "Internal Corrosion — CO2 in Flowlines",
+    domain: "subsea",
+    prerequisites: {
+      internal_environment: true,
+      co2_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel"]
+    },
+    indicators: {
+      wall_loss_pattern: {
+        localized: 0.45,
+        uniform: 0.40,
+        none: 0.15
+      },
+      morphology: {
+        mesa_attack: 0.40,
+        pitting: 0.35,
+        general_thinning: 0.20,
+        none: 0.05
+      },
+      zone_depth: {
+        deepwater: 0.30,
+        shallow: 0.35,
+        splash: 0.05,
+        tidal: 0.05,
+        buried: 0.25
+      }
+    },
+    synergistic_with: ["internal_corrosion_h2s"],
+    competes_with: ["wax_deposition_damage"],
+    severity_default: "high",
+    typical_consequence: "internal_wall_loss_pipeline_failure",
+    code_reference: "DNV-RP-F101, NACE SP0106"
+  },
+
+  // ── 14. INTERNAL CORROSION — H2S/SOUR ──────────────────────────────────
+  internal_corrosion_h2s: {
+    id: "internal_corrosion_h2s",
+    display_name: "Internal Corrosion — H2S/Sour Service",
+    domain: "subsea",
+    prerequisites: {
+      internal_environment: true,
+      h2s_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel"]
+    },
+    indicators: {
+      morphology: {
+        pitting: 0.40,
+        cracking: 0.30,
+        general_thinning: 0.20,
+        blistering: 0.10
+      },
+      wall_loss_pattern: {
+        localized: 0.55,
+        uniform: 0.30,
+        none: 0.15
+      },
+      cp_status: {
+        adequate: 0.30,
+        marginal: 0.30,
+        failed: 0.20,
+        overprotected: 0.20
+      }
+    },
+    synergistic_with: ["internal_corrosion_co2"],
+    competes_with: ["hydrate_plug_damage"],
+    severity_default: "high",
+    typical_consequence: "sour_service_crack_initiation",
+    code_reference: "NACE MR0175/ISO 15156"
+  },
+
+  // ── 15. WELD ROOT CORROSION ────────────────────────────────────────────
+  weld_root_corrosion: {
+    id: "weld_root_corrosion",
+    display_name: "Preferential Weld Root Corrosion",
+    domain: "subsea",
+    prerequisites: {
+      has_welded_connections: true,
+      material_family: ["carbon_steel", "low_alloy_steel"]
+    },
+    indicators: {
+      crack_location: {
+        weld: 0.65,
+        weld_haz: 0.25,
+        base_metal: 0.05,
+        external: 0.05
+      },
+      morphology: {
+        grooving: 0.45,
+        pitting: 0.30,
+        general_thinning: 0.20,
+        none: 0.05
+      },
+      wall_loss_pattern: {
+        localized: 0.60,
+        uniform: 0.25,
+        none: 0.15
+      }
+    },
+    synergistic_with: ["internal_corrosion_co2", "internal_corrosion_h2s"],
+    competes_with: ["weld_defect_subsea"],
+    severity_default: "high",
+    typical_consequence: "weld_root_thinning_leakage_risk",
+    code_reference: "DNV-RP-F116"
+  },
+
+  // ── 16. CATHODIC DISBONDMENT ───────────────────────────────────────────
+  cathodic_disbondment: {
+    id: "cathodic_disbondment",
+    display_name: "Coating Cathodic Disbondment",
+    domain: "subsea",
+    prerequisites: {
+      cp_system_present: true,
+      has_external_coating: true
+    },
+    indicators: {
+      cp_status: {
+        overprotected: 0.60,
+        adequate: 0.20,
+        marginal: 0.15,
+        failed: 0.05
+      },
+      coating_condition: {
+        disbonded: 0.55,
+        damaged: 0.25,
+        intact: 0.10,
+        absent: 0.10
+      },
+      zone_depth: {
+        deepwater: 0.35,
+        shallow: 0.30,
+        buried: 0.25,
+        tidal: 0.05,
+        splash: 0.05
+      }
+    },
+    synergistic_with: ["free_corrosion_cp_failure"],
+    competes_with: ["splash_zone_corrosion"],
+    severity_default: "medium",
+    typical_consequence: "coating_loss_accelerated_corrosion",
+    code_reference: "DNV-RP-F103"
+  },
+
+  // ── 17. HISC FROM OVERPROTECTION ───────────────────────────────────────
+  hisc_overprotection: {
+    id: "hisc_overprotection",
+    display_name: "Hydrogen Induced Stress Cracking — CP Overprotection",
+    domain: "subsea",
+    prerequisites: {
+      cp_system_present: true,
+      material_family: ["high_strength_steel", "low_alloy_steel"]
+    },
+    indicators: {
+      cp_status: {
+        overprotected: 0.65,
+        adequate: 0.15,
+        marginal: 0.10,
+        failed: 0.10
+      },
+      crack_orientation: {
+        transverse: 0.45,
+        linear: 0.30,
+        branched: 0.15,
+        none: 0.10
+      },
+      morphology: {
+        intergranular: 0.45,
+        transgranular: 0.25,
+        cleavage: 0.20,
+        none: 0.10
+      }
+    },
+    synergistic_with: ["hydrogen_cracking_cp"],
+    competes_with: ["fatigue_tubular_joint"],
+    severity_default: "high",
+    typical_consequence: "brittle_fracture_under_stress",
+    code_reference: "DNV-RP-F112"
+  },
+
+  // ── 18. RISER WEAR AT GUIDES/CLAMPS ────────────────────────────────────
+  riser_wear_guide: {
+    id: "riser_wear_guide",
+    display_name: "Riser Wear at Guides and Clamps",
+    domain: "subsea",
+    prerequisites: {
+      has_j_tube_or_riser: true,
+      has_guide_structures: true
+    },
+    indicators: {
+      wall_loss_pattern: {
+        localized: 0.70,
+        uniform: 0.15,
+        none: 0.15
+      },
+      morphology: {
+        fretting: 0.50,
+        grooving: 0.30,
+        general_thinning: 0.15,
+        none: 0.05
+      },
+      zone_depth: {
+        splash: 0.35,
+        tidal: 0.30,
+        shallow: 0.25,
+        deepwater: 0.05,
+        buried: 0.05
+      }
+    },
+    synergistic_with: ["riser_fatigue"],
+    competes_with: ["j_tube_corrosion"],
+    severity_default: "high",
+    typical_consequence: "riser_wear_through_at_contact",
+    code_reference: "API RP 2RD"
+  },
+
+  // ── 19. FLEXIBLE RISER ARMOR WIRE FATIGUE ──────────────────────────────
+  flexible_riser_armor_fatigue: {
+    id: "flexible_riser_armor_fatigue",
+    display_name: "Flexible Riser Armor Wire Fatigue",
+    domain: "subsea",
+    prerequisites: {
+      has_flexible_riser: true,
+      wave_loading_present: true
+    },
+    indicators: {
+      crack_orientation: {
+        transverse: 0.50,
+        linear: 0.30,
+        none: 0.15,
+        branched: 0.05
+      },
+      morphology: {
+        transgranular: 0.45,
+        beach_marks: 0.30,
+        none: 0.15,
+        intergranular: 0.10
+      },
+      current_exposure: {
+        high: 0.45,
+        moderate: 0.35,
+        low: 0.15,
+        none: 0.05
+      }
+    },
+    synergistic_with: ["riser_fatigue"],
+    competes_with: ["flexible_riser_armor_fatigue"],
+    severity_default: "high",
+    typical_consequence: "armor_wire_breaking_integrity_loss",
+    code_reference: "API RP 17B"
+  },
+
+  // ── 20. SUBSEA BOLTING CORROSION ───────────────────────────────────────
+  subsea_bolting_corrosion: {
+    id: "subsea_bolting_corrosion",
+    display_name: "Subsea Bolting and Fastener Corrosion",
+    domain: "subsea",
+    prerequisites: {
+      has_bolted_connections: true,
+      material_family: ["stainless_steel", "carbon_steel", "duplex_steel"]
+    },
+    indicators: {
+      cp_status: {
+        failed: 0.40,
+        marginal: 0.30,
+        adequate: 0.20,
+        overprotected: 0.10
+      },
+      morphology: {
+        pitting: 0.40,
+        cracking: 0.25,
+        general_thinning: 0.25,
+        none: 0.10
+      },
+      zone_depth: {
+        deepwater: 0.30,
+        shallow: 0.35,
+        tidal: 0.20,
+        splash: 0.10,
+        buried: 0.05
+      }
+    },
+    synergistic_with: ["free_corrosion_cp_failure"],
+    competes_with: ["splash_zone_corrosion"],
+    severity_default: "medium",
+    typical_consequence: "fastener_failure_joint_separation",
+    code_reference: "NORSOK M-001"
+  },
+
+  // ── 21. SUBSEA SEAL DEGRADATION ────────────────────────────────────────
+  seal_degradation_subsea: {
+    id: "seal_degradation_subsea",
+    display_name: "Subsea Seal and Gasket Degradation",
+    domain: "subsea",
+    prerequisites: {
+      has_seals_gaskets: true,
+      high_pressure_environment: true
+    },
+    indicators: {
+      zone_depth: {
+        deepwater: 0.40,
+        shallow: 0.30,
+        tidal: 0.15,
+        splash: 0.10,
+        buried: 0.05
+      },
+      water_depth_range: {
+        deep_gt300m: 0.40,
+        moderate_100_300m: 0.30,
+        shallow_lt100m: 0.20,
+        ultra_deep_gt1500m: 0.10
+      },
+      morphology: {
+        extrusion: 0.40,
+        cracking: 0.30,
+        hardening: 0.20,
+        none: 0.10
+      }
+    },
+    synergistic_with: ["internal_corrosion_co2"],
+    competes_with: ["hydrate_plug_damage"],
+    severity_default: "high",
+    typical_consequence: "seal_failure_hydrocarbon_leakage",
+    code_reference: "API 6A/17D"
+  },
+
+  // ── 22. SUBSEA CHOKE/VALVE EROSION ────────────────────────────────────
+  choke_erosion_subsea: {
+    id: "choke_erosion_subsea",
+    display_name: "Subsea Choke and Valve Erosion",
+    domain: "subsea",
+    prerequisites: {
+      has_choke_valve: true,
+      high_velocity_flow: true
+    },
+    indicators: {
+      wall_loss_pattern: {
+        localized: 0.65,
+        uniform: 0.20,
+        none: 0.15
+      },
+      morphology: {
+        washout: 0.45,
+        grooving: 0.30,
+        pitting: 0.15,
+        none: 0.10
+      },
+      current_exposure: {
+        high: 0.40,
+        moderate: 0.35,
+        low: 0.20,
+        none: 0.05
+      }
+    },
+    synergistic_with: ["sand_erosion_flowline"],
+    competes_with: ["internal_corrosion_co2"],
+    severity_default: "high",
+    typical_consequence: "choke_flow_path_restriction",
+    code_reference: "API 6AV1"
+  },
+
+  // ── 23. SAND EROSION IN FLOWLINES ──────────────────────────────────────
+  sand_erosion_flowline: {
+    id: "sand_erosion_flowline",
+    display_name: "Sand Erosion in Subsea Flowlines",
+    domain: "subsea",
+    prerequisites: {
+      high_velocity_flow: true,
+      sand_production: true
+    },
+    indicators: {
+      wall_loss_pattern: {
+        localized: 0.60,
+        uniform: 0.25,
+        none: 0.15
+      },
+      morphology: {
+        horseshoe: 0.40,
+        grooving: 0.30,
+        general_thinning: 0.20,
+        none: 0.10
+      },
+      zone_depth: {
+        deepwater: 0.30,
+        shallow: 0.30,
+        buried: 0.25,
+        tidal: 0.10,
+        splash: 0.05
+      }
+    },
+    synergistic_with: ["choke_erosion_subsea"],
+    competes_with: ["internal_corrosion_co2"],
+    severity_default: "high",
+    typical_consequence: "erosion_wall_loss_pipeline_failure",
+    code_reference: "DNV-RP-O501"
+  },
+
+  // ── 24. HYDRATE PLUG MECHANICAL DAMAGE ────────────────────────────────
+  hydrate_plug_damage: {
+    id: "hydrate_plug_damage",
+    display_name: "Hydrate Plug Mechanical Damage",
+    domain: "subsea",
+    prerequisites: {
+      deep_water_pipeline: true,
+      cold_service: true
+    },
+    indicators: {
+      wall_loss_pattern: {
+        localized: 0.50,
+        none: 0.35,
+        uniform: 0.15
+      },
+      morphology: {
+        denting: 0.40,
+        cracking: 0.25,
+        none: 0.25,
+        general_thinning: 0.10
+      },
+      water_depth_range: {
+        deep_gt300m: 0.40,
+        moderate_100_300m: 0.30,
+        shallow_lt100m: 0.20,
+        ultra_deep_gt1500m: 0.10
+      }
+    },
+    synergistic_with: ["seal_degradation_subsea"],
+    competes_with: ["wax_deposition_damage"],
+    severity_default: "medium",
+    typical_consequence: "hydrate_blockage_flow_restriction",
+    code_reference: "API RP 17A"
+  },
+
+  // ── 25. WAX/PARAFFIN DEPOSITION DAMAGE ────────────────────────────────
+  wax_deposition_damage: {
+    id: "wax_deposition_damage",
+    display_name: "Wax and Paraffin Deposition Damage",
+    domain: "subsea",
+    prerequisites: {
+      hydrocarbon_production: true,
+      cool_pipeline_environment: true
+    },
+    indicators: {
+      wall_loss_pattern: {
+        uniform: 0.40,
+        localized: 0.35,
+        none: 0.25
+      },
+      morphology: {
+        none: 0.40,
+        general_thinning: 0.30,
+        restriction: 0.20,
+        pitting: 0.10
+      },
+      zone_depth: {
+        deepwater: 0.40,
+        shallow: 0.25,
+        buried: 0.25,
+        tidal: 0.05,
+        splash: 0.05
+      }
+    },
+    synergistic_with: ["hydrate_plug_damage"],
+    competes_with: ["internal_corrosion_co2"],
+    severity_default: "medium",
+    typical_consequence: "pipeline_blockage_production_loss",
+    code_reference: "API RP 17A"
+  },
+
+  // ── 26. THERMAL CYCLING FATIGUE ────────────────────────────────────────
+  thermal_cycling_fatigue_subsea: {
+    id: "thermal_cycling_fatigue_subsea",
+    display_name: "Thermal Cycling Fatigue at Startup/Shutdown",
+    domain: "subsea",
+    prerequisites: {
+      thermal_transient_loading: true,
+      material_family: ["carbon_steel", "low_alloy_steel"]
+    },
+    indicators: {
+      crack_orientation: {
+        transverse: 0.45,
+        linear: 0.30,
+        branched: 0.15,
+        none: 0.10
+      },
+      crack_location: {
+        weld: 0.40,
+        weld_haz: 0.30,
+        base_metal: 0.20,
+        external: 0.10
+      },
+      morphology: {
+        transgranular: 0.45,
+        beach_marks: 0.25,
+        crazing: 0.20,
+        none: 0.10
+      }
+    },
+    synergistic_with: ["riser_fatigue"],
+    competes_with: ["fatigue_tubular_joint"],
+    severity_default: "high",
+    typical_consequence: "thermal_fatigue_crack_initiation",
+    code_reference: "DNV-RP-C203"
+  },
+
+  // ── 27. PIPELINE WALKING ──────────────────────────────────────────────
+  pipeline_walking: {
+    id: "pipeline_walking",
+    display_name: "Pipeline Walking and Axial Displacement",
+    domain: "subsea",
+    prerequisites: {
+      buried_pipeline: true,
+      high_temperature_service: true
+    },
+    indicators: {
+      zone_depth: {
+        deepwater: 0.45,
+        shallow: 0.25,
+        buried: 0.20,
+        tidal: 0.05,
+        splash: 0.05
+      },
+      morphology: {
+        buckling: 0.40,
+        ovalization: 0.30,
+        none: 0.20,
+        cracking: 0.10
+      },
+      wall_loss_pattern: {
+        none: 0.50,
+        localized: 0.35,
+        uniform: 0.15
+      }
+    },
+    synergistic_with: ["upheaval_buckling"],
+    competes_with: ["free_corrosion_cp_failure"],
+    severity_default: "high",
+    typical_consequence: "axial_displacement_anchor_overload",
+    code_reference: "DNV-RP-F110"
+  },
+
+  // ── 28. UPHEAVAL/LATERAL BUCKLING ────────────────────────────────────
+  upheaval_buckling: {
+    id: "upheaval_buckling",
+    display_name: "Upheaval and Lateral Buckling",
+    domain: "subsea",
+    prerequisites: {
+      buried_pipeline: true,
+      thermal_loading: true
+    },
+    indicators: {
+      zone_depth: {
+        buried: 0.50,
+        deepwater: 0.25,
+        shallow: 0.15,
+        tidal: 0.05,
+        splash: 0.05
+      },
+      morphology: {
+        buckling: 0.50,
+        ovalization: 0.25,
+        cracking: 0.15,
+        none: 0.10
+      },
+      wall_loss_pattern: {
+        none: 0.45,
+        localized: 0.40,
+        uniform: 0.15
+      }
+    },
+    synergistic_with: ["pipeline_walking"],
+    competes_with: ["erosion_scour"],
+    severity_default: "high",
+    typical_consequence: "buckle_propagation_structural_failure",
+    code_reference: "DNV-RP-F110"
   }
 };
 

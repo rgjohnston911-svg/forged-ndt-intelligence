@@ -1,0 +1,245 @@
+{
+  "metadata": {
+    "engine": "API 581 RBI Engine (DEPLOY337)",
+    "version": "1.0",
+    "examples": 5,
+    "baseUrl": "/.netlify/functions/api581-rbi-engine"
+  },
+
+  "example_1_full_assessment_thinning_pipe": {
+    "description": "Full RBI assessment of 100m pipeline with wall thinning from localized corrosion",
+    "equipment": "High-pressure crude oil pipe, 15 years in service",
+    "damage_mechanism": "Localized thinning",
+    "request": {
+      "action": "assess_risk",
+      "asset_id": "PIPE-CRUDE-001",
+      "equipment_type": "pipe",
+      "equipment_length_m": 100,
+      "tnom": 12.7,
+      "tmm": 8.5,
+      "tmin": 3.2,
+      "num_a_inspections": 1,
+      "inspection_effectiveness": "B",
+      "psm_quality": 3.5,
+      "hole_diameter_mm": 2.0,
+      "operating_pressure_bar": 50,
+      "density_kg_m3": 800,
+      "phase": "liquid",
+      "fluid_category": "c17_c25",
+      "detection_time_s": 60,
+      "isolation_time_s": 300,
+      "equipment_value_usd": 150000,
+      "production_loss_usd_per_day": 50000,
+      "environmental_cost_usd": 200000,
+      "ignition_type": "auto"
+    },
+    "expected_outputs": {
+      "pof_calculation": "PoF = gff × length × Df × FMS = 3.06e-5 × 100 × Art_Df × FMS",
+      "art_calculation": "(12.7 - 8.5) / (12.7 - 3.2) = 0.42",
+      "df_thinning_table": "Art≈0.42 → base Df ≈ 1500, reduced by 1 Category B inspection",
+      "pof_expected": "≈ 0.005 to 0.01 per year",
+      "cof_financial": "≈ $300,000 (equipment + 3-day production loss + environmental)",
+      "risk_level": "HIGH (PoF=4, CoF=3 on matrix)",
+      "next_inspection": "12-18 months (high-risk item)"
+    }
+  },
+
+  "example_2_scc_assessment_vessel": {
+    "description": "Stress corrosion cracking risk assessment on caustic service vessel",
+    "equipment": "Carbon steel vessel in caustic alkali service, 20 years in service",
+    "damage_mechanism": "Stress corrosion cracking (caustic SCC)",
+    "request": {
+      "action": "compute_pof",
+      "asset_id": "VESSEL-CAUSTIC-003",
+      "equipment_type": "vessel",
+      "psm_quality": 4.0,
+      "thinning_input": {
+        "tnom": 16.0,
+        "tmm": 15.8,
+        "tmin": 6.4,
+        "num_a_inspections": 0,
+        "inspection_effectiveness": "E"
+      },
+      "scc_input": {
+        "susceptibility": "high",
+        "time_in_service": 20,
+        "num_inspections": 0,
+        "last_inspection_negative": false
+      },
+      "external_input": {
+        "coating_condition": "fair",
+        "insulation_type": "magnesia",
+        "operating_temperature": 75
+      }
+    },
+    "expected_outputs": {
+      "gff": "7.56e-5 per year for vessels",
+      "df_scc": "3500 × exp(-0.15 × 20) ≈ 156 (significant with no clean inspection history)",
+      "df_thinning": "1 (no measurable loss)",
+      "df_external": "3 × 1.35 (fair coating + elevated temp + insulation)",
+      "df_combined": "max(1, 156, 4.05) ≈ 156",
+      "fms": "0.75 (good PSM program at 4.0)",
+      "pof_expected": "≈ 8.9e-3 per year (HIGH)",
+      "recommendation": "Urgent SCC inspection (EMAT or UT angle beam) required within 6 months"
+    }
+  },
+
+  "example_3_htha_risk_heater_tube": {
+    "description": "High-temperature hydrogen attack risk on fired heater tube",
+    "equipment": "Fired heater tube in hydrogen partial oxidation unit",
+    "damage_mechanism": "HTHA (High-Temperature Hydrogen Attack)",
+    "request": {
+      "action": "compute_damage_factor",
+      "asset_id": "HEATER-TUBE-12",
+      "equipment_type": "fired_heater_tube",
+      "htha_input": {
+        "temp_f": 750,
+        "ph2_psi": 1500,
+        "material_grade": "1cr0.5mo"
+      },
+      "brittle_input": {
+        "operating_temp": -10,
+        "design_temp": 20,
+        "material": "sa106b",
+        "thickness": 3.2,
+        "mat": 0
+      }
+    },
+    "expected_outputs": {
+      "nelson_zone": "Zone 2 (400-800F, high H2 pressure → moderate risk)",
+      "df_htha_base": "15 (temperature 750F + pH2 1500 psi)",
+      "df_htha_with_material": "15 × 0.3 ≈ 4.5 (1Cr0.5Mo material provides mitigation)",
+      "df_brittle": "1 (MAT 0°C > operating temp -10°C by 10°C, near threshold)",
+      "df_combined": "max(4.5, 1) ≈ 4.5",
+      "gff": "1.41e-4 per year for fired heater tubes",
+      "pof_expected": "≈ 6.3e-4 per year (MEDIUM)",
+      "inspection_plan": "Annual API 577 visual + thickness trending"
+    }
+  },
+
+  "example_4_inspection_planning": {
+    "description": "Determine inspection interval and technique to achieve target risk",
+    "asset": "Furnace relief valve body (carbon steel)",
+    "current_status": "10 years in service, no prior inspections, moderate thinning",
+    "request": {
+      "action": "plan_inspection",
+      "asset_id": "RV-VALVE-BODY-07",
+      "equipment_type": "vessel",
+      "equipment_length_m": 1,
+      "tnom": 19.0,
+      "tmm": 12.5,
+      "tmin": 6.4,
+      "num_a_inspections": 0,
+      "inspection_effectiveness": "E",
+      "psm_quality": 3.0,
+      "target_pof": 1e-4,
+      "damage_mechanism": "thinning",
+      "hole_diameter_mm": 5.0,
+      "operating_pressure_bar": 25,
+      "density_kg_m3": 850,
+      "phase": "liquid",
+      "fluid_category": "c6_c8",
+      "equipment_value_usd": 25000,
+      "production_loss_usd_per_day": 5000,
+      "environmental_cost_usd": 50000
+    },
+    "expected_outputs": {
+      "current_pof": "~1.0e-2 (HIGH - no inspections, significant thinning)",
+      "target_pof": "1.0e-4 (industry standard for critical equipment)",
+      "pof_ratio": "100:1",
+      "inspections_needed": "ceil(log10(100)) = 2 inspections",
+      "recommended_technique": "UT_Thickness (non-destructive, trending capability)",
+      "effectiveness_required": "Category B (70% POD minimum)",
+      "optimal_interval": "10 / 2 = 5 years between inspections",
+      "next_inspection_date": "Immediate (baseline), then every 5 years",
+      "schedule": [
+        "Baseline: Next planned maintenance window",
+        "Second: 5 years later (2031)",
+        "Third: 5 years later (2036) - may retire at this point"
+      ]
+    }
+  },
+
+  "example_5_tank_bottom_corrosion": {
+    "description": "Crude tank bottom assessment (external corrosion + under-deposit corrosion)",
+    "equipment": "Storage tank bottom, crude oil service, potential microbiological corrosion",
+    "damage_mechanism": "External + under-deposit corrosion",
+    "request": {
+      "action": "assess_risk",
+      "asset_id": "TANK-CRUDE-BOTTOM-02",
+      "equipment_type": "tank_bottom",
+      "tnom": 9.5,
+      "tmm": 6.2,
+      "tmin": 3.2,
+      "num_a_inspections": 0,
+      "inspection_effectiveness": "E",
+      "psm_quality": 2.5,
+      "external_input": {
+        "coating_condition": "poor",
+        "insulation_type": null,
+        "operating_temperature": 45
+      },
+      "hole_diameter_mm": 3.0,
+      "operating_pressure_bar": 2,
+      "density_kg_m3": 850,
+      "phase": "liquid",
+      "fluid_category": "c17_c25",
+      "detection_time_s": 180,
+      "isolation_time_s": 600,
+      "equipment_value_usd": 500000,
+      "production_loss_usd_per_day": 100000,
+      "environmental_cost_usd": 500000,
+      "ignition_type": "delayed"
+    },
+    "expected_outputs": {
+      "gff": "6.26e-4 per year for tank bottoms (high base rate)",
+      "art": "(9.5 - 6.2) / (9.5 - 3.2) ≈ 0.52",
+      "df_thinning": "5100 (Art=0.5 from Table 5.12, no inspections)",
+      "df_external": "8 × 1.0 ≈ 8 (poor coating, no elevated temp, no insulation)",
+      "df_combined": "5100 (thinning dominates)",
+      "fms": "1.25 (weak PSM program at 2.5)",
+      "pof_expected": "6.26e-4 × 5100 × 1.25 ≈ 4.0e-3 per year (CRITICAL)",
+      "cof_financial": "~$1.1M (large tank, high production impact, environmental sensitivity)",
+      "risk_score": "4.4M (EXTREMELY HIGH)",
+      "urgent_action": "Immediate internal inspection mandatory (internal tank inspection/pigging). Consider emergency repairs or tank retirement."
+    }
+  },
+
+  "request_envelope_example": {
+    "curl_command": "curl -X POST https://your-site.netlify.app/.netlify/functions/api581-rbi-engine -H 'Content-Type: application/json' -d @request.json",
+    "minimal_request": {
+      "action": "compute_pof",
+      "equipment_type": "pipe",
+      "equipment_length_m": 50,
+      "tnom": 12.7,
+      "tmm": 10.0,
+      "tmin": 3.2,
+      "num_a_inspections": 0,
+      "psm_quality": 3.0
+    },
+    "response_structure": {
+      "success": {
+        "statusCode": 200,
+        "body": "{ action, pof/cof/plan, deterministic, interpreted, provenance }"
+      },
+      "error": {
+        "statusCode": 500,
+        "body": "{ error: 'message', deploy: 'DEPLOY337' }"
+      }
+    }
+  },
+
+  "validation_rules": {
+    "required_fields": {
+      "all_requests": ["action", "asset_id"],
+      "assess_risk": ["equipment_type", "tnom", "tmm", "tmin", "hole_diameter_mm", "operating_pressure_bar", "density_kg_m3", "phase", "fluid_category"],
+      "compute_damage_factor": ["equipment_type", "tnom", "tmm", "tmin"],
+      "plan_inspection": ["equipment_type", "target_pof", "damage_mechanism"]
+    },
+    "valid_actions": ["assess_risk", "compute_pof", "compute_cof", "compute_damage_factor", "plan_inspection", "get_risk_matrix", "get_registry", "get_history"],
+    "valid_equipment_types": ["pipe", "vessel", "tank_bottom", "heat_exchanger_tube", "pump_casing", "fired_heater_tube", "separator", "compressor_casing"],
+    "valid_damage_mechanisms": ["thinning", "scc", "external_corrosion", "htha", "brittle_fracture"],
+    "valid_phases": ["liquid", "gas", "two_phase"],
+    "valid_fluid_categories": ["c1_c2", "c3_c4", "c5", "c6_c8", "c9_c12", "c13_c16", "c17_c25", "hydrogen", "h2s", "steam"]
+  }
+}

@@ -7,7 +7,7 @@ var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // COMPREHENSIVE ASSESSMENT ORCHESTRATOR
-// DEPLOY342
+// DEPLOY342 + CFI-v1
 //
 // Production orchestration engine that chains real sub-engines into a
 // complete fitness-for-service assessment pipeline. Every value in the
@@ -20,10 +20,17 @@ var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 //     Determines which sub-engines apply based on asset_context.domain,
 //     equipment type, and inspection scope. Builds the execution plan.
 //
+//   STAGE 1.5 — CONTEXTUAL FAILURE INTELLIGENCE (CFI)
+//     Queries the CFI engine with asset context to identify WHERE and
+//     WHY failures occur. Returns failure hotspots, likely damage
+//     mechanisms, recommended NDT methods, and risk factors. Enriches
+//     downstream DDE with contextual priors and adds inspection/repair
+//     recommendations to the final assembly.
+//
 //   STAGE 2 — DIFFERENTIAL DIAGNOSIS (DDE)
 //     Bayesian damage mechanism ranking. Identifies top 3 competing
 //     hypotheses and discriminating evidence. Feeds mechanism context
-//     to downstream engines.
+//     to downstream engines. Enhanced by CFI contextual priors.
 //
 //   STAGE 3 — FITNESS-FOR-SERVICE (FFS)
 //     Routes to the correct FFS engine(s):
@@ -42,6 +49,7 @@ var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 //     Combines all sub-engine results into a single auditable output
 //     with deterministic/interpreted/provenance envelope. Computes
 //     overall disposition: ACCEPTABLE / MONITOR / REPAIR / REPLACE.
+//     Incorporates CFI inspection and repair recommendations.
 //
 // Each stage records timing, success/failure status, and the raw
 // sub-engine response. If any stage fails, subsequent stages degrade
@@ -58,7 +66,7 @@ var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 //
 // ══════════════════════════════════════════════════════════════════════════════
 
-var ENGINE_VERSION = "CAO-1.0.0";
+var ENGINE_VERSION = "CAO-1.1.0";
 
 var ACTION_REGISTRY = {
   "get_registry": { description: "Return engine capabilities and sub-engine routing map", method: "GET_OR_POST" },
@@ -89,6 +97,9 @@ var ENGINE_ROUTES = {
   },
   dde: {
     default: { path: "/api/differential-diagnosis", action: "diagnose", name: "Differential Diagnosis Engine" }
+  },
+  cfi: {
+    default: { path: "/api/cfi-engine", action: "analyze_context", name: "Contextual Failure Intelligence Engine" }
   }
 };
 
@@ -174,6 +185,18 @@ function buildExecutionPlan(assetContext: any, scope: any): any {
     engine: "internal",
     action: "classify",
     will_run: true
+  });
+
+  // Stage 1.5: CFI (Contextual Failure Intelligence)
+  var runCFI = scope !== "ffs_only";
+  plan.stages.push({
+    stage: 1.5,
+    name: "Contextual Failure Intelligence",
+    engine: ENGINE_ROUTES.cfi.default.name,
+    path: ENGINE_ROUTES.cfi.default.path,
+    action: ENGINE_ROUTES.cfi.default.action,
+    will_run: runCFI,
+    skip_reason: runCFI ? null : "Scope limited to FFS only"
   });
 
   // Stage 2: DDE
@@ -287,6 +310,49 @@ function buildDDEPayload(body: any): any {
     decision_core_result: body.decision_core_result || { state: "RESOLVED", fmd_dominant: null },
     observed_evidence: body.observed_evidence || {},
     inspection_meta: body.inspection_meta || {}
+  };
+}
+
+// ── CFI PAYLOAD BUILDER ─────────────────────────────────────────────────
+function buildCFIPayload(body: any): any {
+  var ac = body.asset_context || {};
+  var observed = body.observed_evidence || {};
+
+  // Map comprehensive assessment domain to CFI domain naming
+  var cfiDomain = ac.domain || "fixed";
+  var domainMap: any = {
+    fixed: "piping",
+    pipeline: "piping",
+    tank: "storage_tanks",
+    subsea: "subsea",
+    marine: "marine",
+    floating: "offshore",
+    offshore: "offshore"
+  };
+  var mappedDomain = domainMap[cfiDomain] || cfiDomain;
+
+  return {
+    action: "analyze_context",
+    asset_context: {
+      domain: mappedDomain,
+      asset_type: ac.equipment_type || ac.asset_class || null,
+      component: ac.component || null,
+      location_context: ac.location || ac.location_context || null,
+      material: ac.material || null,
+      service_fluid: ac.service_fluid || ac.fluid || null,
+      operating_temp_c: ac.operating_temp || ac.temperature || null,
+      operating_pressure_mpa: ac.operating_pressure || ac.pressure || null,
+      age_years: ac.age_years || ac.service_years || null,
+      environment: ac.environment || null
+    },
+    observed_context: {
+      damage_type: observed.damage_type || observed.indication_type || null,
+      location_on_component: observed.location || null,
+      extent: observed.extent || null,
+      morphology: observed.morphology || null,
+      wall_loss_percent: observed.wall_loss_percent || null,
+      crack_orientation: observed.crack_orientation || null
+    }
   };
 }
 
@@ -462,10 +528,44 @@ function mapEquipmentForRBI(equipmentType: string): string {
 // ── DISPOSITION LOGIC ───────────────────────────────────────────────────
 // Combines FFS acceptance, RBI risk level, and DDE mechanism severity
 // into a single overall disposition
-function computeDisposition(ddeResult: any, ffsResult: any, rbiResult: any): any {
+function computeDisposition(ddeResult: any, ffsResult: any, rbiResult: any, cfiResult?: any): any {
   var disposition = "ACCEPTABLE";
   var factors: any[] = [];
   var recommendations: any[] = [];
+
+  // Factor 0: CFI contextual intelligence
+  if (cfiResult && cfiResult.success && cfiResult.data) {
+    var cfiData = cfiResult.data;
+    var consolidated = cfiData.consolidated || {};
+
+    // Inject CFI inspection recommendations
+    var cfiNdt = consolidated.ndt_methods || [];
+    if (cfiNdt.length > 0) {
+      recommendations.push("CFI recommends: " + cfiNdt.join(", ") + " based on asset context and failure patterns");
+    }
+
+    // Inject CFI repair/prevention recommendations
+    var cfiActions = consolidated.recommended_actions || [];
+    for (var ca = 0; ca < cfiActions.length && ca < 3; ca++) {
+      recommendations.push("CFI action: " + cfiActions[ca]);
+    }
+
+    // High hotspot score signals elevated concern
+    if (cfiData.top_matches && cfiData.top_matches[0] && cfiData.top_matches[0].hotspot_score > 0.7) {
+      factors.push({
+        source: "CFI",
+        finding: "High failure hotspot score: " + Math.round(cfiData.top_matches[0].hotspot_score * 100) + "% — " + (cfiData.top_matches[0].component || "component"),
+        weight: "significant"
+      });
+      if (disposition === "ACCEPTABLE") disposition = "MONITOR";
+    } else if (cfiData.top_matches && cfiData.top_matches[0]) {
+      factors.push({
+        source: "CFI",
+        finding: "Contextual hotspot score: " + Math.round(cfiData.top_matches[0].hotspot_score * 100) + "%",
+        weight: "informational"
+      });
+    }
+  }
 
   // Factor 1: FFS acceptance
   if (ffsResult && ffsResult.success && ffsResult.data) {
@@ -604,10 +704,46 @@ async function runFullAssessment(body: any, scope: string): Promise<any> {
     }
   };
 
+  // ── STAGE 1.5: CFI ────────────────────────────────────────────────
+  var cfiResult: any = null;
+  if (scope !== "ffs_only") {
+    var cfiPayload = buildCFIPayload(body);
+    cfiResult = await callEngine(ENGINE_ROUTES.cfi.default.path, cfiPayload);
+
+    stageResults.cfi = {
+      stage: 1.5,
+      name: "Contextual Failure Intelligence",
+      success: cfiResult.success,
+      elapsed_ms: cfiResult.elapsed_ms,
+      error: cfiResult.error,
+      result: cfiResult.data
+    };
+
+    if (!cfiResult.success) {
+      errors.push({ stage: 1.5, engine: "CFI", error: cfiResult.error });
+    }
+  } else {
+    stageResults.cfi = { stage: 1.5, name: "Contextual Failure Intelligence", skipped: true, reason: "Scope: ffs_only" };
+  }
+
   // ── STAGE 2: DDE ─────────────────────────────────────────────────
   var ddeResult: any = null;
   if (scope !== "ffs_only") {
+    // Enrich DDE payload with CFI contextual priors if available
     var ddePayload = buildDDEPayload(body);
+    if (cfiResult && cfiResult.success && cfiResult.data) {
+      var cfiData = cfiResult.data;
+      var consolidated = cfiData.consolidated || {};
+      // Feed CFI damage mechanisms as contextual hints to DDE
+      if (consolidated.damage_mechanisms && consolidated.damage_mechanisms.length > 0) {
+        ddePayload.cfi_context = {
+          hotspot_mechanisms: consolidated.damage_mechanisms,
+          failure_modes: consolidated.failure_modes || [],
+          hotspot_score: cfiData.top_matches && cfiData.top_matches[0] ? cfiData.top_matches[0].hotspot_score : null,
+          ndt_methods: consolidated.ndt_methods || []
+        };
+      }
+    }
     ddeResult = await callEngine(ENGINE_ROUTES.dde.default.path, ddePayload);
 
     stageResults.dde = {
@@ -739,7 +875,8 @@ async function runFullAssessment(body: any, scope: string): Promise<any> {
   var dispositionResult = computeDisposition(
     ddeResult ? { success: ddeResult.success, data: ddeResult.data } : null,
     ffsResult ? { success: ffsResult.success, data: ffsResult.data } : null,
-    rbiResult ? { success: rbiResult.success, data: rbiResult.data } : null
+    rbiResult ? { success: rbiResult.success, data: rbiResult.data } : null,
+    cfiResult ? { success: cfiResult.success, data: cfiResult.data } : null
   );
 
   var totalElapsed = Date.now() - totalStart;
@@ -768,6 +905,8 @@ async function runFullAssessment(body: any, scope: string): Promise<any> {
     },
     interpreted: {
       overall_disposition: dispositionResult.overall_disposition,
+      cfi_hotspot: null as string | null,
+      cfi_mechanisms: null as string[] | null,
       top_mechanism: null as string | null,
       ffs_acceptance: null as string | null,
       risk_level: null as string | null,
@@ -788,6 +927,17 @@ async function runFullAssessment(body: any, scope: string): Promise<any> {
   };
 
   // Fill interpreted fields from sub-engine results
+  if (cfiResult && cfiResult.success && cfiResult.data) {
+    var cfiOut = cfiResult.data;
+    var cfiCons = cfiOut.consolidated || {};
+    if (cfiOut.top_matches && cfiOut.top_matches[0]) {
+      output.interpreted.cfi_hotspot = (cfiOut.top_matches[0].component || "Unknown") + " (score: " + Math.round(cfiOut.top_matches[0].hotspot_score * 100) + "%)";
+    }
+    if (cfiCons.damage_mechanisms && cfiCons.damage_mechanisms.length > 0) {
+      output.interpreted.cfi_mechanisms = cfiCons.damage_mechanisms;
+    }
+  }
+
   if (ddeResult && ddeResult.success && ddeResult.data) {
     var ddeOut = ddeResult.data.deterministic || ddeResult.data;
     if (ddeOut.hypotheses && ddeOut.hypotheses.length > 0) {
@@ -838,9 +988,10 @@ var handler: Handler = async function(event) {
           engine: "Comprehensive Assessment Orchestrator",
           version: ENGINE_VERSION,
           deploy: "DEPLOY342",
-          description: "Production orchestration engine — chains DDE, FFS (API 579/653/B31.8S/API RP 2A-WSD), and RBI (API 581) into a complete fitness-for-service assessment pipeline. Every result comes from real engine calculations.",
+          description: "Production orchestration engine — chains CFI, DDE, FFS (API 579/653/B31.8S/API RP 2A-WSD), and RBI (API 581) into a complete fitness-for-service assessment pipeline. Every result comes from real engine calculations.",
           actions: ACTION_REGISTRY,
           sub_engines: {
+            cfi: "Contextual Failure Intelligence (CFI-v1) — WHERE and WHY failures occur based on asset context",
             dde: "Differential Diagnosis Engine (DDE-1.0.0) — Bayesian mechanism ranking",
             api579: "API 579-1 Part 5 Level 2 — Local metal loss assessment",
             api653: "API 653 — Tank integrity assessment",
@@ -851,6 +1002,7 @@ var handler: Handler = async function(event) {
           routing: ENGINE_ROUTES,
           pipeline_stages: [
             "Stage 1: Asset Classification & Routing",
+            "Stage 1.5: Contextual Failure Intelligence (CFI)",
             "Stage 2: Differential Diagnosis (DDE)",
             "Stage 3: Fitness-for-Service (domain-specific)",
             "Stage 4: Risk-Based Inspection (API 581)",

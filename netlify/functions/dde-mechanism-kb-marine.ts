@@ -1,7 +1,7 @@
 // @ts-nocheck
 // ══════════════════════════════════════════════════════════════════════════════
 // DDE MECHANISM KNOWLEDGE BASE — MARINE VESSELS / MODUs
-// 10 damage mechanisms for ship hulls, MODUs, marine structures
+// 25 damage mechanisms for ship hulls, MODUs, marine structures
 //
 // Sources: IACS CSR, ABS Rules, DNV Rules for Classification,
 //          SOLAS, IMO Performance Standards, IACS UR Z10.x
@@ -466,6 +466,542 @@ var MECHANISMS_MARINE = {
     severity_default: "medium",
     typical_consequence: "accelerated_thinning_at_flow_changes",
     code_reference: "ABS Rules Part 7, IACS UR Z10, NACE SP0176"
+  },
+
+  // ── 11. DECK PLATE FATIGUE ────────────────────────────────────────────
+  deck_plate_fatigue: {
+    id: "deck_plate_fatigue",
+    display_name: "Deck Plate Fatigue from Wheel Loads/Vibration",
+    domain: "marine",
+    prerequisites: {
+      deck_loading_present: true,
+      vibration_source_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "high_strength_steel"]
+    },
+    indicators: {
+      crack_orientation: {
+        transverse: 0.45,
+        linear: 0.35,
+        branched: 0.10,
+        none: 0.10
+      },
+      structural_zone: {
+        deck: 0.65,
+        topsides: 0.20,
+        hull: 0.10,
+        bottom: 0.05
+      },
+      morphology: {
+        transgranular: 0.45,
+        beach_marks: 0.30,
+        none: 0.15,
+        crazing: 0.10
+      }
+    },
+    synergistic_with: ["fatigue_cracking_marine"],
+    competes_with: ["buckling_marine"],
+    severity_default: "medium",
+    typical_consequence: "fatigue_crack_initiation_deck",
+    code_reference: "IACS CSR"
+  },
+
+  // ── 12. HATCH CORNER CRACKING ────────────────────────────────────────
+  hatch_corner_cracking: {
+    id: "hatch_corner_cracking",
+    display_name: "Hatch Corner Stress Concentration Cracking",
+    domain: "marine",
+    prerequisites: {
+      hatch_cover_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "high_strength_steel"]
+    },
+    indicators: {
+      crack_location: {
+        weld: 0.40,
+        weld_haz: 0.30,
+        base_metal: 0.25,
+        external: 0.05
+      },
+      structural_zone: {
+        deck: 0.70,
+        hull: 0.20,
+        topsides: 0.05,
+        bottom: 0.05
+      },
+      crack_orientation: {
+        linear: 0.50,
+        transverse: 0.30,
+        branched: 0.10,
+        none: 0.10
+      }
+    },
+    synergistic_with: ["fatigue_cracking_marine", "weld_defect_marine"],
+    competes_with: ["buckling_marine"],
+    severity_default: "high",
+    typical_consequence: "stress_concentration_cracking",
+    code_reference: "IACS UR S34"
+  },
+
+  // ── 13. BALLAST TANK CORROSION ────────────────────────────────────────
+  ballast_tank_corrosion: {
+    id: "ballast_tank_corrosion",
+    display_name: "Ballast Tank Internal Corrosion",
+    domain: "marine",
+    prerequisites: {
+      environment: ["seawater", "marine", "brackish"],
+      material_family: ["carbon_steel", "low_alloy_steel"],
+      ballast_tank_present: true
+    },
+    indicators: {
+      wall_loss_pattern: {
+        uniform: 0.40,
+        localized: 0.40,
+        none: 0.20
+      },
+      ballast_history: {
+        frequent_changes: 0.50,
+        static: 0.20,
+        empty: 0.15,
+        full: 0.15
+      },
+      coating_condition: {
+        damaged: 0.40,
+        disbonded: 0.25,
+        intact: 0.20,
+        absent: 0.15
+      }
+    },
+    synergistic_with: ["general_corrosion_marine", "MIC_vessel"],
+    competes_with: ["grooving_corrosion"],
+    severity_default: "medium",
+    typical_consequence: "internal_tank_thinning",
+    code_reference: "IACS UR Z10.2"
+  },
+
+  // ── 14. PROPELLER SHAFT WEAR ──────────────────────────────────────────
+  propeller_shaft_wear: {
+    id: "propeller_shaft_wear",
+    display_name: "Propeller Shaft Bearing Wear/Corrosion",
+    domain: "marine",
+    prerequisites: {
+      propulsion_system_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "stainless_steel"]
+    },
+    indicators: {
+      morphology: {
+        fretting: 0.45,
+        grooving: 0.30,
+        pitting: 0.15,
+        none: 0.10
+      },
+      wall_loss_pattern: {
+        localized: 0.55,
+        uniform: 0.30,
+        none: 0.15
+      },
+      structural_zone: {
+        bottom: 0.50,
+        hull: 0.30,
+        engine_room: 0.15,
+        deck: 0.05
+      }
+    },
+    synergistic_with: ["general_corrosion_marine", "erosion_corrosion_marine"],
+    competes_with: ["pitting_marine"],
+    severity_default: "medium",
+    typical_consequence: "bearing_surface_degradation",
+    code_reference: "IACS UR M68"
+  },
+
+  // ── 15. RUDDER STOCK CORROSION ────────────────────────────────────────
+  rudder_stock_corrosion: {
+    id: "rudder_stock_corrosion",
+    display_name: "Rudder Stock/Pintle Corrosion-Fatigue",
+    domain: "marine",
+    prerequisites: {
+      steering_system_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "stainless_steel"]
+    },
+    indicators: {
+      crack_orientation: {
+        transverse: 0.45,
+        linear: 0.30,
+        none: 0.15,
+        branched: 0.10
+      },
+      morphology: {
+        pitting: 0.35,
+        transgranular: 0.30,
+        general_thinning: 0.25,
+        none: 0.10
+      },
+      wall_loss_pattern: {
+        localized: 0.50,
+        uniform: 0.35,
+        none: 0.15
+      }
+    },
+    synergistic_with: ["general_corrosion_marine", "fatigue_cracking_marine"],
+    competes_with: ["buckling_marine"],
+    severity_default: "high",
+    typical_consequence: "rudder_integrity_compromise",
+    code_reference: "IACS UR S10"
+  },
+
+  // ── 16. STERN TUBE CORROSION ──────────────────────────────────────────
+  stern_tube_corrosion: {
+    id: "stern_tube_corrosion",
+    display_name: "Stern Tube Seal/Bearing Corrosion",
+    domain: "marine",
+    prerequisites: {
+      propulsion_system_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "bronze"]
+    },
+    indicators: {
+      morphology: {
+        grooving: 0.40,
+        pitting: 0.30,
+        general_thinning: 0.20,
+        none: 0.10
+      },
+      wall_loss_pattern: {
+        localized: 0.50,
+        uniform: 0.35,
+        none: 0.15
+      },
+      structural_zone: {
+        bottom: 0.55,
+        hull: 0.30,
+        engine_room: 0.10,
+        deck: 0.05
+      }
+    },
+    synergistic_with: ["general_corrosion_marine", "erosion_corrosion_marine"],
+    competes_with: ["pitting_marine"],
+    severity_default: "medium",
+    typical_consequence: "seal_bearing_failure_risk",
+    code_reference: "IACS UR M68"
+  },
+
+  // ── 17. UNDER-DECK CONDENSATION CORROSION ─────────────────────────────
+  under_deck_condensation: {
+    id: "under_deck_condensation",
+    display_name: "Under-Deck Condensation Corrosion",
+    domain: "marine",
+    prerequisites: {
+      climate_control_condition: ["poor", "none"],
+      material_family: ["carbon_steel", "low_alloy_steel"]
+    },
+    indicators: {
+      wall_loss_pattern: {
+        uniform: 0.45,
+        localized: 0.35,
+        none: 0.20
+      },
+      coating_condition: {
+        damaged: 0.35,
+        absent: 0.30,
+        disbonded: 0.20,
+        intact: 0.15
+      },
+      structural_zone: {
+        deck: 0.55,
+        topsides: 0.25,
+        hull: 0.15,
+        bottom: 0.05
+      }
+    },
+    synergistic_with: ["general_corrosion_marine", "coating_breakdown"],
+    competes_with: [],
+    severity_default: "low",
+    typical_consequence: "condensation_surface_corrosion",
+    code_reference: "IACS CSR"
+  },
+
+  // ── 18. CARGO HOLD CORROSION ──────────────────────────────────────────
+  cargo_hold_corrosion: {
+    id: "cargo_hold_corrosion",
+    display_name: "Cargo Hold Corrosion from Cargo Interaction",
+    domain: "marine",
+    prerequisites: {
+      cargo_contact_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel"]
+    },
+    indicators: {
+      wall_loss_pattern: {
+        localized: 0.45,
+        uniform: 0.40,
+        none: 0.15
+      },
+      morphology: {
+        general_thinning: 0.40,
+        pitting: 0.35,
+        none: 0.15,
+        grooving: 0.10
+      },
+      coating_condition: {
+        damaged: 0.40,
+        absent: 0.25,
+        intact: 0.20,
+        disbonded: 0.15
+      }
+    },
+    synergistic_with: ["general_corrosion_marine", "coating_breakdown"],
+    competes_with: ["grooving_corrosion"],
+    severity_default: "medium",
+    typical_consequence: "cargo_hold_thinning",
+    code_reference: "IACS UR S25"
+  },
+
+  // ── 19. FIRE/EXPLOSION DAMAGE ASSESSMENT ──────────────────────────────
+  fire_explosion_damage: {
+    id: "fire_explosion_damage",
+    display_name: "Fire/Explosion Structural Damage Assessment",
+    domain: "marine",
+    prerequisites: {
+      fire_event_history: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "stainless_steel"]
+    },
+    indicators: {
+      morphology: {
+        buckling: 0.35,
+        cracking: 0.25,
+        general_thinning: 0.15,
+        discoloration: 0.20,
+        none: 0.05
+      },
+      structural_zone: {
+        topsides: 0.35,
+        deck: 0.30,
+        engine_room: 0.25,
+        hull: 0.05,
+        bottom: 0.05
+      },
+      service_temperature_f: {
+        high_gt600: 0.55,
+        moderate_400_600: 0.30,
+        low_lt400: 0.15
+      }
+    },
+    synergistic_with: ["buckling_marine", "weld_defect_marine"],
+    competes_with: [],
+    severity_default: "high",
+    typical_consequence: "post_fire_structural_integrity",
+    code_reference: "SOLAS Ch II-2"
+  },
+
+  // ── 20. ICE DAMAGE ────────────────────────────────────────────────────
+  ice_damage: {
+    id: "ice_damage",
+    display_name: "Ice Impact/Abrasion Damage",
+    domain: "marine",
+    prerequisites: {
+      ice_operations: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "high_strength_steel"]
+    },
+    indicators: {
+      wall_loss_pattern: {
+        localized: 0.55,
+        uniform: 0.30,
+        none: 0.15
+      },
+      morphology: {
+        denting: 0.40,
+        abrasion: 0.30,
+        cracking: 0.20,
+        none: 0.10
+      },
+      structural_zone: {
+        hull: 0.50,
+        bottom: 0.25,
+        deck: 0.15,
+        topsides: 0.10
+      }
+    },
+    synergistic_with: ["buckling_marine", "fatigue_cracking_marine"],
+    competes_with: ["slamming_damage"],
+    severity_default: "high",
+    typical_consequence: "impact_deformation_cracking",
+    code_reference: "IACS UR I"
+  },
+
+  // ── 21. HULL GIRDER FATIGUE ───────────────────────────────────────────
+  hull_girder_fatigue: {
+    id: "hull_girder_fatigue",
+    display_name: "Hull Girder Primary Structure Fatigue",
+    domain: "marine",
+    prerequisites: {
+      wave_loading_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "high_strength_steel"]
+    },
+    indicators: {
+      crack_orientation: {
+        transverse: 0.40,
+        linear: 0.35,
+        branched: 0.15,
+        none: 0.10
+      },
+      structural_zone: {
+        hull: 0.50,
+        deck: 0.25,
+        bottom: 0.20,
+        topsides: 0.05
+      },
+      morphology: {
+        transgranular: 0.45,
+        beach_marks: 0.25,
+        none: 0.15,
+        intergranular: 0.15
+      }
+    },
+    synergistic_with: ["fatigue_cracking_marine"],
+    competes_with: ["buckling_marine"],
+    severity_default: "high",
+    typical_consequence: "primary_structure_fatigue",
+    code_reference: "IACS CSR Part B"
+  },
+
+  // ── 22. LONGITUDINAL WELD SEAM CRACKING ───────────────────────────────
+  weld_seam_cracking: {
+    id: "weld_seam_cracking",
+    display_name: "Longitudinal Weld Seam Cracking",
+    domain: "marine",
+    prerequisites: {
+      has_welded_connections: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "high_strength_steel"]
+    },
+    indicators: {
+      crack_location: {
+        weld: 0.60,
+        weld_haz: 0.25,
+        base_metal: 0.10,
+        external: 0.05
+      },
+      crack_orientation: {
+        linear: 0.55,
+        transverse: 0.25,
+        branched: 0.10,
+        none: 0.10
+      },
+      morphology: {
+        transgranular: 0.40,
+        intergranular: 0.25,
+        none: 0.20,
+        lamellar: 0.15
+      }
+    },
+    synergistic_with: ["weld_defect_marine", "fatigue_cracking_marine"],
+    competes_with: ["grooving_corrosion"],
+    severity_default: "high",
+    typical_consequence: "longitudinal_weld_failure",
+    code_reference: "IACS UR W"
+  },
+
+  // ── 23. TANK TOP PITTING ──────────────────────────────────────────────
+  tank_top_pitting: {
+    id: "tank_top_pitting",
+    display_name: "Tank Top Pitting from Stagnant Water",
+    domain: "marine",
+    prerequisites: {
+      environment: ["seawater", "marine", "brackish"],
+      material_family: ["carbon_steel", "low_alloy_steel"],
+      stagnant_water_exposure: true
+    },
+    indicators: {
+      wall_loss_pattern: {
+        localized: 0.60,
+        uniform: 0.25,
+        none: 0.15
+      },
+      morphology: {
+        pitting: 0.55,
+        general_thinning: 0.25,
+        none: 0.10,
+        tuberculation: 0.10
+      },
+      ballast_history: {
+        frequent_changes: 0.35,
+        static: 0.40,
+        empty: 0.15,
+        full: 0.10
+      }
+    },
+    synergistic_with: ["pitting_marine", "MIC_vessel"],
+    competes_with: ["grooving_corrosion"],
+    severity_default: "medium",
+    typical_consequence: "tank_top_thinning_pitting",
+    code_reference: "IACS CSR"
+  },
+
+  // ── 24. VOID SPACE/COFFERDAM CORROSION ────────────────────────────────
+  void_space_corrosion: {
+    id: "void_space_corrosion",
+    display_name: "Void Space/Cofferdam Corrosion",
+    domain: "marine",
+    prerequisites: {
+      void_space_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel"]
+    },
+    indicators: {
+      wall_loss_pattern: {
+        uniform: 0.40,
+        localized: 0.40,
+        none: 0.20
+      },
+      coating_condition: {
+        absent: 0.45,
+        damaged: 0.30,
+        intact: 0.15,
+        disbonded: 0.10
+      },
+      morphology: {
+        general_thinning: 0.45,
+        pitting: 0.30,
+        none: 0.15,
+        flaking: 0.10
+      }
+    },
+    synergistic_with: ["general_corrosion_marine", "coating_breakdown"],
+    competes_with: [],
+    severity_default: "low",
+    typical_consequence: "void_space_thinning",
+    code_reference: "IACS UR Z10.4"
+  },
+
+  // ── 25. PIPE RACK VIBRATION FATIGUE ───────────────────────────────────
+  pipe_rack_vibration_fatigue: {
+    id: "pipe_rack_vibration_fatigue",
+    display_name: "Pipe Rack/Small-Bore Connection Vibration Fatigue",
+    domain: "marine",
+    prerequisites: {
+      piping_system_present: true,
+      vibration_source_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "stainless_steel"]
+    },
+    indicators: {
+      crack_orientation: {
+        transverse: 0.50,
+        linear: 0.30,
+        none: 0.15,
+        branched: 0.05
+      },
+      crack_location: {
+        weld: 0.50,
+        weld_haz: 0.25,
+        base_metal: 0.15,
+        external: 0.10
+      },
+      morphology: {
+        transgranular: 0.45,
+        beach_marks: 0.30,
+        none: 0.15,
+        striations: 0.10
+      }
+    },
+    synergistic_with: ["fatigue_cracking_marine", "weld_defect_marine"],
+    competes_with: ["grooving_corrosion"],
+    severity_default: "medium",
+    typical_consequence: "pipe_connection_fatigue_crack",
+    code_reference: "DNV-RP-D101"
   }
 };
 
