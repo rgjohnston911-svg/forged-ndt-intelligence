@@ -809,16 +809,29 @@ var MECHANISMS_FIXED = {
         none: 0.60
       },
       morphology: {
-        fissuring: 0.55,
+        fissuring: 0.50,
+        volumetric: 0.45,
         decarburization: 0.30,
         blistering: 0.10,
         none: 0.05
       },
       crack_location: {
-        mid_wall: 0.50,
-        internal: 0.35,
+        mid_wall: 0.45,
+        base_metal: 0.40,
+        internal: 0.30,
         external: 0.10,
         weld: 0.05
+      },
+      wall_loss_pattern: {
+        none: 0.55,
+        localized: 0.25,
+        uniform: 0.15
+      },
+      surface_condition: {
+        clean: 0.35,
+        discolored: 0.30,
+        blistered: 0.25,
+        pitted: 0.10
       }
     },
     synergistic_with: ["creep", "sulfidation"],
@@ -1286,24 +1299,42 @@ var MECHANISMS_FIXED = {
     prerequisites: {},
     indicators: {
       wall_loss_pattern: {
-        localized: 0.65,
-        uniform: 0.20,
-        none: 0.15
+        localized: 0.55,
+        pitting: 0.60,
+        uniform: 0.15,
+        general: 0.20,
+        none: 0.10
       },
       morphology: {
-        pitting: 0.55,
+        pitting: 0.50,
+        volumetric: 0.45,
         general_thinning: 0.25,
         mesa_attack: 0.15,
         none: 0.05
       },
       surface_condition: {
+        sludge_covered: 0.70,
         deposits: 0.65,
-        clean: 0.10,
-        scale_sulfide: 0.15,
-        pitted: 0.10
+        scale_sulfide: 0.20,
+        fouled: 0.50,
+        pitted: 0.15,
+        clean: 0.05
+      },
+      coating_condition: {
+        failed: 0.55,
+        damaged: 0.45,
+        absent: 0.40,
+        not_applicable: 0.30,
+        good: 0.05
+      },
+      weld_proximity: {
+        at_weld: 0.45,
+        in_weld: 0.40,
+        near_weld: 0.35,
+        away_from_weld: 0.20
       }
     },
-    synergistic_with: ["oxygen_pitting"],
+    synergistic_with: ["oxygen_pitting", "MIC"],
     competes_with: ["general_corrosion", "MIC"],
     severity_default: "medium",
     typical_consequence: "localized_thinning_under_deposits",
@@ -1627,22 +1658,41 @@ var MECHANISMS_FIXED = {
     prerequisites: {},
     indicators: {
       wall_loss_pattern: {
-        uniform: 0.45,
-        localized: 0.40,
-        none: 0.15
+        uniform: 0.40,
+        localized: 0.45,
+        general: 0.35,
+        general_loss: 0.35,
+        pitting: 0.30,
+        none: 0.10
       },
       surface_condition: {
-        pitted: 0.40,
+        heavily_corroded: 0.65,
+        corroded: 0.55,
+        pitted: 0.45,
         scale_sulfide: 0.25,
-        clean: 0.10,
-        cracked: 0.05,
-        discolored: 0.20
+        discolored: 0.20,
+        clean: 0.05,
+        cracked: 0.05
       },
       morphology: {
-        general_thinning: 0.50,
+        general_thinning: 0.40,
+        volumetric: 0.40,
         pitting: 0.30,
-        none: 0.15,
-        flaking: 0.05
+        none: 0.10,
+        flaking: 0.10
+      },
+      coating_condition: {
+        absent: 0.60,
+        damaged: 0.50,
+        failed: 0.50,
+        fair: 0.20,
+        good: 0.05
+      },
+      cp_status: {
+        inadequate: 0.55,
+        not_applicable: 0.30,
+        adequate: 0.10,
+        marginal: 0.35
       }
     },
     synergistic_with: ["general_corrosion"],

@@ -18,7 +18,7 @@ var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 var SYSTEM_VERSION = "FORGED-NDT/3.1.0";
-var BUILD_DATE = "2026-04-26";
+var BUILD_DATE = "2026-04-28";
 
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",

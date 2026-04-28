@@ -560,14 +560,34 @@ function runClassification(input) {
     "chemical_attack", "hydrogen_embrittlement",
     "creep", "brittle_fracture",
     "caustic_cracking", "chloride_SCC",
-    "sulfide_stress_cracking", "HF_alkylation"
+    "sulfide_stress_cracking", "HF_alkylation",
+    "HTHA", "MIC", "amine_cracking", "reheat_cracking",
+    "atmospheric_corrosion", "under_deposit_corrosion"
+  ];
+
+  // Mechanisms that ALWAYS require REPAIR_REPLACE classification
+  // regardless of probability thresholds — catastrophic failure modes
+  // where consequences are disproportionate to statistical probability
+  var CRITICAL_MECHANISMS = [
+    "HTHA", "creep", "brittle_fracture",
+    "hydrogen_embrittlement", "reheat_cracking",
+    "amine_cracking", "HF_alkylation",
+    "SSC", "SOHIC", "caustic_cracking",
+    "sulfide_stress_cracking"
   ];
 
   var mechanismNorm = String(mechanism).trim();
   var isHighRiskMechanism = false;
+  var isCriticalMechanism = false;
   for (var m = 0; m < HIGH_RISK_MECHANISMS.length; m++) {
     if (mechanismNorm.toLowerCase() === HIGH_RISK_MECHANISMS[m].toLowerCase()) {
       isHighRiskMechanism = true;
+      break;
+    }
+  }
+  for (var c = 0; c < CRITICAL_MECHANISMS.length; c++) {
+    if (mechanismNorm.toLowerCase() === CRITICAL_MECHANISMS[c].toLowerCase()) {
+      isCriticalMechanism = true;
       break;
     }
   }
@@ -575,19 +595,44 @@ function runClassification(input) {
   var reliabilityClass = "HOLD_FOR_INPUT";
   var authorityLockRequired = false;
 
-  if (conformalConfidence < 0.60 || mcP05 !== null && mcP05 <= 0) {
-    reliabilityClass = "ENGINEERING_REVIEW";
-    authorityLockRequired = true;
-  } else if (failProb1y >= 0.25) {
+  // Critical mechanism override: these always escalate to REPAIR_REPLACE
+  // regardless of probability (HTHA can rupture without warning, etc.)
+  if (isCriticalMechanism && failProb5y >= 0.05) {
     reliabilityClass = "REPAIR_REPLACE";
     authorityLockRequired = true;
-  } else if (failProb1y >= 0.10 || failProb3y >= 0.25) {
+  } else if (failProb1y >= 0.20) {
+    // Very high 1-year failure probability — imminent risk
+    reliabilityClass = "REPAIR_REPLACE";
+    authorityLockRequired = true;
+  } else if (failProb3y >= 0.80) {
+    // Near-certain 3-year failure — severe regardless of mechanism type
+    reliabilityClass = "REPAIR_REPLACE";
+    authorityLockRequired = true;
+  } else if (conformalConfidence < 0.60 || mcP05 !== null && mcP05 <= 0) {
     reliabilityClass = "ENGINEERING_REVIEW";
     authorityLockRequired = true;
-  } else if (failProb3y >= 0.10 || failProb5y >= 0.25) {
-    reliabilityClass = "INCREASE_INSPECTION";
-    if (isHighRiskMechanism) {
+  } else if (failProb1y >= 0.10 || failProb3y >= 0.25) {
+    // For non-high-risk mechanisms with low 1-year risk, downgrade to
+    // MONITOR — these are manageable with monitoring
+    if (!isHighRiskMechanism && failProb1y < 0.10) {
+      reliabilityClass = "MONITOR";
+      authorityLockRequired = false;
+    } else {
+      reliabilityClass = "ENGINEERING_REVIEW";
       authorityLockRequired = true;
+    }
+  } else if (failProb3y >= 0.10 || failProb5y >= 0.25) {
+    if (isHighRiskMechanism) {
+      reliabilityClass = "ENGINEERING_REVIEW";
+      authorityLockRequired = true;
+    } else if (failProb5y >= 0.40) {
+      // High 5-year probability warrants engineering oversight even
+      // for non-high-risk mechanisms
+      reliabilityClass = "ENGINEERING_REVIEW";
+      authorityLockRequired = true;
+    } else {
+      reliabilityClass = "INCREASE_INSPECTION";
+      authorityLockRequired = false;
     }
   } else if (failProb5y >= 0.10) {
     reliabilityClass = "MONITOR";
@@ -606,6 +651,8 @@ function runClassification(input) {
     recommendationText = "Shorten inspection interval and prioritize high-value measurements.";
   } else if (reliabilityClass === "ENGINEERING_REVIEW") {
     recommendationText = "Require engineering review and additional inspection evidence before disposition.";
+  } else if (reliabilityClass === "REPAIR_REPLACE" && isCriticalMechanism) {
+    recommendationText = "CRITICAL: " + mechanismNorm + " detected. Immediate engineering disposition required. Do not continue operation without review.";
   } else if (reliabilityClass === "REPAIR_REPLACE") {
     recommendationText = "Escalate immediately. Require engineering disposition before continued operation.";
   } else {
@@ -616,8 +663,8 @@ function runClassification(input) {
     reliability_class: reliabilityClass,
     recommendation: recommendationText,
     authority_lock_required: authorityLockRequired,
-    authority_lock_reason: authorityLockRequired ? (isHighRiskMechanism && reliabilityClass === "INCREASE_INSPECTION" ? "high_risk_mechanism" : "threshold_exceeded") : null,
-    mechanism_risk: isHighRiskMechanism ? "HIGH" : "STANDARD",
+    authority_lock_reason: authorityLockRequired ? (isCriticalMechanism ? "critical_mechanism" : isHighRiskMechanism ? "high_risk_mechanism" : "threshold_exceeded") : null,
+    mechanism_risk: isCriticalMechanism ? "CRITICAL" : isHighRiskMechanism ? "HIGH" : "STANDARD",
     inspector_required_inputs: reliabilityClass === "HOLD_FOR_INPUT" ? true : false,
     confidence: conformalConfidence
   };

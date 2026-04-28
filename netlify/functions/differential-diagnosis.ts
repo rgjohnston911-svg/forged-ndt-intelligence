@@ -492,12 +492,26 @@ function runDiagnosis(body: any): any {
     ? body.decision_core_result.fmd_dominant
     : null;
 
+  // Inspector-nominated mechanism: if the evidence explicitly names a mechanism,
+  // bypass prerequisite pruning for that mechanism. The field inspector's
+  // on-site identification should never be silently pruned by missing context fields.
+  var nominatedMechanism = (body.observed_evidence && body.observed_evidence.mechanism)
+    ? String(body.observed_evidence.mechanism).trim()
+    : null;
+
   // Phase 1: Prerequisite pruning
   var candidates: any[] = [];
   var ruledOut: any[] = [];
 
   for (var mechId in kb) {
     var mech = kb[mechId];
+
+    // Bypass prerequisites for inspector-nominated mechanism
+    if (nominatedMechanism && mech.id.toLowerCase() === nominatedMechanism.toLowerCase()) {
+      candidates.push(mech);
+      continue;
+    }
+
     var prereqResult = checkPrerequisites(mech, body.asset_context);
 
     if (prereqResult.passed) {
