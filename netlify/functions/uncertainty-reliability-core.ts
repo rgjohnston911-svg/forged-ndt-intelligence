@@ -612,22 +612,10 @@ function runClassification(input) {
     reliabilityClass = "ENGINEERING_REVIEW";
     authorityLockRequired = true;
   } else if (failProb1y >= 0.10 || failProb3y >= 0.25) {
-    // For non-high-risk mechanisms with low 1-year risk, downgrade to
-    // MONITOR — these are manageable with monitoring
-    if (!isHighRiskMechanism && failProb1y < 0.10) {
-      reliabilityClass = "MONITOR";
-      authorityLockRequired = false;
-    } else {
-      reliabilityClass = "ENGINEERING_REVIEW";
-      authorityLockRequired = true;
-    }
+    reliabilityClass = "ENGINEERING_REVIEW";
+    authorityLockRequired = true;
   } else if (failProb3y >= 0.10 || failProb5y >= 0.25) {
     if (isHighRiskMechanism) {
-      reliabilityClass = "ENGINEERING_REVIEW";
-      authorityLockRequired = true;
-    } else if (failProb5y >= 0.40) {
-      // High 5-year probability warrants engineering oversight even
-      // for non-high-risk mechanisms
       reliabilityClass = "ENGINEERING_REVIEW";
       authorityLockRequired = true;
     } else {
