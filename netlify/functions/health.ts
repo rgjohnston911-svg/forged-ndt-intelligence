@@ -18,7 +18,7 @@ var supabaseUrl = process.env.SUPABASE_URL || "";
 var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 var SYSTEM_VERSION = "FORGED-NDT/3.1.0";
-var BUILD_DATE = "2026-04-26";
+var BUILD_DATE = "2026-04-27";
 
 var corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -318,7 +318,10 @@ var ENGINE_REGISTRY = [
   { name: "multimodal-fusion-engine", deploy: "DEPLOY350", mode: "deterministic", path: "/api/multimodal-fusion-engine" },
   { name: "uncertainty-reliability-core", deploy: "DEPLOY351", mode: "deterministic", path: "/api/uncertainty-reliability-core" },
   { name: "distribution-sampler-engine", deploy: "DEPLOY352", mode: "deterministic", path: "/api/distribution-sampler-engine" },
-  { name: "cfi-engine", deploy: "CFI-v1", mode: "deterministic", path: "/api/cfi-engine" }
+  { name: "cfi-engine", deploy: "CFI-v1", mode: "deterministic", path: "/api/cfi-engine" },
+  { name: "inspection-effectiveness", deploy: "DEPLOY353", mode: "deterministic", path: "/api/inspection-effectiveness" },
+  { name: "mic-intelligence", deploy: "DEPLOY354", mode: "deterministic", path: "/api/mic-intelligence" },
+  { name: "api-standards-authority", deploy: "DEPLOY355", mode: "deterministic", path: "/api/api-standards-authority" }
 ];
 
 function countByMode(mode) {
