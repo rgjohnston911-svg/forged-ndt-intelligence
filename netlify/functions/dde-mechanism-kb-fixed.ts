@@ -200,18 +200,22 @@ var MECHANISMS_FIXED = {
     },
     indicators: {
       crack_orientation: {
-        parallel_to_plate: 0.10,
+        circumferential: 0.40,
         perpendicular_to_plate: 0.15,
-        random: 0.10,
-        circumferential: 0.50,
-        axial: 0.15
+        transverse: 0.12,
+        axial: 0.10,
+        parallel_to_plate: 0.08,
+        random: 0.08,
+        linear: 0.07
       },
       crack_location: {
-        weld_toe: 0.50,
-        weld_root: 0.20,
-        id_surface: 0.15,
-        od_surface: 0.05,
-        mid_wall: 0.10
+        weld_toe: 0.30,
+        HAZ: 0.25,
+        weld_root: 0.10,
+        base_metal: 0.10,
+        id_surface: 0.10,
+        mid_wall: 0.10,
+        od_surface: 0.05
       },
       morphology: {
         intergranular: 0.65,
@@ -303,29 +307,32 @@ var MECHANISMS_FIXED = {
     },
     indicators: {
       crack_orientation: {
-        random: 0.35,
-        circumferential: 0.25,
-        axial: 0.20,
-        perpendicular_to_plate: 0.10,
-        parallel_to_plate: 0.10
+        random: 0.30,
+        linear: 0.25,
+        circumferential: 0.20,
+        axial: 0.15,
+        perpendicular_to_plate: 0.05,
+        parallel_to_plate: 0.05
       },
       crack_location: {
-        od_surface: 0.40,
-        id_surface: 0.25,
-        weld_toe: 0.20,
-        weld_root: 0.10,
+        od_surface: 0.30,
+        base_metal: 0.25,
+        id_surface: 0.20,
+        weld_toe: 0.15,
+        weld_root: 0.05,
         mid_wall: 0.05
       },
       morphology: {
-        branched: 0.60,
+        branched: 0.55,
         transgranular: 0.25,
-        intergranular: 0.05,
+        intergranular: 0.08,
         single_planar: 0.08,
-        stepwise_blistering: 0.02
+        stepwise_blistering: 0.02,
+        linear: 0.02
       },
       service_temperature_f: {
-        below_150: 0.05,
-        "150_to_300": 0.50,
+        below_150: 0.10,
+        "150_to_300": 0.45,
         "300_to_500": 0.35,
         above_500: 0.10
       },
@@ -355,11 +362,13 @@ var MECHANISMS_FIXED = {
     },
     indicators: {
       wall_loss_pattern: {
-        grooving: 0.45,
-        uniform: 0.25,
-        pitting: 0.15,
-        localized_blistering: 0.05,
-        none_visible: 0.10
+        grooving: 0.30,
+        general_loss: 0.18,
+        general: 0.15,
+        uniform: 0.12,
+        pitting: 0.10,
+        none_visible: 0.10,
+        localized_blistering: 0.05
       },
       wall_loss_percent_range: {
         lt_10: 0.10,
@@ -374,15 +383,17 @@ var MECHANISMS_FIXED = {
         above_500: 0.80
       },
       surface_condition: {
-        corroded: 0.55,
+        corroded: 0.50,
         clean: 0.05,
         scaled: 0.25,
-        blistered: 0.15
+        blistered: 0.10,
+        carburized: 0.10
       },
       crack_location: {
-        id_surface: 0.70,
-        od_surface: 0.05,
+        id_surface: 0.55,
+        base_metal: 0.15,
         weld_toe: 0.10,
+        od_surface: 0.05,
         weld_root: 0.05,
         mid_wall: 0.10
       }
@@ -460,8 +471,23 @@ var MECHANISMS_FIXED = {
         grooving: 0.05,
         none_visible: 0.10
       },
+      morphology: {
+        volumetric: 0.35,
+        general: 0.25,
+        pitting: 0.25,
+        localized: 0.10,
+        branched: 0.05
+      },
+      crack_orientation: {
+        circumferential: 0.35,
+        axial: 0.25,
+        linear: 0.20,
+        random: 0.15,
+        transverse: 0.05
+      },
       crack_location: {
-        od_surface: 0.80,
+        od_surface: 0.65,
+        base_metal: 0.15,
         id_surface: 0.05,
         weld_toe: 0.05,
         weld_root: 0.02,
@@ -490,6 +516,48 @@ var MECHANISMS_FIXED = {
     competes_with: ["general_corrosion", "erosion_corrosion"],
     severity_default: "high",
     typical_consequence: "hidden_wall_loss_under_insulation",
+    code_reference: "API 571 §5.1.1.3, API RP 583, NACE SP0198"
+  },
+
+  // ── 9b. SYSTEMIC_CUI — Systemic Corrosion Under Insulation ────────────────
+  systemic_CUI: {
+    id: "systemic_CUI",
+    display_name: "Systemic Corrosion Under Insulation",
+    domain: "fixed",
+    prerequisites: {
+      insulation_present: true
+    },
+    indicators: {
+      wall_loss_pattern: {
+        localized: 0.20,
+        uniform: 0.25,
+        pitting: 0.25,
+        general: 0.20,
+        network: 0.10
+      },
+      morphology: {
+        volumetric: 0.40,
+        general: 0.30,
+        pitting: 0.20,
+        localized: 0.10
+      },
+      service_temperature_f: {
+        below_150: 0.25,
+        "150_to_300": 0.50,
+        "300_to_500": 0.20,
+        above_500: 0.05
+      },
+      surface_condition: {
+        corroded: 0.60,
+        blistered: 0.20,
+        scaled: 0.15,
+        clean: 0.05
+      }
+    },
+    synergistic_with: ["CUI", "chloride_scc"],
+    competes_with: ["general_corrosion", "erosion_corrosion"],
+    severity_default: "high",
+    typical_consequence: "widespread_corrosion_under_insulation",
     code_reference: "API 571 §5.1.1.3, API RP 583, NACE SP0198"
   },
 
@@ -857,9 +925,18 @@ var MECHANISMS_FIXED = {
         low_lt400: 0.05
       },
       wall_loss_pattern: {
-        uniform: 0.50,
-        localized: 0.35,
-        none: 0.15
+        uniform: 0.35,
+        general: 0.30,
+        localized: 0.20,
+        pitting: 0.10,
+        network: 0.05
+      },
+      morphology: {
+        volumetric: 0.35,
+        general: 0.25,
+        uniform: 0.20,
+        pitting: 0.15,
+        localized: 0.05
       },
       surface_condition: {
         scale_sulfide: 0.60,
@@ -886,22 +963,27 @@ var MECHANISMS_FIXED = {
     },
     indicators: {
       crack_orientation: {
-        branched: 0.55,
-        transgranular: 0.10,
-        intergranular: 0.30,
-        none: 0.05
+        branched: 0.45,
+        intergranular: 0.25,
+        longitudinal: 0.10,
+        transgranular: 0.08,
+        linear: 0.08,
+        none: 0.04
       },
       morphology: {
-        intergranular: 0.65,
+        intergranular: 0.55,
+        mixed: 0.15,
+        planar: 0.12,
         transgranular: 0.10,
-        mixed: 0.20,
-        none: 0.05
+        none: 0.04,
+        branched: 0.04
       },
       crack_location: {
-        weld_haz: 0.50,
-        base_metal: 0.30,
+        weld_haz: 0.30,
+        heat_affected_zone: 0.20,
+        base_metal: 0.25,
         external: 0.15,
-        internal: 0.05
+        internal: 0.10
       }
     },
     synergistic_with: ["chloride_scc"],
@@ -1266,22 +1348,25 @@ var MECHANISMS_FIXED = {
     },
     indicators: {
       crack_location: {
-        weld_haz: 0.65,
-        weld: 0.25,
+        weld_haz: 0.55,
+        weld: 0.20,
         base_metal: 0.05,
-        external: 0.05
+        external: 0.05,
+        HAZ: 0.15
       },
       morphology: {
-        intergranular: 0.60,
-        transgranular: 0.15,
+        intergranular: 0.55,
+        transgranular: 0.14,
         none: 0.15,
-        mixed: 0.10
+        mixed: 0.10,
+        planar: 0.06
       },
       crack_orientation: {
         transverse: 0.40,
         linear: 0.35,
-        branched: 0.15,
-        none: 0.10
+        branched: 0.10,
+        none: 0.10,
+        axial: 0.05
       }
     },
     synergistic_with: [],

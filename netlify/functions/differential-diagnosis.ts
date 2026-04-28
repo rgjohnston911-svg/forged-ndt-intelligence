@@ -47,6 +47,7 @@ import { mapEvidence, assessCompleteness } from "./dde-evidence-mapper";
 var ENGINE_VERSION = "DDE-1.0.0";
 var LIKELIHOOD_FLOOR = 0.01;    // Never 0 — unseen values reduce, don't eliminate
 var FMD_PRIOR_BOOST = 1.5;      // FMD dominant mode gets 1.5x prior boost
+var NOMINATED_MECHANISM_BOOST = 5.0; // Inspector-nominated mechanism gets 5x prior boost
 var MAX_HYPOTHESES_RETURNED = 3;
 var MAX_DISCRIMINATING_TESTS = 3;
 var CONFIDENCE_CAP_NO_SERVICE = 0.65;
@@ -211,7 +212,7 @@ function computeLogLikelihood(mechanism: any, evidence: any): any {
 
 // ── POSTERIOR COMPUTATION ──────────────────────────────────────────────
 // Full Bayes: P(M|E) = P(E|M) * P(M) / Σ P(E|M') * P(M')
-function computePosteriors(candidates: any[], evidence: any, priorTable: any, fmdDominant: string | null): any[] {
+function computePosteriors(candidates: any[], evidence: any, priorTable: any, fmdDominant: string | null, nominatedMechanism?: string | null): any[] {
   var results: any[] = [];
   var totalWeight = 0;
 
@@ -225,6 +226,12 @@ function computePosteriors(candidates: any[], evidence: any, priorTable: any, fm
     // FMD boost: if decision-core's FMD picked this mechanism, boost its prior
     if (fmdDominant && mech.id === fmdDominant) {
       prior = prior * FMD_PRIOR_BOOST;
+    }
+
+    // Inspector-nominated mechanism boost: field inspector's on-site identification
+    // carries significant weight — 3x prior boost ensures it ranks in top hypotheses
+    if (nominatedMechanism && mech.id.toLowerCase() === nominatedMechanism.toLowerCase()) {
+      prior = prior * NOMINATED_MECHANISM_BOOST;
     }
 
     // Joint = P(E|M) * P(M)
@@ -543,7 +550,7 @@ function runDiagnosis(body: any): any {
   }
 
   // Phase 2–4: Bayesian scoring
-  var ranked = computePosteriors(candidates, evidence, priorTable, fmdDominant);
+  var ranked = computePosteriors(candidates, evidence, priorTable, fmdDominant, nominatedMechanism);
 
   // Take top N for output
   var topN = ranked.slice(0, MAX_HYPOTHESES_RETURNED);

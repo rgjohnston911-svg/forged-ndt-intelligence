@@ -3721,8 +3721,9 @@ function getMechanismVariants(mechanism) {
     'thermal_fatigue': ['thermal fatigue', 'thermal cycling', 'thermal', 'fatigue', 'creep'],
     'creep': ['creep', 'voiding', 'neubauer', 'temper_embrittlement'],
     'chloride_SCC': ['scc', 'stress corrosion', 'chloride', 'cracking', 'chloride_scc'],
+    'chloride_scc': ['scc', 'stress corrosion', 'chloride', 'cracking', 'chloride_scc', 'chloride_SCC'],
     'structural_risk': ['structural', 'load path', 'consequence', 'critical', 'buckling'],
-    'systemic_CUI': ['cui', 'corrosion under insulation', 'systemic', 'CUI'],
+    'systemic_CUI': ['cui', 'corrosion under insulation', 'systemic', 'CUI', 'systemic_CUI', 'systemic_cui'],
     'lack_of_fusion': ['lack of fusion', 'lof', 'fusion', 'incomplete fusion', 'weld defect', 'weld_defect'],
     'metallurgical_mismatch': ['metallurgical', 'dissimilar', 'dmw', 'mismatch', 'carbon migration', 'hydrogen_embrittlement', 'temper_embrittlement', 'hydrogen'],
     'HAZ_crack': ['haz', 'heat affected', 'repair', 'pwht', 'hydrogen crack', 'hydrogen_embrittlement', 'hydrogen', 'HIC', 'SSC', 'SOHIC', 'cracking'],
@@ -3834,6 +3835,22 @@ function getMechanismVariants(mechanism) {
     'polythionic_acid_scc': [
       'polythionic_acid_scc', 'polythionic', 'pta scc',
       'sensitized', 'shutdown cracking', 'intergranular'
+    ],
+    'CUI': [
+      'CUI', 'cui', 'corrosion under insulation', 'under insulation',
+      'systemic_CUI', 'systemic_cui', 'insulation'
+    ],
+    'reheat_cracking': [
+      'reheat_cracking', 'reheat cracking', 'reheat', 'stress relief',
+      'post weld heat treatment', 'pwht', 'creep crack'
+    ],
+    'sulfidation': [
+      'sulfidation', 'sulfidic corrosion', 'sulfidic', 'sulfide corrosion',
+      'high temperature sulfidation', 'h2s corrosion'
+    ],
+    'naphthenic_acid_corrosion': [
+      'naphthenic_acid_corrosion', 'naphthenic', 'naphthenic acid',
+      'tan', 'total acid number', 'crude oil corrosion'
     ],
 
     // ── MIC (Microbiologically Influenced Corrosion) ─────────────────
