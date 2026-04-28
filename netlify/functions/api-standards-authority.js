@@ -787,7 +787,9 @@ function resolveStandards(input) {
 // SECTION 4 - NETLIFY HANDLER
 // =============================================================================
 
-exports.handler = function(event, context) {
+var handler = async function(event) {
+  "use strict";
+
   var headers = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
@@ -796,7 +798,7 @@ exports.handler = function(event, context) {
   };
 
   if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 204, headers: headers, body: "" };
+    return { statusCode: 200, headers: headers, body: "" };
   }
 
   if (event.httpMethod !== "POST") {
@@ -836,8 +838,10 @@ exports.handler = function(event, context) {
   };
 };
 
+module.exports = { handler: handler };
+
 // Export internals for unit testing
-exports._internal = {
+module.exports._internal = {
   resolveStandards: resolveStandards,
   STANDARDS_DB: STANDARDS_DB,
   SERVICE_CONDITION_STANDARDS: SERVICE_CONDITION_STANDARDS,
