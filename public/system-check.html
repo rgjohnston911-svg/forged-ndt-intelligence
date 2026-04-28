@@ -27,7 +27,7 @@
 <body>
 
 <h1>FORGED NDT Intelligence OS — System Check</h1>
-<p class="subtitle">FORGED-NDT/3.1.0 — All 145 engines — Full endpoint verification</p>
+<p class="subtitle">FORGED-NDT/3.1.0 — All 142 engines — Full endpoint verification</p>
 
 <div class="summary-bar">
   <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
@@ -275,6 +275,9 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY351: Uncertainty & Reliability Core", "/api/uncertainty-reliability-core", { action: "get_registry" });
   await testEndpoint("DEPLOY352: Distribution Sampler Engine", "/api/distribution-sampler-engine", { action: "get_registry" });
   await testEndpoint("CFI-v1: Contextual Failure Intelligence Engine", "/api/cfi-engine", { action: "get_registry" });
+  await testEndpoint("DEPLOY353: Inspection Effectiveness Engine", "/api/inspection-effectiveness", { damage_mechanism: "CL_SCC", techniques_performed: ["WFMT"], coverage: "extensive", domain: "fixed" });
+  await testEndpoint("DEPLOY354: MIC Intelligence Engine", "/api/mic-intelligence", { domain: "fixed", equipment_type: "storage_tank", material: "carbon_steel", environment: { water_type: "produced_water", temperature: 95 } });
+  await testEndpoint("DEPLOY355: API Standards Authority Engine", "/api/api-standards-authority", { domain: "pipeline", equipment_type: "pipeline", damage_mechanism: "SSC" });
 
   document.getElementById("runBtn").textContent = "Run Full System Check";
   document.getElementById("runBtn").disabled = false;
