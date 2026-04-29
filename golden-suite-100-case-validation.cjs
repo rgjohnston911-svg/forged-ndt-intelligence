@@ -3910,6 +3910,20 @@ function getMechanismVariants(mechanism) {
       'scc', 'stress corrosion', 'cracking', 'near-neutral',
       'high-ph', 'transgranular', 'intergranular', 'chloride_scc',
       'SSC', 'sulfide', 'hydrogen'
+    ],
+
+    // ── AMINE CRACKING ─────────────────────────────────────────────────
+    'amine_cracking': [
+      'amine_cracking', 'amine cracking', 'amine stress corrosion',
+      'amine scc', 'amine', 'dea', 'mea', 'mdea',
+      'amine unit', 'amine service'
+    ],
+
+    // ── FLOW-ACCELERATED CORROSION ──────────────────────────────────────
+    'flow_accelerated_corrosion': [
+      'flow_accelerated_corrosion', 'flow accelerated corrosion', 'fac',
+      'flow-accelerated', 'erosion_corrosion', 'erosion corrosion',
+      'flow assisted', 'wet steam', 'single phase fac'
     ]
   };
   return map[mechanism] || [mechanism.replace(/_/g, ' '), mechanism];

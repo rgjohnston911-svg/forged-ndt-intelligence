@@ -233,9 +233,11 @@ var MECHANISMS_FIXED = {
         above_500: 0.05
       },
       weld_proximity: {
-        at_weld: 0.60,
-        near_weld_haz: 0.25,
-        away_from_weld: 0.15
+        at_weld: 0.45,
+        in_weld: 0.20,
+        near_weld: 0.10,
+        near_weld_haz: 0.15,
+        away_from_weld: 0.10
       }
     },
     synergistic_with: ["general_corrosion"],
@@ -1542,21 +1544,26 @@ var MECHANISMS_FIXED = {
     },
     indicators: {
       wall_loss_pattern: {
-        localized: 0.55,
-        uniform: 0.35,
-        none: 0.10
-      },
-      morphology: {
-        scalloping: 0.50,
-        general_thinning: 0.30,
-        orange_peel: 0.15,
+        localized: 0.40,
+        general: 0.25,
+        uniform: 0.20,
+        pitting: 0.10,
         none: 0.05
       },
+      morphology: {
+        scalloping: 0.40,
+        general_thinning: 0.25,
+        volumetric: 0.15,
+        orange_peel: 0.12,
+        smooth_thinning: 0.05,
+        none: 0.03
+      },
       crack_location: {
+        internal: 0.45,
+        base_metal: 0.20,
         external: 0.15,
-        internal: 0.60,
-        weld: 0.20,
-        base_metal: 0.05
+        weld: 0.15,
+        id_surface: 0.05
       }
     },
     synergistic_with: ["erosion_corrosion"],

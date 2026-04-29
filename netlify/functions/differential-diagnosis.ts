@@ -634,6 +634,28 @@ function runDiagnosis(body: any): any {
   // Take top N for output
   var topN = ranked.slice(0, MAX_HYPOTHESES_RETURNED);
 
+  // Ensure inspector-nominated mechanism always appears in output.
+  // The field inspector's on-site identification must never be silently dropped,
+  // even if Bayesian evidence scoring pushes it below the top N cutoff.
+  if (nominatedMechanism) {
+    var nominatedInTopN = false;
+    for (var tn = 0; tn < topN.length; tn++) {
+      if (topN[tn].mechanism_id.toLowerCase() === nominatedMechanism.toLowerCase()) {
+        nominatedInTopN = true;
+        break;
+      }
+    }
+    if (!nominatedInTopN) {
+      // Find it in the full ranked list and append it
+      for (var rn = 0; rn < ranked.length; rn++) {
+        if (ranked[rn].mechanism_id.toLowerCase() === nominatedMechanism.toLowerCase()) {
+          topN.push(ranked[rn]);
+          break;
+        }
+      }
+    }
+  }
+
   // Phase 5: Discriminating evidence (only for top hypotheses)
   var discriminating = computeDiscriminatingEvidence(topN, kb, evidence);
 
