@@ -125,6 +125,7 @@ function getRegistry() {
     ],
     reliability_classes: [
       "LOW_RISK",
+      "ROUTINE_MONITORING",
       "MONITOR",
       "INCREASE_INSPECTION",
       "ENGINEERING_REVIEW",
@@ -624,6 +625,8 @@ function runClassification(input) {
     }
   } else if (failProb5y >= 0.10) {
     reliabilityClass = "MONITOR";
+  } else if (failProb5y >= 0.03) {
+    reliabilityClass = "ROUTINE_MONITORING";
   } else {
     reliabilityClass = "LOW_RISK";
   }
@@ -633,6 +636,8 @@ function runClassification(input) {
     recommendationText = "Continue normal inspection program with proof trace retained.";
   } else if (reliabilityClass === "MONITOR") {
     recommendationText = "Continue monitoring with documented uncertainty. Confirm trend at next interval.";
+  } else if (reliabilityClass === "ROUTINE_MONITORING") {
+    recommendationText = "Routine monitoring recommended. Continue normal inspection cycle with attention to identified damage mechanism.";
   } else if (reliabilityClass === "INCREASE_INSPECTION" && authorityLockRequired) {
     recommendationText = "Shorten inspection interval. High-risk mechanism requires engineering sign-off before disposition.";
   } else if (reliabilityClass === "INCREASE_INSPECTION") {

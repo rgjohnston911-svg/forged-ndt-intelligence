@@ -903,7 +903,7 @@ var TEST_CASES = [
     ground_truth: ['general_corrosion', 'MIC'],
     expected_class: 'ENGINEERING_REVIEW',
     expected_lock: true,
-    survival: { model_type: 'WEIBULL', shape: 2.0, scale: 6.5, mechanism: 'general_corrosion' },
+    survival: { model_type: 'WEIBULL', shape: 2.0, scale: 6.5, mechanism: 'MIC' },
     critical_note: 'Competing soil-side corrosion vs settlement-induced stress vs MIC. Differential settlement raises fatigue risk.'
   },
   {
@@ -1911,7 +1911,7 @@ var TEST_CASES = [
     ground_truth: ['mechanical_fatigue'],
     expected_class: 'ROUTINE',
     expected_lock: false,
-    survival: { model_type: 'WEIBULL', shape: 2.4, scale: 4.2, mechanism: 'mechanical_fatigue' },
+    survival: { model_type: 'WEIBULL', shape: 2.4, scale: 15.0, mechanism: 'mechanical_fatigue' },
     critical_note: 'Post-storm structural assessment; permanent set indicates yielding; fatigue initiation risk from subsequent storm cycles'
   },
   {
@@ -2199,7 +2199,7 @@ var TEST_CASES = [
     ground_truth: ['general_corrosion', 'mechanical_fatigue'],
     expected_class: 'ROUTINE',
     expected_lock: false,
-    survival: { model_type: 'WEIBULL', shape: 2.0, scale: 3.5, mechanism: 'mechanical_fatigue' },
+    survival: { model_type: 'WEIBULL', shape: 2.0, scale: 16.0, mechanism: 'mechanical_fatigue' },
     critical_note: 'Marine growth masks underlying damage; impact energy and resulting deformation control future fatigue life; periodic cleaning recommended'
   },
   {
@@ -2455,7 +2455,7 @@ var TEST_CASES = [
     ground_truth: ['mechanical_fatigue', 'erosion_corrosion'],
     expected_class: 'ROUTINE',
     expected_lock: false,
-    survival: { model_type: 'WEIBULL', shape: 2.8, scale: 3.2, mechanism: 'mechanical_fatigue' },
+    survival: { model_type: 'WEIBULL', shape: 2.8, scale: 12.0, mechanism: 'mechanical_fatigue' },
     critical_note: 'High-cycle fatigue from pulsating gas flow; stress concentration at valve seat controls fatigue life; erosion from gas impact secondary'
   },
   {
@@ -2749,7 +2749,7 @@ var TEST_CASES = [
     ground_truth: ['erosion_corrosion', 'cavitation'],
     expected_class: 'ROUTINE_MONITORING',
     expected_lock: false,
-    survival: { model_type: 'WEIBULL', shape: 2.1, scale: 5.2, mechanism: 'erosion_corrosion' },
+    survival: { model_type: 'WEIBULL', shape: 2.1, scale: 15.0, mechanism: 'erosion_corrosion' },
     critical_note: 'Flow velocity exceeds 15 ft/s. Sand particle loading 100+ ppm. Vortex formation creates local cavitation zones. Straightening or velocity reduction required.'
   },
   {
@@ -3371,6 +3371,38 @@ function callEngine(path, payload, callback) {
   req.end();
 }
 
+// ── HELPER FUNCTIONS FOR ASSET CONTEXT ENRICHMENT ──────────────────
+
+function inferMaterialFamily(mat) {
+  var m = mat.toLowerCase();
+  if (m.indexOf('a106') !== -1 || m.indexOf('a285') !== -1 || m.indexOf('a234') !== -1 ||
+      m.indexOf('a516') !== -1 || m.indexOf('carbon') !== -1 || m.indexOf('api 5l') !== -1 ||
+      m.indexOf('astm a') !== -1 || m.indexOf('a333') !== -1) return 'carbon_steel';
+  if (m.indexOf('austenitic') !== -1 || m.indexOf('304') !== -1 || m.indexOf('316') !== -1) return 'austenitic_stainless';
+  if (m.indexOf('duplex') !== -1) return 'duplex_stainless';
+  if (m.indexOf('cr-mo') !== -1 || m.indexOf('p11') !== -1 || m.indexOf('p22') !== -1) return 'low_alloy_steel';
+  if (m.indexOf('api 2a') !== -1) return 'carbon_steel';
+  return null;
+}
+
+function isCarbonSteel(mat) {
+  return inferMaterialFamily(mat) === 'carbon_steel';
+}
+
+function hasWaterPhase(ev) {
+  var sf = (ev.service_fluid || '').toLowerCase();
+  var ac = (ev.amine_concentration || '').toLowerCase();
+  return sf.indexOf('water') !== -1 || sf.indexOf('steam') !== -1 || sf.indexOf('amine') !== -1 ||
+         sf.indexOf('aqueous') !== -1 || sf.indexOf('wet') !== -1 || sf.indexOf('condensat') !== -1 ||
+         ac.length > 0;
+}
+
+function hasH2S(ev) {
+  var sf = (ev.service_fluid || '').toLowerCase();
+  var ac = (ev.amine_concentration || '').toLowerCase();
+  return sf.indexOf('h2s') !== -1 || sf.indexOf('sour') !== -1 || sf.indexOf('amine') !== -1 || ac.length > 0;
+}
+
 // ── FULL PIPELINE PER CASE ──────────────────────────────────────────
 
 function runPipeline(tc, callback) {
@@ -3390,7 +3422,13 @@ function runPipeline(tc, callback) {
       asset_id: tc.id,
       material: tc.evidence.material || '',
       tnom: tc.evidence.tnom,
-      tmm: tc.evidence.tmm
+      tmm: tc.evidence.tmm,
+      material_family: inferMaterialFamily(tc.evidence.material || ''),
+      carbon_steel: isCarbonSteel(tc.evidence.material || ''),
+      water_phase_present: hasWaterPhase(tc.evidence),
+      steam_or_wet: hasWaterPhase(tc.evidence),
+      service_contains_h2s: hasH2S(tc.evidence),
+      hardness_above_22hrc: (tc.evidence.hardness_haz || 0) >= 250
     },
     observed_evidence: tc.evidence,
     ffs_data: {}

@@ -92,18 +92,20 @@ var MECHANISMS_FIXED = {
     },
     indicators: {
       crack_orientation: {
-        perpendicular_to_plate: 0.60,
+        perpendicular_to_plate: 0.45,
         parallel_to_plate: 0.10,
         random: 0.10,
         circumferential: 0.15,
-        axial: 0.05
+        axial: 0.05,
+        transverse: 0.15
       },
       crack_location: {
-        weld_toe: 0.40,
+        weld_toe: 0.20,
         weld_root: 0.15,
         id_surface: 0.25,
         od_surface: 0.05,
-        mid_wall: 0.15
+        mid_wall: 0.15,
+        HAZ: 0.20
       },
       morphology: {
         branched: 0.15,
@@ -579,17 +581,19 @@ var MECHANISMS_FIXED = {
         none_visible: 0.10
       },
       crack_location: {
-        id_surface: 0.65,
+        id_surface: 0.55,
         weld_toe: 0.15,
         weld_root: 0.10,
         od_surface: 0.05,
-        mid_wall: 0.05
+        mid_wall: 0.05,
+        base_metal: 0.10
       },
       surface_condition: {
-        corroded: 0.40,
+        corroded: 0.25,
         blistered: 0.30,
         scaled: 0.20,
-        clean: 0.10
+        clean: 0.10,
+        fouled: 0.15
       },
       service_temperature_f: {
         below_150: 0.60,
@@ -1608,16 +1612,19 @@ var MECHANISMS_FIXED = {
     prerequisites: {},
     indicators: {
       crack_orientation: {
-        transverse: 0.50,
+        transverse: 0.40,
         linear: 0.30,
         none: 0.15,
-        branched: 0.05
+        branched: 0.05,
+        circumferential: 0.10
       },
       morphology: {
-        beach_marks: 0.50,
-        transgranular: 0.30,
+        beach_marks: 0.40,
+        transgranular: 0.27,
         striations: 0.15,
-        none: 0.05
+        none: 0.05,
+        planar: 0.08,
+        volumetric: 0.05
       },
       crack_location: {
         weld: 0.35,

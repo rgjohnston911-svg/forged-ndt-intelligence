@@ -449,6 +449,82 @@ function validateInput(body: any): any {
   return { valid: true, status: "OK", missing: [] };
 }
 
+// ── PREREQUISITE CONTEXT INFERENCE ──────────────────────────────────────
+// Infer prerequisite-relevant fields from observed_evidence and material
+// strings when not explicitly present in asset_context. This prevents
+// secondary mechanisms from being incorrectly pruned.
+function inferAssetContext(assetContext: any, observedEvidence: any): any {
+  var enriched: any = {};
+  for (var k in assetContext) enriched[k] = assetContext[k];
+
+  var material = String(enriched.material || '').toLowerCase();
+  var serviceFluid = String(observedEvidence.service_fluid || '').toLowerCase();
+  var amineConc = String(observedEvidence.amine_concentration || '').toLowerCase();
+
+  // Infer material_family from material spec
+  if (!enriched.material_family) {
+    if (material.indexOf('a106') !== -1 || material.indexOf('a285') !== -1 ||
+        material.indexOf('a234') !== -1 || material.indexOf('a516') !== -1 ||
+        material.indexOf('a333') !== -1 || material.indexOf('carbon') !== -1 ||
+        material.indexOf('api 5l') !== -1 || material.indexOf('astm a') !== -1) {
+      enriched.material_family = 'carbon_steel';
+    } else if (material.indexOf('austenitic') !== -1 || material.indexOf('304') !== -1 ||
+               material.indexOf('316') !== -1 || material.indexOf('321') !== -1) {
+      enriched.material_family = 'austenitic_stainless';
+    } else if (material.indexOf('duplex') !== -1) {
+      enriched.material_family = 'duplex_stainless';
+    } else if (material.indexOf('inconel') !== -1 || material.indexOf('alloy') !== -1) {
+      enriched.material_family = 'nickel_alloy';
+    } else if (material.indexOf('cr-mo') !== -1 || material.indexOf('p11') !== -1 ||
+               material.indexOf('p22') !== -1 || material.indexOf('f22') !== -1) {
+      enriched.material_family = 'low_alloy_steel';
+    }
+  }
+
+  // Infer carbon_steel flag
+  if (enriched.carbon_steel === undefined) {
+    enriched.carbon_steel = (enriched.material_family === 'carbon_steel');
+  }
+
+  // Infer water_phase_present from service fluid and conditions
+  if (enriched.water_phase_present === undefined) {
+    enriched.water_phase_present = (
+      serviceFluid.indexOf('water') !== -1 ||
+      serviceFluid.indexOf('steam') !== -1 ||
+      serviceFluid.indexOf('aqueous') !== -1 ||
+      serviceFluid.indexOf('condensat') !== -1 ||
+      serviceFluid.indexOf('amine') !== -1 ||
+      serviceFluid.indexOf('wet') !== -1 ||
+      amineConc.length > 0
+    );
+  }
+
+  // Infer steam_or_wet
+  if (enriched.steam_or_wet === undefined) {
+    enriched.steam_or_wet = enriched.water_phase_present;
+  }
+
+  // Infer service_contains_h2s from sour/amine/H2S indicators
+  if (enriched.service_contains_h2s === undefined) {
+    enriched.service_contains_h2s = (
+      serviceFluid.indexOf('h2s') !== -1 ||
+      serviceFluid.indexOf('sour') !== -1 ||
+      serviceFluid.indexOf('amine') !== -1 ||
+      amineConc.length > 0
+    );
+  }
+
+  // Infer hardness_above_22hrc from hardness_haz (HV)
+  if (enriched.hardness_above_22hrc === undefined) {
+    var hv = Number(observedEvidence.hardness_haz || 0);
+    if (hv >= 250) {
+      enriched.hardness_above_22hrc = true;
+    }
+  }
+
+  return enriched;
+}
+
 // ── FULL DIAGNOSIS ─────────────────────────────────────────────────────
 function runDiagnosis(body: any): any {
   var validation = validateInput(body);
@@ -467,6 +543,9 @@ function runDiagnosis(body: any): any {
   var domain = body.asset_context.domain;
   var service = body.asset_context.service || null;
   var material = body.asset_context.material || null;
+
+  // Enrich asset_context with inferred prerequisite fields
+  var enrichedContext = inferAssetContext(body.asset_context, body.observed_evidence || {});
 
   // Load domain KB
   var kb = loadKB(domain);
@@ -519,7 +598,7 @@ function runDiagnosis(body: any): any {
       continue;
     }
 
-    var prereqResult = checkPrerequisites(mech, body.asset_context);
+    var prereqResult = checkPrerequisites(mech, enrichedContext);
 
     if (prereqResult.passed) {
       candidates.push(mech);
