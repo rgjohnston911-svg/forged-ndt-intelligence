@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FORGED — NDT Intelligence OS</title>
+  <meta name="description" content="AI-powered nondestructive testing intelligence platform. 142+ diagnostic engines, 97%+ accuracy, Bayesian differential diagnosis for fitness-for-service." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-primary: #0d1117;
+      --bg-card: #161b22;
+      --bg-elevated: #1c2129;
+      --border: #30363d;
+      --border-light: #21262d;
+      --text-primary: #f0f6fc;
+      --text-secondary: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent-blue: #58a6ff;
+      --accent-blue-bg: #1f6feb;
+      --accent-green: #3fb950;
+      --accent-green-bg: #238636;
+      --accent-orange: #f78166;
+      --accent-purple: #bc8cff;
+      --accent-red: #f85149;
+      --gradient-brand: linear-gradient(135deg, #58a6ff 0%, #bc8cff 50%, #f78166 100%);
+      --gradient-subtle: linear-gradient(135deg, rgba(88,166,255,0.08) 0%, rgba(188,140,255,0.08) 50%, rgba(247,129,102,0.08) 100%);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-secondary);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* ─── NAV ─── */
+    .nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(13,17,23,0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border-light);
+      padding: 0 24px;
+    }
+    .nav-inner {
+      max-width: 1200px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 64px;
+    }
+    .nav-brand {
+      display: flex; align-items: baseline; gap: 10px;
+      text-decoration: none;
+    }
+    .nav-logo {
+      font-size: 22px; font-weight: 800; letter-spacing: 3px;
+      background: var(--gradient-brand);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .nav-tag {
+      font-size: 11px; font-weight: 500; color: var(--text-muted);
+      letter-spacing: 0.5px;
+    }
+    .nav-links { display: flex; align-items: center; gap: 32px; }
+    .nav-links a {
+      color: var(--text-muted); text-decoration: none; font-size: 14px;
+      font-weight: 500; transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text-primary); }
+    .nav-cta {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 20px; border-radius: 6px; font-size: 14px; font-weight: 600;
+      text-decoration: none; transition: all 0.2s;
+      background: var(--accent-green-bg); color: #fff; border: 1px solid var(--accent-green);
+    }
+    .nav-cta:hover { background: #2ea043; transform: translateY(-1px); }
+
+    /* ─── HERO ─── */
+    .hero {
+      position: relative; padding: 160px 24px 100px;
+      text-align: center; overflow: hidden;
+    }
+    .hero::before {
+      content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      width: 800px; height: 800px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(88,166,255,0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 16px; border-radius: 999px;
+      background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.2);
+      font-size: 13px; font-weight: 500; color: var(--accent-blue);
+      margin-bottom: 32px;
+    }
+    .hero-badge .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent-green); animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .hero h1 {
+      font-size: clamp(36px, 5vw, 64px); font-weight: 800;
+      color: var(--text-primary); line-height: 1.1;
+      max-width: 800px; margin: 0 auto 24px;
+      letter-spacing: -1px;
+    }
+    .hero h1 .gradient-text {
+      background: var(--gradient-brand);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-sub {
+      font-size: clamp(16px, 2vw, 20px); color: var(--text-muted);
+      max-width: 600px; margin: 0 auto 48px; line-height: 1.6;
+    }
+    .hero-actions {
+      display: flex; align-items: center; justify-content: center;
+      gap: 16px; flex-wrap: wrap;
+    }
+    .btn-hero {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 600;
+      text-decoration: none; transition: all 0.25s; border: none; cursor: pointer;
+    }
+    .btn-hero-primary {
+      background: var(--accent-blue-bg); color: #fff;
+      box-shadow: 0 0 24px rgba(31,111,235,0.3);
+    }
+    .btn-hero-primary:hover {
+      background: #388bfd; transform: translateY(-2px);
+      box-shadow: 0 4px 32px rgba(31,111,235,0.4);
+    }
+    .btn-hero-secondary {
+      background: var(--bg-card); color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+    .btn-hero-secondary:hover { border-color: var(--text-muted); transform: translateY(-2px); }
+
+    /* ─── STATS BAR ─── */
+    .stats-bar {
+      display: flex; justify-content: center; gap: 48px;
+      padding: 48px 24px 0; flex-wrap: wrap;
+    }
+    .stat-item { text-align: center; }
+    .stat-number {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 36px; font-weight: 700; color: var(--text-primary);
+    }
+    .stat-number .accent { color: var(--accent-blue); }
+    .stat-desc {
+      font-size: 13px; color: var(--text-muted); margin-top: 4px;
+      text-transform: uppercase; letter-spacing: 1px;
+    }
+
+    /* ─── SECTIONS ─── */
+    section { padding: 100px 24px; }
+    .section-inner { max-width: 1100px; margin: 0 auto; }
+    .section-label {
+      font-size: 12px; font-weight: 600; letter-spacing: 2px;
+      text-transform: uppercase; color: var(--accent-blue); margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(28px, 3.5vw, 42px); font-weight: 700;
+      color: var(--text-primary); margin-bottom: 16px; letter-spacing: -0.5px;
+    }
+    .section-desc {
+      font-size: 17px; color: var(--text-muted); max-width: 600px;
+      margin-bottom: 56px; line-height: 1.7;
+    }
+
+    /* ─── FEATURES GRID ─── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+    }
+    .feature-card {
+      background: var(--bg-card); border: 1px solid var(--border-light);
+      border-radius: 12px; padding: 32px; transition: all 0.3s;
+      position: relative; overflow: hidden;
+    }
+    .feature-card:hover {
+      border-color: var(--border); transform: translateY(-4px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    .feature-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: var(--gradient-brand); opacity: 0; transition: opacity 0.3s;
+    }
+    .feature-card:hover::before { opacity: 1; }
+    .feature-icon {
+      width: 48px; height: 48px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; margin-bottom: 20px;
+      background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.15);
+    }
+    .feature-card:nth-child(2) .feature-icon {
+      background: rgba(63,185,80,0.08); border-color: rgba(63,185,80,0.15);
+    }
+    .feature-card:nth-child(3) .feature-icon {
+      background: rgba(188,140,255,0.08); border-color: rgba(188,140,255,0.15);
+    }
+    .feature-card:nth-child(4) .feature-icon {
+      background: rgba(247,129,102,0.08); border-color: rgba(247,129,102,0.15);
+    }
+    .feature-card:nth-child(5) .feature-icon {
+      background: rgba(88,166,255,0.08); border-color: rgba(88,166,255,0.15);
+    }
+    .feature-card:nth-child(6) .feature-icon {
+      background: rgba(63,185,80,0.08); border-color: rgba(63,185,80,0.15);
+    }
+    .feature-title {
+      font-size: 17px; font-weight: 600; color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+    .feature-text { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+
+    /* ─── HOW IT WORKS ─── */
+    .steps {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 32px; counter-reset: step;
+    }
+    .step {
+      position: relative; padding: 28px;
+      background: var(--bg-card); border: 1px solid var(--border-light);
+      border-radius: 12px;
+    }
+    .step::before {
+      counter-increment: step; content: counter(step);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 48px; font-weight: 700;
+      color: rgba(88,166,255,0.1); position: absolute; top: 16px; right: 20px;
+    }
+    .step-title {
+      font-size: 16px; font-weight: 600; color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+    .step-text { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+
+    /* ─── VALIDATION ─── */
+    .validation-section { background: var(--bg-card); border-top: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light); }
+    .validation-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 48px;
+      align-items: center;
+    }
+    .validation-chart {
+      background: var(--bg-primary); border: 1px solid var(--border-light);
+      border-radius: 12px; padding: 32px;
+    }
+    .chart-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; color: var(--text-muted); margin-bottom: 20px;
+      text-transform: uppercase; letter-spacing: 1px;
+    }
+    .chart-bar-group { margin-bottom: 14px; }
+    .chart-bar-label {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 6px;
+    }
+    .chart-bar-name { font-size: 13px; color: var(--text-secondary); }
+    .chart-bar-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; font-weight: 600; color: var(--accent-green);
+    }
+    .chart-bar-track {
+      height: 8px; border-radius: 4px; background: var(--border-light);
+      overflow: hidden;
+    }
+    .chart-bar-fill {
+      height: 100%; border-radius: 4px;
+      background: linear-gradient(90deg, var(--accent-green-bg), var(--accent-green));
+      transition: width 1.5s ease;
+    }
+
+    /* ─── DOMAINS ─── */
+    .domains-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+    }
+    .domain-chip {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 18px; border-radius: 10px;
+      background: var(--bg-card); border: 1px solid var(--border-light);
+      transition: all 0.2s;
+    }
+    .domain-chip:hover { border-color: var(--border); }
+    .domain-emoji { font-size: 20px; }
+    .domain-info {}
+    .domain-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+    .domain-acc {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px; color: var(--accent-green);
+    }
+
+    /* ─── CTA SECTION ─── */
+    .cta-section {
+      text-align: center; padding: 120px 24px;
+      position: relative;
+    }
+    .cta-section::before {
+      content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 600px; height: 600px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(31,111,235,0.06) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .cta-title {
+      font-size: clamp(28px, 4vw, 48px); font-weight: 800;
+      color: var(--text-primary); margin-bottom: 16px; letter-spacing: -0.5px;
+    }
+    .cta-sub {
+      font-size: 17px; color: var(--text-muted);
+      max-width: 500px; margin: 0 auto 40px;
+    }
+
+    /* ─── FOOTER ─── */
+    .footer {
+      border-top: 1px solid var(--border-light);
+      padding: 40px 24px; text-align: center;
+    }
+    .footer-inner {
+      max-width: 1100px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 16px;
+    }
+    .footer-brand {
+      font-size: 14px; font-weight: 700; letter-spacing: 2px;
+      color: var(--text-muted);
+    }
+    .footer-copy { font-size: 13px; color: var(--text-muted); }
+    .footer-links { display: flex; gap: 24px; }
+    .footer-links a {
+      font-size: 13px; color: var(--text-muted); text-decoration: none;
+      transition: color 0.2s;
+    }
+    .footer-links a:hover { color: var(--text-primary); }
+
+    /* ─── RESPONSIVE ─── */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .hero { padding: 120px 20px 60px; }
+      .stats-bar { gap: 32px; }
+      .stat-number { font-size: 28px; }
+      .validation-grid { grid-template-columns: 1fr; }
+      .hero-actions { flex-direction: column; }
+      .btn-hero { width: 100%; justify-content: center; }
+      .footer-inner { flex-direction: column; text-align: center; }
+    }
+
+    /* ─── ANIMATIONS ─── */
+    .fade-in {
+      opacity: 0; transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .fade-in.visible { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="/landing.html" class="nav-brand">
+        <span class="nav-logo">FORGED</span>
+        <span class="nav-tag">NDT Intelligence OS</span>
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How It Works</a>
+        <a href="#validation">Validation</a>
+        <a href="#domains">Domains</a>
+      </div>
+      <a href="/" class="nav-cta">Sign In &rarr;</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-badge">
+      <span class="dot"></span>
+      142+ Diagnostic Engines Online
+    </div>
+    <h1>
+      Inspection Intelligence,<br />
+      <span class="gradient-text">Engineered to Code.</span>
+    </h1>
+    <p class="hero-sub">
+      FORGED combines 142+ AI diagnostic engines with Bayesian differential diagnosis
+      to deliver code-compliant fitness-for-service decisions in minutes, not days.
+    </p>
+    <div class="hero-actions">
+      <a href="/" class="btn-hero btn-hero-primary">Get Started Free</a>
+      <a href="#how-it-works" class="btn-hero btn-hero-secondary">See How It Works</a>
+    </div>
+    <div class="stats-bar">
+      <div class="stat-item fade-in">
+        <div class="stat-number">97<span class="accent">%+</span></div>
+        <div class="stat-desc">Diagnostic Accuracy</div>
+      </div>
+      <div class="stat-item fade-in">
+        <div class="stat-number">142<span class="accent">+</span></div>
+        <div class="stat-desc">AI Engines</div>
+      </div>
+      <div class="stat-item fade-in">
+        <div class="stat-number">6</div>
+        <div class="stat-desc">Industry Domains</div>
+      </div>
+      <div class="stat-item fade-in">
+        <div class="stat-number">&lt;30<span class="accent">s</span></div>
+        <div class="stat-desc">Time to Diagnosis</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section id="features">
+    <div class="section-inner">
+      <p class="section-label">Capabilities</p>
+      <h2 class="section-title">Everything an Inspector Needs</h2>
+      <p class="section-desc">
+        From field data capture to final disposition, FORGED handles the entire
+        inspection intelligence workflow.
+      </p>
+      <div class="features-grid">
+        <div class="feature-card fade-in">
+          <div class="feature-icon">&#x1F9E0;</div>
+          <h3 class="feature-title">Bayesian Differential Diagnosis</h3>
+          <p class="feature-text">
+            Our five-phase DDE pipeline evaluates every plausible damage mechanism
+            against your field data using conditional probability tables, delivering
+            ranked hypotheses with discriminating evidence.
+          </p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">&#x1F50D;</div>
+          <h3 class="feature-title">Universal Code Authority</h3>
+          <p class="feature-text">
+            Automatic cross-reference of ASME, API, NACE, and AWS standards.
+            Every recommendation traces back to the governing code paragraph,
+            giving you audit-ready documentation.
+          </p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">&#x1F399;</div>
+          <h3 class="feature-title">Voice-Driven Inspection</h3>
+          <p class="feature-text">
+            Speak your findings in plain language. FORGED's voice interface
+            captures field observations and converts them to structured
+            case data instantly.
+          </p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">&#x1F4CA;</div>
+          <h3 class="feature-title">Decision Spine Analysis</h3>
+          <p class="feature-text">
+            Transparent decision trees show exactly how each conclusion was
+            reached. No black boxes — every step is traceable and defensible.
+          </p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">&#x26A0;</div>
+          <h3 class="feature-title">Escalation Intelligence</h3>
+          <p class="feature-text">
+            Automatic identification of edge cases requiring specialist review.
+            Smart escalation queues ensure nothing critical falls through the cracks.
+          </p>
+        </div>
+        <div class="feature-card fade-in">
+          <div class="feature-icon">&#x1F4C4;</div>
+          <h3 class="feature-title">One-Click Reports</h3>
+          <p class="feature-text">
+            Generate comprehensive inspection reports with findings,
+            recommendations, and code citations. Ready for client delivery
+            or regulatory submission.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section id="how-it-works" style="background: var(--bg-card); border-top: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light);">
+    <div class="section-inner">
+      <p class="section-label">Workflow</p>
+      <h2 class="section-title">Field to Fitness in Four Steps</h2>
+      <p class="section-desc">
+        FORGED transforms raw inspection data into code-compliant decisions
+        with a streamlined four-step workflow.
+      </p>
+      <div class="steps">
+        <div class="step fade-in">
+          <h3 class="step-title">Capture</h3>
+          <p class="step-text">
+            Enter case details through forms or voice. Specify asset,
+            material, environment, and inspection findings.
+          </p>
+        </div>
+        <div class="step fade-in">
+          <h3 class="step-title">Analyze</h3>
+          <p class="step-text">
+            142+ engines evaluate damage mechanisms, check prerequisites,
+            and compute Bayesian posteriors against your field evidence.
+          </p>
+        </div>
+        <div class="step fade-in">
+          <h3 class="step-title">Adjudicate</h3>
+          <p class="step-text">
+            Review ranked hypotheses, discriminating evidence, and
+            code citations. Accept, override, or request deeper analysis.
+          </p>
+        </div>
+        <div class="step fade-in">
+          <h3 class="step-title">Deliver</h3>
+          <p class="step-text">
+            Generate audit-ready reports with full traceability.
+            Every decision links back to the evidence and code authority.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VALIDATION -->
+  <section id="validation" class="validation-section">
+    <div class="section-inner">
+      <div class="validation-grid">
+        <div>
+          <p class="section-label">Proven Performance</p>
+          <h2 class="section-title">Validated at 97%+ Accuracy</h2>
+          <p class="section-desc" style="margin-bottom: 24px;">
+            FORGED has been rigorously validated across 15,000 test cases
+            spanning six industrial domains, achieving consistent 97%+
+            diagnostic accuracy on both golden-standard and blind test suites.
+          </p>
+          <div style="display: flex; gap: 24px; margin-bottom: 0;">
+            <div>
+              <div style="font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 700; color: var(--accent-green);">97.1%</div>
+              <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Golden Suite</div>
+              <div style="font-size: 12px; color: var(--text-muted);">10,000 cases</div>
+            </div>
+            <div>
+              <div style="font-family: 'JetBrains Mono', monospace; font-size: 28px; font-weight: 700; color: var(--accent-green);">97.4%</div>
+              <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Blind Suite</div>
+              <div style="font-size: 12px; color: var(--text-muted);">5,000 cases</div>
+            </div>
+          </div>
+        </div>
+        <div class="validation-chart fade-in">
+          <div class="chart-title">Accuracy by Domain</div>
+          <div class="chart-bar-group">
+            <div class="chart-bar-label">
+              <span class="chart-bar-name">Fixed Equipment</span>
+              <span class="chart-bar-value">99.4%</span>
+            </div>
+            <div class="chart-bar-track"><div class="chart-bar-fill" style="width: 99.4%"></div></div>
+          </div>
+          <div class="chart-bar-group">
+            <div class="chart-bar-label">
+              <span class="chart-bar-name">Refinery</span>
+              <span class="chart-bar-value">98.4%</span>
+            </div>
+            <div class="chart-bar-track"><div class="chart-bar-fill" style="width: 98.4%"></div></div>
+          </div>
+          <div class="chart-bar-group">
+            <div class="chart-bar-label">
+              <span class="chart-bar-name">Subsea</span>
+              <span class="chart-bar-value">98.0%</span>
+            </div>
+            <div class="chart-bar-track"><div class="chart-bar-fill" style="width: 98%"></div></div>
+          </div>
+          <div class="chart-bar-group">
+            <div class="chart-bar-label">
+              <span class="chart-bar-name">Floating Production</span>
+              <span class="chart-bar-value">93.0%</span>
+            </div>
+            <div class="chart-bar-track"><div class="chart-bar-fill" style="width: 93%"></div></div>
+          </div>
+          <div class="chart-bar-group">
+            <div class="chart-bar-label">
+              <span class="chart-bar-name">Marine</span>
+              <span class="chart-bar-value">92.0%</span>
+            </div>
+            <div class="chart-bar-track"><div class="chart-bar-fill" style="width: 92%"></div></div>
+          </div>
+          <div class="chart-bar-group">
+            <div class="chart-bar-label">
+              <span class="chart-bar-name">Power Generation</span>
+              <span class="chart-bar-value">89.5%</span>
+            </div>
+            <div class="chart-bar-track"><div class="chart-bar-fill" style="width: 89.5%"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DOMAINS -->
+  <section id="domains">
+    <div class="section-inner">
+      <p class="section-label">Coverage</p>
+      <h2 class="section-title">Built for Your Industry</h2>
+      <p class="section-desc">
+        Domain-specific knowledge bases tuned for the damage mechanisms,
+        materials, and code requirements of each sector.
+      </p>
+      <div class="domains-grid fade-in">
+        <div class="domain-chip">
+          <span class="domain-emoji">&#x1F3ED;</span>
+          <div class="domain-info">
+            <div class="domain-name">Fixed Equipment</div>
+            <div class="domain-acc">99.4% accuracy</div>
+          </div>
+        </div>
+        <div class="domain-chip">
+          <span class="domain-emoji">&#x2697;</span>
+          <div class="domain-info">
+            <div class="domain-name">Refinery</div>
+            <div class="domain-acc">98.4% accuracy</div>
+          </div>
+        </div>
+        <div class="domain-chip">
+          <span class="domain-emoji">&#x1F30A;</span>
+          <div class="domain-info">
+            <div class="domain-name">Subsea</div>
+            <div class="domain-acc">98.0% accuracy</div>
+          </div>
+        </div>
+        <div class="domain-chip">
+          <span class="domain-emoji">&#x1F6E2;</span>
+          <div class="domain-info">
+            <div class="domain-name">Floating Production</div>
+            <div class="domain-acc">93.0% accuracy</div>
+          </div>
+        </div>
+        <div class="domain-chip">
+          <span class="domain-emoji">&#x1F6A2;</span>
+          <div class="domain-info">
+            <div class="domain-name">Marine</div>
+            <div class="domain-acc">92.0% accuracy</div>
+          </div>
+        </div>
+        <div class="domain-chip">
+          <span class="domain-emoji">&#x26A1;</span>
+          <div class="domain-info">
+            <div class="domain-name">Power Generation</div>
+            <div class="domain-acc">89.5% accuracy</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-section">
+    <h2 class="cta-title">
+      Ready to Transform Your<br />
+      Inspection Workflow?
+    </h2>
+    <p class="cta-sub">
+      Join inspection teams using FORGED to make faster, more accurate,
+      code-compliant decisions.
+    </p>
+    <div class="hero-actions">
+      <a href="/" class="btn-hero btn-hero-primary">Create Free Account</a>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <span class="footer-brand">FORGED</span>
+      <span class="footer-copy">&copy; 2026 FORGED NDT Intelligence OS. All rights reserved.</span>
+      <div class="footer-links">
+        <a href="#">Privacy</a>
+        <a href="#">Terms</a>
+        <a href="#">Contact</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scroll animation -->
+  <script>
+    (function() {
+      var els = document.querySelectorAll('.fade-in');
+      var observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+          }
+        });
+      }, { threshold: 0.1 });
+      els.forEach(function(el) { observer.observe(el); });
+    })();
+  </script>
+
+</body>
+</html>

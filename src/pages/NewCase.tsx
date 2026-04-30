@@ -19,8 +19,22 @@ import { supabase } from "../lib/supabase";
 var NDT_METHODS = ["VT", "PT", "MT", "UT", "RT", "ET"];
 
 var ASSET_CLASS_OPTIONS = [
+  // Pressure equipment
   "Pressure Vessel", "Piping", "Pipeline", "Tank", "Heat Exchanger",
-  "Boiler", "Storage Sphere", "Offshore Structure", "Saturation Diving System", "Bridge"
+  "Boiler", "Storage Sphere",
+  // Structural
+  "Structural Steel", "Structural Beam / Column", "Structural Connection",
+  "Building Frame", "Bridge",
+  // Welding
+  "Weld Coupon / Test Weld", "Weld Joint", "Fillet Weld", "Groove Weld",
+  "Weld Repair",
+  // Offshore / Marine
+  "Offshore Structure", "Subsea Equipment", "Marine Vessel",
+  "Saturation Diving System",
+  // Power / Industrial
+  "Turbine Component", "Generator", "Crane / Lifting Equipment",
+  // General
+  "Fabricated Assembly", "Casting", "Forging", "Other"
 ];
 
 var ASSET_CLASS_TO_ENGINE = {
@@ -31,9 +45,27 @@ var ASSET_CLASS_TO_ENGINE = {
   "Heat Exchanger": "pressure_vessel",
   "Boiler": "pressure_vessel",
   "Storage Sphere": "pressure_vessel",
+  "Structural Steel": "structural",
+  "Structural Beam / Column": "structural",
+  "Structural Connection": "structural",
+  "Building Frame": "structural",
+  "Bridge": "bridge",
+  "Weld Coupon / Test Weld": "weld_evaluation",
+  "Weld Joint": "weld_evaluation",
+  "Fillet Weld": "weld_evaluation",
+  "Groove Weld": "weld_evaluation",
+  "Weld Repair": "weld_evaluation",
   "Offshore Structure": "offshore_platform",
+  "Subsea Equipment": "subsea",
+  "Marine Vessel": "marine_vessel",
   "Saturation Diving System": "pressure_vessel",
-  "Bridge": "bridge"
+  "Turbine Component": "power_generation",
+  "Generator": "power_generation",
+  "Crane / Lifting Equipment": "structural",
+  "Fabricated Assembly": "general",
+  "Casting": "general",
+  "Forging": "general",
+  "Other": "general"
 };
 
 export default function NewCase() {
