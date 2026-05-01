@@ -19,6 +19,7 @@
   from = "/"
   to = "/landing.html"
   status = 200
+  force = true
 
 [[redirects]]
   from = "/landing"
