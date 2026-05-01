@@ -1218,6 +1218,169 @@ var MECHANISMS_FLOATING = {
     severity_default: "medium",
     typical_consequence: "moonpool_wall_fatigue_crack_flooding",
     code_reference: "DNV-OS-C102, API RP 2FPS"
+  },
+
+  // ── CHLORIDE SCC — Chloride Stress Corrosion Cracking
+  chloride_scc: {
+    id: "chloride_scc",
+    display_name: "Chloride Stress Corrosion Cracking",
+    domain: "floating",
+    prerequisites: {
+      service_contains_chlorides: true,
+      material_family: ["austenitic_stainless", "duplex_stainless"]
+    },
+    indicators: {
+      crack_orientation: {
+        random: 0.30,
+        linear: 0.25,
+        circumferential: 0.20,
+        axial: 0.15,
+        perpendicular_to_plate: 0.05,
+        parallel_to_plate: 0.05
+      },
+      crack_location: {
+        od_surface: 0.30,
+        weld_toe: 0.25,
+        base_metal: 0.20,
+        id_surface: 0.15,
+        weld_root: 0.05,
+        mid_wall: 0.05
+      },
+      morphology: {
+        branched: 0.55,
+        transgranular: 0.25,
+        intergranular: 0.08,
+        single_planar: 0.08,
+        stepwise_blistering: 0.02,
+        linear: 0.02
+      },
+      structural_zone: {
+        side_shell: 0.25,
+        bottom_plating: 0.20,
+        column: 0.25,
+        topside_support: 0.20,
+        main_deck: 0.10
+      },
+      coating_condition: {
+        failed: 0.40,
+        degraded: 0.30,
+        intact: 0.20,
+        absent: 0.10
+      }
+    },
+    synergistic_with: ["general_corrosion_marine", "MIC_vessel"],
+    competes_with: ["hull_fatigue_fpso"],
+    severity_default: "high",
+    typical_consequence: "through_wall_crack_in_stainless_components",
+    code_reference: "DNV-OS-C102, API RP 2FPS, NACE SP0110"
+  },
+
+  // ── CUI — Corrosion Under Insulation (Topside Piping)
+  CUI: {
+    id: "CUI",
+    display_name: "Corrosion Under Insulation",
+    domain: "floating",
+    prerequisites: {
+      insulation_present: true,
+      material_family: ["carbon_steel", "low_alloy_steel", "austenitic_stainless"]
+    },
+    indicators: {
+      wall_loss_pattern: {
+        localized_blistering: 0.40,
+        pitting: 0.30,
+        uniform: 0.20,
+        grooving: 0.05,
+        none_visible: 0.05
+      },
+      morphology: {
+        pitting: 0.40,
+        general: 0.30,
+        volumetric: 0.20,
+        localized: 0.10
+      },
+      structural_zone: {
+        topside_support: 0.50,
+        main_deck: 0.30,
+        side_shell: 0.10,
+        bottom_plating: 0.05,
+        column: 0.05
+      },
+      coating_condition: {
+        failed: 0.50,
+        degraded: 0.30,
+        intact: 0.15,
+        absent: 0.05
+      },
+      crack_location: {
+        od_surface: 0.65,
+        base_metal: 0.15,
+        weld_toe: 0.10,
+        id_surface: 0.05,
+        weld_root: 0.03,
+        mid_wall: 0.02
+      }
+    },
+    synergistic_with: ["topside_interface_cracking"],
+    competes_with: ["general_corrosion_marine"],
+    severity_default: "high",
+    typical_consequence: "hidden_wall_loss_under_insulation_on_topside",
+    code_reference: "DNV-OS-C102, API RP 2FPS, API RP 583"
+  },
+
+  // ── AMINE CRACKING — Amine Stress Corrosion Cracking
+  amine_cracking: {
+    id: "amine_cracking",
+    display_name: "Amine Stress Corrosion Cracking",
+    domain: "floating",
+    prerequisites: {
+      service_contains_amine: true,
+      material_family: ["carbon_steel"],
+      residual_or_applied_stress: true
+    },
+    indicators: {
+      crack_orientation: {
+        circumferential: 0.40,
+        perpendicular_to_plate: 0.20,
+        transverse: 0.15,
+        axial: 0.12,
+        parallel_to_plate: 0.08,
+        random: 0.05
+      },
+      crack_location: {
+        weld_toe: 0.35,
+        od_surface: 0.20,
+        id_surface: 0.20,
+        weld_root: 0.12,
+        base_metal: 0.08,
+        mid_wall: 0.05
+      },
+      morphology: {
+        intergranular: 0.60,
+        transgranular: 0.15,
+        branched: 0.12,
+        single_planar: 0.10,
+        stepwise_blistering: 0.03
+      },
+      structural_zone: {
+        topside_support: 0.40,
+        main_deck: 0.30,
+        side_shell: 0.15,
+        bottom_plating: 0.10,
+        column: 0.05
+      },
+      platform_type: {
+        fpso: 0.50,
+        flng: 0.30,
+        fso: 0.10,
+        semi_sub: 0.07,
+        spar: 0.03
+      }
+    },
+    synergistic_with: ["general_corrosion_marine"],
+    competes_with: ["hull_fatigue_fpso"],
+    severity_default: "high",
+    typical_consequence: "through_wall_crack_at_weld_in_amine_service",
+    code_reference: "DNV-OS-C102, API RP 945"
   }
 };
 

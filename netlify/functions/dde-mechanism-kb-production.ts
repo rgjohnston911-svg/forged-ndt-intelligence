@@ -1183,6 +1183,123 @@ var MECHANISMS_PRODUCTION = {
     severity_default: "high",
     typical_consequence: "choke_trim_erosion_loss_of_flow_control",
     code_reference: "API 6A, API RP 14E, DNV-RP-O501"
+  },
+
+  // ── CHLORIDE SCC — Chloride Stress Corrosion Cracking
+  chloride_scc: {
+    id: "chloride_scc",
+    display_name: "Chloride Stress Corrosion Cracking",
+    domain: "production",
+    prerequisites: {
+      service_contains_chlorides: true,
+      material_family: ["austenitic_stainless", "duplex_stainless"]
+    },
+    indicators: {
+      crack_orientation: {
+        random: 0.30,
+        linear: 0.25,
+        circumferential: 0.20,
+        axial: 0.15,
+        perpendicular_to_plate: 0.05,
+        parallel_to_plate: 0.05
+      },
+      crack_location: {
+        od_surface: 0.35,
+        base_metal: 0.25,
+        weld_toe: 0.20,
+        id_surface: 0.12,
+        weld_root: 0.05,
+        mid_wall: 0.03
+      },
+      morphology: {
+        branched: 0.55,
+        transgranular: 0.25,
+        intergranular: 0.08,
+        single_planar: 0.08,
+        stepwise_blistering: 0.02,
+        linear: 0.02
+      },
+      production_component: {
+        tree: 0.30,
+        manifold: 0.25,
+        flowline: 0.20,
+        connector: 0.15,
+        wellhead: 0.10
+      },
+      water_depth_range: {
+        shallow_lt_30m: 0.10,
+        moderate_30_100m: 0.20,
+        deep_100_500m: 0.40,
+        ultra_deep_gt_500m: 0.30
+      },
+      coating_condition: {
+        failed: 0.40,
+        degraded: 0.30,
+        intact: 0.20,
+        absent: 0.10
+      }
+    },
+    synergistic_with: ["flexible_jumper_armor_corrosion"],
+    competes_with: ["internal_corrosion_h2s"],
+    severity_default: "high",
+    typical_consequence: "through_wall_crack_in_stainless_tree_components",
+    code_reference: "API 17D, API 6A, ISO 13628-4, NACE SP0110"
+  },
+
+  // ── AMINE CRACKING — Amine Stress Corrosion Cracking
+  amine_cracking: {
+    id: "amine_cracking",
+    display_name: "Amine Stress Corrosion Cracking",
+    domain: "production",
+    prerequisites: {
+      service_contains_amine: true,
+      material_family: ["carbon_steel"],
+      residual_or_applied_stress: true
+    },
+    indicators: {
+      crack_orientation: {
+        circumferential: 0.40,
+        perpendicular_to_plate: 0.15,
+        transverse: 0.12,
+        axial: 0.10,
+        parallel_to_plate: 0.10,
+        random: 0.08,
+        linear: 0.05
+      },
+      crack_location: {
+        weld_toe: 0.30,
+        od_surface: 0.20,
+        id_surface: 0.20,
+        weld_root: 0.12,
+        base_metal: 0.12,
+        mid_wall: 0.06
+      },
+      morphology: {
+        intergranular: 0.65,
+        transgranular: 0.15,
+        branched: 0.10,
+        single_planar: 0.07,
+        stepwise_blistering: 0.03
+      },
+      production_component: {
+        manifold: 0.35,
+        flowline: 0.25,
+        tree: 0.20,
+        connector: 0.12,
+        wellhead: 0.08
+      },
+      service_age_bracket: {
+        new_lt_5yr: 0.10,
+        mid_5_15yr: 0.25,
+        aging_15_25yr: 0.40,
+        elderly_gt_25yr: 0.25
+      }
+    },
+    synergistic_with: ["internal_corrosion_h2s"],
+    competes_with: ["tree_seal_degradation"],
+    severity_default: "high",
+    typical_consequence: "through_wall_crack_at_production_weld",
+    code_reference: "API 17D, API RP 945, ISO 13628-4"
   }
 };
 

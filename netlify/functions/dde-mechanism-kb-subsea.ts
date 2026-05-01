@@ -1146,6 +1146,73 @@ var MECHANISMS_SUBSEA = {
     severity_default: "high",
     typical_consequence: "buckle_propagation_structural_failure",
     code_reference: "DNV-RP-F110"
+  },
+
+  // ── CHLORIDE SCC — Chloride Stress Corrosion Cracking
+  chloride_scc: {
+    id: "chloride_scc",
+    display_name: "Chloride Stress Corrosion Cracking",
+    domain: "subsea",
+    prerequisites: {
+      service_contains_chlorides: true,
+      material_family: ["austenitic_stainless", "duplex_stainless"]
+    },
+    indicators: {
+      crack_orientation: {
+        random: 0.30,
+        linear: 0.25,
+        circumferential: 0.20,
+        axial: 0.15,
+        perpendicular_to_plate: 0.05,
+        parallel_to_plate: 0.05
+      },
+      crack_location: {
+        od_surface: 0.35,
+        base_metal: 0.25,
+        weld_toe: 0.20,
+        id_surface: 0.12,
+        weld_root: 0.05,
+        mid_wall: 0.03
+      },
+      morphology: {
+        branched: 0.55,
+        transgranular: 0.25,
+        intergranular: 0.08,
+        single_planar: 0.08,
+        stepwise_blistering: 0.02,
+        linear: 0.02
+      },
+      zone_depth: {
+        splash_zone: 0.20,
+        tidal_zone: 0.15,
+        submerged: 0.40,
+        mudline: 0.15,
+        buried: 0.10
+      },
+      water_depth_range: {
+        shallow_lt_30m: 0.10,
+        moderate_30_100m: 0.20,
+        deep_100_500m: 0.40,
+        ultra_deep_gt_500m: 0.30
+      },
+      cp_status: {
+        inadequate: 0.20,
+        marginal: 0.30,
+        adequate: 0.35,
+        overprotected: 0.15
+      },
+      coating_condition: {
+        failed: 0.35,
+        degraded: 0.30,
+        intact: 0.25,
+        absent: 0.10
+      }
+    },
+    synergistic_with: ["pitting_corrosion", "weld_root_corrosion"],
+    competes_with: ["internal_corrosion_h2s"],
+    severity_default: "high",
+    typical_consequence: "through_wall_crack_in_stainless_subsea_components",
+    code_reference: "DNV-RP-F101, API RP 2A-WSD, NACE SP0110"
   }
 };
 

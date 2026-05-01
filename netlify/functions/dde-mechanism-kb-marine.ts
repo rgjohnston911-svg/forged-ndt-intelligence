@@ -1002,6 +1002,67 @@ var MECHANISMS_MARINE = {
     severity_default: "medium",
     typical_consequence: "pipe_connection_fatigue_crack",
     code_reference: "DNV-RP-D101"
+  },
+
+  // ── CHLORIDE SCC — Chloride Stress Corrosion Cracking
+  chloride_scc: {
+    id: "chloride_scc",
+    display_name: "Chloride Stress Corrosion Cracking",
+    domain: "marine",
+    prerequisites: {
+      service_contains_chlorides: true,
+      material_family: ["austenitic_stainless", "duplex_stainless"]
+    },
+    indicators: {
+      crack_orientation: {
+        random: 0.30,
+        linear: 0.25,
+        circumferential: 0.20,
+        axial: 0.15,
+        perpendicular_to_plate: 0.05,
+        parallel_to_plate: 0.05
+      },
+      crack_location: {
+        od_surface: 0.35,
+        weld_toe: 0.25,
+        base_metal: 0.20,
+        id_surface: 0.12,
+        weld_root: 0.05,
+        mid_wall: 0.03
+      },
+      morphology: {
+        branched: 0.55,
+        transgranular: 0.25,
+        intergranular: 0.08,
+        single_planar: 0.08,
+        stepwise_blistering: 0.02,
+        linear: 0.02
+      },
+      structural_zone: {
+        cargo_tank: 0.25,
+        ballast_tank: 0.20,
+        hull_bottom: 0.25,
+        deck: 0.15,
+        bulkhead: 0.15
+      },
+      ballast_history: {
+        frequent_ballast_change: 0.45,
+        static_ballast: 0.25,
+        always_loaded: 0.20,
+        dry: 0.10
+      },
+      coating_condition: {
+        failed: 0.40,
+        degraded: 0.30,
+        intact: 0.20,
+        absent: 0.10
+      }
+    },
+    synergistic_with: ["pitting_marine", "general_corrosion_marine"],
+    competes_with: ["fatigue_cracking_marine"],
+    severity_default: "high",
+    typical_consequence: "through_wall_crack_in_stainless_components",
+    code_reference: "IACS CSR, ABS Rules, DNV Rules, NACE SP0110"
   }
 };
 
