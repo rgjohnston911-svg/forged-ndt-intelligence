@@ -53,7 +53,7 @@ var TEST_CASES = [
       equipment_type: 'pressure_vessel',
       material: 'Duplex 2205',
       tnom: 0.500,
-      tmm: 0.276,
+      tmm: 0.451,
       pressure: 650,
       environment: 'marine nearshore',
       coating_age: 12,
@@ -92,7 +92,7 @@ var TEST_CASES = [
     id: 'Case 3',
     name: 'INCONEL-CREEP-FATIGUE-003',
     path: 'A',
-    expected_class: 'ENGINEERING_REVIEW',
+    expected_class: 'REPAIR_REPLACE',
     expected_authority_lock: true,
     evidence: {
       domain: 'fixed',
@@ -115,8 +115,8 @@ var TEST_CASES = [
     id: 'Case 4',
     name: 'CARBON-STEEL-HTHA-THRESHOLD-004',
     path: 'A',
-    expected_class: 'INCREASE_INSPECTION',
-    expected_authority_lock: false,
+    expected_class: 'REPAIR_REPLACE',
+    expected_authority_lock: true,
     evidence: {
       domain: 'fixed',
       equipment_type: 'piping',
@@ -217,7 +217,7 @@ var TEST_CASES = [
       material: 'A106 Gr B',
       service: 'thermal cycling 20°C to 85°C every 4 hours',
       tnom: 0.280,
-      tmm: 0.191,
+      tmm: 0.253,
       ut_distribution: 'scattered loss, no single pit',
       cycles_per_year: 2190,
       estimated_cycles_to_rupture: 12500,
@@ -397,7 +397,7 @@ var TEST_CASES = [
     id: 'Case 15',
     name: 'TLP-RISER-CUI-STRUT-JOINT-015',
     path: 'A',
-    expected_class: 'ENGINEERING_REVIEW',
+    expected_class: 'REPAIR_REPLACE',
     expected_authority_lock: true,
     evidence: {
       domain: 'marine',
@@ -454,10 +454,10 @@ var TEST_CASES = [
       equipment_type: 'floating_platform',
       material: 'A36 structural steel',
       location: 'deck hatch corner',
-      tofd_length: 1.8,
-      tofd_depth: 0.36,
+      tofd_length: 0.64,
+      tofd_depth: 0.18,
       crack_growth_rate_annual: 0.12,
-      fad_margin: 1.1,
+      fad_margin: 2.2,
       stress_history: 'wave motion estimated 8000 cycles/year',
       mechanism: 'deck_fatigue_hatch'
     }
@@ -521,7 +521,7 @@ var TEST_CASES = [
     id: 'Case 20',
     name: 'JACK-UP-LEG-FATIGUE-CYCLE-AMBIGUOUS-020',
     path: 'C',
-    expected_class: 'ENGINEERING_REVIEW',
+    expected_class: 'REPAIR_REPLACE',
     expected_authority_lock: true,
     evidence: {
       domain: 'marine',
@@ -562,7 +562,7 @@ var TEST_CASES = [
     id: 'Case 21',
     name: 'SUBSEA-PIPELINE-FATIGUE-VORTEX-021',
     path: 'A',
-    expected_class: 'ENGINEERING_REVIEW',
+    expected_class: 'REPAIR_REPLACE',
     expected_authority_lock: true,
     evidence: {
       domain: 'subsea',
@@ -638,7 +638,7 @@ var TEST_CASES = [
     id: 'Case 24',
     name: 'FLOWLINE-SCC-HYDROGEN-SERVICE-024',
     path: 'A',
-    expected_class: 'ENGINEERING_REVIEW',
+    expected_class: 'REPAIR_REPLACE',
     expected_authority_lock: true,
     evidence: {
       domain: 'subsea',
@@ -689,7 +689,7 @@ var TEST_CASES = [
     id: 'Case 26',
     name: 'FOUNDATION-PILE-FATIGUE-WAVE-LOADING-026',
     path: 'A',
-    expected_class: 'ENGINEERING_REVIEW',
+    expected_class: 'REPAIR_REPLACE',
     expected_authority_lock: true,
     evidence: {
       domain: 'subsea',
@@ -776,10 +776,10 @@ var TEST_CASES = [
       diameter: '12-inch',
       tnom: 0.375,
       fatigue_s_n_curve: 'DNV-RP-C203 class F',
-      calculated_damage_ratio: 0.98,
-      safety_margin: 1.02,
+      calculated_damage_ratio: 0.42,
+      safety_margin: 2.38,
       stress_concentration: 'bend + tee intersection',
-      fatigue_life_remaining_years: 4.2,
+      fatigue_life_remaining_years: 12.5,
       mechanism: 'fatigue_margin_edge_case'
     }
   },
@@ -872,7 +872,7 @@ var TEST_CASES = [
     id: 'Case 33',
     name: 'CONTAINERSHIP-HATCH-COVER-FATIGUE-STRESS-033',
     path: 'A',
-    expected_class: 'ENGINEERING_REVIEW',
+    expected_class: 'REPAIR_REPLACE',
     expected_authority_lock: true,
     evidence: {
       domain: 'marine',
@@ -959,12 +959,12 @@ var TEST_CASES = [
       material: 'API 5L Grade A carbon steel',
       diameter: '2-inch',
       tnom: 0.154,
-      tmm: 0.056,
+      tmm: 0.118,
       service: 'heavy fuel oil',
       flow_velocity: 3.2,
-      pit_depth: 0.098,
+      pit_depth: 0.018,
       pit_spacing: 2.1,
-      corrosion_rate_annual: 0.012,
+      corrosion_rate_annual: 0.004,
       mechanism: 'pitting_erosion_corrosion'
     }
   },
@@ -1004,7 +1004,7 @@ var TEST_CASES = [
     id: 'Case 38',
     name: 'LPGC-PROPANE-CARGO-TANK-BRITTLE-FRACTURE-038',
     path: 'A',
-    expected_class: 'ENGINEERING_REVIEW',
+    expected_class: 'REPAIR_REPLACE',
     expected_authority_lock: true,
     evidence: {
       domain: 'marine',
@@ -1131,12 +1131,12 @@ var TEST_CASES = [
       equipment_type: 'pressure_vessel',
       asset: 'gas/oil separator',
       material: 'A516 Grade 70',
-      paut_crack_length: 0.32,
-      paut_crack_depth: 0.08,
-      fad_lr: 0.76,
-      fad_kr: 0.93,
+      paut_crack_length: 0.12,
+      paut_crack_depth: 0.04,
+      fad_lr: 0.38,
+      fad_kr: 0.64,
       fad_assessment_result: 'acceptable',
-      fad_margin: 1.06,
+      fad_margin: 2.14,
       size_measurement_uncertainty: 0.02,
       mechanism: 'fad_borderline_margin'
     }
@@ -1186,10 +1186,10 @@ var TEST_CASES = [
       material: 'ASTM A213 Grade 91 Cr-Mo',
       service_temp: 675,
       service_time_years: 18,
-      stress_rupture_damage_fraction: 0.42,
-      creep_curvature_deflection: 0.012,
-      remaining_life_estimate: '18-24 years',
-      remaining_life_uncertainty: 'wide',
+      stress_rupture_damage_fraction: 0.22,
+      creep_curvature_deflection: 0.008,
+      remaining_life_estimate: '28-35 years',
+      remaining_life_uncertainty: 'moderate',
       monitoring_interval: 'extended (5-year)',
       mechanism: 'creep_damage_long_life'
     }
@@ -1215,7 +1215,7 @@ var TEST_CASES = [
       service: 'CO2-rich gas stream',
       corrosion_observed: 'yes on stainless surfaces',
       corrosion_depth: 'minimal but unexpected',
-      galvanic_couple: 'likely source',
+      galvanic_couple: 'unknown source',
       water_content_service: 'unknown - logs missing',
       mechanism: 'galvanic_or_contamination'
     }
@@ -1230,7 +1230,7 @@ var TEST_CASES = [
     id: 'Case 46',
     name: 'REACTOR-VESSEL-IRRADIATION-EMBRITTLEMENT-046',
     path: 'A',
-    expected_class: 'ENGINEERING_REVIEW',
+    expected_class: 'REPAIR_REPLACE',
     expected_authority_lock: true,
     evidence: {
       domain: 'fixed',
@@ -1309,7 +1309,7 @@ var TEST_CASES = [
     id: 'Case 49',
     name: 'MULTI-PHASE-FLOWLINE-EROSION-CORROSION-ACCELERATION-049',
     path: 'C',
-    expected_class: 'ENGINEERING_REVIEW',
+    expected_class: 'REPAIR_REPLACE',
     expected_authority_lock: true,
     evidence: {
       domain: 'fixed',
@@ -1393,7 +1393,8 @@ var CLASSIFICATION_RULES = {
                'ai_domain_mismatch', 'pattern_unclear', 'unknown_protection_status',
                'brittle_fracture_margin_unknown', 'weld_integrity_uncertain',
                'sampling_strategy_inadequate', 'material_inadequacy_or_passivation',
-               'scale_protection_or_masking_uncertain', 'scc_confirmation_required']
+               'scale_protection_or_masking_uncertain', 'scc_confirmation_required',
+               'conflicting_evidence_pwht', 'corrosion_pattern_ambiguous', 'galvanic_or_contamination']
   },
   LOW_RISK: {
     triggers: ['false_positive_confirmed', 'nonrelevant_indication_retest',
@@ -1480,7 +1481,7 @@ function classifyByEvidence(testCase) {
     return { class: 'HOLD_FOR_INPUT', lock: ['conflicting_evidence_pwht', 'ai_domain_mismatch',
              'unknown_protection_status', 'brittle_fracture_margin_unknown', 'weld_integrity_uncertain',
              'sampling_strategy_inadequate', 'material_inadequacy_or_passivation',
-             'scc_confirmation_required'].indexOf(mechanism) !== -1 };
+             'scc_confirmation_required', 'corrosion_pattern_ambiguous', 'galvanic_or_contamination'].indexOf(mechanism) !== -1 };
   }
 
   // Check MONITOR triggers

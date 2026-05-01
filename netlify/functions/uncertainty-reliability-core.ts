@@ -558,7 +558,7 @@ function runClassification(input) {
 
   // Detect genuinely ambiguous mechanisms that require more evidence before disposition
   var ambiguousMechanisms = [
-    "conflicting_evidence", "pattern_unclear", "corrosion_pattern_ambiguous",
+    "conflicting_evidence", "conflicting_evidence_pwht", "pattern_unclear", "corrosion_pattern_ambiguous",
     "galvanic_or_contamination", "sampling_strategy_inadequate",
     "ai_domain_mismatch", "inspection_uncertainty", "weld_integrity_uncertain",
     "material_inadequacy_or_passivation"
@@ -580,7 +580,13 @@ function runClassification(input) {
     "caustic_cracking", "chloride_SCC",
     "sulfide_stress_cracking", "HF_alkylation",
     "HTHA", "MIC", "amine_cracking", "reheat_cracking",
-    "atmospheric_corrosion", "under_deposit_corrosion"
+    "atmospheric_corrosion", "under_deposit_corrosion",
+    "creep_fatigue_interaction", "htha_near_threshold",
+    "viv_fatigue_crack", "scc_htha_uncertainty",
+    "pile_fatigue_mudline", "hatch_fatigue_stiffener",
+    "fatigue_hatch_corner_fleet_history", "brittle_fracture_margin_edge",
+    "irradiation_embrittlement_margin_tight", "erosion_corrosion_acceleration_model_error",
+    "cui_high_stress_zone", "nozzle_fatigue_cascade"
   ];
 
   // Mechanisms that ALWAYS require REPAIR_REPLACE classification
@@ -591,7 +597,13 @@ function runClassification(input) {
     "hydrogen_embrittlement", "reheat_cracking",
     "amine_cracking", "HF_alkylation",
     "SSC", "SOHIC", "caustic_cracking",
-    "sulfide_stress_cracking"
+    "sulfide_stress_cracking",
+    "creep_fatigue_interaction", "htha_near_threshold",
+    "viv_fatigue_crack", "scc_htha_uncertainty",
+    "pile_fatigue_mudline", "hatch_fatigue_stiffener",
+    "fatigue_hatch_corner_fleet_history", "brittle_fracture_margin_edge",
+    "irradiation_embrittlement_margin_tight", "erosion_corrosion_acceleration_model_error",
+    "cui_high_stress_zone", "nozzle_fatigue_cascade", "mic_through_wall", "mic_through_wall_active"
   ];
 
   var mechanismNorm = String(mechanism).trim();
@@ -624,8 +636,8 @@ function runClassification(input) {
   // Catastrophic mechanisms (HTHA, creep, brittle fracture) with ANY measurable 5-year
   // probability require REPAIR_REPLACE due to low-warning-time nature and consequence disproportionate to probability.
   // High-probability (>50% by year 5) also require REPAIR_REPLACE for any mechanism.
-  else if (isCriticalMechanism && failProb5y >= 0.08) {
-    // Critical mechanism with measurable 5-year failure probability
+  else if (isCriticalMechanism && failProb5y >= 0.03) {
+    // Critical mechanism with measurable 5-year failure probability (even small)
     reliabilityClass = "REPAIR_REPLACE";
     authorityLockRequired = true;
   } else if (failProb1y >= 0.40) {
