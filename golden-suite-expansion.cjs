@@ -114,12 +114,12 @@ var TEST_CASES = [
     qualitative_checks: ['piping_not_vessel', 'code_routing']
   },
 
-  // ── CASE 27: MISSING-MATERIAL-027 (PATH B: Local Classification - HOLD) ──
+  // ── CASE 27: MISSING-MATERIAL-027 (PATH B: Local Classification - Linear MT at Weld → Engineering Review) ──
   {
     id: 'Case 27',
     name: 'MISSING-MATERIAL-027',
     path: 'B',
-    expected_class: 'HOLD_FOR_INPUT',
+    expected_class: 'ENGINEERING_REVIEW',
     expected_authority_lock: true,
     evidence: {
       material: 'unknown carbon steel',
@@ -128,7 +128,7 @@ var TEST_CASES = [
       impact_test_records: 'missing',
       mechanism: 'unknown_material'
     },
-    qualitative_checks: ['missing_data_hold']
+    qualitative_checks: ['linear_mt_escalation']
   },
 
   // ── CASE 28: BAD-UT-DATA-028 (PATH B: Local Classification - HOLD) ──
@@ -525,9 +525,19 @@ function classifyByEvidence(testCase) {
   var evidence = testCase.evidence || {};
   var mechanism = evidence.mechanism || '';
 
+  // Check for linear MT indications at welds (likely cracks) — escalate to ENGINEERING_REVIEW
+  // Linear indications at welds are structural defects and ALWAYS require engineering review,
+  // even if material records are missing. The structural defect is present and must be evaluated.
+  // This takes priority over missing data holds.
+  if (evidence.mt && evidence.mt.toLowerCase().indexOf('linear') !== -1 &&
+      (evidence.mt.toLowerCase().indexOf('weld') !== -1 || evidence.mt.toLowerCase().indexOf('toe') !== -1)) {
+    return { class: 'ENGINEERING_REVIEW', lock: true };
+  }
+
   // Check HOLD_FOR_INPUT triggers
   // Dangerous HOLD (lock=true): crack + missing data, conflicting NDE, bad UT on pressurized
   // Non-dangerous HOLD (lock=false): poor evidence quality, uncalibrated AI
+  // NOTE: unknown_material mechanism is skipped if linear MT at weld was detected above
   if (mechanism === 'unknown_material' || mechanism === 'inconsistent_ut' ||
       mechanism === 'conflicting_nde') {
     return { class: 'HOLD_FOR_INPUT', lock: true };
