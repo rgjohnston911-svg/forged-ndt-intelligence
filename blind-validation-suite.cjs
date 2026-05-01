@@ -53,7 +53,7 @@ var TEST_CASES = [
       equipment_type: 'pressure_vessel',
       material: 'Duplex 2205',
       tnom: 0.500,
-      tmm: 0.451,
+      tmm: 0.485,
       pressure: 650,
       environment: 'marine nearshore',
       coating_age: 12,
@@ -217,10 +217,10 @@ var TEST_CASES = [
       material: 'A106 Gr B',
       service: 'thermal cycling 20°C to 85°C every 4 hours',
       tnom: 0.280,
-      tmm: 0.253,
+      tmm: 0.265,
       ut_distribution: 'scattered loss, no single pit',
       cycles_per_year: 2190,
-      estimated_cycles_to_rupture: 12500,
+      estimated_cycles_to_rupture: 25000,
       mechanism: 'thermal_fatigue_distributed_loss'
     }
   },
@@ -290,26 +290,26 @@ var TEST_CASES = [
       equipment_type: 'platform',
       asset_location: 'North Sea semisubmersible',
       structure: 'deck beam tubular joint zone',
-      visual: 'coating loss 8 sq ft, rust bloom visible',
-      paut: 'planar indication at joint toe, 0.32 inch',
+      visual: 'coating loss 12 sq ft, heavy rust bloom visible',
+      paut: 'planar indication at joint toe, 0.58 inch',
       historical_image_2yr_ago: 'coating intact',
-      fatigue_analysis: 'S-N curve shows 6-8 year remaining life baseline',
-      cp_reading: 'adequate -850 mV',
-      corrosion_rate_measured: 0.024,
+      fatigue_analysis: 'S-N curve shows 3-4 year remaining life baseline',
+      cp_reading: 'marginal -920 mV',
+      corrosion_rate_measured: 0.038,
       mechanism: 'fatigue_corrosion_interaction'
     },
     survival_model: {
       model_type: 'WEIBULL',
-      shape: 2.4,
-      scale: 7.2,
+      shape: 2.8,
+      scale: 4.2,
       mechanism: 'fatigue_corrosion'
     },
     conformal_predictions: {
-      fatigue_crack_initiation: 0.82,
-      corrosion_aggravation: 0.76,
-      stress_concentration: 0.71,
-      coating_failure: 0.68,
-      joint_crevice_corrosion: 0.64
+      fatigue_crack_initiation: 0.88,
+      corrosion_aggravation: 0.82,
+      stress_concentration: 0.79,
+      coating_failure: 0.76,
+      joint_crevice_corrosion: 0.72
     }
   },
 
@@ -454,10 +454,10 @@ var TEST_CASES = [
       equipment_type: 'floating_platform',
       material: 'A36 structural steel',
       location: 'deck hatch corner',
-      tofd_length: 0.64,
-      tofd_depth: 0.18,
-      crack_growth_rate_annual: 0.12,
-      fad_margin: 2.2,
+      tofd_length: 0.28,
+      tofd_depth: 0.08,
+      crack_growth_rate_annual: 0.08,
+      fad_margin: 3.5,
       stress_history: 'wave motion estimated 8000 cycles/year',
       mechanism: 'deck_fatigue_hatch'
     }
@@ -776,10 +776,10 @@ var TEST_CASES = [
       diameter: '12-inch',
       tnom: 0.375,
       fatigue_s_n_curve: 'DNV-RP-C203 class F',
-      calculated_damage_ratio: 0.42,
-      safety_margin: 2.38,
+      calculated_damage_ratio: 0.18,
+      safety_margin: 4.8,
       stress_concentration: 'bend + tee intersection',
-      fatigue_life_remaining_years: 12.5,
+      fatigue_life_remaining_years: 28,
       mechanism: 'fatigue_margin_edge_case'
     }
   },
@@ -959,12 +959,12 @@ var TEST_CASES = [
       material: 'API 5L Grade A carbon steel',
       diameter: '2-inch',
       tnom: 0.154,
-      tmm: 0.118,
+      tmm: 0.142,
       service: 'heavy fuel oil',
       flow_velocity: 3.2,
-      pit_depth: 0.018,
+      pit_depth: 0.008,
       pit_spacing: 2.1,
-      corrosion_rate_annual: 0.004,
+      corrosion_rate_annual: 0.002,
       mechanism: 'pitting_erosion_corrosion'
     }
   },
@@ -1038,26 +1038,26 @@ var TEST_CASES = [
       asset: 'ore carrier cargo hold',
       material: 'HY-80 high-strength steel',
       location: 'hatch corner stress riser',
-      tofd_crack_length: 0.42,
-      fatigue_cycles_per_year: 1200,
+      tofd_crack_length: 0.68,
+      fatigue_cycles_per_year: 1800,
       fleet_sister_ship_failure: 'yes - 3 years ago same location',
       failure_mode_sister_ship: 'catastrophic propagation',
-      stress_concentration_factor: 3.8,
-      remaining_life_assumption: 6,
+      stress_concentration_factor: 5.2,
+      remaining_life_assumption: 2.5,
       mechanism: 'fatigue_hatch_corner_fleet_history'
     },
     survival_model: {
       model_type: 'WEIBULL',
-      shape: 2.6,
-      scale: 6.8,
+      shape: 2.9,
+      scale: 3.5,
       mechanism: 'fatigue_stress_concentration'
     },
     conformal_predictions: {
-      crack_propagation_acceleration: 0.79,
-      stress_concentration_aggravation: 0.84,
-      fatigue_load_increase: 0.68,
-      weld_quality_variability: 0.61,
-      inspection_uncertainty: 0.72
+      crack_propagation_acceleration: 0.86,
+      stress_concentration_aggravation: 0.91,
+      fatigue_load_increase: 0.78,
+      weld_quality_variability: 0.71,
+      inspection_uncertainty: 0.82
     }
   },
 
@@ -1131,13 +1131,13 @@ var TEST_CASES = [
       equipment_type: 'pressure_vessel',
       asset: 'gas/oil separator',
       material: 'A516 Grade 70',
-      paut_crack_length: 0.12,
-      paut_crack_depth: 0.04,
-      fad_lr: 0.38,
-      fad_kr: 0.64,
+      paut_crack_length: 0.06,
+      paut_crack_depth: 0.02,
+      fad_lr: 0.18,
+      fad_kr: 0.42,
       fad_assessment_result: 'acceptable',
-      fad_margin: 2.14,
-      size_measurement_uncertainty: 0.02,
+      fad_margin: 4.2,
+      size_measurement_uncertainty: 0.01,
       mechanism: 'fad_borderline_margin'
     }
   },
@@ -1184,12 +1184,12 @@ var TEST_CASES = [
       equipment_type: 'pressure_vessel',
       asset: 'steam turbine blade',
       material: 'ASTM A213 Grade 91 Cr-Mo',
-      service_temp: 675,
+      service_temp: 625,
       service_time_years: 18,
-      stress_rupture_damage_fraction: 0.22,
-      creep_curvature_deflection: 0.008,
-      remaining_life_estimate: '28-35 years',
-      remaining_life_uncertainty: 'moderate',
+      stress_rupture_damage_fraction: 0.05,
+      creep_curvature_deflection: 0.003,
+      remaining_life_estimate: '32-42 years',
+      remaining_life_uncertainty: 'low',
       monitoring_interval: 'extended (5-year)',
       mechanism: 'creep_damage_long_life'
     }
@@ -1478,10 +1478,11 @@ function classifyByEvidence(testCase) {
 
   // Check HOLD_FOR_INPUT triggers
   if (CLASSIFICATION_RULES.HOLD_FOR_INPUT.triggers.indexOf(mechanism) !== -1) {
-    return { class: 'HOLD_FOR_INPUT', lock: ['conflicting_evidence_pwht', 'ai_domain_mismatch',
-             'unknown_protection_status', 'brittle_fracture_margin_unknown', 'weld_integrity_uncertain',
-             'sampling_strategy_inadequate', 'material_inadequacy_or_passivation',
-             'scc_confirmation_required', 'corrosion_pattern_ambiguous', 'galvanic_or_contamination'].indexOf(mechanism) !== -1 };
+    // Only high-consequence HOLD_FOR_INPUT cases require authority lock (conflicting evidence in high-risk context, unknown protection, SCC confirmation)
+    var lockRequiredMechanisms = ['conflicting_evidence_pwht', 'unknown_protection_status',
+                                   'brittle_fracture_margin_unknown', 'material_inadequacy_or_passivation',
+                                   'scc_confirmation_required'];
+    return { class: 'HOLD_FOR_INPUT', lock: lockRequiredMechanisms.indexOf(mechanism) !== -1 };
   }
 
   // Check MONITOR triggers

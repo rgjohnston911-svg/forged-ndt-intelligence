@@ -627,10 +627,24 @@ function runClassification(input) {
 
   // HOLD_FOR_INPUT GATE: Ambiguous or conflicting evidence that precludes disposition
   // Examples: Conflicting NDT results, sampling gaps, material uncertainty, unclear pattern
+  // HOLD_FOR_INPUT cases that require explicit user input get lock=false (system won't release until input provided)
+  // Only specific high-consequence HOLD_FOR_INPUT cases get lock=true
+  var requiresInputLockTrue = [
+    'unknown_protection_status', 'brittle_fracture_margin_unknown',
+    'material_inadequacy_or_passivation', 'conflicting_evidence_pwht'
+  ];
+  var needsInputLock = false;
+  for (var hfi = 0; hfi < requiresInputLockTrue.length; hfi++) {
+    if (mechanism.toLowerCase().indexOf(requiresInputLockTrue[hfi].toLowerCase()) !== -1) {
+      needsInputLock = true;
+      break;
+    }
+  }
+
   if (isAmbiguousMechanism && conformalConfidence < 0.75) {
     // Ambiguous mechanism with low-medium confidence — need more evidence before action
     reliabilityClass = "HOLD_FOR_INPUT";
-    authorityLockRequired = false;
+    authorityLockRequired = needsInputLock;
   }
   // CRITICAL MECHANISM ESCALATION PATH
   // Catastrophic mechanisms (HTHA, creep, brittle fracture) with ANY measurable 5-year
