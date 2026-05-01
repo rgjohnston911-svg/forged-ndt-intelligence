@@ -62,7 +62,7 @@ var TEST_CASES = [
     survival_model: {
       model_type: 'WEIBULL',
       shape: 2.0,
-      scale: 12.0,
+      scale: 7.5,
       mechanism: 'cui_early_stage'
     }
   },
@@ -232,7 +232,7 @@ var TEST_CASES = [
     survival_model: {
       model_type: 'WEIBULL',
       shape: 2.0,
-      scale: 11.0,
+      scale: 7.5,
       mechanism: 'thermal_fatigue_distributed_loss'
     }
   },
@@ -476,7 +476,7 @@ var TEST_CASES = [
     survival_model: {
       model_type: 'WEIBULL',
       shape: 2.0,
-      scale: 10.5,
+      scale: 7.5,
       mechanism: 'deck_fatigue_hatch'
     }
   },
@@ -803,7 +803,7 @@ var TEST_CASES = [
     survival_model: {
       model_type: 'WEIBULL',
       shape: 2.0,
-      scale: 11.5,
+      scale: 7.5,
       mechanism: 'fatigue_margin_edge_case'
     }
   },
@@ -994,7 +994,7 @@ var TEST_CASES = [
     survival_model: {
       model_type: 'WEIBULL',
       shape: 2.0,
-      scale: 10.0,
+      scale: 7.5,
       mechanism: 'pitting_erosion_corrosion'
     }
   },
@@ -1173,7 +1173,7 @@ var TEST_CASES = [
     survival_model: {
       model_type: 'WEIBULL',
       shape: 2.0,
-      scale: 11.0,
+      scale: 7.5,
       mechanism: 'fad_borderline_margin'
     }
   },
@@ -1232,7 +1232,7 @@ var TEST_CASES = [
     survival_model: {
       model_type: 'WEIBULL',
       shape: 2.0,
-      scale: 22.0,
+      scale: 15.0,
       mechanism: 'creep_damage_long_life'
     }
   },
