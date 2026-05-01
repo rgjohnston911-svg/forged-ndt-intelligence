@@ -14,6 +14,12 @@
   to = "/.netlify/functions/:splat"
   status = 200
 
+# Landing page is the root
+[[redirects]]
+  from = "/"
+  to = "/landing.html"
+  status = 200
+
 [[redirects]]
   from = "/landing"
   to = "/landing.html"
@@ -27,6 +33,12 @@
 [[redirects]]
   from = "/landing.html"
   to = "/landing.html"
+  status = 200
+
+# React app at /app and all other routes
+[[redirects]]
+  from = "/app"
+  to = "/index.html"
   status = 200
 
 [[redirects]]
