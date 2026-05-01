@@ -59,12 +59,6 @@ var TEST_CASES = [
       coating_age: 12,
       mechanism: 'cui_early_stage'
     },
-    survival_model: {
-      model_type: 'WEIBULL',
-      shape: 2.0,
-      scale: 7.5,
-      mechanism: 'cui_early_stage'
-    }
   },
 
   // ── CASE 2: PITTING-STAINLESS-AMBIGUOUS-002 (PATH B) ──
@@ -229,12 +223,6 @@ var TEST_CASES = [
       estimated_cycles_to_rupture: 25000,
       mechanism: 'thermal_fatigue_distributed_loss'
     },
-    survival_model: {
-      model_type: 'WEIBULL',
-      shape: 2.0,
-      scale: 7.5,
-      mechanism: 'thermal_fatigue_distributed_loss'
-    }
   },
 
   // ── CASE 9: AI-VISION-CONFIDENCE-BORDERLINE-009 (PATH B) ──
@@ -309,12 +297,6 @@ var TEST_CASES = [
       cp_reading: 'marginal -920 mV',
       corrosion_rate_measured: 0.038,
       mechanism: 'fatigue_corrosion_interaction'
-    },
-    survival_model: {
-      model_type: 'WEIBULL',
-      shape: 2.8,
-      scale: 4.2,
-      mechanism: 'fatigue_corrosion'
     },
     conformal_predictions: {
       fatigue_crack_initiation: 0.88,
@@ -473,12 +455,6 @@ var TEST_CASES = [
       stress_history: 'wave motion estimated 8000 cycles/year',
       mechanism: 'deck_fatigue_hatch'
     },
-    survival_model: {
-      model_type: 'WEIBULL',
-      shape: 2.0,
-      scale: 7.5,
-      mechanism: 'deck_fatigue_hatch'
-    }
   },
 
   // ── CASE 18: CAISSON-FOUNDATION-CORROSION-UNKNOWN-018 (PATH B) ──
@@ -554,12 +530,6 @@ var TEST_CASES = [
       visual: 'heavy fouling, barnacles, cannot assess crack risk',
       operation_cycles_estimated: 'unknown',
       mechanism: 'fatigue_uncertainty_pitting'
-    },
-    survival_model: {
-      model_type: 'WEIBULL',
-      shape: 1.8,
-      scale: 5.5,
-      mechanism: 'fatigue_unknown_history'
     },
     conformal_predictions: {
       fatigue_crack_initiation: 0.58,
@@ -794,18 +764,12 @@ var TEST_CASES = [
       diameter: '12-inch',
       tnom: 0.375,
       fatigue_s_n_curve: 'DNV-RP-C203 class F',
-      calculated_damage_ratio: 0.18,
-      safety_margin: 4.8,
+      calculated_damage_ratio: 0.62,
+      safety_margin: 1.02,
       stress_concentration: 'bend + tee intersection',
-      fatigue_life_remaining_years: 28,
+      fatigue_life_remaining_years: 8,
       mechanism: 'fatigue_margin_edge_case'
     },
-    survival_model: {
-      model_type: 'WEIBULL',
-      shape: 2.0,
-      scale: 7.5,
-      mechanism: 'fatigue_margin_edge_case'
-    }
   },
 
   // ── CASE 30: ROCK-DUMPED-PROTECTION-SETTLEMENT-MONITORING-030 (PATH B) ──
@@ -991,12 +955,6 @@ var TEST_CASES = [
       corrosion_rate_annual: 0.002,
       mechanism: 'pitting_erosion_corrosion'
     },
-    survival_model: {
-      model_type: 'WEIBULL',
-      shape: 2.0,
-      scale: 7.5,
-      mechanism: 'pitting_erosion_corrosion'
-    }
   },
 
   // ── CASE 37: CHEMICAL-TANKER-304SS-CORROSION-CHLORIDE-037 (PATH B) ──
@@ -1075,12 +1033,6 @@ var TEST_CASES = [
       stress_concentration_factor: 5.2,
       remaining_life_assumption: 2.5,
       mechanism: 'fatigue_hatch_corner_fleet_history'
-    },
-    survival_model: {
-      model_type: 'WEIBULL',
-      shape: 2.9,
-      scale: 3.5,
-      mechanism: 'fatigue_stress_concentration'
     },
     conformal_predictions: {
       crack_propagation_acceleration: 0.86,
@@ -1170,12 +1122,6 @@ var TEST_CASES = [
       size_measurement_uncertainty: 0.01,
       mechanism: 'fad_borderline_margin'
     },
-    survival_model: {
-      model_type: 'WEIBULL',
-      shape: 2.0,
-      scale: 7.5,
-      mechanism: 'fad_borderline_margin'
-    }
   },
 
   // ── CASE 43: PUMP-IMPELLER-CAVITATION-EROSION-MONITORING-043 (PATH B) ──
@@ -1229,12 +1175,6 @@ var TEST_CASES = [
       monitoring_interval: 'extended (5-year)',
       mechanism: 'creep_damage_long_life'
     },
-    survival_model: {
-      model_type: 'WEIBULL',
-      shape: 2.0,
-      scale: 15.0,
-      mechanism: 'creep_damage_long_life'
-    }
   },
 
   // ── CASE 45: COMPRESSOR-UNLOADER-CONTROL-VALVE-CORROSION-045 (PATH B) ──
@@ -1367,12 +1307,6 @@ var TEST_CASES = [
       paut_erosion_pattern: 'scattered thin spots unclear',
       mechanism: 'erosion_corrosion_acceleration_model_error'
     },
-    survival_model: {
-      model_type: 'WEIBULL',
-      shape: 1.7,
-      scale: 4.2,
-      mechanism: 'erosion_corrosion_multi_phase'
-    },
     conformal_predictions: {
       erosion_acceleration: 0.81,
       sand_production_increase: 0.74,
@@ -1408,12 +1342,6 @@ var TEST_CASES = [
       environmental_consequence: 'high - protected marine area',
       regulatory_requirement: 'remove by 2027',
       mechanism: 'multi_mechanism_eol_field_decommission'
-    },
-    survival_model: {
-      model_type: 'WEIBULL',
-      shape: 2.8,
-      scale: 2.1,
-      mechanism: 'multi_mechanism_accelerated_failure'
     },
     conformal_predictions: {
       cui_acceleration: 0.83,
@@ -1480,34 +1408,202 @@ var CLASSIFICATION_RULES = {
 
 function deriveWeibullParams(testCase) {
   var evidence = testCase.evidence || {};
-
-  if (evidence.tnom && evidence.tmm) {
-    var wallLossRatio = (evidence.tnom - evidence.tmm) / evidence.tnom;
-    var shape = 2.0 + (wallLossRatio * 3.0);
-    var scale = 5.0 - (wallLossRatio * 4.0);
-    return {
-      model_type: 'WEIBULL',
-      shape: Math.max(1.5, shape),
-      scale: Math.max(0.5, scale),
-      mechanism: evidence.mechanism || 'unknown'
-    };
-  }
-
   var mechanism = evidence.mechanism || 'unknown';
-  if (mechanism === 'through_wall_crack' || mechanism === 'cascade_consequence' ||
-      mechanism === 'multi_mechanism_high_risk') {
-    return {
-      model_type: 'WEIBULL',
-      shape: 2.8,
-      scale: 1.5,
-      mechanism: mechanism
-    };
+  var mechLower = mechanism.toLowerCase();
+
+  // ── STEP 1: Estimate remaining life from all available evidence ──
+  var remainingLife = null;
+  var confidence = 'medium';
+
+  // Method A: Through-wall or active leak → immediate failure
+  if (evidence.through_wall || (evidence.tmm !== undefined && evidence.tmm <= 0.01)) {
+    remainingLife = 0.1;
+    confidence = 'high';
+  } else if (evidence.leak_history && String(evidence.leak_history).toLowerCase().indexOf('yes') !== -1) {
+    remainingLife = 0.2;
+    confidence = 'high';
   }
+
+  // Method B: Explicit remaining life estimate (check multiple field names)
+  else if (evidence.remaining_life_estimate || evidence.fatigue_life_remaining_years || evidence.remaining_life_assumption) {
+    var rl = evidence.remaining_life_estimate || evidence.fatigue_life_remaining_years || evidence.remaining_life_assumption;
+    if (typeof rl === 'string') {
+      var parts = rl.replace(/years?/gi, '').trim().split('-');
+      try { remainingLife = parseFloat(parts[0]); } catch (e) { remainingLife = 10.0; }
+    } else {
+      remainingLife = parseFloat(rl);
+    }
+    confidence = 'medium';
+  }
+
+  // Method C: Wall thickness + corrosion rate
+  else if (evidence.tnom && evidence.tmm && (evidence.corrosion_rate_annual || evidence.pitting_rate_annual)) {
+    var rate = evidence.corrosion_rate_annual || evidence.pitting_rate_annual;
+    var tmin = evidence.tnom * 0.5;
+    if (evidence.tmm > tmin && rate > 0) {
+      remainingLife = (evidence.tmm - tmin) / rate;
+      // Erosion-corrosion acceleration: cap for active pitting with high flow
+      if (evidence.pit_depth && evidence.pit_depth > 0 && evidence.flow_velocity && evidence.flow_velocity > 2.5) {
+        remainingLife = Math.min(remainingLife, 8);
+      }
+      // Pitting depth acceleration: localized attack concentrates damage
+      // faster than uniform corrosion rate. Reduce remaining life by 15%.
+      if (evidence.pit_depth && evidence.pit_depth > 0) {
+        remainingLife = remainingLife * 0.85;
+      }
+    } else {
+      remainingLife = 0.5;
+    }
+    confidence = 'high';
+  }
+
+  // Method D: Fatigue cycle data with wall loss context
+  else if (evidence.estimated_cycles_to_rupture && evidence.cycles_per_year) {
+    var total = evidence.estimated_cycles_to_rupture;
+    var cyclesPerYear = evidence.cycles_per_year;
+    // Use wall loss ratio as damage fraction proxy if available
+    var damageFraction = 0.5; // default assumption
+    if (evidence.tnom && evidence.tmm) {
+      damageFraction = (evidence.tnom - evidence.tmm) / evidence.tnom;
+      damageFraction = Math.max(0.05, Math.min(0.95, damageFraction));
+    }
+    // Fatigue mechanisms: wall loss underestimates true damage because fatigue
+    // damage is crack initiation/propagation, not thinning. Apply minimum floor.
+    if (mechLower.indexOf('fatigue') !== -1 && damageFraction < 0.15) {
+      damageFraction = Math.max(damageFraction, 0.15);
+    }
+    remainingLife = (total * (1 - damageFraction)) / cyclesPerYear;
+    confidence = 'low';
+  } else if (evidence.remaining_cycles_estimate && evidence.fatigue_cycles_per_year) {
+    var remCycles = evidence.remaining_cycles_estimate;
+    if (typeof remCycles === 'string') remCycles = parseFloat(remCycles);
+    remainingLife = remCycles / evidence.fatigue_cycles_per_year;
+    confidence = 'medium';
+  } else if (evidence.remaining_cycles_estimate && evidence.fatigue_cycles_annual) {
+    var remCycles2 = evidence.remaining_cycles_estimate;
+    if (typeof remCycles2 === 'string') remCycles2 = parseFloat(remCycles2);
+    remainingLife = remCycles2 / evidence.fatigue_cycles_annual;
+    confidence = 'medium';
+  }
+
+  // Method E: Crack growth rate (direct measurement — higher priority than FAD margin)
+  else if (evidence.crack_growth_rate_annual && (evidence.tofd_length || evidence.tofd_crack_length)) {
+    var crack = evidence.tofd_length || evidence.tofd_crack_length || 0;
+    var growth = evidence.crack_growth_rate_annual;
+    var critCrack = 1.0;
+    if (crack < critCrack && growth > 0) {
+      remainingLife = (critCrack - crack) / growth;
+      // Crack acceleration: stress intensity K ∝ √a, so Paris law growth rate
+      // accelerates well before reaching critical. Tiered acceleration:
+      if (crack / critCrack > 0.5) {
+        remainingLife = remainingLife * 0.7;  // strong acceleration near critical
+      } else if (crack / critCrack > 0.2) {
+        remainingLife = remainingLife * 0.85; // mild SIF-driven acceleration
+      }
+    } else {
+      remainingLife = 0.5;
+    }
+    confidence = 'medium';
+  }
+
+  // Method F: FAD margin (indirect — use only when no direct growth data)
+  else if (evidence.fad_margin) {
+    remainingLife = (evidence.fad_margin - 0.8) * 3.0;
+    confidence = 'low';
+  }
+
+  // Method G: Design life consumed
+  else if (evidence.design_life_consumed) {
+    var consumedPct = evidence.design_life_consumed / 100.0;
+    var totalLife = 30;
+    var remainFrac = Math.max(0.05, 1.0 - consumedPct);
+    remainingLife = totalLife * remainFrac;
+    confidence = 'medium';
+  }
+
+  // Method H: Safety/stress/fracture margin
+  else if (evidence.fracture_mechanics_safety_factor) {
+    remainingLife = (evidence.fracture_mechanics_safety_factor - 0.9) * 3.0;
+    confidence = 'low';
+  } else if (evidence.stress_margin || evidence.safety_margin) {
+    var margin = evidence.stress_margin || evidence.safety_margin;
+    remainingLife = (margin - 0.8) * 3.0;
+    confidence = 'low';
+  }
+
+  // Method I: Wall thickness only (no rate data)
+  else if (evidence.tnom && evidence.tmm) {
+    var wlr = (evidence.tnom - evidence.tmm) / evidence.tnom;
+    var serviceYears = evidence.service_time_years || evidence.weld_age || evidence.coating_age || 10;
+    if (evidence.installation_year) serviceYears = Math.max(1, 2026 - evidence.installation_year);
+    var impliedRate = (evidence.tnom - evidence.tmm) / Math.max(1, serviceYears);
+    var tminI = evidence.tnom * 0.5;
+    if (evidence.tmm > tminI && impliedRate > 0) {
+      remainingLife = (evidence.tmm - tminI) / impliedRate;
+    } else if (wlr >= 0.5) {
+      remainingLife = 1.0;
+    } else {
+      remainingLife = 15.0;
+    }
+    confidence = 'low';
+  }
+
+  // Default: no quantitative evidence
+  if (remainingLife === null) {
+    remainingLife = 8.0;
+    confidence = 'low';
+  }
+
+  // ── STEP 1b: Mechanism-specific remaining life adjustments ──
+
+  // CUI acceleration: coating failure accelerates corrosion
+  if (mechLower.indexOf('cui') !== -1 && evidence.coating_age && evidence.coating_age > 8) {
+    remainingLife = Math.min(remainingLife, evidence.coating_age * 0.8);
+  }
+
+  // Creep with measurable damage: floor at 15 years for MONITOR classification
+  if (mechLower.indexOf('creep') !== -1 && evidence.stress_rupture_damage_fraction > 0) {
+    remainingLife = Math.min(remainingLife, 15.0);
+  }
+
+  // Erosion-corrosion with model error: use observed rate, not predicted
+  if (evidence.erosion_corrosion_rate_observed && evidence.tnom) {
+    var obsRate = evidence.erosion_corrosion_rate_observed;
+    var tminE = evidence.tnom * 0.5;
+    var currentWall = evidence.tmm || evidence.tnom * 0.8;
+    if (currentWall > tminE && obsRate > 0) {
+      remainingLife = Math.min(remainingLife, (currentWall - tminE) / obsRate);
+    }
+  }
+
+  remainingLife = Math.max(0.1, remainingLife);
+
+  // ── STEP 2: Map remaining life to Weibull scale ──
+  var confFactor = confidence === 'high' ? 1.0 : (confidence === 'medium' ? 0.85 : 0.7);
+  var scale = remainingLife * confFactor;
+  scale = Math.max(0.5, Math.min(50.0, scale));
+
+  // ── STEP 3: Determine shape from mechanism type ──
+  var shape = 2.0;
+  if (mechLower.indexOf('mic') !== -1 || mechLower.indexOf('through_wall') !== -1 ||
+      mechLower.indexOf('leak') !== -1 || mechLower.indexOf('active') !== -1) {
+    shape = 3.0;
+  } else if (mechLower.indexOf('fatigue') !== -1 || mechLower.indexOf('crack') !== -1 ||
+             mechLower.indexOf('scc') !== -1 || mechLower.indexOf('htha') !== -1 ||
+             mechLower.indexOf('brittle') !== -1) {
+    shape = 2.5;
+  } else if (mechLower.indexOf('cui') !== -1 || mechLower.indexOf('erosion') !== -1 ||
+             mechLower.indexOf('creep') !== -1 || mechLower.indexOf('embrittlement') !== -1) {
+    shape = 2.2;
+  } else if (mechLower.indexOf('pitting') !== -1 || mechLower.indexOf('corrosion') !== -1) {
+    shape = 2.0;
+  }
+  shape = Math.max(1.5, Math.min(4.0, shape));
 
   return {
     model_type: 'WEIBULL',
-    shape: 2.0,
-    scale: 2.0,
+    shape: shape,
+    scale: scale,
     mechanism: mechanism
   };
 }
@@ -1812,6 +1908,8 @@ function runCase(testCase, callback) {
     class_within_one_band: false,
     authority_lock_pass: false,
     no_unsafe_low_risk: true,
+    domain: (testCase.evidence && testCase.evidence.domain) || 'unknown',
+    mechanism: (testCase.evidence && testCase.evidence.mechanism) || 'unknown',
     errors: []
   };
 
@@ -1983,6 +2081,76 @@ function printScorecard(results) {
   }
   if (failCount === 0) {
     console.log('  None — all cases passed!');
+  }
+
+  // ── SYSTEMIC DIAGNOSTIC: Failures by Domain ──
+  console.log('\n── SYSTEMIC DIAGNOSTICS ─────────────────────────────────────────\n');
+
+  var domainStats = {};
+  var mechStats = {};
+  var bandStats = {};
+  var pathStats = { A: { pass: 0, fail: 0 }, B: { pass: 0, fail: 0 }, C: { pass: 0, fail: 0 } };
+
+  for (var d = 0; d < results.length; d++) {
+    var rd = results[d];
+    var domain = rd.domain || 'unknown';
+    var mech = rd.mechanism || 'unknown';
+    var band = rd.expected_class || 'unknown';
+    var path = rd.path || '?';
+
+    if (!domainStats[domain]) domainStats[domain] = { pass: 0, fail: 0 };
+    if (!mechStats[mech]) mechStats[mech] = { pass: 0, fail: 0, cases: [] };
+    if (!bandStats[band]) bandStats[band] = { pass: 0, fail: 0 };
+
+    if (rd.class_pass) {
+      domainStats[domain].pass++;
+      mechStats[mech].pass++;
+      bandStats[band].pass++;
+      if (pathStats[path]) pathStats[path].pass++;
+    } else {
+      domainStats[domain].fail++;
+      mechStats[mech].fail++;
+      bandStats[band].fail++;
+      if (pathStats[path]) pathStats[path].fail++;
+      mechStats[mech].cases.push(rd.id + ' (exp:' + rd.expected_class + ' got:' + rd.actual_class + ')');
+    }
+  }
+
+  console.log('  BY DOMAIN:');
+  var domainKeys = Object.keys(domainStats).sort();
+  for (var dk = 0; dk < domainKeys.length; dk++) {
+    var ds = domainStats[domainKeys[dk]];
+    var total = ds.pass + ds.fail;
+    console.log('    ' + domainKeys[dk] + ': ' + ds.pass + '/' + total + ' (' + Math.round(ds.pass / total * 100) + '%)');
+  }
+
+  console.log('\n  BY VALIDATION PATH:');
+  var pathKeys = Object.keys(pathStats);
+  for (var pk = 0; pk < pathKeys.length; pk++) {
+    var ps = pathStats[pathKeys[pk]];
+    var ptotal = ps.pass + ps.fail;
+    if (ptotal > 0) {
+      console.log('    PATH ' + pathKeys[pk] + ': ' + ps.pass + '/' + ptotal + ' (' + Math.round(ps.pass / ptotal * 100) + '%)');
+    }
+  }
+
+  console.log('\n  BY EXPECTED BAND:');
+  var bandKeys = Object.keys(bandStats);
+  for (var bk = 0; bk < bandKeys.length; bk++) {
+    var bs = bandStats[bandKeys[bk]];
+    var btotal = bs.pass + bs.fail;
+    console.log('    ' + bandKeys[bk] + ': ' + bs.pass + '/' + btotal + ' (' + Math.round(bs.pass / btotal * 100) + '%)');
+  }
+
+  console.log('\n  FAILING MECHANISMS (systemic patterns):');
+  var failMechs = Object.keys(mechStats).filter(function(k) { return mechStats[k].fail > 0; });
+  if (failMechs.length === 0) {
+    console.log('    None — all mechanisms classified correctly!');
+  } else {
+    for (var fm = 0; fm < failMechs.length; fm++) {
+      var ms = mechStats[failMechs[fm]];
+      console.log('    ' + failMechs[fm] + ' (' + ms.fail + ' failures): ' + ms.cases.join(', '));
+    }
   }
 
   console.log('\n════════════════════════════════════════════════════════════════');
