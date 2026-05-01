@@ -1515,7 +1515,9 @@ function deriveWeibullParams(testCase) {
   // Method G: Design life consumed
   else if (evidence.design_life_consumed) {
     var consumedPct = evidence.design_life_consumed / 100.0;
-    var totalLife = 30;
+    // Fatigue-critical equipment has shorter design lives (20-25yr)
+    // vs corrosion-critical (25-30yr) per API 579 / DNV fatigue assessment
+    var totalLife = (mechLower.indexOf('fatigue') !== -1) ? 25 : 30;
     var remainFrac = Math.max(0.05, 1.0 - consumedPct);
     remainingLife = totalLife * remainFrac;
     confidence = 'medium';
@@ -1836,9 +1838,10 @@ function runPathC(testCase, callback) {
         var survClass = 'UNKNOWN';
         var survLock = false;
 
-        if (!err3 && classResp && classResp.data) {
-          survClass = classResp.data.reliability_class || 'UNKNOWN';
-          survLock = classResp.data.authority_lock_required || false;
+        if (!err3 && classResp) {
+          var classData = classResp.data ? classResp.data : classResp;
+          survClass = classData.reliability_class || 'UNKNOWN';
+          survLock = classData.authority_lock_required || false;
         }
 
         var severities = {
