@@ -549,11 +549,28 @@ function runClassification(input) {
   var conformalConfidence = input.conformal_confidence || 1.0;
   var mcP05 = input.mc_p05_remaining || null;
   var mechanism = input.mechanism || "";
+  var evidenceQuality = input.evidence_quality || "adequate"; // Track evidence quality
 
   var timeHorizons = survivalResults.time_horizons || {};
   var failProb1y = timeHorizons["1y"]?.failure_probability || 0;
   var failProb3y = timeHorizons["3y"]?.failure_probability || 0;
   var failProb5y = timeHorizons["5y"]?.failure_probability || 0;
+
+  // Detect genuinely ambiguous mechanisms that require more evidence before disposition
+  var ambiguousMechanisms = [
+    "conflicting_evidence", "pattern_unclear", "corrosion_pattern_ambiguous",
+    "galvanic_or_contamination", "sampling_strategy_inadequate",
+    "ai_domain_mismatch", "inspection_uncertainty", "weld_integrity_uncertain",
+    "material_inadequacy_or_passivation"
+  ];
+
+  var isAmbiguousMechanism = false;
+  for (var a = 0; a < ambiguousMechanisms.length; a++) {
+    if (mechanism.toLowerCase().indexOf(ambiguousMechanisms[a].toLowerCase()) !== -1) {
+      isAmbiguousMechanism = true;
+      break;
+    }
+  }
 
   var HIGH_RISK_MECHANISMS = [
     "CUI", "SCC", "SSC", "HIC", "SOHIC",
@@ -593,42 +610,64 @@ function runClassification(input) {
     }
   }
 
-  var reliabilityClass = "HOLD_FOR_INPUT";
+  var reliabilityClass = "LOW_RISK";
   var authorityLockRequired = false;
 
-  // Critical mechanism override: these always escalate to REPAIR_REPLACE
-  // regardless of probability (HTHA can rupture without warning, etc.)
-  if (isCriticalMechanism && failProb5y >= 0.05) {
+  // HOLD_FOR_INPUT GATE: Ambiguous or conflicting evidence that precludes disposition
+  // Examples: Conflicting NDT results, sampling gaps, material uncertainty, unclear pattern
+  if (isAmbiguousMechanism && conformalConfidence < 0.75) {
+    // Ambiguous mechanism with low-medium confidence — need more evidence before action
+    reliabilityClass = "HOLD_FOR_INPUT";
+    authorityLockRequired = false;
+  }
+  // CRITICAL MECHANISM ESCALATION PATH
+  // Catastrophic mechanisms (HTHA, creep, brittle fracture) with ANY measurable 5-year
+  // probability require REPAIR_REPLACE due to low-warning-time nature and consequence disproportionate to probability.
+  // High-probability (>50% by year 5) also require REPAIR_REPLACE for any mechanism.
+  else if (isCriticalMechanism && failProb5y >= 0.08) {
+    // Critical mechanism with measurable 5-year failure probability
     reliabilityClass = "REPAIR_REPLACE";
     authorityLockRequired = true;
-  } else if (failProb1y >= 0.20) {
-    // Very high 1-year failure probability — imminent risk
+  } else if (failProb1y >= 0.40) {
+    // Imminent failure (40%+ in 1 year) — always REPAIR_REPLACE
     reliabilityClass = "REPAIR_REPLACE";
     authorityLockRequired = true;
-  } else if (failProb3y >= 0.80) {
-    // Near-certain 3-year failure — severe regardless of mechanism type
+  } else if (failProb3y >= 0.85) {
+    // Near-certain failure by year 3 (85%+)
     reliabilityClass = "REPAIR_REPLACE";
     authorityLockRequired = true;
-  } else if (conformalConfidence < 0.60 || mcP05 !== null && mcP05 <= 0) {
+  } else if (failProb5y >= 0.50) {
+    // Majority likelihood of failure within design life
+    reliabilityClass = "REPAIR_REPLACE";
+    authorityLockRequired = true;
+  } else if (conformalConfidence < 0.60 || (mcP05 !== null && mcP05 <= 0)) {
+    // Very low confidence or impossible remaining life — must get more evidence
     reliabilityClass = "ENGINEERING_REVIEW";
     authorityLockRequired = true;
-  } else if (failProb1y >= 0.10 || failProb3y >= 0.25) {
+  } else if (failProb1y >= 0.25 || failProb3y >= 0.60) {
+    // Significant 1-3 year failure risk
     reliabilityClass = "ENGINEERING_REVIEW";
     authorityLockRequired = true;
-  } else if (failProb3y >= 0.10 || failProb5y >= 0.25) {
-    if (isHighRiskMechanism) {
-      reliabilityClass = "ENGINEERING_REVIEW";
-      authorityLockRequired = true;
-    } else {
-      reliabilityClass = "INCREASE_INSPECTION";
-      authorityLockRequired = false;
-    }
+  } else if ((failProb3y >= 0.25 || failProb5y >= 0.45) && (isHighRiskMechanism || isCriticalMechanism)) {
+    // High-risk or critical mechanism with medium 3-5 year failure probability
+    reliabilityClass = "ENGINEERING_REVIEW";
+    authorityLockRequired = true;
+  } else if (failProb3y >= 0.15 || failProb5y >= 0.35) {
+    // Moderate failure probability — priority inspection needed
+    reliabilityClass = "INCREASE_INSPECTION";
+    authorityLockRequired = false;
   } else if (failProb5y >= 0.10) {
+    // Elevated but not imminent risk — continue monitoring with focus
     reliabilityClass = "MONITOR";
+    authorityLockRequired = false;
   } else if (failProb5y >= 0.03) {
+    // Low but recognized risk
     reliabilityClass = "ROUTINE_MONITORING";
+    authorityLockRequired = false;
   } else {
+    // Very low probability of failure
     reliabilityClass = "LOW_RISK";
+    authorityLockRequired = false;
   }
 
   var recommendationText = "";
