@@ -58,6 +58,12 @@ var TEST_CASES = [
       environment: 'marine nearshore',
       coating_age: 12,
       mechanism: 'cui_early_stage'
+    },
+    survival_model: {
+      model_type: 'WEIBULL',
+      shape: 2.0,
+      scale: 12.0,
+      mechanism: 'cui_early_stage'
     }
   },
 
@@ -221,6 +227,12 @@ var TEST_CASES = [
       ut_distribution: 'scattered loss, no single pit',
       cycles_per_year: 2190,
       estimated_cycles_to_rupture: 25000,
+      mechanism: 'thermal_fatigue_distributed_loss'
+    },
+    survival_model: {
+      model_type: 'WEIBULL',
+      shape: 2.0,
+      scale: 11.0,
       mechanism: 'thermal_fatigue_distributed_loss'
     }
   },
@@ -459,6 +471,12 @@ var TEST_CASES = [
       crack_growth_rate_annual: 0.08,
       fad_margin: 3.5,
       stress_history: 'wave motion estimated 8000 cycles/year',
+      mechanism: 'deck_fatigue_hatch'
+    },
+    survival_model: {
+      model_type: 'WEIBULL',
+      shape: 2.0,
+      scale: 10.5,
       mechanism: 'deck_fatigue_hatch'
     }
   },
@@ -781,6 +799,12 @@ var TEST_CASES = [
       stress_concentration: 'bend + tee intersection',
       fatigue_life_remaining_years: 28,
       mechanism: 'fatigue_margin_edge_case'
+    },
+    survival_model: {
+      model_type: 'WEIBULL',
+      shape: 2.0,
+      scale: 11.5,
+      mechanism: 'fatigue_margin_edge_case'
     }
   },
 
@@ -966,6 +990,12 @@ var TEST_CASES = [
       pit_spacing: 2.1,
       corrosion_rate_annual: 0.002,
       mechanism: 'pitting_erosion_corrosion'
+    },
+    survival_model: {
+      model_type: 'WEIBULL',
+      shape: 2.0,
+      scale: 10.0,
+      mechanism: 'pitting_erosion_corrosion'
     }
   },
 
@@ -1139,6 +1169,12 @@ var TEST_CASES = [
       fad_margin: 4.2,
       size_measurement_uncertainty: 0.01,
       mechanism: 'fad_borderline_margin'
+    },
+    survival_model: {
+      model_type: 'WEIBULL',
+      shape: 2.0,
+      scale: 11.0,
+      mechanism: 'fad_borderline_margin'
     }
   },
 
@@ -1191,6 +1227,12 @@ var TEST_CASES = [
       remaining_life_estimate: '32-42 years',
       remaining_life_uncertainty: 'low',
       monitoring_interval: 'extended (5-year)',
+      mechanism: 'creep_damage_long_life'
+    },
+    survival_model: {
+      model_type: 'WEIBULL',
+      shape: 2.0,
+      scale: 22.0,
       mechanism: 'creep_damage_long_life'
     }
   },
@@ -1724,6 +1766,10 @@ function runPathC(testCase, callback) {
         for (var cp = 0; cp < confKeys.length; cp++) {
           if (confPreds[confKeys[cp]] >= 0.60) highConfCount++;
         }
+        if (highConfCount >= 4 && finalClass === 'MONITOR') {
+          finalClass = 'INCREASE_INSPECTION';
+          finalLock = false;
+        }
         if (highConfCount >= 3) {
           if (finalClass === 'ENGINEERING_REVIEW') {
             finalClass = 'REPAIR_REPLACE';
@@ -1732,6 +1778,10 @@ function runPathC(testCase, callback) {
             finalClass = 'ENGINEERING_REVIEW';
             finalLock = true;
           }
+        }
+        if (highConfCount >= 4 && finalClass === 'ENGINEERING_REVIEW') {
+          finalClass = 'REPAIR_REPLACE';
+          finalLock = true;
         }
 
         callback({
