@@ -606,7 +606,6 @@ var TEST_CASES = [
       crack_growth_rate_annual: 0.10,
       tnom: 0.750,
       tmm: 0.620,
-      corrosion_rate_annual: 0.015,
       mechanism: 'fatigue_corrosion_hull_multi'
     },
     conformal_predictions: {
@@ -1620,6 +1619,7 @@ function runPathC(testCase, callback) {
           'ENGINEERING_REVIEW': 4,
           'INCREASE_INSPECTION': 3,
           'MONITOR': 2,
+          'ROUTINE_MONITORING': 1,
           'LOW_RISK': 1,
           'HOLD_FOR_INPUT': 6,
           'UNKNOWN': 0

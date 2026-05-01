@@ -1849,6 +1849,7 @@ function runPathC(testCase, callback) {
           'ENGINEERING_REVIEW': 4,
           'INCREASE_INSPECTION': 3,
           'MONITOR': 2,
+          'ROUTINE_MONITORING': 1,
           'LOW_RISK': 1,
           'HOLD_FOR_INPUT': 6,
           'UNKNOWN': 0
