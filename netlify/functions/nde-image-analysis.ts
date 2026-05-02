@@ -38,7 +38,7 @@ import type { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 
 var ENGINE_NAME = "nde-image-analysis";
-var ENGINE_VERSION = "v1.0.0";
+var ENGINE_VERSION = "v2.0.0";
 var DEPLOY_TAG = "DEPLOY280";
 
 var corsHeaders = {
@@ -337,6 +337,83 @@ var MODALITY_KB = {
     lighting_dependent: false,
     requires_surface_prep: false,
     image_types: ["bx_bz_plot", "butterfly_plot", "strip_chart"]
+  },
+  PEC: {
+    name: "Pulsed Eddy Current",
+    iso_code: "ISO 20669",
+    detectable: [
+      "wall_thinning", "general_corrosion", "cui_wall_loss",
+      "erosion", "flow_accelerated_corrosion", "insulation_wet_areas"
+    ],
+    not_detectable: [
+      "crack", "porosity", "slag_inclusion", "lack_of_fusion",
+      "pitting_small", "surface_crack", "arc_strike"
+    ],
+    sizing_capability: "average_wall_thickness_over_footprint",
+    min_detectable_size_mm: 2.0,
+    confidence_base: 0.78,
+    lighting_dependent: false,
+    requires_surface_prep: false,
+    image_types: ["thickness_grid", "color_map", "trend_plot"]
+  },
+  GWT: {
+    name: "Guided Wave Testing",
+    iso_code: "ISO 18211",
+    detectable: [
+      "wall_thinning", "general_corrosion", "pitting_corrosion",
+      "erosion", "circumferential_crack", "girth_weld_defect",
+      "coating_disbondment", "cui_wall_loss"
+    ],
+    not_detectable: [
+      "small_isolated_pit", "surface_crack_axial", "porosity",
+      "slag_inclusion", "lack_of_fusion", "arc_strike"
+    ],
+    sizing_capability: "cross_section_loss_percentage",
+    min_detectable_size_mm: 5.0,
+    confidence_base: 0.75,
+    lighting_dependent: false,
+    requires_surface_prep: false,
+    image_types: ["a_scan_envelope", "distance_amplitude_plot", "focus_map"]
+  },
+  IRIS: {
+    name: "Internal Rotating Inspection System",
+    iso_code: "ASTM E2905",
+    detectable: [
+      "wall_thinning", "pitting_corrosion", "general_corrosion",
+      "erosion", "internal_grooving", "tube_denting",
+      "tube_ovality", "baffle_wear", "mic_pitting"
+    ],
+    not_detectable: [
+      "external_surface_crack", "coating_condition",
+      "lack_of_fusion", "porosity_weld", "arc_strike"
+    ],
+    sizing_capability: "wall_thickness_360_degree_profile",
+    min_detectable_size_mm: 0.2,
+    confidence_base: 0.90,
+    lighting_dependent: false,
+    requires_surface_prep: true,
+    image_types: ["b_scan_strip", "c_scan_map", "thickness_profile"]
+  },
+  ADVANCED_UT: {
+    name: "Advanced Ultrasonic Testing (FMC/TFM)",
+    iso_code: "ISO 23864",
+    detectable: [
+      "crack", "fatigue_crack", "stress_corrosion_cracking",
+      "lack_of_fusion", "lack_of_penetration", "porosity",
+      "slag_inclusion", "hic", "sohic", "htha",
+      "lamination", "delamination", "creep_damage",
+      "hydrogen_flaking", "disbonding"
+    ],
+    not_detectable: [
+      "surface_oxidation", "coating_condition", "arc_strike",
+      "spatter", "surface_only_cosmetic"
+    ],
+    sizing_capability: "length_depth_height_characterization",
+    min_detectable_size_mm: 0.3,
+    confidence_base: 0.95,
+    lighting_dependent: false,
+    requires_surface_prep: true,
+    image_types: ["tfm_image", "fmc_dataset", "sectorial_scan", "compound_image"]
   }
 };
 
@@ -562,6 +639,237 @@ var DISCONTINUITY_KB = {
     paut_indicators: ["crack-like reflections", "branching pattern", "may require multiple angles"],
     common_causes: ["caustic environment", "chloride + temperature", "polythionic acid", "amine service"],
     teaching_note: "SCC needs three things: stress + corrosion + susceptible material. Remove any one and cracking stops."
+  },
+
+  // -- ADDITIONAL CRACKING MECHANISMS --
+  hydrogen_crack: {
+    iso_ref: "1031", group: "crack", severity: "critical",
+    description: "Cold cracking from hydrogen diffusion into HAZ or weld metal",
+    visual_indicators: ["delayed crack appearing hours after welding", "transverse or underbead orientation"],
+    rt_indicators: ["fine dark line in HAZ region", "may not be visible until 48hr post-weld"],
+    paut_indicators: ["reflection in HAZ zone", "often transverse to weld axis"],
+    common_causes: ["hydrogen from moisture/contamination", "high restraint", "susceptible microstructure", "insufficient preheat"],
+    teaching_note: "Hydrogen cracking is delayed — it can appear hours or days after welding. Always preheat high-strength steels and use low-hydrogen electrodes."
+  },
+  hot_crack: {
+    iso_ref: "1001", group: "crack", severity: "critical",
+    description: "Cracking during solidification while weld metal is still semi-molten",
+    visual_indicators: ["centerline crack", "crater star crack", "liquation crack in HAZ"],
+    rt_indicators: ["dark centerline indication", "star pattern at stops"],
+    paut_indicators: ["centerline reflection", "typically shallow"],
+    common_causes: ["high sulfur or phosphorus", "high depth-to-width ratio", "high restraint during solidification"],
+    teaching_note: "Hot cracks form while the weld is still cooling. Control your bead shape — avoid deep narrow welds."
+  },
+  reheat_crack: {
+    iso_ref: "1032", group: "crack", severity: "critical",
+    description: "Cracking during PWHT or high-temperature service in HAZ",
+    visual_indicators: ["intergranular crack in coarse-grained HAZ", "often at weld toe"],
+    rt_indicators: ["faint dark line in HAZ — difficult to detect"],
+    paut_indicators: ["HAZ reflection", "intergranular character"],
+    common_causes: ["Cr-Mo-V steels", "coarse grain HAZ", "stress relief heat treatment", "creep-range temperatures"],
+    teaching_note: "Reheat cracking occurs in certain alloy steels during PWHT. It is a metallurgical problem, not a welder skill issue."
+  },
+  lamellar_tear: {
+    iso_ref: "1033", group: "crack", severity: "critical",
+    description: "Step-like tearing in base metal parallel to rolling direction from through-thickness stress",
+    visual_indicators: ["step-shaped crack parallel to plate surface", "terrace fracture appearance"],
+    rt_indicators: ["step pattern parallel to plate surface — difficult to detect"],
+    paut_indicators: ["planar reflector parallel to plate surface", "step pattern"],
+    common_causes: ["high through-thickness stress", "sulfide inclusions in plate", "T-joints and corner joints", "thick restrained joints"],
+    teaching_note: "Lamellar tearing is a base metal problem, not a weld defect. Use Z-grade (through-thickness tested) steel for critical joints."
+  },
+
+  // -- ADDITIONAL IN-SERVICE DEGRADATION --
+  erosion: {
+    iso_ref: "N/A", group: "in_service", severity: "major",
+    description: "Material loss from fluid flow impingement, particles, or droplets",
+    visual_indicators: ["directional material loss pattern", "smooth polished surface in flow direction", "horseshoe pattern at elbows"],
+    rt_indicators: ["localized thinning with directional pattern"],
+    paut_indicators: ["reduced wall thickness", "directional thinning profile"],
+    common_causes: ["high velocity flow", "entrained particles", "droplet impingement", "cavitation at restrictions"],
+    teaching_note: "Erosion follows the flow. Look for directional patterns, especially at elbows, tees, and reducers."
+  },
+  cavitation: {
+    iso_ref: "N/A", group: "in_service", severity: "major",
+    description: "Material loss from collapsing vapor bubbles in liquid flow",
+    visual_indicators: ["rough pitted surface", "sponge-like appearance", "localized at pressure drop zones"],
+    rt_indicators: ["localized thinning at flow restrictions"],
+    paut_indicators: ["rough ID surface with irregular wall loss"],
+    common_causes: ["pressure drops below vapor pressure", "pump impellers", "control valves", "orifice plates"],
+    teaching_note: "Cavitation creates a rough, spongy surface. It happens where pressure drops cause bubbles to form and collapse."
+  },
+  galvanic_corrosion: {
+    iso_ref: "N/A", group: "in_service", severity: "major",
+    description: "Accelerated corrosion at junction of dissimilar metals",
+    visual_indicators: ["preferential attack on anodic (less noble) metal", "corrosion concentrated at joint interface"],
+    rt_indicators: ["wall loss concentrated at dissimilar metal joint"],
+    paut_indicators: ["localized thinning at DMW interface"],
+    common_causes: ["carbon steel to stainless connection", "copper alloy to steel", "aluminum to steel", "inadequate insulation between metals"],
+    teaching_note: "Galvanic corrosion occurs when two different metals are connected in a conductive fluid. The less noble metal corrodes faster."
+  },
+  crevice_corrosion: {
+    iso_ref: "N/A", group: "in_service", severity: "major",
+    description: "Localized corrosion in confined spaces where stagnant solution chemistry changes",
+    visual_indicators: ["corrosion under gaskets", "attack at lap joints", "pitting under deposits"],
+    rt_indicators: ["localized thinning at joint overlaps"],
+    paut_indicators: ["wall loss at crevice locations"],
+    common_causes: ["lap joints", "gasket surfaces", "under bolt heads", "deposit accumulation", "stagnant areas"],
+    teaching_note: "Crevice corrosion hides in tight spaces. Eliminate crevices in design or ensure proper drainage and cleaning access."
+  },
+  intergranular_corrosion: {
+    iso_ref: "N/A", group: "in_service", severity: "critical",
+    description: "Preferential attack along grain boundaries in sensitized material",
+    visual_indicators: ["sugary fracture surface", "grain dropping", "weld decay zone in HAZ"],
+    rt_indicators: ["diffuse thinning in HAZ band"],
+    paut_indicators: ["scattering increase in sensitized zone", "wall loss in HAZ"],
+    common_causes: ["sensitization of austenitic stainless", "weld decay (HAZ)", "polythionic acid exposure", "wrong grade selection"],
+    teaching_note: "Intergranular corrosion attacks grain boundaries in sensitized stainless steel. Use L-grades (304L, 316L) or stabilized grades (321, 347)."
+  },
+  htha: {
+    iso_ref: "N/A", group: "in_service", severity: "critical",
+    description: "High Temperature Hydrogen Attack — internal decarburization and fissuring from hydrogen at elevated temperature",
+    visual_indicators: ["surface blistering in advanced stages", "may show no external indication in early stages"],
+    rt_indicators: ["difficult to detect — requires specialized techniques"],
+    paut_indicators: ["increased backscatter", "velocity ratio change", "backwall attenuation", "requires advanced UT techniques"],
+    common_causes: ["hydrogen partial pressure + temperature above Nelson curve", "carbon steel in hydrogen service", "inadequate material selection"],
+    teaching_note: "HTHA is invisible from the outside until it is too late. It requires specialized PAUT or advanced UT per API 941."
+  },
+  creep_damage: {
+    iso_ref: "N/A", group: "in_service", severity: "critical",
+    description: "Time-dependent deformation and void formation at elevated temperatures",
+    visual_indicators: ["bulging", "dimensional changes", "oxide scale cracking", "surface micro-cracking in late stages"],
+    rt_indicators: ["may show alignment of voids in advanced creep"],
+    paut_indicators: ["scattered micro-reflections from void coalescence", "wall strain measurement"],
+    common_causes: ["service above creep range (>750F for carbon steel)", "stress + temperature + time", "weldments in creep service"],
+    teaching_note: "Creep is slow permanent deformation at high temperature. It progresses through void formation to crack to rupture."
+  },
+  sigma_phase_embrittlement: {
+    iso_ref: "N/A", group: "in_service", severity: "critical",
+    description: "Formation of brittle sigma phase in austenitic/duplex stainless steels at elevated temperature",
+    visual_indicators: ["no visual indication until fracture", "brittle fracture surface"],
+    rt_indicators: ["not detectable by RT"],
+    paut_indicators: ["velocity change in affected zone", "not reliably detectable"],
+    common_causes: ["long exposure 565-925C", "high chromium content", "duplex/super duplex stainless", "cast austenitic materials"],
+    teaching_note: "Sigma phase makes stainless steel brittle. It forms during long exposure to certain temperatures and cannot be seen until failure."
+  },
+  temper_embrittlement: {
+    iso_ref: "N/A", group: "in_service", severity: "critical",
+    description: "Loss of toughness from segregation of impurities to grain boundaries during heat treatment or service",
+    visual_indicators: ["no visible indication until brittle fracture occurs"],
+    rt_indicators: ["not detectable"],
+    paut_indicators: ["not directly detectable — requires hardness or Charpy testing"],
+    common_causes: ["Cr-Mo steels held at 375-575C", "impurity elements P, Sn, As, Sb", "slow cooling through embrittlement range"],
+    teaching_note: "Temper embrittlement reduces toughness without any visible change. It is detected by Charpy impact testing, not NDE."
+  },
+  carburization: {
+    iso_ref: "N/A", group: "in_service", severity: "major",
+    description: "Carbon absorption into metal surface at high temperature, causing hardening and embrittlement",
+    visual_indicators: ["surface hardening", "magnetic response change in austenitic steel", "scale pattern change"],
+    rt_indicators: ["density change at carburized layer"],
+    paut_indicators: ["velocity change at carburized surface", "increased hardness by portable tester"],
+    common_causes: ["carbon-rich atmosphere at high temperature", "ethylene cracking furnaces", "reformer tubes"],
+    teaching_note: "Carburization hardens the surface and makes it brittle. It is common in high-temperature carbon-rich environments."
+  },
+  metal_dusting: {
+    iso_ref: "N/A", group: "in_service", severity: "critical",
+    description: "Catastrophic carburization — rapid metal wastage in high-temperature carbon-rich gases",
+    visual_indicators: ["pitting with metallic dust", "rapid localized wall loss", "shiny graphite deposits"],
+    rt_indicators: ["localized sharp wall loss"],
+    paut_indicators: ["localized wall thinning with sharp boundaries"],
+    common_causes: ["syngas environments", "high CO activity", "temperatures 400-800C", "nickel alloys and stainless steels"],
+    teaching_note: "Metal dusting is aggressive localized attack. The metal literally turns to dust. Requires alloy upgrade or process modification."
+  },
+  graphitization: {
+    iso_ref: "N/A", group: "in_service", severity: "major",
+    description: "Decomposition of pearlite to ferrite and graphite nodules at elevated temperature",
+    visual_indicators: ["no visible external indication", "dark graphite nodules on polished cross-section"],
+    rt_indicators: ["not reliably detectable"],
+    paut_indicators: ["localized attenuation increase", "scattering from graphite nodules"],
+    common_causes: ["carbon steel above 800F for extended time", "carbon-0.5Mo steel", "HAZ of welds in old carbon steel equipment"],
+    teaching_note: "Graphitization weakens steel by replacing strong pearlite with soft graphite. Common in old carbon steel equipment in high-temp service."
+  },
+  disbonding: {
+    iso_ref: "N/A", group: "in_service", severity: "major",
+    description: "Separation of weld overlay, cladding, or lining from base metal",
+    visual_indicators: ["bulging or lifting of overlay", "edge separation visible"],
+    rt_indicators: ["density change at bond line"],
+    paut_indicators: ["strong reflection at bond interface", "loss of bond line signal"],
+    common_causes: ["hydrogen accumulation at interface", "thermal cycling", "inadequate bonding during application", "corrosion under lining"],
+    teaching_note: "Disbonding separates the protective layer from the base metal. In hydrogen service, hydrogen collects at the interface and pushes the overlay away."
+  },
+  delamination: {
+    iso_ref: "N/A", group: "in_service", severity: "major",
+    description: "Internal separation of base metal along rolling plane from inclusions or hydrogen",
+    visual_indicators: ["blistering on surface (HIC-related)", "no external indication if internal"],
+    rt_indicators: ["laminar dark indication parallel to surface"],
+    paut_indicators: ["strong planar reflection at mid-wall", "parallel to plate surface"],
+    common_causes: ["hydrogen induced cracking (HIC)", "sulfide inclusions along rolling direction", "poor steel cleanliness"],
+    teaching_note: "Delamination is internal separation along the steel rolling plane. It is detected by UT scanning and is often hydrogen-related."
+  },
+
+  // -- COATING DISCONTINUITIES --
+  coating_blistering: {
+    iso_ref: "ISO 4628-2", group: "coating", severity: "major",
+    description: "Dome-shaped elevations in coating film from loss of adhesion",
+    visual_indicators: ["rounded raised areas in coating", "may contain fluid"],
+    rt_indicators: ["not applicable"],
+    paut_indicators: ["not applicable"],
+    common_causes: ["osmotic pressure", "soluble salts under coating", "cathodic disbondment", "moisture ingress"],
+    teaching_note: "Blistering means moisture got under the coating. Check surface preparation and contamination before recoating."
+  },
+  coating_peeling: {
+    iso_ref: "ISO 4628-5", group: "coating", severity: "major",
+    description: "Spontaneous loss of adhesion and detachment of coating from substrate",
+    visual_indicators: ["coating lifting and curling away from surface", "exposed substrate"],
+    rt_indicators: ["not applicable"],
+    paut_indicators: ["not applicable"],
+    common_causes: ["inadequate surface preparation", "incompatible coating system", "exceeding overcoat window", "contamination"],
+    teaching_note: "Peeling means the coating never bonded properly. Surface prep is 80% of a good coating job."
+  },
+  coating_chalking: {
+    iso_ref: "ISO 4628-6", group: "coating", severity: "minor",
+    description: "Powdery residue on coating surface from UV degradation of binder",
+    visual_indicators: ["white powder on surface", "color fading", "rubs off on contact"],
+    rt_indicators: ["not applicable"],
+    paut_indicators: ["not applicable"],
+    common_causes: ["UV exposure", "aged coating", "wrong coating type for UV exposure", "exceeded service life"],
+    teaching_note: "Chalking is normal aging from sun exposure. Light chalking is cosmetic; heavy chalking means the coating needs maintenance."
+  },
+  coating_rust_creepage: {
+    iso_ref: "ISO 4628-3", group: "coating", severity: "major",
+    description: "Rust spreading under intact coating from a break or edge",
+    visual_indicators: ["rust staining extending from scratch or damaged area", "coating lifting at rust front"],
+    rt_indicators: ["not applicable"],
+    paut_indicators: ["not applicable"],
+    common_causes: ["coating damage exposing steel", "inadequate edge preparation", "thin film at edges", "salt contamination under coating"],
+    teaching_note: "Rust creepage spreads under the coating from any break. Proper edge preparation and film thickness at edges are critical."
+  },
+  coating_holiday: {
+    iso_ref: "NACE SP0188", group: "coating", severity: "major",
+    description: "Pinhole or discontinuity in coating exposing substrate to environment",
+    visual_indicators: ["may not be visible — requires holiday detection testing"],
+    rt_indicators: ["not applicable"],
+    paut_indicators: ["not applicable"],
+    common_causes: ["insufficient film thickness", "contamination during application", "air entrapment", "rough surface profile peaks"],
+    teaching_note: "Holidays are invisible holes in the coating. Every coating should be holiday tested with a spark or wet sponge tester before service."
+  },
+  coating_dft_variance: {
+    iso_ref: "SSPC-PA 2", group: "coating", severity: "minor_to_major",
+    description: "Dry film thickness outside specified range (too thin or too thick)",
+    visual_indicators: ["sags/runs indicate too thick", "visible substrate may indicate too thin"],
+    rt_indicators: ["not applicable"],
+    paut_indicators: ["not applicable"],
+    common_causes: ["improper spray technique", "wrong tip size", "incorrect material viscosity", "environmental conditions"],
+    teaching_note: "DFT must be within spec. Too thin provides insufficient protection. Too thick risks cracking and poor adhesion."
+  },
+  coating_adhesion_failure: {
+    iso_ref: "ASTM D4541", group: "coating", severity: "critical",
+    description: "Coating fails to meet minimum pull-off adhesion strength",
+    visual_indicators: ["coating removable with scraping or tape test", "delamination between coats"],
+    rt_indicators: ["not applicable"],
+    paut_indicators: ["not applicable"],
+    common_causes: ["contaminated surface", "incompatible coating layers", "exceeded recoat window", "moisture during application"],
+    teaching_note: "If the coating won't stick, nothing else matters. Adhesion testing (pull-off or cross-cut) verifies the bond is adequate."
   }
 };
 
@@ -756,10 +1064,428 @@ var ACCEPTANCE_CRITERIA = {
     criteria: {
       crack: { accept: false, clause: "4.3.2", note: "No cracks permitted" },
       lack_of_fusion: { accept: false, clause: "4.3.2", note: "Not permitted" },
+      lack_of_penetration: { accept: false, clause: "4.3.2", note: "Not permitted for full penetration joints" },
       porosity: { accept: "conditional", clause: "4.3.2",
         conditions: "Quality level B per ISO 5817 — individual pore max 0.3s (s=weld size), max 0.3 x weld area aggregate" },
+      slag_inclusion: { accept: "conditional", clause: "4.3.2",
+        conditions: "Per ISO 5817 level B — max length = 0.3s or 2mm whichever is greater" },
       undercut: { accept: "conditional", max_depth_mm: 0.5, clause: "4.3.2",
-        conditions: "Max 0.5mm for quality level B" }
+        conditions: "Max 0.5mm for quality level B" },
+      excess_reinforcement: { accept: "conditional", clause: "4.3.2",
+        conditions: "Per ISO 5817 level B — max 1mm + 0.1b (b=weld width)" },
+      burn_through: { accept: false, clause: "4.3.2", note: "Not permitted" },
+      misalignment: { accept: "conditional", clause: "4.3.2",
+        conditions: "Max 0.1t or 3mm whichever is smaller" }
+    }
+  },
+  // ---- PIPELINE CODES ----
+  asme_b31_1: {
+    code_name: "ASME B31.1 Power Piping",
+    edition: "2024 Edition",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "136.4", note: "No cracks permitted" },
+      lack_of_fusion: { accept: false, clause: "136.4", note: "Not permitted" },
+      lack_of_penetration: { accept: false, clause: "136.4", note: "Not permitted for full penetration joints" },
+      porosity: { accept: "conditional", clause: "136.4.2",
+        conditions: "Per ASME Section VIII Appendix 4 charts — thickness-dependent" },
+      slag_inclusion: { accept: "conditional", clause: "136.4.2",
+        conditions: "Per ASME Section VIII Appendix 4 — max 2/3t individual" },
+      undercut: { accept: "conditional", max_depth_mm: 0.8, clause: "136.4.2",
+        conditions: "Max 1/32 in. (0.8mm)" },
+      excess_reinforcement: { accept: "conditional", clause: "127.4.2",
+        conditions: "Per Table 127.4.2 — max 3/32 in. for wall <= 3/4 in." }
+    }
+  },
+  asme_b31_3: {
+    code_name: "ASME B31.3 Process Piping",
+    edition: "2024 Edition",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "341.3.2", note: "No cracks permitted" },
+      lack_of_fusion: { accept: false, clause: "341.3.2", note: "Not permitted" },
+      lack_of_penetration: { accept: "conditional", clause: "341.3.2",
+        conditions: "Normal: max 1/32 in. or 25% of thinner wall. Severe cyclic: not permitted" },
+      porosity: { accept: "conditional", clause: "341.3.2",
+        conditions: "Per ASME Section VIII Appendix 4 charts" },
+      slag_inclusion: { accept: "conditional", clause: "341.3.2",
+        conditions: "Max 2/3t individual, max t aggregate per 12t weld length" },
+      undercut: { accept: "conditional", max_depth_mm: 0.8, clause: "341.3.2",
+        conditions: "Normal: max 1/32 in. (0.8mm). Severe cyclic: max 0.4mm" },
+      excess_reinforcement: { accept: "conditional", clause: "328.4.2",
+        conditions: "Max 1/16 in. (1.6mm) for wall <= 3/4 in." }
+    }
+  },
+  asme_b31_4: {
+    code_name: "ASME B31.4 Pipeline Transportation Systems for Liquids",
+    edition: "2022 Edition",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "434.8.5", note: "No cracks permitted" },
+      lack_of_fusion: { accept: "conditional", clause: "434.8.5",
+        conditions: "Per API 1104 Section 9 criteria — max 1 in. individual, 1 in. aggregate per 12 in." },
+      lack_of_penetration: { accept: "conditional", clause: "434.8.5",
+        conditions: "Per API 1104 Section 9 criteria" },
+      porosity: { accept: "conditional", clause: "434.8.5",
+        conditions: "Per API 1104 Table 3 distribution limits" },
+      slag_inclusion: { accept: "conditional", clause: "434.8.5",
+        conditions: "Per API 1104 Section 9.3.4 — max 2 in. individual" },
+      undercut: { accept: "conditional", max_depth_mm: 0.8, clause: "434.8.5",
+        conditions: "Max 1/32 in. (0.8mm) or 12.5% of wall thickness" },
+      burn_through: { accept: "conditional", clause: "434.8.5",
+        conditions: "Per API 1104 — max 1/4 in. (6mm) if adequately fused" }
+    }
+  },
+  asme_b31_8: {
+    code_name: "ASME B31.8 Gas Transmission and Distribution Piping",
+    edition: "2022 Edition",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "826.4", note: "No cracks permitted" },
+      lack_of_fusion: { accept: "conditional", clause: "826.4",
+        conditions: "Per API 1104 Section 9 criteria" },
+      lack_of_penetration: { accept: "conditional", clause: "826.4",
+        conditions: "Per API 1104 Section 9 criteria" },
+      porosity: { accept: "conditional", clause: "826.4",
+        conditions: "Per API 1104 Table 3" },
+      slag_inclusion: { accept: "conditional", clause: "826.4",
+        conditions: "Per API 1104 Section 9.3.4" },
+      undercut: { accept: "conditional", max_depth_mm: 0.8, clause: "826.4",
+        conditions: "Max 1/32 in. (0.8mm) or 12.5% of wall" }
+    }
+  },
+  // ---- STORAGE TANK ----
+  api_650: {
+    code_name: "API 650 Welded Tanks for Oil Storage",
+    edition: "13th Edition (2020, Addendum 4 2023)",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "8.5.2", note: "No cracks permitted" },
+      lack_of_fusion: { accept: false, clause: "8.5.2", note: "Not permitted in shell-to-bottom and shell joints" },
+      lack_of_penetration: { accept: false, clause: "8.5.2", note: "Not permitted in full penetration joints" },
+      porosity: { accept: "conditional", clause: "8.5.3",
+        conditions: "Individual pore max 1/4t or 3/16 in. whichever is less. Cluster: max 1 in. in any 6 in. length" },
+      slag_inclusion: { accept: "conditional", clause: "8.5.3",
+        conditions: "Individual max 1/3t or 3/4 in. whichever is less. Aggregate max t in 12t weld length" },
+      undercut: { accept: "conditional", max_depth_mm: 0.4, clause: "8.5.3",
+        conditions: "Max 1/64 in. (0.4mm) in shell courses with design stress > 2/3 allowable. Max 1/32 in. in others" },
+      burn_through: { accept: false, clause: "8.5.2", note: "Not permitted" },
+      excess_reinforcement: { accept: "conditional", clause: "8.5.3",
+        conditions: "Max 3/32 in. (2.4mm) for wall <= 1/2 in.; max 1/8 in. for thicker" },
+      misalignment: { accept: "conditional", clause: "7.5.2",
+        conditions: "Vertical joints: max 1/16t or 1/8 in. whichever is greater. Horizontal: max 1/16 in." }
+    }
+  },
+  // ---- STRUCTURAL CODES ----
+  aws_d1_2: {
+    code_name: "AWS D1.2/D1.2M Structural Welding Code - Aluminum",
+    edition: "2014 (5th Edition)",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "Table 8.1", note: "No cracks permitted" },
+      lack_of_fusion: { accept: false, clause: "Table 8.1", note: "Not permitted" },
+      lack_of_penetration: { accept: false, clause: "Table 8.1", note: "Not permitted where CJP required" },
+      porosity: { accept: "conditional", clause: "Table 8.1",
+        conditions: "Static: aggregate max 3/8 in. per linear inch. Cyclic: max 1/8 in. individual" },
+      slag_inclusion: { accept: "conditional", clause: "Table 8.1",
+        conditions: "Static: max 3/4 in. individual, clearance >= 2L" },
+      undercut: { accept: "conditional", max_depth_mm: 0.8, clause: "Table 8.1",
+        conditions: "Max 1/32 in. (0.8mm) for static loads" },
+      burn_through: { accept: false, clause: "Table 8.1", note: "Not permitted" },
+      excess_reinforcement: { accept: "conditional", clause: "5.5.1",
+        conditions: "Max 1/8 in. (3mm) for butt joints" }
+    }
+  },
+  aws_d1_4: {
+    code_name: "AWS D1.4/D1.4M Structural Welding Code - Reinforcing Steel",
+    edition: "2011 (2nd Edition)",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "6.5.1", note: "No cracks permitted" },
+      lack_of_fusion: { accept: false, clause: "6.5.1", note: "Not permitted" },
+      porosity: { accept: "conditional", clause: "6.5.3",
+        conditions: "Max 1/8 in. (3mm) individual for direct butt splice; per AWS D1.1 Table 8.9 for flare-bevel" },
+      slag_inclusion: { accept: "conditional", clause: "6.5.3",
+        conditions: "Max 3/4 in. (19mm) in 12 in. weld length" },
+      undercut: { accept: "conditional", max_depth_mm: 0.8, clause: "6.5.3",
+        conditions: "Max 1/32 in. (0.8mm)" },
+      excess_reinforcement: { accept: "conditional", clause: "6.5.3",
+        conditions: "Max 1/8 in. (3mm)" }
+    }
+  },
+  aws_d1_5: {
+    code_name: "AWS D1.5M/D1.5 Bridge Welding Code",
+    edition: "2020 (8th Edition)",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "6.26.1", note: "No cracks permitted — all bridge welds treated as fatigue-loaded" },
+      lack_of_fusion: { accept: false, clause: "6.26.1", note: "Not permitted" },
+      lack_of_penetration: { accept: false, clause: "6.26.1", note: "Not permitted for CJP joints" },
+      porosity: { accept: "conditional", clause: "6.26.2",
+        conditions: "Cyclic criteria always apply: individual max 1/8 in. (3mm); aggregate limited by cluster rules" },
+      slag_inclusion: { accept: "conditional", clause: "6.26.2",
+        conditions: "Cyclic: max 3/8 in. (10mm) individual length" },
+      undercut: { accept: "conditional", max_depth_mm: 0.25, clause: "6.26.2",
+        conditions: "Max 0.25mm (0.01 in.) for fracture-critical members; 0.8mm for non-FCM" },
+      excess_reinforcement: { accept: "conditional", clause: "6.26.2",
+        conditions: "Max 1/8 in. (3mm) flush ground for FCM" },
+      overlap: { accept: false, clause: "6.26.1", note: "Not permitted" }
+    }
+  },
+  aws_d1_6: {
+    code_name: "AWS D1.6/D1.6M Structural Welding Code - Stainless Steel",
+    edition: "2017 (2nd Edition)",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "6.28", note: "No cracks permitted" },
+      lack_of_fusion: { accept: false, clause: "6.28", note: "Not permitted" },
+      lack_of_penetration: { accept: false, clause: "6.28", note: "Not permitted for CJP joints" },
+      porosity: { accept: "conditional", clause: "6.28.1",
+        conditions: "Static: aggregate max 3/8 in. per linear inch. Cyclic: 1/8 in. max individual" },
+      slag_inclusion: { accept: "conditional", clause: "6.28.1",
+        conditions: "Per AWS D1.1 criteria adapted for stainless properties" },
+      undercut: { accept: "conditional", max_depth_mm: 0.8, clause: "6.28.1",
+        conditions: "Max 1/32 in. (0.8mm) for static loads" },
+      excess_reinforcement: { accept: "conditional", clause: "6.28.1",
+        conditions: "Max 1/8 in. (3mm) for butt joints" },
+      overlap: { accept: false, clause: "6.28", note: "Not permitted" }
+    }
+  },
+  aws_d1_8: {
+    code_name: "AWS D1.8/D1.8M Structural Welding Code - Seismic Supplement",
+    edition: "2016 (2nd Edition)",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "6.3", note: "No cracks permitted in demand-critical connections" },
+      lack_of_fusion: { accept: false, clause: "6.3", note: "Not permitted" },
+      lack_of_penetration: { accept: false, clause: "6.3", note: "Not permitted" },
+      porosity: { accept: "conditional", clause: "6.3.1",
+        conditions: "Demand-critical: max 1/16 in. (1.6mm) individual; aggregate max 3/16 in. per inch" },
+      slag_inclusion: { accept: "conditional", clause: "6.3.1",
+        conditions: "Max 1/4 in. (6mm) individual length in demand-critical" },
+      undercut: { accept: "conditional", max_depth_mm: 0.25, clause: "6.3.1",
+        conditions: "Max 0.25mm (0.01 in.) for demand-critical connections" },
+      excess_reinforcement: { accept: "conditional", clause: "6.3.1",
+        conditions: "Max 1/16 in. (1.6mm) for demand-critical butt joints — flush grinding may be required" }
+    }
+  },
+  // ---- AEROSPACE ----
+  aws_d17_1: {
+    code_name: "AWS D17.1/D17.1M Specification for Fusion Welding for Aerospace Applications",
+    edition: "2017 (2nd Edition)",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "7.4", note: "No cracks permitted — Class A, B, or C" },
+      lack_of_fusion: { accept: false, clause: "7.4", note: "Not permitted in any class" },
+      lack_of_penetration: { accept: false, clause: "7.4", note: "Not permitted — full penetration required where specified" },
+      porosity: { accept: "conditional", clause: "7.4 Table 4",
+        conditions: "Class A: max 0.25t or 0.76mm individual. Class B: max 0.33t or 1.5mm. Cumulative per inch varies by class" },
+      slag_inclusion: { accept: "conditional", clause: "7.4 Table 4",
+        conditions: "Class A: max 0.5t or 1.5mm. Class B: max 0.75t or 2.5mm" },
+      undercut: { accept: "conditional", max_depth_mm: 0.13, clause: "7.4 Table 5",
+        conditions: "Class A: max 0.05t or 0.13mm (0.005 in.) whichever is less. Class B: max 0.07t or 0.25mm" },
+      excess_reinforcement: { accept: "conditional", clause: "7.4 Table 5",
+        conditions: "Class A: max 0.03 in. (0.76mm). Class B: max 0.06 in. (1.5mm)" },
+      burn_through: { accept: false, clause: "7.4", note: "Not permitted in any class" },
+      misalignment: { accept: "conditional", clause: "7.4 Table 5",
+        conditions: "Class A: max 0.1t. Class B: max 0.15t" }
+    }
+  },
+  // ---- NUCLEAR ----
+  asme_section_iii: {
+    code_name: "ASME BPVC Section III Rules for Nuclear Facility Components",
+    edition: "2023 Edition",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "NB-5330", note: "No cracks permitted — Class 1 components" },
+      lack_of_fusion: { accept: false, clause: "NB-5330", note: "Not permitted" },
+      lack_of_penetration: { accept: false, clause: "NB-5330", note: "Not permitted" },
+      porosity: { accept: "conditional", clause: "NB-5330, T-283",
+        conditions: "Per ASME Section V Article 2 acceptance charts — more restrictive than Section VIII" },
+      slag_inclusion: { accept: "conditional", clause: "NB-5330, T-283",
+        conditions: "Linear: max 1/6t for t <= 2 in.; max 1/3 in. for t > 2 in. Aligned: clearance >= 3L" },
+      undercut: { accept: "conditional", max_depth_mm: 0.4, clause: "NB-5330",
+        conditions: "Max 1/64 in. (0.4mm) — more restrictive than Section VIII" },
+      excess_reinforcement: { accept: "conditional", clause: "NB-4426",
+        conditions: "Max 3/32 in. (2.4mm) for wall <= 5/8 in.; flush for Class 1 austenitic" },
+      burn_through: { accept: false, clause: "NB-5330", note: "Not permitted" },
+      overlap: { accept: false, clause: "NB-5330", note: "Not permitted" }
+    }
+  },
+  // ---- RAILROAD ----
+  arema: {
+    code_name: "AREMA Manual for Railway Engineering — Chapter 4 Rail",
+    edition: "2023",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "4.2.9", note: "No cracks permitted in rail welds" },
+      lack_of_fusion: { accept: false, clause: "4.2.9", note: "Not permitted — full fusion required in thermite and flash butt welds" },
+      porosity: { accept: "conditional", clause: "4.2.9",
+        conditions: "Individual max 1/16 in. (1.6mm) diameter; max 3 pores per inch" },
+      slag_inclusion: { accept: "conditional", clause: "4.2.9",
+        conditions: "Max 1/4 in. (6mm) individual length" },
+      undercut: { accept: "conditional", max_depth_mm: 0.4, clause: "4.2.9",
+        conditions: "Max 1/64 in. (0.4mm)" },
+      excess_reinforcement: { accept: "conditional", clause: "4.2.9",
+        conditions: "Must be ground flush to running surface profile" },
+      misalignment: { accept: "conditional", clause: "4.2.9",
+        conditions: "Rail end alignment max 1/32 in. (0.8mm) vertical, 1/16 in. (1.6mm) lateral" },
+      burn_through: { accept: false, clause: "4.2.9", note: "Not permitted" }
+    }
+  },
+  // ---- ISO QUALITY LEVELS ----
+  iso_5817: {
+    code_name: "ISO 5817 Welding — Fusion-welded Joints in Steel, Nickel, Titanium — Quality Levels",
+    edition: "2023 (4th Edition)",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "Table 1 Ref 1.x", note: "No cracks permitted at any quality level (B, C, or D)" },
+      lack_of_fusion: { accept: false, clause: "Table 1 Ref 4.x", note: "Not permitted at level B or C" },
+      lack_of_penetration: { accept: "conditional", clause: "Table 1 Ref 4.x",
+        conditions: "Level B: not permitted. Level C: max 0.2s or 2mm. Level D: max 0.3s or 3mm" },
+      porosity: { accept: "conditional", clause: "Table 1 Ref 2.x",
+        conditions: "Level B: max 0.2s individual, 1% area. Level C: max 0.3s, 1.5% area. Level D: max 0.4s, 2.5% area" },
+      slag_inclusion: { accept: "conditional", clause: "Table 1 Ref 3.x",
+        conditions: "Level B: max 0.3s or 2mm. Level C: max 0.4s or 3mm. Level D: max 0.5s or 4mm" },
+      undercut: { accept: "conditional", max_depth_mm: 0.5, clause: "Table 1 Ref 5.x",
+        conditions: "Level B: max 0.5mm. Level C: max 0.5mm intermittent, 1mm short. Level D: max 1mm" },
+      excess_reinforcement: { accept: "conditional", clause: "Table 1 Ref 5.x",
+        conditions: "Level B: max 1mm + 0.1b. Level C: max 1mm + 0.15b. Level D: max 1mm + 0.25b" },
+      misalignment: { accept: "conditional", clause: "Table 1 Ref 5.x",
+        conditions: "Level B: max 0.1t or 2mm. Level C: max 0.15t or 3mm. Level D: max 0.25t or 5mm" },
+      overlap: { accept: false, clause: "Table 1 Ref 5.x", note: "Not permitted at level B" }
+    }
+  },
+  // ---- SHEET STEEL EXPANDED ----
+  aws_d1_3_expanded: {
+    code_name: "AWS D1.3/D1.3M Structural Welding Code - Sheet Steel",
+    edition: "2018 (2nd Edition)",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "4.3.1", note: "No cracks permitted" },
+      lack_of_fusion: { accept: false, clause: "4.3.1", note: "Not permitted" },
+      porosity: { accept: "conditional", clause: "4.3.2",
+        conditions: "Max 3/8 in. (10mm) aggregate in any 1 in. of weld" },
+      slag_inclusion: { accept: "conditional", clause: "4.3.2",
+        conditions: "Per AWS D1.1 criteria proportioned for sheet steel thickness" },
+      undercut: { accept: "conditional", max_depth_mm: 0.4, clause: "4.3.2",
+        conditions: "Max 1/64 in. (0.4mm) — more restrictive than D1.1 due to thin material" },
+      burn_through: { accept: "conditional", clause: "4.3.2",
+        conditions: "Permissible if repaired and resulting joint meets strength requirements" },
+      excess_reinforcement: { accept: "conditional", clause: "4.3.2",
+        conditions: "Max 1/16 in. (1.6mm) for sheet metal fillet welds" },
+      overlap: { accept: false, clause: "4.3.1", note: "Not permitted" }
+    }
+  },
+  // ---- COATINGS STANDARDS ----
+  sspc_pa_2: {
+    code_name: "SSPC-PA 2 Measurement of DFT with Magnetic Gages",
+    edition: "2020",
+    criteria: {
+      coating_dft_variance: { accept: "conditional", clause: "Section 4.3",
+        conditions: "No single reading below 80% of specified DFT. Average of all readings must meet or exceed specified DFT" },
+      coating_holiday: { accept: false, clause: "Referenced by SSPC-PA 2 + NACE SP0188",
+        note: "Any holiday (bare spot) is rejectable — must be repaired and retested" }
+    }
+  },
+  nace_sp0188: {
+    code_name: "NACE SP0188 (AMPP SP21478) Discontinuity (Holiday) Testing of New Protective Coatings on Conductive Substrates",
+    edition: "2022",
+    criteria: {
+      coating_holiday: { accept: false, clause: "Section 4",
+        note: "Any holiday detected by low-voltage wet sponge or high-voltage spark test requires repair" },
+      coating_blistering: { accept: "conditional", clause: "Section 4",
+        conditions: "Any blistering indicates coating failure at that location — investigate root cause" }
+    }
+  },
+  iso_12944: {
+    code_name: "ISO 12944 Paints and Varnishes — Corrosion Protection of Steel Structures by Protective Paint Systems",
+    edition: "2018 (Parts 1-9)",
+    criteria: {
+      coating_blistering: { accept: "conditional", clause: "Part 6 Table 5",
+        conditions: "Size 2 density 2 max acceptable for category C3-C5. Any blistering rejectable for CX (immersion)" },
+      coating_peeling: { accept: false, clause: "Part 6",
+        note: "Any spontaneous peeling or flaking is rejectable" },
+      coating_rust_creepage: { accept: "conditional", clause: "Part 6 Table 5",
+        conditions: "Max 1mm creepage from scribe for C5 and CX categories. Max 3mm for C3" },
+      coating_chalking: { accept: "conditional", clause: "Part 6",
+        conditions: "Degree 1 (trace) acceptable. Degree 3+ (heavy) requires maintenance" },
+      coating_adhesion_failure: { accept: "conditional", clause: "Part 6",
+        conditions: "Pull-off adhesion min 5 MPa for most systems. Min 3 MPa for some primers" },
+      coating_dft_variance: { accept: "conditional", clause: "Part 7",
+        conditions: "DFT within system manufacturer specification. No measurement below 80% of nominal" }
+    }
+  },
+  iso_8501: {
+    code_name: "ISO 8501 Preparation of Steel Substrates — Visual Assessment of Surface Cleanliness",
+    edition: "2007 (Part 1), 2017 (Part 4)",
+    criteria: {
+      surface_preparation: { accept: "conditional", clause: "Part 1",
+        conditions: "Sa 2.5 (near-white) minimum for most protective coatings. Sa 3 (white metal) for immersion service" },
+      rust_grade: { accept: "conditional", clause: "Part 1",
+        conditions: "Grade A: steel covered with mill scale. Grade B: rusting, mill scale flaking. Grade C: mill scale rusted off. Grade D: pitted" }
+    }
+  },
+  // ---- ARCHITECTURAL / STRUCTURAL ENGINEERING ----
+  aisc_360: {
+    code_name: "AISC 360 Specification for Structural Steel Buildings",
+    edition: "2022 (16th Edition)",
+    criteria: {
+      crack: { accept: false, clause: "J2.6 + AWS D1.1", note: "No cracks permitted per AWS D1.1 Table 8.9" },
+      lack_of_fusion: { accept: false, clause: "J2.6 + AWS D1.1", note: "Per AWS D1.1 — references D1.1 for all weld quality" },
+      undercut: { accept: "conditional", clause: "J2.6 + AWS D1.1 Table 8.9",
+        conditions: "Per AWS D1.1: max 1/32 in. for material <= 3/4 in." },
+      porosity: { accept: "conditional", clause: "J2.6 + AWS D1.1",
+        conditions: "Per AWS D1.1 Table 8.9 static or cyclic criteria depending on connection type" },
+      misalignment: { accept: "conditional", clause: "M2.5",
+        conditions: "Column splice: max 1/4 in. offset. Beam: per erection tolerances AISC Code of Standard Practice" }
+    }
+  },
+  ibc_welding: {
+    code_name: "IBC International Building Code — Structural Welding Requirements",
+    edition: "2024",
+    criteria: {
+      crack: { accept: false, clause: "IBC 2204 references AWS D1.1",
+        note: "All structural welding per AWS D1.1 or applicable AWS code. No cracks permitted." },
+      lack_of_fusion: { accept: false, clause: "IBC 2204",
+        note: "Per referenced AWS D1.x standard" },
+      undercut: { accept: "conditional", clause: "IBC 2204 references AWS D1.1",
+        conditions: "Per applicable AWS D1.x code criteria" },
+      porosity: { accept: "conditional", clause: "IBC 2204",
+        conditions: "Per applicable AWS D1.x code criteria — static or cyclic as designated by engineer of record" }
+    }
+  },
+  // ---- IN-SERVICE INSPECTION CODES ----
+  api_510: {
+    code_name: "API 510 Pressure Vessel Inspection Code",
+    edition: "11th Edition (2023)",
+    criteria: {
+      crack: { accept: false, clause: "7.4.2", note: "Cracks require engineering evaluation per API 579-1" },
+      general_corrosion: { accept: "conditional", clause: "7.4.3",
+        conditions: "Acceptable if remaining thickness > tmin + corrosion allowance. Calculate remaining life per 7.4.3.2" },
+      pitting_corrosion: { accept: "conditional", clause: "7.4.3.4",
+        conditions: "Evaluate per API 579-1 Part 6. Remaining strength depends on pit density and depth" },
+      stress_corrosion_cracking: { accept: false, clause: "7.4.2",
+        note: "Requires FFS evaluation per API 579-1 Part 9" },
+      htha: { accept: false, clause: "7.4.2",
+        note: "Requires immediate engineering evaluation per API 941 and API 579-1" },
+      erosion: { accept: "conditional", clause: "7.4.3",
+        conditions: "Same as general corrosion — remaining life based on measured thinning rate" }
+    }
+  },
+  api_570: {
+    code_name: "API 570 Piping Inspection Code",
+    edition: "4th Edition (2016, Addendum 2020)",
+    criteria: {
+      crack: { accept: false, clause: "7.3.1", note: "Cracks require engineering evaluation per API 579-1" },
+      general_corrosion: { accept: "conditional", clause: "7.3.2",
+        conditions: "Acceptable if remaining wall > tmin. Remaining life = (t_actual - t_min) / corrosion_rate" },
+      pitting_corrosion: { accept: "conditional", clause: "7.3.2",
+        conditions: "Evaluate per API 579-1 Part 6" },
+      erosion: { accept: "conditional", clause: "7.3.2",
+        conditions: "Same as corrosion — remaining life based on measured loss rate" },
+      stress_corrosion_cracking: { accept: false, clause: "7.3.1",
+        note: "Requires FFS evaluation" }
+    }
+  },
+  api_653: {
+    code_name: "API 653 Tank Inspection, Repair, Alteration, and Reconstruction",
+    edition: "5th Edition (2014, Addendum 3 2018)",
+    criteria: {
+      crack: { accept: false, clause: "6.3.1", note: "Shell cracks require engineering evaluation or repair" },
+      general_corrosion: { accept: "conditional", clause: "6.3.2",
+        conditions: "Shell: remaining thickness > tmin per API 653 Appendix B formula. Bottom: min 0.1 in. (2.5mm) remaining" },
+      pitting_corrosion: { accept: "conditional", clause: "6.3.3",
+        conditions: "Evaluate per API 579-1 Part 6 or API 653 simplified assessment" },
+      undercut: { accept: "conditional", clause: "6.3.4",
+        conditions: "Per original construction code (typically API 650)" },
+      settlement: { accept: "conditional", clause: "6.3.7",
+        conditions: "Evaluate per API 653 Appendix B settlement criteria — differential settlement limits" }
     }
   }
 };
@@ -772,12 +1498,26 @@ function routeToCode(codeKey, discontinuityType) {
 
   // Normalize discontinuity type to base type for criteria lookup
   var baseType = discontinuityType;
-  if (baseType.indexOf("crack") !== -1 && baseType !== "crater_crack") baseType = "crack";
+  if (baseType.indexOf("crack") !== -1 && baseType !== "crater_crack" && baseType.indexOf("coating") === -1) baseType = "crack";
   if (baseType.indexOf("porosity") !== -1) baseType = "porosity";
-  if (baseType.indexOf("slag") !== -1) baseType = "slag_inclusion";
+  if (baseType.indexOf("slag") !== -1 || baseType.indexOf("tungsten_inclusion") !== -1) baseType = "slag_inclusion";
   if (baseType.indexOf("lack_of_fusion") !== -1 || baseType === "lof") baseType = "lack_of_fusion";
   if (baseType.indexOf("lack_of_penetration") !== -1 || baseType === "lop") baseType = "lack_of_penetration";
   if (baseType.indexOf("undercut") !== -1) baseType = "undercut";
+  if (baseType.indexOf("misalignment") !== -1 || baseType === "hi_lo") baseType = "misalignment";
+  if (baseType.indexOf("reinforcement") !== -1 || baseType === "underfill") baseType = "excess_reinforcement";
+  if (baseType.indexOf("burn_through") !== -1 || baseType === "melt_through") baseType = "burn_through";
+  if (baseType.indexOf("overlap") !== -1 || baseType === "cold_lap") baseType = "overlap";
+  if (baseType.indexOf("erosion") !== -1 && baseType.indexOf("coating") === -1) baseType = "erosion";
+  if (baseType.indexOf("general_corrosion") !== -1) baseType = "general_corrosion";
+  if (baseType.indexOf("pitting") !== -1 && baseType.indexOf("coating") === -1) baseType = "pitting_corrosion";
+  if (baseType.indexOf("blistering") !== -1) baseType = "coating_blistering";
+  if (baseType.indexOf("peeling") !== -1) baseType = "coating_peeling";
+  if (baseType.indexOf("holiday") !== -1) baseType = "coating_holiday";
+  if (baseType.indexOf("dft") !== -1) baseType = "coating_dft_variance";
+  if (baseType.indexOf("adhesion") !== -1) baseType = "coating_adhesion_failure";
+  if (baseType.indexOf("chalking") !== -1) baseType = "coating_chalking";
+  if (baseType.indexOf("rust_creepage") !== -1) baseType = "coating_rust_creepage";
 
   var criteria = codeData.criteria[baseType];
   if (!criteria) {
@@ -899,15 +1639,47 @@ function assessPhysicsConsequence(discontinuities, context) {
 
     // In-service degradation
     if (disc.group === "in_service") {
-      if (disc.discontinuity_type === "stress_corrosion_cracking") {
+      if (disc.discontinuity_type === "stress_corrosion_cracking" || disc.discontinuity_type === "htha" ||
+          disc.discontinuity_type === "metal_dusting" || disc.discontinuity_type === "sigma_phase_embrittlement" ||
+          disc.discontinuity_type === "temper_embrittlement") {
         consequence.physics_impact = "CRITICAL";
-        consequence.failure_mode = "rapid_through_wall_propagation";
+        consequence.failure_mode = disc.discontinuity_type === "htha" ? "internal_decarburization_and_fissuring" :
+          disc.discontinuity_type === "metal_dusting" ? "catastrophic_localized_wastage" :
+          disc.discontinuity_type.indexOf("embrittlement") !== -1 ? "sudden_brittle_fracture_risk" :
+          "rapid_through_wall_propagation";
         consequence.remaining_life_impact = "urgent_assessment_required";
         overallRisk = "CRITICAL";
+      } else if (disc.discontinuity_type === "creep_damage") {
+        consequence.physics_impact = "HIGH";
+        consequence.failure_mode = "time_dependent_void_coalescence_to_rupture";
+        consequence.remaining_life_impact = "requires_remaining_life_fraction_assessment";
+        if (overallRisk !== "CRITICAL") overallRisk = "HIGH";
+      } else if (disc.discontinuity_type === "intergranular_corrosion" || disc.discontinuity_type === "galvanic_corrosion") {
+        consequence.physics_impact = "MODERATE_TO_HIGH";
+        consequence.failure_mode = "preferential_attack_with_potential_through_wall";
+        consequence.remaining_life_impact = "depends_on_attack_rate_and_remaining_wall";
       } else {
         consequence.physics_impact = "MODERATE";
         consequence.failure_mode = "progressive_wall_loss";
         consequence.remaining_life_impact = "calculable_from_corrosion_rate";
+      }
+    }
+
+    // Coating defects — protection system compromise
+    if (disc.group === "coating") {
+      consequence.physics_impact = "LOW_TO_MODERATE";
+      consequence.failure_mode = "corrosion_protection_compromised";
+      consequence.remaining_life_impact = "accelerated_corrosion_if_not_repaired";
+      if (disc.discontinuity_type === "coating_adhesion_failure" || disc.discontinuity_type === "coating_peeling") {
+        consequence.physics_impact = "MODERATE";
+        consequence.failure_mode = "widespread_coating_system_failure";
+        escalationFactors.push("Coating adhesion failure exposes substrate to corrosive environment");
+      }
+      if (disc.discontinuity_type === "coating_holiday" && (service === "immersion" || service === "buried" || service === "offshore")) {
+        consequence.physics_impact = "HIGH";
+        consequence.failure_mode = "localized_corrosion_at_holiday_in_aggressive_environment";
+        escalationFactors.push("Coating holiday in immersion/buried/offshore service — rapid localized attack expected");
+        if (overallRisk !== "CRITICAL") overallRisk = "HIGH";
       }
     }
 
