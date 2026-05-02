@@ -321,7 +321,9 @@ var ENGINE_REGISTRY = [
   { name: "cfi-engine", deploy: "CFI-v1", mode: "deterministic", path: "/api/cfi-engine" },
   { name: "inspection-effectiveness", deploy: "DEPLOY353", mode: "deterministic", path: "/api/inspection-effectiveness" },
   { name: "mic-intelligence", deploy: "DEPLOY354", mode: "deterministic", path: "/api/mic-intelligence" },
-  { name: "api-standards-authority", deploy: "DEPLOY355", mode: "deterministic", path: "/api/api-standards-authority" }
+  { name: "api-standards-authority", deploy: "DEPLOY355", mode: "deterministic", path: "/api/api-standards-authority" },
+  { name: "nde-image-analysis", deploy: "DEPLOY280", mode: "ai_assisted", path: "/api/nde-image-analysis" },
+  { name: "disposition-pathway", deploy: "DEPLOY180", mode: "deterministic", path: "/api/disposition-pathway" }
 ];
 
 function countByMode(mode) {
