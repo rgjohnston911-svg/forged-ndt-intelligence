@@ -1976,7 +1976,7 @@ function runPathC(testCase, callback) {
         for (var cp = 0; cp < confKeys.length; cp++) {
           if (confPreds[confKeys[cp]] >= 0.60) highConfCount++;
         }
-        if (highConfCount >= 4 && finalClass === 'MONITOR') {
+        if (highConfCount >= 4 && (finalClass === 'MONITOR' || finalClass === 'ROUTINE_MONITORING')) {
           finalClass = 'INCREASE_INSPECTION';
           finalLock = false;
         }

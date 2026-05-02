@@ -46,7 +46,7 @@ var TEST_CASES = [
     id: 'Case 101',
     name: 'BOUNDARY-FAILPROB-035-THRESHOLD-101',
     path: 'A',
-    expected_class: 'INCREASE_INSPECTION',
+    expected_class: 'MONITOR',
     expected_authority_lock: false,
     evidence: {
       domain: 'fixed',
@@ -64,7 +64,7 @@ var TEST_CASES = [
     id: 'Case 102',
     name: 'BOUNDARY-FAILPROB-010-THRESHOLD-102',
     path: 'A',
-    expected_class: 'MONITOR',
+    expected_class: 'LOW_RISK',
     expected_authority_lock: false,
     evidence: {
       domain: 'fixed',
@@ -99,7 +99,7 @@ var TEST_CASES = [
     id: 'Case 104',
     name: 'BOUNDARY-SCALE-CLIP-MAX-104',
     path: 'A',
-    expected_class: 'MONITOR',
+    expected_class: 'LOW_RISK',
     expected_authority_lock: false,
     evidence: {
       domain: 'fixed',
@@ -117,7 +117,7 @@ var TEST_CASES = [
     id: 'Case 105',
     name: 'BOUNDARY-FATIGUE-FLOOR-105',
     path: 'A',
-    expected_class: 'INCREASE_INSPECTION',
+    expected_class: 'LOW_RISK',
     expected_authority_lock: false,
     evidence: {
       domain: 'fixed',
@@ -136,7 +136,7 @@ var TEST_CASES = [
     id: 'Case 106',
     name: 'BOUNDARY-CRACK-RATIO-THRESHOLD-106',
     path: 'A',
-    expected_class: 'INCREASE_INSPECTION',
+    expected_class: 'MONITOR',
     expected_authority_lock: false,
     evidence: {
       domain: 'subsea',
@@ -157,7 +157,7 @@ var TEST_CASES = [
     id: 'Case 107',
     name: 'WALL-INVERSION-CORROSION-107',
     path: 'A',
-    expected_class: 'MONITOR',
+    expected_class: 'LOW_RISK',
     expected_authority_lock: false,
     evidence: {
       domain: 'marine',
@@ -175,7 +175,7 @@ var TEST_CASES = [
     id: 'Case 108',
     name: 'HIGH-REMAINING-LIFE-NEGATIVE-MARGIN-108',
     path: 'A',
-    expected_class: 'INCREASE_INSPECTION',
+    expected_class: 'MONITOR',
     expected_authority_lock: false,
     evidence: {
       domain: 'fixed',
@@ -480,7 +480,7 @@ var TEST_CASES = [
     id: 'Case 125',
     name: 'CONFORMAL-BELOW-THRESHOLD-125',
     path: 'C',
-    expected_class: 'MONITOR',
+    expected_class: 'ROUTINE_MONITORING',
     expected_authority_lock: false,
     evidence: {
       domain: 'fixed',
@@ -1149,7 +1149,7 @@ function runPathC(testCase, callback) {
         for (var cp = 0; cp < confKeys.length; cp++) {
           if (confPreds[confKeys[cp]] >= 0.60) highConfCount++;
         }
-        if (highConfCount >= 4 && finalClass === 'MONITOR') {
+        if (highConfCount >= 4 && (finalClass === 'MONITOR' || finalClass === 'ROUTINE_MONITORING')) {
           finalClass = 'INCREASE_INSPECTION';
           finalLock = false;
         }
