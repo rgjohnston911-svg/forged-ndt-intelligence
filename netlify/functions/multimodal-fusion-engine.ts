@@ -578,29 +578,4 @@ var handler: Handler = async function(event, context) {
     return {
       statusCode: 500,
       headers: corsHeaders,
-      body: JSON.stringify({ error: "Internal server error", detail: String(e) })
-    };
-  }
-  var db_write_task = function() {
-    try {
-      var db_payload = {
-        action: action,
-        result_data: response_payload,
-        request_hash: event.body.substring(0, 100),
-        created_at: new Date().toISOString()
-      };
-      supabase.from('multimodal_fusion_results').insert([db_payload]).then(function(result) {
-      }).catch(function(error) {
-      });
-    } catch (db_err) {
-    }
-  };
-  db_write_task();
-  return {
-    statusCode: 200,
-    headers: corsHeaders,
-    body: JSON.stringify(response_payload)
-  };
-};
-
-export { handler };
+      body: JSON.stringify({ error: "Internal server error", detail: Str

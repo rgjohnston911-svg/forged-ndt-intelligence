@@ -2249,42 +2249,4 @@ function printScorecard(results) {
   }
 
   console.log('\n  BY EXPECTED BAND:');
-  var bandKeys = Object.keys(bandStats);
-  for (var bk = 0; bk < bandKeys.length; bk++) {
-    var bs = bandStats[bandKeys[bk]];
-    var btotal = bs.pass + bs.fail;
-    console.log('    ' + bandKeys[bk] + ': ' + bs.pass + '/' + btotal + ' (' + Math.round(bs.pass / btotal * 100) + '%)');
-  }
-
-  console.log('\n  FAILING MECHANISMS (systemic patterns):');
-  var failMechs = Object.keys(mechStats).filter(function(k) { return mechStats[k].fail > 0; });
-  if (failMechs.length === 0) {
-    console.log('    None — all mechanisms classified correctly!');
-  } else {
-    for (var fm = 0; fm < failMechs.length; fm++) {
-      var ms = mechStats[failMechs[fm]];
-      console.log('    ' + failMechs[fm] + ' (' + ms.fail + ' failures): ' + ms.cases.join(', '));
-    }
-  }
-
-  console.log('\n════════════════════════════════════════════════════════════════');
-  if (allPass) {
-    console.log('OVERALL: ALL THRESHOLDS PASSED');
-  } else {
-    console.log('OVERALL: SOME THRESHOLDS NOT MET');
-  }
-  console.log('════════════════════════════════════════════════════════════════\n');
-}
-
-// ── MAIN ─────────────────────────────────────────────────────────────
-
-console.log('════════════════════════════════════════════════════════════════');
-console.log('BLIND VALIDATION SUITE — 50 NEW CASES (Task #238)');
-console.log('FORGED 4D NDT Intelligence OS — Independent Test Harness');
-console.log('Target: ' + BASE_URL);
-console.log('Cases: ' + TEST_CASES.length);
-console.log('════════════════════════════════════════════════════════════════\n');
-
-runAllCases(TEST_CASES, 0, [], function(results) {
-  printScorecard(results);
-});
+  var 
