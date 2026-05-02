@@ -698,6 +698,99 @@ function runClassification(input) {
     authorityLockRequired = false;
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // PHYSICS SUFFICIENCY GATE (Rule 5)
+  // If inspection methods are provided, verify the requested method can
+  // physically detect the suspected damage mechanism. If insufficient,
+  // block final disposition regardless of Weibull probability.
+  // Authority hierarchy: Physics insufficiency overrides probability-based
+  // classification — you cannot disposition what you cannot detect.
+  // ═══════════════════════════════════════════════════════════════════════
+  var requestedMethods = input.requested_methods || null;
+  var physicsSufficiencyStatus = null;
+  var physicsSufficiencyScore = null;
+  var physicsSufficiencyGaps = [];
+
+  if (requestedMethods && requestedMethods.length > 0 && mechanism) {
+    var mechLower = mechanism.toLowerCase();
+    var methodSet = {};
+    for (var mi = 0; mi < requestedMethods.length; mi++) {
+      methodSet[requestedMethods[mi].toUpperCase()] = true;
+    }
+
+    // Method-mechanism sufficiency map: which methods can detect which mechanisms
+    var canDetect = true;
+    var gaps = [];
+
+    // WALL LOSS / CORROSION / EROSION — requires thickness-capable method
+    if (mechLower.indexOf("corrosion") !== -1 || mechLower.indexOf("wall_loss") !== -1 ||
+        mechLower.indexOf("erosion") !== -1 || mechLower.indexOf("thinning") !== -1 ||
+        mechLower.indexOf("cui") !== -1) {
+      if (!methodSet["UT"] && !methodSet["PAUT"] && !methodSet["RT"] && !methodSet["PEC"]) {
+        canDetect = false;
+        gaps.push("Wall loss/corrosion requires thickness-capable method (UT, PAUT, RT, or PEC)");
+      }
+    }
+
+    // SURFACE CRACKING — requires surface-sensitive method
+    if (mechLower.indexOf("surface_crack") !== -1 || mechLower.indexOf("toe_crack") !== -1 ||
+        mechLower.indexOf("fatigue") !== -1 && mechLower.indexOf("crack") !== -1) {
+      if (!methodSet["MT"] && !methodSet["PT"] && !methodSet["PAUT"] && !methodSet["ET"]) {
+        canDetect = false;
+        gaps.push("Surface cracking requires surface-sensitive method (MT, PT, PAUT, or ET)");
+      }
+    }
+
+    // INTERNAL / SUBSURFACE CRACKING — requires volumetric method
+    if (mechLower.indexOf("lack_of_fusion") !== -1 || mechLower.indexOf("lamination") !== -1 ||
+        mechLower.indexOf("hic") !== -1 || mechLower.indexOf("sohic") !== -1 ||
+        mechLower.indexOf("internal_crack") !== -1) {
+      if (!methodSet["PAUT"] && !methodSet["TOFD"] && !methodSet["RT"]) {
+        canDetect = false;
+        gaps.push("Internal/subsurface flaws require volumetric method (PAUT, TOFD, or RT)");
+      }
+    }
+
+    // HTHA — requires advanced UT techniques
+    if (mechLower.indexOf("htha") !== -1) {
+      if (!methodSet["PAUT"] && !methodSet["TOFD"] && !methodSet["ADVANCED_UT"]) {
+        canDetect = false;
+        gaps.push("HTHA cannot be reliably detected by basic visual or surface methods — requires PAUT, TOFD, or Advanced UT");
+      }
+    }
+
+    // SCC / SSC / ENVIRONMENTALLY ASSISTED CRACKING
+    if (mechLower.indexOf("scc") !== -1 || mechLower.indexOf("ssc") !== -1 ||
+        mechLower.indexOf("caustic_crack") !== -1 || mechLower.indexOf("amine_crack") !== -1 ||
+        mechLower.indexOf("chloride_scc") !== -1) {
+      if (!methodSet["PAUT"] && !methodSet["TOFD"] && !methodSet["WFMT"] && !methodSet["MT"] && !methodSet["PT"]) {
+        canDetect = false;
+        gaps.push("Environmentally assisted cracking requires crack-sensitive method (PAUT, TOFD, WFMT, MT, or PT)");
+      }
+    }
+
+    // MIC — requires thickness + biological confirmation
+    if (mechLower.indexOf("mic") !== -1) {
+      if (!methodSet["UT"] && !methodSet["PAUT"]) {
+        canDetect = false;
+        gaps.push("MIC requires thickness measurement (UT/PAUT) plus microbiological confirmation");
+      }
+    }
+
+    // Score: 1.0 if all gaps covered, degrade per gap
+    physicsSufficiencyScore = canDetect ? 1.0 : Math.max(0, 1.0 - (gaps.length * 0.35));
+    physicsSufficiencyGaps = gaps;
+
+    if (!canDetect) {
+      physicsSufficiencyStatus = "INSUFFICIENT";
+      // HARD GATE: Override classification — cannot disposition what you cannot detect
+      reliabilityClass = "HOLD_FOR_INPUT";
+      authorityLockRequired = true;
+    } else {
+      physicsSufficiencyStatus = "SUFFICIENT";
+    }
+  }
+
   var recommendationText = "";
   if (reliabilityClass === "LOW_RISK") {
     recommendationText = "Continue normal inspection program with proof trace retained.";
@@ -719,14 +812,29 @@ function runClassification(input) {
     recommendationText = "Do not finalize decision. Required evidence or calibration data is missing.";
   }
 
+  // Physics sufficiency override on recommendation text
+  if (physicsSufficiencyStatus === "INSUFFICIENT") {
+    recommendationText = "PHYSICS GATE: Requested inspection method cannot physically detect the suspected damage mechanism. " +
+      physicsSufficiencyGaps.join("; ") + ". Disposition blocked until adequate method is applied.";
+  }
+
+  var lockReason = authorityLockRequired ? (physicsSufficiencyStatus === "INSUFFICIENT" ? "physics_sufficiency_insufficient" : isCriticalMechanism ? "critical_mechanism" : isHighRiskMechanism ? "high_risk_mechanism" : "threshold_exceeded") : null;
+
   return {
     reliability_class: reliabilityClass,
     recommendation: recommendationText,
     authority_lock_required: authorityLockRequired,
-    authority_lock_reason: authorityLockRequired ? (isCriticalMechanism ? "critical_mechanism" : isHighRiskMechanism ? "high_risk_mechanism" : "threshold_exceeded") : null,
+    authority_lock_reason: lockReason,
     mechanism_risk: isCriticalMechanism ? "CRITICAL" : isHighRiskMechanism ? "HIGH" : "STANDARD",
     inspector_required_inputs: reliabilityClass === "HOLD_FOR_INPUT" ? true : false,
-    confidence: conformalConfidence
+    confidence: conformalConfidence,
+    physics_sufficiency: physicsSufficiencyStatus ? {
+      status: physicsSufficiencyStatus,
+      score: physicsSufficiencyScore,
+      gaps: physicsSufficiencyGaps,
+      requested_methods: requestedMethods,
+      gate_triggered: physicsSufficiencyStatus === "INSUFFICIENT"
+    } : null
   };
 }
 
