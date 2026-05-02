@@ -1404,6 +1404,92 @@ var CLASSIFICATION_RULES = {
   }
 };
 
+// ── ENGINE ASSUMPTION CONTRACTS (DEPLOY279) ─────────────────────────
+// Validates physics assumptions BEFORE Weibull derivation runs.
+// Returns { valid: boolean, warnings: [], violations: [], corrected: {} }
+
+function validateAssumptions(testCase) {
+  var evidence = testCase.evidence || {};
+  var warnings = [];
+  var violations = [];
+  var corrected = {};
+
+  if (evidence.corrosion_rate_annual !== undefined && evidence.corrosion_rate_annual <= 0) {
+    violations.push('corrosion_rate_annual <= 0: physically impossible');
+    corrected.corrosion_rate_annual = undefined;
+  }
+  if (evidence.pitting_rate_annual !== undefined && evidence.pitting_rate_annual <= 0) {
+    violations.push('pitting_rate_annual <= 0: physically impossible');
+    corrected.pitting_rate_annual = undefined;
+  }
+  if (evidence.tnom !== undefined && evidence.tmm !== undefined && evidence.tmm > evidence.tnom * 1.05) {
+    violations.push('tmm exceeds tnom: measurement error or data swap');
+    corrected.tmm = evidence.tnom;
+  }
+  if (evidence.tofd_length !== undefined && evidence.tofd_length >= 1.0) {
+    warnings.push('tofd_length >= critical (1.0): at or beyond failure');
+  }
+  if (evidence.crack_growth_rate_annual !== undefined && evidence.crack_growth_rate_annual <= 0) {
+    violations.push('crack_growth_rate_annual <= 0: physically impossible');
+    corrected.crack_growth_rate_annual = undefined;
+  }
+  if (evidence.remaining_life_estimate !== undefined) {
+    var rlVal = evidence.remaining_life_estimate;
+    if (typeof rlVal === 'string') {
+      var parsed = parseFloat(rlVal.replace(/years?/gi, '').trim().split('-')[0]);
+      if (!isNaN(parsed) && parsed < 0) {
+        violations.push('remaining_life_estimate is negative: physically impossible');
+        corrected.remaining_life_estimate = '0.1 years';
+      }
+    } else if (typeof rlVal === 'number' && rlVal < 0) {
+      violations.push('remaining_life_estimate is negative: physically impossible');
+      corrected.remaining_life_estimate = 0.1;
+    }
+  }
+  if (evidence.calculated_damage_ratio !== undefined) {
+    if (evidence.calculated_damage_ratio < 0 || evidence.calculated_damage_ratio > 1.0) {
+      violations.push('calculated_damage_ratio outside 0-1 range');
+      corrected.calculated_damage_ratio = Math.max(0, Math.min(1.0, evidence.calculated_damage_ratio));
+    }
+  }
+  if (evidence.design_life_consumed !== undefined) {
+    if (evidence.design_life_consumed < 0 || evidence.design_life_consumed > 100) {
+      warnings.push('design_life_consumed outside 0-100 range');
+      corrected.design_life_consumed = Math.max(0, Math.min(100, evidence.design_life_consumed));
+    }
+  }
+  if (evidence.fad_margin !== undefined && evidence.fad_margin <= 0) {
+    violations.push('fad_margin <= 0: component has already failed');
+    corrected.fad_margin = 0.01;
+  }
+  if (evidence.fracture_mechanics_safety_factor !== undefined && evidence.fracture_mechanics_safety_factor <= 0) {
+    violations.push('fracture_mechanics_safety_factor <= 0: beyond failure');
+    corrected.fracture_mechanics_safety_factor = 0.01;
+  }
+  if (evidence.tnom !== undefined && evidence.tnom <= 0) {
+    violations.push('tnom <= 0: physically impossible');
+  }
+  if (evidence.tmm !== undefined && evidence.tmm < 0) {
+    violations.push('tmm < 0: physically impossible');
+    corrected.tmm = 0.01;
+  }
+  if (evidence.estimated_cycles_to_rupture !== undefined && evidence.estimated_cycles_to_rupture <= 0) {
+    violations.push('estimated_cycles_to_rupture <= 0: invalid fatigue data');
+  }
+  if (evidence.cycles_per_year !== undefined && evidence.cycles_per_year <= 0) {
+    violations.push('cycles_per_year <= 0: invalid cycle frequency');
+  }
+  var confPreds = testCase.conformal_predictions || evidence.conformal_predictions || {};
+  var confKeys = Object.keys(confPreds);
+  for (var ci = 0; ci < confKeys.length; ci++) {
+    var cpVal = confPreds[confKeys[ci]];
+    if (cpVal < 0 || cpVal > 1.0) {
+      warnings.push('conformal_prediction[' + confKeys[ci] + '] outside 0-1');
+    }
+  }
+  return { valid: violations.length === 0, warnings: warnings, violations: violations, corrected: corrected };
+}
+
 // ── DERIVE WEIBULL PARAMETERS ────────────────────────────────────────
 
 function deriveWeibullParams(testCase) {
@@ -1692,6 +1778,18 @@ function callEngine(path, payload, callback) {
 // ── PATH A: SURVIVAL MODEL + CLASSIFICATION ──────────────────────────
 
 function runPathA(testCase, callback) {
+  // DEPLOY279: Validate assumptions before Weibull derivation
+  var assumptions = validateAssumptions(testCase);
+  if (assumptions.violations.length > 0) {
+    var corrKeys = Object.keys(assumptions.corrected);
+    for (var ck = 0; ck < corrKeys.length; ck++) {
+      if (assumptions.corrected[corrKeys[ck]] === undefined) {
+        delete testCase.evidence[corrKeys[ck]];
+      } else {
+        testCase.evidence[corrKeys[ck]] = assumptions.corrected[corrKeys[ck]];
+      }
+    }
+  }
   var weibull = testCase.survival_model || deriveWeibullParams(testCase);
 
   var survivalPayload = {
@@ -1803,6 +1901,18 @@ function runPathC(testCase, callback) {
       }
     }
 
+    // DEPLOY279: Validate assumptions before Weibull derivation (PATH C)
+    var assumptionsC = validateAssumptions(testCase);
+    if (assumptionsC.violations.length > 0) {
+      var corrKeysC = Object.keys(assumptionsC.corrected);
+      for (var ckc = 0; ckc < corrKeysC.length; ckc++) {
+        if (assumptionsC.corrected[corrKeysC[ckc]] === undefined) {
+          delete testCase.evidence[corrKeysC[ckc]];
+        } else {
+          testCase.evidence[corrKeysC[ckc]] = assumptionsC.corrected[corrKeysC[ckc]];
+        }
+      }
+    }
     var weibull = testCase.survival_model || deriveWeibullParams(testCase);
     var survivalPayload = {
       action: 'run_survival',
