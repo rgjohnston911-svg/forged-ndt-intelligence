@@ -1034,7 +1034,7 @@ var ACCEPTANCE_CRITERIA = {
   },
   asme_bpvc_ix: {
     code_name: "ASME BPVC Section IX / Section VIII Div.1",
-    edition: "2023 Edition",
+    edition: "2025 Edition",
     criteria: {
       crack: { accept: false, max_length_mm: 0, clause: "UW-51(a)", note: "No cracks permitted" },
       lack_of_fusion: { accept: false, max_length_mm: 0, clause: "UW-51(a)", note: "Not permitted for full penetration joints" },
@@ -1153,7 +1153,7 @@ var ACCEPTANCE_CRITERIA = {
   // ---- STORAGE TANK ----
   api_650: {
     code_name: "API 650 Welded Tanks for Oil Storage",
-    edition: "13th Edition (2020, Addendum 4 2023)",
+    edition: "14th Edition (2025)",
     criteria: {
       crack: { accept: false, max_length_mm: 0, clause: "8.5.2", note: "No cracks permitted" },
       lack_of_fusion: { accept: false, clause: "8.5.2", note: "Not permitted in shell-to-bottom and shell joints" },
@@ -1208,7 +1208,7 @@ var ACCEPTANCE_CRITERIA = {
   },
   aws_d1_5: {
     code_name: "AWS D1.5M/D1.5 Bridge Welding Code",
-    edition: "2020 (8th Edition)",
+    edition: "2025 (9th Edition)",
     criteria: {
       crack: { accept: false, max_length_mm: 0, clause: "6.26.1", note: "No cracks permitted — all bridge welds treated as fatigue-loaded" },
       lack_of_fusion: { accept: false, clause: "6.26.1", note: "Not permitted" },
@@ -1244,7 +1244,7 @@ var ACCEPTANCE_CRITERIA = {
   },
   aws_d1_8: {
     code_name: "AWS D1.8/D1.8M Structural Welding Code - Seismic Supplement",
-    edition: "2016 (2nd Edition)",
+    edition: "2025 (5th Edition)",
     criteria: {
       crack: { accept: false, max_length_mm: 0, clause: "6.3", note: "No cracks permitted in demand-critical connections" },
       lack_of_fusion: { accept: false, clause: "6.3", note: "Not permitted" },
@@ -1262,7 +1262,7 @@ var ACCEPTANCE_CRITERIA = {
   // ---- AEROSPACE ----
   aws_d17_1: {
     code_name: "AWS D17.1/D17.1M Specification for Fusion Welding for Aerospace Applications",
-    edition: "2017 (2nd Edition)",
+    edition: "2024 (4th Edition)",
     criteria: {
       crack: { accept: false, max_length_mm: 0, clause: "7.4", note: "No cracks permitted — Class A, B, or C" },
       lack_of_fusion: { accept: false, clause: "7.4", note: "Not permitted in any class" },
@@ -1283,7 +1283,7 @@ var ACCEPTANCE_CRITERIA = {
   // ---- NUCLEAR ----
   asme_section_iii: {
     code_name: "ASME BPVC Section III Rules for Nuclear Facility Components",
-    edition: "2023 Edition",
+    edition: "2025 Edition",
     criteria: {
       crack: { accept: false, max_length_mm: 0, clause: "NB-5330", note: "No cracks permitted — Class 1 components" },
       lack_of_fusion: { accept: false, clause: "NB-5330", note: "Not permitted" },
@@ -1360,6 +1360,42 @@ var ACCEPTANCE_CRITERIA = {
       excess_reinforcement: { accept: "conditional", clause: "4.3.2",
         conditions: "Max 1/16 in. (1.6mm) for sheet metal fillet welds" },
       overlap: { accept: false, clause: "4.3.1", note: "Not permitted" }
+    }
+  },
+  // ---- UNDERWATER WELDING ----
+  aws_d3_6m: {
+    code_name: "AWS D3.6M Underwater Welding Code",
+    edition: "2017",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "8.4.1", note: "No cracks permitted — all weld classes (A, B, O)" },
+      porosity: { accept: "conditional", max_percent_area: 1.5, clause: "8.4.2",
+        conditions: "Class A: 1.5% area max; Class B: 3% area max; Class O: per project specification" },
+      slag_inclusion: { accept: "conditional", max_length_mm: 19, clause: "8.4.2",
+        conditions: "Class A: max 3/4 in. (19mm) length; Class B: per table; Class O: as specified" },
+      incomplete_fusion: { accept: false, clause: "8.4.1", note: "Not permitted for Class A; conditional for Class B per project requirements" },
+      incomplete_penetration: { accept: false, clause: "8.4.1", note: "Not permitted for Class A; conditional for Class B with engineering approval" },
+      undercut: { accept: "conditional", max_depth_mm: 0.8, clause: "8.4.2",
+        conditions: "Class A: max 1/32 in. (0.8mm); Class B: max 1/16 in. (1.6mm)" },
+      excess_reinforcement: { accept: "conditional", max_height_mm: 3.2, clause: "8.4.2",
+        conditions: "Max 1/8 in. (3.2mm) for Class A; 3/16 in. (4.8mm) for Class B" }
+    }
+  },
+  // ---- HYDROGEN PIPING ----
+  asme_b31_12: {
+    code_name: "ASME B31.12 Hydrogen Piping and Pipelines",
+    edition: "2019",
+    criteria: {
+      crack: { accept: false, max_length_mm: 0, clause: "IP-10.5.3", note: "No cracks permitted — hydrogen embrittlement risk" },
+      porosity: { accept: "conditional", max_percent_area: 1.0, clause: "IP-10.5.3",
+        conditions: "Per ASME B31.3 Table 341.3.2 — max individual 1.6mm dia.; scattered max 1% area" },
+      slag_inclusion: { accept: "conditional", max_length_mm: 6, clause: "IP-10.5.3",
+        conditions: "Max 1/4 in. (6mm) length; cumulative per 12 in. weld: max 1/2 in. (12mm)" },
+      incomplete_fusion: { accept: false, clause: "IP-10.5.3", note: "Not permitted — H2 service requires full fusion" },
+      incomplete_penetration: { accept: false, clause: "IP-10.5.3", note: "Not permitted — hydrogen leak path risk" },
+      undercut: { accept: "conditional", max_depth_mm: 0.4, clause: "IP-10.5.3",
+        conditions: "Max 1/64 in. (0.4mm) — more restrictive than B31.3 for H2 service" },
+      excess_reinforcement: { accept: "conditional", max_height_mm: 1.6, clause: "IP-10.5.3",
+        conditions: "Max 1/16 in. (1.6mm) — stress concentration concern in H2 environment" }
     }
   },
   // ---- COATINGS STANDARDS ----
@@ -1443,7 +1479,7 @@ var ACCEPTANCE_CRITERIA = {
   // ---- IN-SERVICE INSPECTION CODES ----
   api_510: {
     code_name: "API 510 Pressure Vessel Inspection Code",
-    edition: "11th Edition (2023)",
+    edition: "11th Edition (2022, Errata 2 2025)",
     criteria: {
       crack: { accept: false, clause: "7.4.2", note: "Cracks require engineering evaluation per API 579-1" },
       general_corrosion: { accept: "conditional", clause: "7.4.3",
@@ -1475,7 +1511,7 @@ var ACCEPTANCE_CRITERIA = {
   },
   api_653: {
     code_name: "API 653 Tank Inspection, Repair, Alteration, and Reconstruction",
-    edition: "5th Edition (2014, Addendum 3 2018)",
+    edition: "5th Edition (2014, Addendum 4 2022)",
     criteria: {
       crack: { accept: false, clause: "6.3.1", note: "Shell cracks require engineering evaluation or repair" },
       general_corrosion: { accept: "conditional", clause: "6.3.2",
