@@ -46,6 +46,11 @@ var modalityRegistry = {
     outputs: ['coating_thickness_mm', 'surface_crack_detected', 'conductivity_change_pct'],
     confidence_base: 0.82,
     modality_type: 'quantitative'
+  },
+  'nde_image_analysis': {
+    outputs: ['discontinuity_type', 'discontinuity_count', 'severity_max', 'disposition_result', 'crack_detected', 'porosity_detected', 'fusion_defect_detected', 'overall_risk', 'code_accept_reject'],
+    confidence_base: 0.85,
+    modality_type: 'hybrid'
   }
 };
 
@@ -154,6 +159,41 @@ var crossModalCorrelationRules = [
     conditions: ['magnetic_particle_surface_crack_count_gt_5', 'ut_localized_wall_loss', 'visual_pit_colonies'],
     confidence_boost: 0.20,
     interpretation: 'Multiple corrosion pits connected, forming larger defect network'
+  },
+  {
+    rule_id: 'CMR016',
+    name: 'Image analysis confirms visual crack',
+    conditions: ['nde_image_crack_detected', 'visual_crack_visible'],
+    confidence_boost: 0.22,
+    interpretation: 'AI vision analysis confirms inspector-reported crack observation'
+  },
+  {
+    rule_id: 'CMR017',
+    name: 'Image analysis confirms RT defect',
+    conditions: ['nde_image_fusion_defect_detected', 'radiographic_weld_defect'],
+    confidence_boost: 0.28,
+    interpretation: 'AI vision analysis of radiograph confirms fusion defect interpretation'
+  },
+  {
+    rule_id: 'CMR018',
+    name: 'Image porosity corroborates UT wall loss',
+    conditions: ['nde_image_porosity_detected', 'ut_wall_loss'],
+    confidence_boost: 0.15,
+    interpretation: 'Porosity detected in image analysis correlates with UT wall loss measurements'
+  },
+  {
+    rule_id: 'CMR019',
+    name: 'Image analysis contradicts inspector claim',
+    conditions: ['nde_image_crack_detected', 'visual_no_crack_claimed'],
+    confidence_boost: -0.10,
+    interpretation: 'AI vision detects crack not reported by inspector — contradiction flagged for review'
+  },
+  {
+    rule_id: 'CMR020',
+    name: 'Multi-method weld rejection confirmed',
+    conditions: ['nde_image_disposition_reject', 'radiographic_weld_defect', 'acfm_crack_at_weld'],
+    confidence_boost: 0.35,
+    interpretation: 'Weld rejected by AI image analysis with defects confirmed by RT and ACFM'
   }
 ];
 
