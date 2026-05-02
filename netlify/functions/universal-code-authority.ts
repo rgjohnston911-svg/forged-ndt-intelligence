@@ -68,19 +68,61 @@ var CODE_MAPPINGS = [
   // Tier 2: Jurisdictional
   { tier: 2, code_id: "NBIC", triggers: { asset_types: ["pressure_vessel", "boiler"], regions: ["US"] } },
 
-  // Tier 3: Industry consensus
-  { tier: 3, code_id: "API_510", triggers: { asset_types: ["pressure_vessel", "heat_exchanger"] } },
-  { tier: 3, code_id: "API_570", triggers: { asset_types: ["process_piping"] } },
-  { tier: 3, code_id: "API_579", triggers: { conditions: ["wall_loss", "ffs_required", "crack_ffs", "pitting"] } },
-  { tier: 3, code_id: "API_653", triggers: { asset_types: ["storage_tank"] } },
+  // Tier 3: Industry consensus — Pressure Equipment
+  { tier: 3, code_id: "API_510", triggers: { asset_types: ["pressure_vessel", "heat_exchanger", "reactor", "column", "drum"] } },
+  { tier: 3, code_id: "API_570", triggers: { asset_types: ["process_piping", "piping"] } },
+  { tier: 3, code_id: "API_579", triggers: { conditions: ["wall_loss", "ffs_required", "crack_ffs", "pitting", "fitness_for_service"] } },
+  { tier: 3, code_id: "API_653", triggers: { asset_types: ["storage_tank", "tank"] } },
+  { tier: 3, code_id: "API_650", triggers: { asset_types: ["storage_tank", "tank"], conditions: ["fabrication", "new_construction", "welding"] } },
+  { tier: 3, code_id: "API_941", triggers: { conditions: ["htha", "hydrogen_attack", "hydrogen_service"], industries: ["refining"] } },
+
+  // Tier 3: Industry consensus — Welding Codes
   { tier: 3, code_id: "API_1104", triggers: { asset_types: ["pipeline"], conditions: ["welding"] } },
+  { tier: 3, code_id: "AWS_D11", triggers: { asset_types: ["structural_steel", "building_steel", "steel_structure"], conditions: ["welding"] } },
+  { tier: 3, code_id: "AWS_D12", triggers: { asset_types: ["aluminum_structure"], conditions: ["welding"], materials: ["aluminum", "5xxx", "6xxx"] } },
+  { tier: 3, code_id: "AWS_D13", triggers: { asset_types: ["sheet_steel", "light_gauge"], conditions: ["welding"] } },
+  { tier: 3, code_id: "AWS_D14", triggers: { asset_types: ["reinforcing_steel", "rebar"], conditions: ["welding"], industries: ["construction"] } },
+  { tier: 3, code_id: "AWS_D15", triggers: { asset_types: ["bridge", "bridge_civil_structure", "highway_bridge"], conditions: ["welding"] } },
+  { tier: 3, code_id: "AWS_D16", triggers: { asset_types: ["stainless_steel_structure"], conditions: ["welding"], materials: ["stainless_steel", "austenitic", "duplex"] } },
+  { tier: 3, code_id: "AWS_D18", triggers: { conditions: ["seismic", "demand_critical", "moment_frame"], industries: ["construction"] } },
+  { tier: 3, code_id: "AWS_D36M", triggers: { conditions: ["underwater_welding"], industries: ["subsea", "offshore", "marine"] } },
+  { tier: 3, code_id: "AWS_D171", triggers: { industries: ["aerospace", "aviation", "defense", "space"], conditions: ["welding"] } },
+
+  // Tier 3: Industry consensus — Pressure/Piping Codes
   { tier: 3, code_id: "ASME_VIII", triggers: { asset_types: ["pressure_vessel"], conditions: ["fabrication", "design_review"] } },
+  { tier: 3, code_id: "ASME_III", triggers: { asset_types: ["nuclear_vessel", "nuclear_piping", "reactor_vessel"], industries: ["nuclear"] } },
+  { tier: 3, code_id: "ASME_B311", triggers: { asset_types: ["power_piping", "boiler_piping"], industries: ["power_generation"] } },
   { tier: 3, code_id: "ASME_B313", triggers: { asset_types: ["process_piping"] } },
+  { tier: 3, code_id: "ASME_B314", triggers: { asset_types: ["liquid_pipeline"], conditions: ["liquid_transport"] } },
+  { tier: 3, code_id: "ASME_B318", triggers: { asset_types: ["gas_pipeline"], conditions: ["gas_transport", "gas_distribution"] } },
+  { tier: 3, code_id: "ASME_B3112", triggers: { conditions: ["hydrogen_piping", "hydrogen_pipeline"], industries: ["hydrogen", "energy_transition"] } },
   { tier: 3, code_id: "ASME_PCC2", triggers: { conditions: ["composite_repair", "bonded_repair", "wrap_repair"] } },
-  { tier: 3, code_id: "AWS_D11", triggers: { asset_types: ["structural_steel"], conditions: ["welding"] } },
+
+  // Tier 3: Industry consensus — Offshore/Marine
   { tier: 3, code_id: "DNV_GL", triggers: { asset_types: ["marine_vessel", "offshore_fixed_platform", "offshore_floating_facility"] } },
+  { tier: 3, code_id: "DNV_OS_C401", triggers: { asset_types: ["offshore_structure"], conditions: ["fabrication", "welding"], industries: ["offshore"] } },
+  { tier: 3, code_id: "API_RP_2A", triggers: { asset_types: ["offshore_fixed_platform", "jacket_structure"], industries: ["offshore"] } },
+
+  // Tier 3: Industry consensus — Materials/Environment
   { tier: 3, code_id: "NACE_MR0175", triggers: { conditions: ["sour_service", "h2s", "sulfide"] } },
-  { tier: 3, code_id: "AASHTO_MBE", triggers: { asset_types: ["bridge_civil_structure"] } },
+
+  // Tier 3: Industry consensus — Structural/Civil
+  { tier: 3, code_id: "AISC_360", triggers: { asset_types: ["steel_building", "building_steel"], industries: ["construction", "architecture"] } },
+  { tier: 3, code_id: "AASHTO_MBE", triggers: { asset_types: ["bridge_civil_structure", "bridge", "highway_bridge"] } },
+  { tier: 3, code_id: "IBC", triggers: { industries: ["construction", "architecture", "buildings"], conditions: ["code_compliance"] } },
+
+  // Tier 3: Industry consensus — Quality/NDE
+  { tier: 3, code_id: "ISO_5817", triggers: { conditions: ["weld_quality_level", "quality_level_B", "quality_level_C"], industries: ["fabrication"] } },
+
+  // Tier 3: Industry consensus — Railroad
+  { tier: 3, code_id: "AREMA", triggers: { asset_types: ["rail", "track", "rail_joint"], industries: ["railroad", "transportation"] } },
+
+  // Tier 3: Industry consensus — Coatings
+  { tier: 3, code_id: "SSPC_PA2", triggers: { conditions: ["coating_inspection", "dft_measurement", "coating_thickness"] } },
+  { tier: 3, code_id: "NACE_SP0188", triggers: { conditions: ["holiday_testing", "coating_holiday", "coating_discontinuity"] } },
+  { tier: 3, code_id: "ISO_12944", triggers: { conditions: ["coating_system", "paint_system", "corrosion_protection_coating"] } },
+  { tier: 3, code_id: "ISO_8501", triggers: { conditions: ["surface_preparation", "blast_cleaning", "surface_cleanliness"] } },
+  { tier: 3, code_id: "NACE_SP0198", triggers: { conditions: ["cui", "corrosion_under_insulation", "insulation_inspection"] } },
 
   // Tier 5: Best practice
   { tier: 5, code_id: "ISO_24817", triggers: { conditions: ["composite_repair"] } },
@@ -125,6 +167,78 @@ var CLAUSE_LIBRARY = {
   NACE_MR0175: [
     { clause: "Part 2", title: "Carbon and Low Alloy Steels", trigger: "sour_service" },
     { clause: "Part 3", title: "CRAs and Other Alloys", trigger: "advanced_alloy" }
+  ],
+  API_650: [
+    { clause: "Section 7", title: "Erection", trigger: "fabrication" },
+    { clause: "Section 8", title: "Radiographic/Ultrasonic Examination of Welded Joints", trigger: "nde_inspection" },
+    { clause: "Section 8.5", title: "Weld Acceptance Criteria", trigger: "weld_defect" },
+    { clause: "Annex M", title: "Requirements for Tanks in Seismic Areas", trigger: "seismic" }
+  ],
+  API_941: [
+    { clause: "Section 4", title: "Operating Limits (Nelson Curves)", trigger: "htha" },
+    { clause: "Section 5", title: "Inspection Requirements", trigger: "htha_inspection" }
+  ],
+  AWS_D12: [
+    { clause: "Section 5", title: "Fabrication", trigger: "welding" },
+    { clause: "Table 8.1", title: "Visual Acceptance Criteria", trigger: "weld_defect" }
+  ],
+  AWS_D14: [
+    { clause: "Section 6", title: "Inspection", trigger: "general_inspection" },
+    { clause: "Section 6.5", title: "Acceptance Criteria", trigger: "weld_defect" }
+  ],
+  AWS_D15: [
+    { clause: "Section 6", title: "Inspection", trigger: "general_inspection" },
+    { clause: "Section 6.26", title: "Acceptance Criteria — All Bridge Welds Fatigue-Loaded", trigger: "weld_defect" }
+  ],
+  AWS_D16: [
+    { clause: "Section 6", title: "Inspection", trigger: "general_inspection" },
+    { clause: "Section 6.28", title: "Acceptance Criteria", trigger: "weld_defect" }
+  ],
+  AWS_D18: [
+    { clause: "Section 6", title: "Inspection", trigger: "general_inspection" },
+    { clause: "Section 6.3", title: "Demand-Critical Connection Acceptance Criteria", trigger: "weld_defect" }
+  ],
+  AWS_D171: [
+    { clause: "Section 7", title: "Inspection and Testing", trigger: "general_inspection" },
+    { clause: "Section 7.4", title: "Acceptance Criteria by Class (A, B, C)", trigger: "weld_defect" }
+  ],
+  ASME_III: [
+    { clause: "NB-5000", title: "Examination — Class 1 Components", trigger: "general_inspection" },
+    { clause: "NB-5330", title: "Acceptance Standards — Radiography", trigger: "weld_defect" },
+    { clause: "NB-3222", title: "Design Stress Limits", trigger: "design_review" }
+  ],
+  ASME_B311: [
+    { clause: "Section 136", title: "Examination", trigger: "general_inspection" },
+    { clause: "Section 136.4", title: "Weld Acceptance Criteria", trigger: "weld_defect" }
+  ],
+  ASME_B314: [
+    { clause: "Section 434", title: "Examination and Testing", trigger: "general_inspection" },
+    { clause: "Section 434.8.5", title: "Weld Acceptance per API 1104", trigger: "weld_defect" }
+  ],
+  ASME_B318: [
+    { clause: "Section 826", title: "Testing and Examination", trigger: "general_inspection" },
+    { clause: "Section 826.4", title: "Weld Acceptance per API 1104", trigger: "weld_defect" }
+  ],
+  AREMA: [
+    { clause: "Chapter 4", title: "Rail Welding", trigger: "rail_welding" },
+    { clause: "Section 4.2.9", title: "Weld Acceptance Criteria", trigger: "weld_defect" }
+  ],
+  AISC_360: [
+    { clause: "Section J2", title: "Welds", trigger: "welding" },
+    { clause: "Section J2.6", title: "Weld Quality per AWS D1.1", trigger: "weld_defect" },
+    { clause: "Section M2", title: "Fabrication and Erection Tolerances", trigger: "fabrication" }
+  ],
+  ISO_5817: [
+    { clause: "Table 1", title: "Limits for Imperfections — Quality Levels B, C, D", trigger: "weld_defect" }
+  ],
+  ISO_12944: [
+    { clause: "Part 5", title: "Protective Paint Systems", trigger: "coating_system" },
+    { clause: "Part 6", title: "Laboratory Performance Test Methods", trigger: "coating_test" },
+    { clause: "Part 7", title: "Execution and Supervision of Paintwork", trigger: "coating_inspection" }
+  ],
+  SSPC_PA2: [
+    { clause: "Section 4", title: "DFT Measurement Procedure", trigger: "coating_thickness" },
+    { clause: "Section 4.3", title: "Gage Reading Requirements", trigger: "dft_measurement" }
   ]
 };
 
