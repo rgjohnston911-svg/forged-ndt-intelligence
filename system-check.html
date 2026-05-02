@@ -460,9 +460,9 @@ function renderCoverage(data) {
     }
   }
   if (data.uncovered && data.uncovered.length) {
-    html += '<p style="color:#f59e0b;font-size:12px;margin-bottom:4px;margin-top:8px">Not Yet Covered:</p>';
+    html += '<p style="color:#f59e0b;font-size:12px;margin-top:8px;margin-bottom:4px">Uncovered:</p>';
     for (var ui = 0; ui < data.uncovered.length; ui++) {
-      html += '<span class="badge warn" style="margin:2px">' + esc(data.uncovered[ui]) + '</span>';
+      html += '<span class="badge fail" style="margin:2px">' + esc(data.uncovered[ui]) + '</span>';
     }
   }
   document.getElementById("regDetail").innerHTML = html;

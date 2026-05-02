@@ -456,4 +456,17 @@ function renderCoverage(data) {
   if (data.covered && data.covered.length) {
     html += '<p style="color:#22c55e;font-size:12px;margin-bottom:4px">Covered:</p>';
     for (var ci = 0; ci < data.covered.length; ci++) {
-      html += '<span class="badge pass" style="margin:2px">'
+      html += '<span class="badge pass" style="margin:2px">' + esc(data.covered[ci]) + '</span>';
+    }
+  }
+  if (data.uncovered && data.uncovered.length) {
+    html += '<p style="color:#f59e0b;font-size:12px;margin-top:8px;margin-bottom:4px">Uncovered:</p>';
+    for (var ui = 0; ui < data.uncovered.length; ui++) {
+      html += '<span class="badge fail" style="margin:2px">' + esc(data.uncovered[ui]) + '</span>';
+    }
+  }
+  document.getElementById("regDetail").innerHTML = html;
+}
+</script>
+</body>
+</html>
