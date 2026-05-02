@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0a0f">
+<meta name="description" content="4D NDT AI Assistant — Inspection Intelligence in Your Pocket">
+<link rel="manifest" href="/manifest.json">
+<title>4D NDT AI Assistant</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --bg: #0a0a0f;
+  --surface: #12121a;
+  --surface2: #1a1a2e;
+  --border: #2a2a3e;
+  --text: #e0e0e0;
+  --text-dim: #8b8ba0;
+  --accent: #6366f1;
+  --accent-glow: rgba(99,102,241,0.15);
+  --user-bg: #1e3a5f;
+  --ai-bg: #1a1a2e;
+  --success: #22c55e;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --pro: #a855f7;
+  --platform: #f59e0b;
+  --radius: 16px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+html, body { height:100%; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; overflow:hidden; }
+body { display:flex; flex-direction:column; }
+
+/* ====== HEADER ====== */
+.header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px; background:var(--surface); border-bottom:1px solid var(--border);
+  flex-shrink:0; z-index:10;
+  padding-top: max(12px, env(safe-area-inset-top));
+}
+.header-left { display:flex; align-items:center; gap:10px; }
+.header h1 { font-size:16px; font-weight:600; }
+.header .tier-badge {
+  font-size:10px; padding:2px 8px; border-radius:10px; font-weight:600; text-transform:uppercase;
+}
+.tier-assistant { background:var(--accent); color:white; }
+.tier-pro { background:var(--pro); color:white; }
+.tier-platform { background:var(--platform); color:black; }
+.header-actions { display:flex; gap:8px; }
+.header-btn {
+  background:none; border:1px solid var(--border); color:var(--text-dim);
+  width:36px; height:36px; border-radius:10px; cursor:pointer; font-size:16px;
+  display:flex; align-items:center; justify-content:center;
+}
+.header-btn:hover { background:var(--surface2); color:var(--text); }
+
+/* ====== SIDEBAR ====== */
+.sidebar {
+  position:fixed; top:0; left:-300px; width:300px; height:100%; z-index:100;
+  background:var(--surface); border-right:1px solid var(--border);
+  transition: left 0.3s ease; display:flex; flex-direction:column;
+  padding-top: max(12px, env(safe-area-inset-top));
+}
+.sidebar.open { left:0; }
+.sidebar-overlay {
+  position:fixed; top:0; left:0; width:100%; height:100%; z-index:99;
+  background:rgba(0,0,0,0.6); display:none;
+}
+.sidebar-overlay.open { display:block; }
+.sidebar-header { padding:16px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); }
+.sidebar-header h2 { font-size:15px; }
+.new-chat-btn {
+  background:var(--accent); color:white; border:none; padding:8px 14px;
+  border-radius:10px; font-size:13px; cursor:pointer; font-weight:500;
+}
+.conv-list { flex:1; overflow-y:auto; padding:8px; }
+.conv-item {
+  padding:12px; border-radius:10px; cursor:pointer; margin-bottom:4px;
+  transition: background 0.2s;
+}
+.conv-item:hover, .conv-item.active { background:var(--surface2); }
+.conv-item .conv-title { font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.conv-item .conv-meta { font-size:11px; color:var(--text-dim); margin-top:4px; }
+
+/* ====== MESSAGES ====== */
+.messages {
+  flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px;
+  -webkit-overflow-scrolling: touch;
+}
+.message { max-width:88%; padding:12px 16px; border-radius:var(--radius); font-size:14px; line-height:1.6; word-wrap:break-word; }
+.message.user { align-self:flex-end; background:var(--user-bg); border-bottom-right-radius:4px; }
+.message.assistant { align-self:flex-start; background:var(--ai-bg); border:1px solid var(--border); border-bottom-left-radius:4px; }
+.message pre { background:rgba(0,0,0,0.3); padding:10px; border-radius:8px; overflow-x:auto; font-size:12px; margin:8px 0; font-family:"SF Mono",Monaco,monospace; }
+.message code { background:rgba(99,102,241,0.15); padding:2px 6px; border-radius:4px; font-size:12px; font-family:"SF Mono",Monaco,monospace; }
+.message strong { color:var(--accent); font-weight:600; }
+.message ul, .message ol { padding-left:20px; margin:6px 0; }
+.message li { margin-bottom:4px; }
+.message .engine-tag {
+  display:inline-block; font-size:10px; padding:2px 8px; border-radius:8px;
+  background:var(--accent-glow); color:var(--accent); margin-bottom:6px; font-weight:500;
+}
+.message .tier-upgrade {
+  margin-top:10px; padding:10px; border-radius:10px; background:rgba(168,85,247,0.1);
+  border:1px solid rgba(168,85,247,0.3); font-size:12px; color:#c084fc;
+}
+.message-actions { display:flex; gap:8px; margin-top:8px; }
+.msg-action-btn {
+  background:none; border:1px solid var(--border); color:var(--text-dim);
+  padding:4px 10px; border-radius:8px; font-size:11px; cursor:pointer;
+}
+.msg-action-btn:hover { background:var(--surface2); color:var(--text); }
+
+/* Typing indicator */
+.typing { align-self:flex-start; padding:12px 20px; background:var(--ai-bg); border:1px solid var(--border); border-radius:var(--radius); }
+.typing span { display:inline-block; width:8px; height:8px; background:var(--text-dim); border-radius:50%; margin:0 2px; animation:bounce 1.4s infinite ease-in-out; }
+.typing span:nth-child(1) { animation-delay:0s; }
+.typing span:nth-child(2) { animation-delay:0.2s; }
+.typing span:nth-child(3) { animation-delay:0.4s; }
+@keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-8px)} }
+
+/* Welcome screen */
+.welcome {
+  flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  padding:32px; text-align:center;
+}
+.welcome h2 { font-size:22px; margin-bottom:8px; }
+.welcome p { color:var(--text-dim); font-size:14px; margin-bottom:24px; max-width:320px; }
+.quick-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; max-width:360px; }
+.quick-btn {
+  background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  padding:10px 14px; border-radius:12px; font-size:13px; cursor:pointer;
+  text-align:left; flex:1 1 45%; min-width:140px;
+  transition: border-color 0.2s;
+}
+.quick-btn:hover { border-color:var(--accent); }
+.quick-btn .quick-icon { font-size:18px; display:block; margin-bottom:4px; }
+.quick-btn .quick-label { font-size:12px; color:var(--text-dim); }
+
+/* ====== INPUT ====== */
+.input-area {
+  padding:12px 16px; background:var(--surface); border-top:1px solid var(--border);
+  flex-shrink:0;
+  padding-bottom: max(12px, var(--safe-bottom));
+}
+.input-row { display:flex; gap:8px; align-items:flex-end; }
+.input-wrapper {
+  flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius);
+  display:flex; align-items:flex-end; padding:4px;
+}
+.input-wrapper:focus-within { border-color:var(--accent); }
+#chatInput {
+  flex:1; background:none; border:none; color:var(--text); font-size:15px;
+  padding:10px 12px; outline:none; resize:none; max-height:120px; min-height:20px;
+  font-family:inherit; line-height:1.4;
+}
+#chatInput::placeholder { color:var(--text-dim); }
+.send-btn {
+  width:40px; height:40px; border-radius:12px; border:none;
+  background:var(--accent); color:white; cursor:pointer; font-size:18px;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  transition: opacity 0.2s;
+}
+.send-btn:disabled { opacity:0.3; cursor:not-allowed; }
+.usage-bar {
+  display:flex; justify-content:space-between; font-size:11px; color:var(--text-dim);
+  padding:4px 4px 0;
+}
+
+/* ====== EXPORT MODAL ====== */
+.modal-overlay {
+  position:fixed; top:0; left:0; width:100%; height:100%; z-index:200;
+  background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center;
+}
+.modal-overlay.open { display:flex; }
+.modal {
+  background:var(--surface); border:1px solid var(--border); border-radius:20px;
+  padding:24px; width:90%; max-width:360px;
+}
+.modal h3 { font-size:17px; margin-bottom:16px; }
+.modal-btn {
+  display:block; width:100%; padding:14px; margin-bottom:8px;
+  background:var(--surface2); border:1px solid var(--border); color:var(--text);
+  border-radius:12px; font-size:14px; cursor:pointer; text-align:left;
+}
+.modal-btn:hover { border-color:var(--accent); }
+.modal-btn .btn-desc { font-size:12px; color:var(--text-dim); margin-top:4px; }
+.modal-close {
+  display:block; width:100%; padding:12px; margin-top:8px;
+  background:none; border:1px solid var(--border); color:var(--text-dim);
+  border-radius:12px; font-size:14px; cursor:pointer;
+}
+</style>
+</head>
+<body>
+
+<!-- Sidebar overlay -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<!-- Sidebar -->
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <h2>Conversations</h2>
+    <button class="new-chat-btn" onclick="newChat()">+ New</button>
+  </div>
+  <div class="conv-list" id="convList"></div>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <button class="header-btn" onclick="toggleSidebar()" aria-label="Menu">&#9776;</button>
+    <h1>4D NDT AI</h1>
+    <span class="tier-badge tier-assistant" id="tierBadge">Assistant</span>
+  </div>
+  <div class="header-actions">
+    <button class="header-btn" onclick="showExportModal()" title="Export" aria-label="Export">&#8681;</button>
+    <button class="header-btn" onclick="showUsage()" title="Usage" aria-label="Usage">&#9881;</button>
+  </div>
+</div>
+
+<!-- Messages / Welcome -->
+<div class="messages" id="messages">
+  <div class="welcome" id="welcome">
+    <h2>4D NDT AI Assistant</h2>
+    <p>Your inspection intelligence companion. Ask about methods, codes, formulas, damage mechanisms, and more.</p>
+    <div class="quick-actions">
+      <button class="quick-btn" onclick="quickSend('What NDT methods can detect hydrogen-induced cracking?')">
+        <span class="quick-icon">&#128270;</span>
+        Method selection
+        <span class="quick-label">Which method for which flaw?</span>
+      </button>
+      <button class="quick-btn" onclick="quickSend('Calculate remaining life: current thickness 8.2mm, minimum 5.0mm, corrosion rate 0.15 mm/yr')">
+        <span class="quick-icon">&#128200;</span>
+        Calculate
+        <span class="quick-label">Formulas and computations</span>
+      </button>
+      <button class="quick-btn" onclick="quickSend('What does ASME B31.3 say about examination requirements for Category M fluid service?')">
+        <span class="quick-icon">&#128214;</span>
+        Code lookup
+        <span class="quick-label">Standards and requirements</span>
+      </button>
+      <button class="quick-btn" onclick="quickSend('What are the telltale signs of CUI on carbon steel piping?')">
+        <span class="quick-icon">&#9888;</span>
+        Damage mechanisms
+        <span class="quick-label">Identification and indicators</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Input -->
+<div class="input-area">
+  <div class="input-row">
+    <div class="input-wrapper">
+      <textarea id="chatInput" placeholder="Ask about NDT methods, codes, formulas..." rows="1" onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+    </div>
+    <button class="send-btn" id="sendBtn" onclick="sendMessage()" disabled aria-label="Send">&#10148;</button>
+  </div>
+  <div class="usage-bar" id="usageBar">
+    <span id="usageText"></span>
+    <span id="tierLink" style="cursor:pointer;color:var(--accent)" onclick="showTierInfo()">View tiers</span>
+  </div>
+</div>
+
+<!-- Export Modal -->
+<div class="modal-overlay" id="exportModal">
+  <div class="modal">
+    <h3>Export Conversation</h3>
+    <button class="modal-btn" onclick="exportAs('pdf')">
+      &#128196; Export as PDF
+      <div class="btn-desc">Download a formatted PDF of this conversation</div>
+    </button>
+    <button class="modal-btn" onclick="exportAs('txt')">
+      &#128221; Export as Text
+      <div class="btn-desc">Plain text file of all messages</div>
+    </button>
+    <button class="modal-btn" onclick="copyConversation()">
+      &#128203; Copy to Clipboard
+      <div class="btn-desc">Copy all messages as text</div>
+    </button>
+    <button class="modal-close" onclick="closeExportModal()">Cancel</button>
+  </div>
+</div>
+
+<script>
+var API_BASE = "/api";
+var state = {
+  conversationId: null,
+  userId: null,
+  userTier: "assistant",
+  messages: [],
+  conversations: [],
+  sending: false
+};
+
+// ====== INIT ======
+function init() {
+  // Check for saved auth
+  try {
+    var saved = sessionStorage.getItem("ndt_user");
+    if (saved) {
+      var user = JSON.parse(saved);
+      state.userId = user.id;
+      state.userTier = user.tier || "assistant";
+    }
+  } catch(e) {}
+  updateTierBadge();
+  loadConversations();
+  document.getElementById("chatInput").focus();
+}
+
+function updateTierBadge() {
+  var badge = document.getElementById("tierBadge");
+  badge.className = "tier-badge tier-" + state.userTier;
+  badge.textContent = state.userTier === "pro" ? "Pro" : state.userTier === "platform" ? "Platform" : "Assistant";
+}
+
+// ====== SIDEBAR ======
+function toggleSidebar() {
+  document.getElementById("sidebar").classList.toggle("open");
+  document.getElementById("sidebarOverlay").classList.toggle("open");
+}
+function closeSidebar() {
+  document.getElementById("sidebar").classList.remove("open");
+  document.getElementById("sidebarOverlay").classList.remove("open");
+}
+function loadConversations() {
+  if (!state.userId) return;
+  fetch(API_BASE + "/ai-chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "list_conversations", user_id: state.userId })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    state.conversations = data.conversations || [];
+    renderConversationList();
+  })
+  .catch(function() {});
+}
+function renderConversationList() {
+  var list = document.getElementById("convList");
+  if (!state.conversations.length) {
+    list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:13px">No conversations yet</div>';
+    return;
+  }
+  var html = "";
+  for (var i = 0; i < state.conversations.length; i++) {
+    var c = state.conversations[i];
+    var active = c.id === state.conversationId ? " active" : "";
+    var date = c.last_message_at ? new Date(c.last_message_at).toLocaleDateString() : "";
+    html += '<div class="conv-item' + active + '" onclick="loadConversation(\'' + c.id + '\')">';
+    html += '<div class="conv-title">' + esc(c.title || "Untitled") + '</div>';
+    html += '<div class="conv-meta">' + (c.message_count || 0) + ' messages &middot; ' + date + '</div>';
+    html += '</div>';
+  }
+  list.innerHTML = html;
+}
+function loadConversation(convId) {
+  state.conversationId = convId;
+  closeSidebar();
+  document.getElementById("welcome").style.display = "none";
+  if (!state.userId) return;
+  fetch(API_BASE + "/ai-chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "get_conversation", conversation_id: convId, user_id: state.userId })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    state.messages = data.messages || [];
+    renderMessages();
+  });
+}
+function newChat() {
+  state.conversationId = null;
+  state.messages = [];
+  closeSidebar();
+  document.getElementById("messages").innerHTML = '';
+  document.getElementById("welcome").style.display = "flex";
+  document.getElementById("messages").appendChild(document.getElementById("welcome"));
+  document.getElementById("chatInput").focus();
+}
+
+// ====== MESSAGING ======
+function handleKey(e) {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+function autoResize(el) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  document.getElementById("sendBtn").disabled = !el.value.trim();
+}
+function quickSend(text) {
+  document.getElementById("chatInput").value = text;
+  document.getElementById("sendBtn").disabled = false;
+  sendMessage();
+}
+function sendMessage() {
+  var input = document.getElementById("chatInput");
+  var text = input.value.trim();
+  if (!text || state.sending) return;
+
+  state.sending = true;
+  document.getElementById("sendBtn").disabled = true;
+  document.getElementById("welcome").style.display = "none";
+
+  // Add user message
+  addMessage("user", text);
+  input.value = "";
+  input.style.height = "auto";
+
+  // Show typing indicator
+  showTyping();
+
+  // Send to backend
+  fetch(API_BASE + "/ai-chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "chat",
+      message: text,
+      conversation_id: state.conversationId,
+      user_id: state.userId,
+      user_tier: state.userTier
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    hideTyping();
+    if (data.conversation_id) state.conversationId = data.conversation_id;
+
+    var response = data.response || "I couldn't process that request. Please try again.";
+    var meta = {};
+    if (data.engine_used) meta.engine = data.engine_used;
+    if (data.tier_blocked) meta.tierBlocked = true;
+
+    addMessage("assistant", response, meta);
+    state.sending = false;
+    document.getElementById("sendBtn").disabled = false;
+    input.focus();
+  })
+  .catch(function(err) {
+    hideTyping();
+    addMessage("assistant", "Connection error. Please check your network and try again.");
+    state.sending = false;
+    document.getElementById("sendBtn").disabled = false;
+  });
+}
+
+function addMessage(role, content, meta) {
+  state.messages.push({ role: role, content: content, meta: meta });
+  renderMessages();
+}
+
+function renderMessages() {
+  var container = document.getElementById("messages");
+  var html = '';
+  for (var i = 0; i < state.messages.length; i++) {
+    var m = state.messages[i];
+    var cls = m.role === "user" ? "user" : "assistant";
+    html += '<div class="message ' + cls + '">';
+
+    if (m.role === "assistant" && m.meta && m.meta.engine) {
+      html += '<span class="engine-tag">' + esc(m.meta.engine) + '</span>';
+    }
+
+    html += formatContent(m.content);
+
+    if (m.role === "assistant" && m.meta && m.meta.tierBlocked) {
+      html += '<div class="tier-upgrade">&#128274; This feature requires a higher tier. <span style="cursor:pointer;text-decoration:underline" onclick="showTierInfo()">Compare tiers</span></div>';
+    }
+
+    if (m.role === "assistant") {
+      html += '<div class="message-actions">';
+      html += '<button class="msg-action-btn" onclick="copyText(this,' + i + ')">&#128203; Copy</button>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+  }
+  container.innerHTML = html;
+  container.scrollTop = container.scrollHeight;
+}
+
+function formatContent(text) {
+  // Basic markdown-like formatting
+  text = esc(text);
+  // Bold
+  text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  // Code blocks
+  text = text.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>');
+  // Inline code
+  text = text.replace(/`(.*?)`/g, '<code>$1</code>');
+  // Line breaks
+  text = text.replace(/\n/g, '<br>');
+  return text;
+}
+
+function showTyping() {
+  var container = document.getElementById("messages");
+  var el = document.createElement("div");
+  el.className = "typing";
+  el.id = "typingIndicator";
+  el.innerHTML = '<span></span><span></span><span></span>';
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+}
+function hideTyping() {
+  var el = document.getElementById("typingIndicator");
+  if (el) el.remove();
+}
+
+// ====== EXPORT ======
+function showExportModal() {
+  if (!state.messages.length) return;
+  document.getElementById("exportModal").classList.add("open");
+}
+function closeExportModal() {
+  document.getElementById("exportModal").classList.remove("open");
+}
+function exportAs(format) {
+  closeExportModal();
+  var text = buildExportText();
+
+  if (format === "txt") {
+    downloadFile("ndt-conversation.txt", text, "text/plain");
+  } else if (format === "pdf") {
+    // Create a printable HTML and trigger print
+    var printWin = window.open("", "_blank");
+    printWin.document.write('<html><head><title>4D NDT Conversation</title><style>body{font-family:Arial,sans-serif;padding:40px;max-width:700px;margin:0 auto;font-size:14px;line-height:1.6}h1{font-size:18px;border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:20px}.msg{margin-bottom:16px;padding:12px;border-radius:8px}.user{background:#e3f2fd;text-align:right}.ai{background:#f5f5f5}.label{font-size:11px;font-weight:bold;color:#666;margin-bottom:4px}.meta{font-size:11px;color:#999;margin-top:20px;text-align:center}</style></head><body>');
+    printWin.document.write('<h1>4D NDT AI Conversation</h1>');
+    printWin.document.write('<p style="color:#666;font-size:12px">Exported: ' + new Date().toLocaleString() + ' | Tier: ' + state.userTier + '</p>');
+    for (var i = 0; i < state.messages.length; i++) {
+      var m = state.messages[i];
+      var cls = m.role === "user" ? "user" : "ai";
+      var label = m.role === "user" ? "You" : "4D NDT AI";
+      printWin.document.write('<div class="msg ' + cls + '"><div class="label">' + label + '</div>' + esc(m.content).replace(/\n/g, '<br>') + '</div>');
+    }
+    printWin.document.write('<div class="meta">Generated by 4D NDT Intelligence Platform | 4dndt.com</div>');
+    printWin.document.write('</body></html>');
+    printWin.document.close();
+    printWin.print();
+  }
+}
+function copyConversation() {
+  closeExportModal();
+  var text = buildExportText();
+  navigator.clipboard.writeText(text).then(function() {
+    showToast("Copied to clipboard");
+  });
+}
+function copyText(btn, idx) {
+  var m = state.messages[idx];
+  if (m) {
+    navigator.clipboard.writeText(m.content).then(function() {
+      btn.textContent = "Copied!";
+      setTimeout(function() { btn.innerHTML = "&#128203; Copy"; }, 2000);
+    });
+  }
+}
+function buildExportText() {
+  var lines = ["4D NDT AI Conversation", "Exported: " + new Date().toLocaleString(), "Tier: " + state.userTier, "---", ""];
+  for (var i = 0; i < state.messages.length; i++) {
+    var m = state.messages[i];
+    lines.push((m.role === "user" ? "YOU: " : "AI: ") + m.content);
+    lines.push("");
+  }
+  lines.push("---");
+  lines.push("Generated by 4D NDT Intelligence Platform | 4dndt.com");
+  return lines.join("\n");
+}
+function downloadFile(name, content, type) {
+  var blob = new Blob([content], { type: type });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ====== USAGE & TIER INFO ======
+function showUsage() {
+  var msg = "Tier: " + state.userTier.toUpperCase() + "\n\n";
+  msg += "Daily queries: tracking available after sign-in\n";
+  msg += "Superbrain uses: " + (state.userTier === "assistant" ? "Not available" : "tracking available after sign-in");
+  showToast(msg);
+}
+function showTierInfo() {
+  var info = "--- 4D NDT Tier Comparison ---\n\n";
+  info += "AI ASSISTANT (Free/$29/mo)\n";
+  info += "  - Formulas, method reference, code lookups\n";
+  info += "  - Basic physics sufficiency checks\n";
+  info += "  - 20 queries/day, PDF export\n\n";
+  info += "AI PRO ($149-299/mo)\n";
+  info += "  - Full assessment pipeline\n";
+  info += "  - Differential diagnosis (143+ mechanisms)\n";
+  info += "  - Code authority, image analysis\n";
+  info += "  - 500 queries/day, PDF + Word export\n\n";
+  info += "PLATFORM ($2-10K/mo)\n";
+  info += "  - All 144 engines, unlimited\n";
+  info += "  - Fleet analytics, batch processing\n";
+  info += "  - API access, white-label reports\n";
+  addMessage("assistant", info);
+}
+
+// ====== UTILITIES ======
+function esc(s) {
+  if (!s) return "";
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function showToast(msg) {
+  var el = document.createElement("div");
+  el.style.cssText = "position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:12px 20px;border-radius:12px;font-size:13px;z-index:300;white-space:pre-line;max-width:90%;text-align:center";
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(function() { el.remove(); }, 3000);
+}
+
+// Init
+init();
+</script>
+</body>
+</html>

@@ -323,7 +323,9 @@ var ENGINE_REGISTRY = [
   { name: "mic-intelligence", deploy: "DEPLOY354", mode: "deterministic", path: "/api/mic-intelligence" },
   { name: "api-standards-authority", deploy: "DEPLOY355", mode: "deterministic", path: "/api/api-standards-authority" },
   { name: "nde-image-analysis", deploy: "DEPLOY280", mode: "ai_assisted", path: "/api/nde-image-analysis" },
-  { name: "disposition-pathway", deploy: "DEPLOY180", mode: "deterministic", path: "/api/disposition-pathway" }
+  { name: "disposition-pathway", deploy: "DEPLOY180", mode: "deterministic", path: "/api/disposition-pathway" },
+  { name: "tier-gate", deploy: "DEPLOY353", mode: "deterministic", path: "/api/tier-gate" },
+  { name: "ai-chat", deploy: "DEPLOY353", mode: "ai_assisted", path: "/api/ai-chat" }
 ];
 
 function countByMode(mode) {

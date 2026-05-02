@@ -1,0 +1,335 @@
+================================================================================
+4D NDT INTELLIGENCE PLATFORM - DISASTER RECOVERY PACKAGE
+================================================================================
+
+This directory contains a complete, consolidated master schema rebuild package
+for the 4D NDT Intelligence Platform Supabase (PostgreSQL) database.
+
+================================================================================
+QUICK START
+================================================================================
+
+To restore the entire platform database to a clean Supabase instance:
+
+  1. Create a new Supabase project or clean database
+  
+  2. Connect with psql:
+     psql postgresql://user:password@db.supabase.co:5432/postgres
+  
+  3. Load the master schema:
+     \i MASTER-SCHEMA.sql
+  
+  4. Verify the schema:
+     \i VALIDATION-QUERIES.sql
+  
+  5. Load seed data (separately):
+     \i CFI-SCHEMA-SEED.sql  (if using contextual failure intelligence)
+
+================================================================================
+FILES IN THIS PACKAGE
+================================================================================
+
+MASTER-SCHEMA.sql (160 KB, 4,277 lines)
+  - Complete consolidated schema for the entire platform
+  - All 154 tables with CREATE TABLE IF NOT EXISTS
+  - All 438 indexes with CREATE INDEX IF NOT EXISTS
+  - All 195 RLS policies with DROP/CREATE safety
+  - All 2 functions and supporting infrastructure
+  - Organized by 14 logical domains for easy understanding
+  - Safe to re-run without errors
+
+README.md (6.3 KB)
+  - Comprehensive overview of the master schema
+  - Domain organization and table listings
+  - Usage instructions for disaster recovery and development
+  - Safety guarantees and validation checklist
+  - Related documentation and notes
+
+SCHEMA-AUDIT.txt (11 KB)
+  - Detailed audit report of the entire schema
+  - File statistics and schema element counts
+  - Complete domain organization with table counts
+  - Safety validation checklist (all items passing)
+  - Index strategy and analysis
+  - Functional dependencies and relationships
+  - Migration lineage and deployment history
+  - Known limitations and next steps
+  - Maintenance recommendations
+
+VALIDATION-QUERIES.sql (7 KB)
+  - 23 SQL queries to validate the schema after loading
+  - Verification of table counts, indexes, RLS, functions
+  - Domain breakdown and analysis queries
+  - Advanced schema validation queries
+  - Expected results for each query
+
+00-START-HERE.txt (THIS FILE)
+  - Quick reference guide
+  - File descriptions and usage
+  - Key statistics at a glance
+
+================================================================================
+KEY STATISTICS
+================================================================================
+
+Schema Size:           163 KB (compressed in single file)
+Original Migrations:   56 SQL files processed
+Deployment Range:      DEPLOY208 → DEPLOY351-352 + CFI-SCHEMA-SEED
+
+Tables:                154 (organized by functional domain)
+Indexes:               438 (B-tree, IVFFlat, GIN)
+RLS Policies:          195 (multi-tenant security)
+Functions:             2 (find_similar_cases, timestamps)
+Extensions:            1 (uuid-ossp; pgvector assumed)
+
+Total Lines:           4,277
+Total Elements:        790
+
+================================================================================
+DOMAIN ORGANIZATION (14 domains)
+================================================================================
+
+Core Case Management (3 tables)
+  - inspection_cases, evidence, findings foundation
+
+Thickness & Corrosion Data (1 table)
+  - UT/CML thickness grids
+
+Concept Intelligence Engine (16 tables)
+  - Semantic concept linking and retrieval
+
+Learning & Outcome Tracking (4 tables)
+  - Case outcomes, pattern learning, feedback
+
+Physics Verification (6 tables)
+  - Physics sufficiency tracking
+
+Authority System (8 tables)
+  - Weld acceptance authority, audit trails
+
+Contradiction Detection (4 tables)
+  - System contradiction detection
+
+Repair Pathway Engine (6 tables)
+  - Repair recommendation engine
+
+Corrosion Analysis (2 tables)
+  - Corrosion-specific analysis
+
+Fatigue Analysis (1 table)
+  - Fatigue and vibration analysis
+
+Asset Management (4 tables)
+  - Asset registry and digital twins
+
+Contextual Failure Intelligence (2 tables)
+  - CIF patterns and feedback
+
+Anomaly Detection (2 tables)
+  - Anomaly fingerprints and matches
+
+Batch Processing, API 579, Pipeline Status (3 tables)
+  - Various specialized subsystems
+
+User & Organization (3 tables)
+  - Profiles, authentication, multi-tenancy
+
+Other System Tables (89 tables)
+  - Support, cache, intermediate tables
+
+================================================================================
+SAFETY FEATURES
+================================================================================
+
+✓ All CREATE TABLE statements use IF NOT EXISTS
+✓ All CREATE INDEX statements use IF NOT EXISTS
+✓ All RLS policies use DROP/CREATE pattern
+✓ No INSERT statements (schema-only, no data)
+✓ No destructive operations (DROP COLUMN, etc.)
+✓ Foreign key constraints properly defined
+✓ Multi-tenant isolation configured (org_id scoping)
+✓ RLS enabled on sensitive tables
+✓ Idempotent - safe to run multiple times
+
+================================================================================
+USAGE SCENARIOS
+================================================================================
+
+1. DISASTER RECOVERY
+   - Restore to clean Supabase instance
+   - Command: psql < MASTER-SCHEMA.sql
+   - Time: ~30 seconds for full schema
+
+2. NEW ENVIRONMENT SETUP
+   - Spin up development/staging environments
+   - Identical schema to production
+   - No manual schema creation needed
+
+3. SCHEMA VALIDATION
+   - Compare against production: pg_dump prod | diff - MASTER-SCHEMA.sql
+   - Detect structural drift
+   - Ensure consistency across environments
+
+4. CI/CD PIPELINE
+   - Use in automated testing
+   - Verify schema changes before merge
+   - Baseline for regression testing
+
+5. DOCUMENTATION
+   - Single source of truth for schema
+   - Version controlled baseline
+   - Historical reference for schema evolution
+
+================================================================================
+MIGRATION LINEAGE
+================================================================================
+
+Phase 1: Base Schema
+  CFI-SCHEMA-SEED.sql
+    - Contextual Failure Intelligence foundation
+    - 25 seed patterns for common failure modes
+
+Phase 2: Core Infrastructure (DEPLOY208-230)
+  - Thickness readings (UT/CML grids)
+  - Case similarity retrieval (pgvector)
+  - Decision core spine
+
+Phase 3: Reasoning Engines (DEPLOY252-DEPLOY271b)
+  - Concept intelligence (16 tables)
+  - Cost reasoning engine
+  - Outcome tracking
+  - Physics sufficiency
+  - Authority system (weld acceptance)
+  - Contradiction detection
+  - Repair pathways
+  - Tri-model reasoning
+
+Phase 4: Advanced Systems (DEPLOY273-DEPLOY351)
+  - Asset management twins
+  - Anomaly detection
+  - Batch processing
+  - API 579 assessments
+  - Pipeline status tracking
+
+================================================================================
+NEXT STEPS AFTER LOADING
+================================================================================
+
+1. Load the schema:
+   psql < MASTER-SCHEMA.sql
+
+2. Verify with validation queries:
+   psql < VALIDATION-QUERIES.sql
+   (All queries should show expected results)
+
+3. Load seed data (if needed):
+   psql < CFI-SCHEMA-SEED.sql
+
+4. Configure application secrets:
+   - Database connection strings
+   - JWT signing keys
+   - RLS policy customization
+
+5. Run application smoke tests:
+   - Verify all core queries work
+   - Test RLS policies
+   - Validate function accessibility
+
+6. Load production data (if restoring):
+   - Use data dump/restore scripts
+   - Respect referential integrity
+   - Validate data constraints
+
+================================================================================
+TECHNICAL DETAILS
+================================================================================
+
+Database System:        Supabase (PostgreSQL 15+)
+Schema Name:            public
+Tablespace:             Default
+Locale:                 Default (C or en_US.UTF-8)
+Encoding:               UTF-8
+
+Extensions Required:
+  - uuid-ossp (included in Supabase)
+  - pgvector (optional, for semantic search)
+
+Key Features:
+  - Multi-tenancy via org_id scoping
+  - Row-level security (RLS) for data isolation
+  - Vector embeddings for semantic search
+  - JSONB columns for flexible schema
+  - Audit trails via timestamped records
+  - Cascade deletes for data consistency
+
+Performance Indexes:
+  - B-tree on foreign keys (case_id, org_id, asset_id)
+  - GIN indexes on JSON and array columns
+  - IVFFlat indexes on vector embeddings
+  - Partial indexes on status columns
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+Problem: "Extension uuid-ossp not found"
+Solution: This is standard in Supabase. If missing, run:
+  CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+Problem: "Foreign key violation during schema creation"
+Solution: Ensure the primary key tables are created first.
+  All IF NOT EXISTS guards should handle this automatically.
+
+Problem: "RLS policies failing after creation"
+Solution: Verify:
+  1. auth.users table exists
+  2. User roles are properly configured
+  3. org_id values in JWT claims
+
+Problem: "Vector indexes failing"
+Solution: pgvector extension may not be enabled:
+  1. In Supabase console, add pgvector to extensions
+  2. Re-run the schema creation
+  3. Or skip vector operations if not needed
+
+Problem: Table X references non-existent table Y
+Solution: Load all tables in order (the file does this automatically)
+  or use the migration sequence documented in SCHEMA-AUDIT.txt
+
+================================================================================
+QUESTIONS & SUPPORT
+================================================================================
+
+For detailed information, see:
+  - README.md: Overview and usage guide
+  - SCHEMA-AUDIT.txt: Complete audit report
+  - VALIDATION-QUERIES.sql: Verification procedures
+  - Individual DEPLOY*.sql files: Specific changes
+
+For schema questions:
+  - Review the domain sections in MASTER-SCHEMA.sql
+  - Check the table comments (preserved from migrations)
+  - Consult the SCHEMA-AUDIT.txt for design decisions
+
+For operational questions:
+  - See README.md Usage Instructions section
+  - Run VALIDATION-QUERIES.sql to verify state
+  - Check Supabase dashboard for real-time info
+
+================================================================================
+VERSION INFORMATION
+================================================================================
+
+Generated:              2026-05-01
+Platform:               4D NDT Intelligence Platform
+Database:               Supabase/PostgreSQL
+Schema Version:         Production-ready (All engines)
+Consolidated From:      56 migration files
+Last Deploy:            DEPLOY351-352-MIGRATION.sql
+
+This is the AUTHORITATIVE schema baseline for the platform.
+Update this file after each major schema migration.
+
+================================================================================
+END OF QUICK START GUIDE
+================================================================================

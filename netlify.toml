@@ -36,6 +36,17 @@
   to = "/landing.html"
   status = 200
 
+# AI Assistant PWA
+[[redirects]]
+  from = "/assistant"
+  to = "/assistant.html"
+  status = 200
+
+[[redirects]]
+  from = "/assistant.html"
+  to = "/assistant.html"
+  status = 200
+
 # React app at /app and all other routes
 [[redirects]]
   from = "/app"
