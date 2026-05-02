@@ -456,8 +456,8 @@ var TEST_CASES = [
     id: 'Case 124',
     name: 'CONFORMAL-4-MONITOR-BUMP-124',
     path: 'C',
-    expected_class: 'INCREASE_INSPECTION',
-    expected_authority_lock: false,
+    expected_class: 'REPAIR_REPLACE',
+    expected_authority_lock: true,
     evidence: {
       domain: 'fixed',
       equipment_type: 'pressure_vessel',
