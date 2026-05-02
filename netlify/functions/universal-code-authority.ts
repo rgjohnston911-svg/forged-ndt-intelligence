@@ -91,6 +91,8 @@ var CODE_MAPPINGS = [
   // Tier 3: Industry consensus — Pressure/Piping Codes
   { tier: 3, code_id: "ASME_VIII", triggers: { asset_types: ["pressure_vessel"], conditions: ["fabrication", "design_review"] } },
   { tier: 3, code_id: "ASME_III", triggers: { asset_types: ["nuclear_vessel", "nuclear_piping", "reactor_vessel"], industries: ["nuclear"] } },
+  { tier: 3, code_id: "ASME_XI", triggers: { asset_types: ["nuclear_vessel", "nuclear_piping", "reactor_vessel", "steam_generator"], industries: ["nuclear"], conditions: ["inservice_inspection", "isi"] } },
+  { tier: 3, code_id: "API_571", triggers: { industries: ["refinery", "petrochemical", "chemical", "oil_gas"], conditions: ["damage_mechanism", "corrosion", "cracking", "htha", "creep", "fatigue"] } },
   { tier: 3, code_id: "ASME_B311", triggers: { asset_types: ["power_piping", "boiler_piping"], industries: ["power_generation"] } },
   { tier: 3, code_id: "ASME_B313", triggers: { asset_types: ["process_piping"] } },
   { tier: 3, code_id: "ASME_B314", triggers: { asset_types: ["liquid_pipeline"], conditions: ["liquid_transport"] } },
@@ -174,6 +176,13 @@ var CLAUSE_LIBRARY = {
     { clause: "Section 8.5", title: "Weld Acceptance Criteria", trigger: "weld_defect" },
     { clause: "Annex M", title: "Requirements for Tanks in Seismic Areas", trigger: "seismic" }
   ],
+  API_653: [
+    { clause: "Section 4", title: "Suitability for Service", trigger: "general_inspection" },
+    { clause: "Section 6", title: "Inspection", trigger: "tank_inspection" },
+    { clause: "Section 6.3", title: "Shell Assessment — Minimum Thickness", trigger: "wall_loss" },
+    { clause: "Section 9", title: "Reconstruction", trigger: "repair" },
+    { clause: "Section 12", title: "Welding Repairs", trigger: "weld_repair" }
+  ],
   API_941: [
     { clause: "Section 4", title: "Operating Limits (Nelson Curves)", trigger: "htha" },
     { clause: "Section 5", title: "Inspection Requirements", trigger: "htha_inspection" }
@@ -239,6 +248,121 @@ var CLAUSE_LIBRARY = {
   SSPC_PA2: [
     { clause: "Section 4", title: "DFT Measurement Procedure", trigger: "coating_thickness" },
     { clause: "Section 4.3", title: "Gage Reading Requirements", trigger: "dft_measurement" }
+  ],
+  NRC_10CFR50: [
+    { clause: "50.55a", title: "Codes and Standards — Inservice Inspection Requirements", trigger: "general_inspection" },
+    { clause: "50.55a(g)", title: "ISI Requirements per ASME Section XI", trigger: "nuclear_isi" },
+    { clause: "50.61", title: "Pressurized Thermal Shock — Fracture Toughness", trigger: "irradiation_embrittlement" }
+  ],
+  FAA_AC43: [
+    { clause: "AC 43.13-1B Ch.5", title: "Inspection and Repair of Metal Structures", trigger: "general_inspection" },
+    { clause: "AC 43.13-1B Ch.6", title: "Welding Repairs — Aerospace Structures", trigger: "weld_repair" },
+    { clause: "AC 43-4A", title: "Corrosion Control for Aircraft", trigger: "corrosion" }
+  ],
+  OSHA_PSM: [
+    { clause: "1910.119(j)", title: "Mechanical Integrity — Equipment Inspection", trigger: "general_inspection" },
+    { clause: "1910.119(d)", title: "Process Hazard Analysis", trigger: "risk_assessment" },
+    { clause: "1910.119(j)(4)", title: "Inspection and Testing Procedures", trigger: "nde_inspection" }
+  ],
+  DOT_PHMSA: [
+    { clause: "49 CFR 192", title: "Transportation of Natural and Other Gas by Pipeline", trigger: "gas_pipeline" },
+    { clause: "49 CFR 195", title: "Transportation of Hazardous Liquids by Pipeline", trigger: "liquid_pipeline" },
+    { clause: "49 CFR 192.921", title: "Integrity Assessment Methods (ILI, DA, Pressure Test, Other)", trigger: "pipeline_integrity" }
+  ],
+  NBIC: [
+    { clause: "Part 2 Section 2", title: "Inspection — Pressure Vessels", trigger: "general_inspection" },
+    { clause: "Part 2 Section 4", title: "Inspection — Pressure Piping", trigger: "piping_inspection" },
+    { clause: "Part 3", title: "Repairs and Alterations", trigger: "repair" }
+  ],
+  AWS_D13: [
+    { clause: "Section 6", title: "Inspection", trigger: "general_inspection" },
+    { clause: "Section 6.5", title: "Visual Acceptance Criteria — Sheet Steel Welds", trigger: "weld_defect" }
+  ],
+  AWS_D36M: [
+    { clause: "Section 8", title: "Inspection and Testing", trigger: "general_inspection" },
+    { clause: "Section 8.4", title: "Acceptance Criteria — Underwater Welds (Class A/B/O)", trigger: "weld_defect" },
+    { clause: "Section 6", title: "Welding Procedure Qualification", trigger: "weld_procedure" }
+  ],
+  ASME_VIII: [
+    { clause: "UW-51", title: "Radiographic Examination of Welded Joints", trigger: "nde_inspection" },
+    { clause: "UW-52", title: "Spot Radiography", trigger: "spot_exam" },
+    { clause: "UW-33", title: "Minimum Thickness Requirements", trigger: "wall_loss" },
+    { clause: "Appendix 26", title: "Pressure Relief Devices", trigger: "overpressure" }
+  ],
+  ASME_B313: [
+    { clause: "Section 341.4", title: "Examination of Welds", trigger: "nde_inspection" },
+    { clause: "Section 345", title: "Weld Acceptance Criteria", trigger: "weld_defect" },
+    { clause: "Section 323", title: "Design Criteria — Allowable Stresses", trigger: "design_review" }
+  ],
+  ASME_B3112: [
+    { clause: "Section IP-10", title: "Examination of Hydrogen Piping", trigger: "nde_inspection" },
+    { clause: "Section GR-3", title: "Materials — Hydrogen Embrittlement Considerations", trigger: "hydrogen_embrittlement" },
+    { clause: "Section PL-3.7", title: "Pipeline Fracture Control for H2 Service", trigger: "fracture_control" }
+  ],
+  DNV_GL: [
+    { clause: "DNV-RU-SHIP Pt.2 Ch.4", title: "Fabrication and Testing", trigger: "general_inspection" },
+    { clause: "DNV-RU-SHIP Pt.5 Ch.7", title: "In-Water Survey", trigger: "underwater_inspection" },
+    { clause: "DNV-RP-C203", title: "Fatigue Design of Offshore Steel Structures", trigger: "fatigue" }
+  ],
+  DNV_OS_C401: [
+    { clause: "Section 2", title: "Welding — Fabrication Requirements", trigger: "welding" },
+    { clause: "Section 3", title: "Non-Destructive Testing", trigger: "nde_inspection" },
+    { clause: "Section 3 Table D1", title: "Acceptance Criteria for Weld Imperfections", trigger: "weld_defect" }
+  ],
+  API_RP_2A: [
+    { clause: "Section 14", title: "Inspection for New Platforms", trigger: "fabrication" },
+    { clause: "Section 15", title: "Surveys — In-Service Inspection", trigger: "general_inspection" },
+    { clause: "Section 5", title: "Fatigue — Tubular Joint Design", trigger: "fatigue" }
+  ],
+  AASHTO_MBE: [
+    { clause: "Section 4", title: "Inspection — Routine and In-Depth", trigger: "general_inspection" },
+    { clause: "Section 6A", title: "Load Rating — LRFR Method", trigger: "structural_rating" },
+    { clause: "Section 7", title: "Fatigue Evaluation of Steel Bridges", trigger: "fatigue" }
+  ],
+  IBC: [
+    { clause: "Section 1705", title: "Required Verification and Inspection — Structural Steel", trigger: "general_inspection" },
+    { clause: "Section 1705.12", title: "Special Inspection of Structural Steel Welding", trigger: "weld_defect" },
+    { clause: "Section 1604", title: "General Design Requirements", trigger: "design_review" }
+  ],
+  NACE_SP0188: [
+    { clause: "Section 4", title: "Low-Voltage Wet Sponge Holiday Detection", trigger: "coating_holiday" },
+    { clause: "Section 5", title: "High-Voltage Holiday Detection (Spark Test)", trigger: "holiday_testing" },
+    { clause: "Section 6", title: "Test Voltage Selection", trigger: "coating_inspection" }
+  ],
+  ISO_8501: [
+    { clause: "Section 4", title: "Surface Cleanliness Grades (Sa 1, Sa 2, Sa 2.5, Sa 3)", trigger: "surface_preparation" },
+    { clause: "Annex A", title: "Visual Reference Photographs", trigger: "visual_assessment" }
+  ],
+  NACE_SP0198: [
+    { clause: "Section 4", title: "CUI Inspection Methods", trigger: "cui" },
+    { clause: "Section 5", title: "CUI Risk Assessment", trigger: "risk_assessment" },
+    { clause: "Section 3", title: "Design Considerations for CUI Prevention", trigger: "design_review" }
+  ],
+  ISO_24817: [
+    { clause: "Section 5", title: "Design of Composite Repair Systems", trigger: "composite_repair" },
+    { clause: "Section 6", title: "Qualification Testing Requirements", trigger: "repair_qualification" },
+    { clause: "Section 8", title: "Application and Quality Control", trigger: "repair" }
+  ],
+  ASTM_E3166: [
+    { clause: "Section 7", title: "Additive Manufacturing NDE Methods", trigger: "nde_inspection" },
+    { clause: "Section 8", title: "Acceptance Criteria for AM Parts", trigger: "am_acceptance" }
+  ],
+  ASME_XI: [
+    { clause: "IWA-2000", title: "Examination and Inspection — General Requirements", trigger: "general_inspection" },
+    { clause: "IWB-3500", title: "Acceptance Standards — Class 1 Components", trigger: "flaw_evaluation" },
+    { clause: "IWB-3600", title: "Analytical Evaluation of Flaws", trigger: "ffs_required" },
+    { clause: "IWA-4000", title: "Repair/Replacement Activities", trigger: "repair" }
+  ],
+  API_571: [
+    { clause: "Section 4", title: "Damage Mechanisms — Descriptions and Assessment", trigger: "damage_mechanism" },
+    { clause: "Section 4.2", title: "General and Localized Corrosion Mechanisms", trigger: "corrosion" },
+    { clause: "Section 4.3", title: "High-Temperature Corrosion Mechanisms", trigger: "high_temp" },
+    { clause: "Section 4.5", title: "Environment-Assisted Cracking Mechanisms", trigger: "cracking" }
+  ],
+  API_1104: [
+    { clause: "Section 9", title: "Acceptance Standards for NDT", trigger: "nde_inspection" },
+    { clause: "Section 9.3", title: "Radiographic Acceptance Criteria", trigger: "weld_defect" },
+    { clause: "Section 9.6", title: "Ultrasonic Acceptance Standards (AUT)", trigger: "aut_acceptance" }
   ]
 };
 
