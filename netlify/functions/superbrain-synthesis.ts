@@ -131,6 +131,13 @@ var handler = async function(event) {
     var par = body.photo_analysis || null;
     var ir = body.inspection_retrieval || null;
 
+    // DEPLOY279: Phase 1 engine fields
+    var evc = body.evidence_contract || null;
+    var coa = body.coatings_intelligence || null;
+    var mca = body.mechanism_causality || null;
+    var unb = body.uncertainty_boundary || null;
+    var dla = body.decision_liability || null;
+
     if (!decisionCore) {
       return {
         statusCode: 400,
@@ -139,7 +146,7 @@ var handler = async function(event) {
       };
     }
 
-    var anyEngine = !!(alr || rsr || fmd || dpr || ftr || par || ir);
+    var anyEngine = !!(alr || rsr || fmd || dpr || ftr || par || ir || evc || coa || mca || unb || dla);
     var fmdGoverningPresent = fmd && fmd.governing_failure_mode && fmd.governing_failure_mode !== "NONE";
     var alrScopePresent = alr && alr.authority_chain && alr.authority_chain.length > 0;
 
@@ -307,6 +314,48 @@ var handler = async function(event) {
         engineLines.push("    ai_error: (string|null)  <- if AI call failed, the error");
         engineLines.push("");
       }
+      // DEPLOY279: Phase 1 engine field maps
+      if (evc) {
+        engineLines.push("  evidence_contract (EVC):");
+        engineLines.push("    contract_status (SATISFIED|PARTIAL|VIOLATED), domain, completeness_score");
+        engineLines.push("    missing_fields: [ { field, criticality (required|recommended), impact } ]");
+        engineLines.push("    warnings: [ strings ]");
+        engineLines.push("    confidence_ceiling: number  <- max confidence allowed given evidence gaps");
+        engineLines.push("");
+      }
+      if (coa) {
+        engineLines.push("  coatings_intelligence (COA):");
+        engineLines.push("    coating_condition, coating_type, system_age_years");
+        engineLines.push("    defects: [ { type, severity, standard_reference, acceptance } ]");
+        engineLines.push("    overall_acceptance (ACCEPTABLE|MARGINAL|UNACCEPTABLE), recoat_urgency");
+        engineLines.push("    standard_citations: [ { code, clause, requirement } ]");
+        engineLines.push("");
+      }
+      if (mca) {
+        engineLines.push("  mechanism_causality (MCA):");
+        engineLines.push("    validated_chains: [ { mechanism, root_cause, causal_path[], physics_valid (boolean) } ]");
+        engineLines.push("    rejected_chains: [ { mechanism, rejection_reason, impossible_physics } ]");
+        engineLines.push("    interaction_effects: [ { mechanisms[], interaction_type, severity_modifier } ]");
+        engineLines.push("    causality_confidence: number");
+        engineLines.push("");
+      }
+      if (unb) {
+        engineLines.push("  uncertainty_boundary (UNB):");
+        engineLines.push("    confidence_ceiling: number  <- hard cap on overall confidence");
+        engineLines.push("    epistemic_gaps: [ { dimension, description, impact_on_decision } ]");
+        engineLines.push("    aleatoric_bounds: { lower, upper, distribution }");
+        engineLines.push("    overconfidence_flags: [ strings ]  <- warnings where confidence exceeds evidence");
+        engineLines.push("");
+      }
+      if (dla) {
+        engineLines.push("  decision_liability (DLA):");
+        engineLines.push("    decision_mode (AUTONOMOUS|HUMAN_REQUIRED|COMMITTEE_REQUIRED)");
+        engineLines.push("    liability_tier (LOW|MODERATE|HIGH|CRITICAL)");
+        engineLines.push("    human_loop_reasons: [ strings ]  <- why human oversight is needed");
+        engineLines.push("    authority_gate: { passed (boolean), blocking_reason }");
+        engineLines.push("    audit_trail_required: boolean");
+        engineLines.push("");
+      }
       enginePrompt = engineLines.join("\n");
     }
 
@@ -438,6 +487,77 @@ var handler = async function(event) {
     // GPT-4o must use Engine 3's references as ground truth for pre_inspection_briefing,
     // procedure_forensics, and inspector_action_card.
 
+    // ======================================================================
+    // DEPLOY279: EVIDENCE CONTRACT CONFIDENCE CEILING (conditional)
+    // ======================================================================
+
+    var evcCeilingPrompt = "";
+    if (evc && evc.contract_status === "VIOLATED") {
+      var evcCeiling = evc.confidence_ceiling || 0.5;
+      var evcMissing = (evc.missing_fields || []).filter(function(f) { return f.criticality === "required"; }).map(function(f) { return f.field; });
+      evcCeilingPrompt = [
+        "",
+        "============================================================",
+        "EVIDENCE CONTRACT VIOLATION -- CONFIDENCE CEILING",
+        "============================================================",
+        "The Evidence Contract engine has determined that REQUIRED evidence fields are MISSING:",
+        "  Missing: " + (evcMissing.length > 0 ? evcMissing.join(", ") : "see evidence_contract.missing_fields"),
+        "  Confidence ceiling: " + evcCeiling,
+        "",
+        "Your outputs MUST:",
+        "1. Not claim confidence higher than " + evcCeiling + " in any dimension.",
+        "2. State in reviewer_brief that evidence is INCOMPLETE and name the missing fields.",
+        "3. In inspector_action_card, include steps to gather the missing evidence.",
+        "4. Cite evidence_contract.missing_fields and evidence_contract.confidence_ceiling in evidence_trace."
+      ].join("\n");
+    }
+
+    // ======================================================================
+    // DEPLOY279: UNCERTAINTY BOUNDARY OVERCONFIDENCE BLOCK (conditional)
+    // ======================================================================
+
+    var unbOverridePrompt = "";
+    if (unb && unb.overconfidence_flags && unb.overconfidence_flags.length > 0) {
+      unbOverridePrompt = [
+        "",
+        "============================================================",
+        "UNCERTAINTY BOUNDARY -- OVERCONFIDENCE WARNING",
+        "============================================================",
+        "The Uncertainty Boundary engine has flagged OVERCONFIDENCE:",
+        "  Flags: " + unb.overconfidence_flags.join("; "),
+        "  Confidence ceiling: " + (unb.confidence_ceiling || "not set"),
+        "",
+        "Your outputs MUST:",
+        "1. Acknowledge uncertainty in failure_narrative where flagged.",
+        "2. In reviewer_brief, list epistemic gaps that limit decision authority.",
+        "3. Do NOT state conclusions with certainty where the engine has flagged overconfidence.",
+        "4. Cite uncertainty_boundary.overconfidence_flags in evidence_trace."
+      ].join("\n");
+    }
+
+    // ======================================================================
+    // DEPLOY279: DECISION LIABILITY HUMAN-IN-THE-LOOP BLOCK (conditional)
+    // ======================================================================
+
+    var dlaOverridePrompt = "";
+    if (dla && (dla.decision_mode === "HUMAN_REQUIRED" || dla.decision_mode === "COMMITTEE_REQUIRED")) {
+      dlaOverridePrompt = [
+        "",
+        "============================================================",
+        "DECISION LIABILITY -- HUMAN OVERSIGHT REQUIRED",
+        "============================================================",
+        "The Decision Liability engine requires " + dla.decision_mode + " for this case.",
+        "  Liability tier: " + (dla.liability_tier || "not stated"),
+        "  Reasons: " + ((dla.human_loop_reasons || []).join("; ") || "see decision_liability"),
+        "",
+        "Your outputs MUST:",
+        "1. State in reviewer_brief that this decision REQUIRES " + (dla.decision_mode === "COMMITTEE_REQUIRED" ? "committee review" : "human engineering review") + ".",
+        "2. In inspector_action_card, the FIRST step must be to escalate to the appropriate authority.",
+        "3. Do NOT recommend autonomous action. All dispositions must be framed as recommendations pending human approval.",
+        "4. Cite decision_liability.decision_mode and decision_liability.human_loop_reasons in evidence_trace."
+      ].join("\n");
+    }
+
     var irPresent = ir && ((ir.mechanism_references && ir.mechanism_references.length > 0) || ir.ai_synthesis);
     var irOverridePrompt = "";
     if (irPresent) {
@@ -561,7 +681,7 @@ var handler = async function(event) {
       "- evidence_trace: minimum 8 entries covering the most critical claims across all features."
     ].join("\n");
 
-    var systemPrompt = basePrompt + enginePrompt + fmdOverridePrompt + alrScopePrompt + irOverridePrompt + consequenceUndeterminedPrompt + outputPrompt;
+    var systemPrompt = basePrompt + enginePrompt + fmdOverridePrompt + alrScopePrompt + irOverridePrompt + evcCeilingPrompt + unbOverridePrompt + dlaOverridePrompt + consequenceUndeterminedPrompt + outputPrompt;
 
     // ======================================================================
     // USER PROMPT: transcript + decision-core + engine bundle
@@ -591,6 +711,12 @@ var handler = async function(event) {
       if (ftr) engineBundle.failure_timeline = ftr;
       if (par) engineBundle.photo_analysis = par;
       if (ir) engineBundle.inspection_retrieval = ir;
+      // DEPLOY279: Phase 1 engines
+      if (evc) engineBundle.evidence_contract = evc;
+      if (coa) engineBundle.coatings_intelligence = coa;
+      if (mca) engineBundle.mechanism_causality = mca;
+      if (unb) engineBundle.uncertainty_boundary = unb;
+      if (dla) engineBundle.decision_liability = dla;
       userPromptLines.push(JSON.stringify(engineBundle, null, 2));
       userPromptLines.push("---");
     }
@@ -909,7 +1035,10 @@ var handler = async function(event) {
       // DEPLOY170.2: new engine namespaces; DEPLOY202: inspection_retrieval
       "authority_lock", "remaining_strength", "failure_mode_dominance",
       "disposition_pathway", "failure_timeline", "photo_analysis",
-      "inspection_retrieval"
+      "inspection_retrieval",
+      // DEPLOY279: Phase 1 engines
+      "evidence_contract", "coatings_intelligence", "mechanism_causality",
+      "uncertainty_boundary", "decision_liability"
     ];
     var traceWarnings = [];
     if (synthesis.evidence_trace && Array.isArray(synthesis.evidence_trace)) {
@@ -952,8 +1081,18 @@ var handler = async function(event) {
         disposition_pathway: !!dpr,
         failure_timeline: !!ftr,
         photo_analysis: !!par,
-        inspection_retrieval: !!ir
-      }
+        inspection_retrieval: !!ir,
+        // DEPLOY279: Phase 1 engines
+        evidence_contract: !!evc,
+        coatings_intelligence: !!coa,
+        mechanism_causality: !!mca,
+        uncertainty_boundary: !!unb,
+        decision_liability: !!dla
+      },
+      // DEPLOY279: Phase 1 override flags
+      evc_ceiling_applied: !!(evc && evc.contract_status === "VIOLATED"),
+      unb_overconfidence_applied: !!(unb && unb.overconfidence_flags && unb.overconfidence_flags.length > 0),
+      dla_human_loop_applied: !!(dla && (dla.decision_mode === "HUMAN_REQUIRED" || dla.decision_mode === "COMMITTEE_REQUIRED"))
     };
 
     // DEPLOY202: Pass through Engine 3's engineering narrative and inspection plan
@@ -971,7 +1110,7 @@ var handler = async function(event) {
     }
 
     var result = {
-      superbrain_version: "1.4",
+      superbrain_version: "1.5",
       synthesis_constraint_version: "v1.4",
       engine_version: "decision-core-v2.10.0",
       ai_provider: aiProvider,
