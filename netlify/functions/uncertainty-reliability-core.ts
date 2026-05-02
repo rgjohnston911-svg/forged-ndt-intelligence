@@ -603,7 +603,9 @@ function runClassification(input) {
     "pile_fatigue_mudline", "hatch_fatigue_stiffener",
     "fatigue_hatch_corner_fleet_history", "brittle_fracture_margin_edge",
     "irradiation_embrittlement_margin_tight", "erosion_corrosion_acceleration_model_error",
-    "cui_high_stress_zone", "nozzle_fatigue_cascade", "mic_through_wall", "mic_through_wall_active"
+    "cui_high_stress_zone", "nozzle_fatigue_cascade", "mic_through_wall", "mic_through_wall_active",
+    "fatigue_corrosion_interaction", "through_wall_weld_corrosion",
+    "fatigue_uncertainty_pitting", "multi_mechanism_eol_field_decommission"
   ];
 
   var mechanismNorm = String(mechanism).trim();
