@@ -578,4 +578,15 @@ var handler: Handler = async function(event, context) {
     return {
       statusCode: 500,
       headers: corsHeaders,
-      body: JSON.stringify({ error: "Internal server error", detail: Str
+      body: JSON.stringify({ error: "Internal server error", detail: String(e) })
+    };
+  }
+
+  return {
+    statusCode: 200,
+    headers: corsHeaders,
+    body: JSON.stringify(response_payload)
+  };
+};
+
+module.exports = { handler: handler };
