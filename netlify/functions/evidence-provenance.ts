@@ -79,6 +79,27 @@ var METHOD_CAPABILITIES: any = {
     cannot_reliably: ["crack", "wall_thickness", "corrosion_rate", "flaw_sizing"],
     limitations: ["Surface preparation required", "Point measurement", "Does not detect flaws directly"],
     pod_notes: "Useful for material verification and post-fire/post-weld assessment. Not a flaw detection method."
+  },
+  "PEC": {
+    can_measure: ["wall_thickness"],
+    can_detect: ["wall_loss", "corrosion_under_insulation"],
+    cannot_reliably: ["crack_detection", "crack_depth", "flaw_type", "surface_condition"],
+    limitations: ["Cannot detect cracking", "Lower resolution than contact UT", "Requires calibration on similar geometry", "Affected by lift-off variation"],
+    pod_notes: "Screening tool for CUI and large-area wall loss. Cannot replace contact UT for crack detection or precise sizing."
+  },
+  "MFL": {
+    can_measure: ["wall_loss_relative"],
+    can_detect: ["metal_loss", "corrosion", "pitting"],
+    cannot_reliably: ["crack_detection", "crack_depth", "flaw_type", "subsurface_flaw", "absolute_wall_thickness"],
+    limitations: ["Cannot detect axial cracks reliably", "Requires magnetization of component", "Affected by wall thickness variation", "Cannot provide absolute thickness"],
+    pod_notes: "Pipeline and tank floor screening. Good for metal loss detection but cannot detect or size cracks."
+  },
+  "AE": {
+    can_measure: ["emission_location", "emission_intensity"],
+    can_detect: ["active_cracking", "leak", "fiber_breakage", "deformation"],
+    cannot_reliably: ["flaw_type", "flaw_sizing", "crack_depth", "wall_thickness", "dormant_flaw"],
+    limitations: ["Only detects active mechanisms", "Cannot characterize flaw type or size", "Requires loading/pressurization", "High sensitivity to background noise", "Cannot detect dormant/stable flaws"],
+    pod_notes: "Detects active emission sources during loading. Cannot confirm flaw type, size, or depth — requires complementary NDE for characterization."
   }
 };
 
