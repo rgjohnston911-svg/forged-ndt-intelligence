@@ -411,20 +411,4 @@ var handler = async function(event: any): Promise<any> {
     return {
       statusCode: 200, headers: headers,
       body: JSON.stringify({
-        ok: true,
-        evidence_provenance_version: "1.0",
-        evidence: evidence,
-        provenance_summary: provenanceSummary,
-        measurement_reality: measurementReality
-      })
-    };
-
-  } catch (err: any) {
-    return {
-      statusCode: 500, headers: headers,
-      body: JSON.stringify({ error: "evidence-provenance error", message: err.message || "Unknown" })
-    };
-  }
-};
-
-export { handler };
+   
