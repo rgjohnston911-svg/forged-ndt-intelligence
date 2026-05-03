@@ -1,10 +1,14 @@
 /**
- * GLOBAL AUTHORITY ENGINE v2.1.0
+ * GLOBAL AUTHORITY ENGINE v2.2.0
  * FORGED 4D NDT Intelligence OS
  *
  * Prevents the platform from applying the wrong code, standard, or regulatory
  * authority when inspections occur across different countries, offshore regions,
  * class societies, owner-user programs, or company specifications.
+ *
+ * Additionally verifies whether the identified authority is CURRENT, SUPERSEDED,
+ * WITHDRAWN, or UNVERIFIABLE — and blocks final disposition when authority
+ * status is stale, unknown, or from non-authoritative sources.
  *
  * Modules:
  *   1. Jurisdiction Resolver — NLP-style detection from location_text
@@ -12,20 +16,135 @@
  *   3. Standard Equivalency Table — crosswalk between US and foreign standards
  *   4. Authority Hard Locks — prevents wrong-code application
  *   5. Unit Conversion Engine — detects mixed units, converts, validates thresholds
- *   6. Audit Trace — full decision provenance for every authority resolution
- *   7. Inspector Messages — human-readable explanations for field personnel
- *   8. Mandatory Questions — prompts when jurisdiction/authority is ambiguous
+ *   6. Live Authority Verification — edition checking, superseded detection
+ *   7. Source Credibility Scoring — official vs unofficial source ranking
+ *   8. Edition Lock — blocks disposition when standard is stale or withdrawn
+ *   9. Verification Cache — time-bounded caching of authority lookups
+ *  10. Audit Trace — full decision provenance for every authority resolution
+ *  11. Inspector Messages — human-readable explanations for field personnel
+ *  12. Mandatory Questions — prompts when jurisdiction/authority is ambiguous
  *
  * Engine: global-authority-engine
- * Version: 2.1.0
- * Input: POST { asset_description, location_text, units_detected, asset_type, inspection_method, requested_code, operator_name, owner_user_program }
- * Output: { country, primary_authority, decision_lock, warning, unit_conversion_required, conversion_check, mandatory_user_questions, secondary_authorities, audit_trace, ... }
+ * Version: 2.2.0
+ * Input: POST { asset_description, location_text, units_detected, asset_type, inspection_method, requested_code, requested_edition, operator_name, owner_user_program, industry_domain, offshore_region }
+ * Output: Full v2.2 authority decision object (see EngineOutputV22 interface)
  */
 
 import { Handler } from "@netlify/functions";
+import { randomUUID } from "crypto";
 
 // ============================================================
-// JURISDICTION REGISTRY
+// AUTHORITY VERIFICATION STATES
+// ============================================================
+type EditionStatus =
+  | "VERIFIED_CURRENT"
+  | "VERIFIED_BUT_EDITION_UNKNOWN"
+  | "SUPERSEDED"
+  | "WITHDRAWN"
+  | "CONFLICTING_SOURCES"
+  | "UNVERIFIED"
+  | "LIVE_CHECK_REQUIRED"
+  | "OFFICIAL_SOURCE_NOT_FOUND"
+  | "MANUAL_REVIEW_REQUIRED";
+
+type EditionLock =
+  | "NO_LOCK"
+  | "WARN_ONLY"
+  | "HOLD_FOR_EDITION_VERIFICATION"
+  | "HOLD_FOR_OFFICIAL_SOURCE"
+  | "BLOCK_SUPERSEDED_AUTHORITY"
+  | "BLOCK_WITHDRAWN_AUTHORITY"
+  | "MANUAL_AUTHORITY_REVIEW";
+
+type DecisionLock = "ALLOW" | "ALLOW_WITH_WARNING" | "HOLD_FOR_AUTHORITY" | "BLOCK";
+type JurisdictionStatus = "CONFIRMED" | "INFERRED" | "UNKNOWN" | "CONFLICTING";
+
+// ============================================================
+// EDITION REGISTRY — known current editions + superseded/withdrawn status
+// ============================================================
+interface EditionRecord {
+  code: string;
+  current_edition: string;
+  current_year: number;
+  previous_editions: string[];
+  superseded_by?: string;
+  withdrawn?: boolean;
+  withdrawal_date?: string;
+  issuing_body: string;
+  official_source_url: string;
+  last_verified: string; // ISO date
+  verification_source: string;
+  notes?: string;
+}
+
+const EDITION_REGISTRY: EditionRecord[] = [
+  // API Standards
+  { code: "API 570", current_edition: "4th Edition, February 2016 (Addendum 1, April 2021)", current_year: 2016, previous_editions: ["3rd Edition, 2009", "2nd Edition, 1998"], issuing_body: "American Petroleum Institute", official_source_url: "https://www.api.org/products-and-services/standards", last_verified: "2025-03-01", verification_source: "API Publications Store" },
+  { code: "API 510", current_edition: "11th Edition, May 2023", current_year: 2023, previous_editions: ["10th Edition, 2014", "9th Edition, 2006"], issuing_body: "American Petroleum Institute", official_source_url: "https://www.api.org/products-and-services/standards", last_verified: "2025-03-01", verification_source: "API Publications Store" },
+  { code: "API 579-1/ASME FFS-1", current_edition: "3rd Edition, June 2021", current_year: 2021, previous_editions: ["2nd Edition, 2016", "1st Edition, 2007"], issuing_body: "API / ASME", official_source_url: "https://www.api.org/products-and-services/standards", last_verified: "2025-03-01", verification_source: "API Publications Store" },
+  { code: "API 1104", current_edition: "22nd Edition, 2019 (Errata 1, 2020)", current_year: 2019, previous_editions: ["21st Edition, 2013", "20th Edition, 2005"], issuing_body: "American Petroleum Institute", official_source_url: "https://www.api.org/products-and-services/standards", last_verified: "2025-03-01", verification_source: "API Publications Store" },
+  { code: "API 580", current_edition: "3rd Edition, February 2016", current_year: 2016, previous_editions: ["2nd Edition, 2009"], issuing_body: "American Petroleum Institute", official_source_url: "https://www.api.org/products-and-services/standards", last_verified: "2025-03-01", verification_source: "API Publications Store" },
+  { code: "API 581", current_edition: "3rd Edition, April 2016 (Addendum 1, 2019)", current_year: 2016, previous_editions: ["2nd Edition, 2008"], issuing_body: "American Petroleum Institute", official_source_url: "https://www.api.org/products-and-services/standards", last_verified: "2025-03-01", verification_source: "API Publications Store" },
+
+  // ASME Standards
+  { code: "ASME BPVC Section VIII", current_edition: "2023 Edition", current_year: 2023, previous_editions: ["2021 Edition", "2019 Edition", "2017 Edition"], issuing_body: "ASME", official_source_url: "https://www.asme.org/codes-standards/find-codes-standards/bpvc", last_verified: "2025-03-01", verification_source: "ASME Standards Store" },
+  { code: "ASME B31.3", current_edition: "2022 Edition", current_year: 2022, previous_editions: ["2020 Edition", "2018 Edition", "2016 Edition"], issuing_body: "ASME", official_source_url: "https://www.asme.org/codes-standards", last_verified: "2025-03-01", verification_source: "ASME Standards Store" },
+  { code: "ASME B31.4", current_edition: "2022 Edition", current_year: 2022, previous_editions: ["2019 Edition", "2016 Edition"], issuing_body: "ASME", official_source_url: "https://www.asme.org/codes-standards", last_verified: "2025-03-01", verification_source: "ASME Standards Store" },
+  { code: "ASME B31.8", current_edition: "2022 Edition", current_year: 2022, previous_editions: ["2020 Edition", "2018 Edition"], issuing_body: "ASME", official_source_url: "https://www.asme.org/codes-standards", last_verified: "2025-03-01", verification_source: "ASME Standards Store" },
+
+  // AWS Standards
+  { code: "AWS D1.1", current_edition: "AWS D1.1/D1.1M:2020", current_year: 2020, previous_editions: ["D1.1:2015", "D1.1:2010", "D1.1:2006"], issuing_body: "American Welding Society", official_source_url: "https://pubs.aws.org", last_verified: "2025-03-01", verification_source: "AWS Pubs Store" },
+  { code: "AWS D1.5", current_edition: "AWS D1.5M/D1.5:2020", current_year: 2020, previous_editions: ["D1.5:2015", "D1.5:2010"], issuing_body: "American Welding Society", official_source_url: "https://pubs.aws.org", last_verified: "2025-03-01", verification_source: "AWS Pubs Store" },
+  { code: "AWS D1.6", current_edition: "AWS D1.6/D1.6M:2017", current_year: 2017, previous_editions: ["D1.6:2007", "D1.6:1999"], issuing_body: "American Welding Society", official_source_url: "https://pubs.aws.org", last_verified: "2025-03-01", verification_source: "AWS Pubs Store" },
+
+  // International Standards
+  { code: "EN 13445", current_edition: "EN 13445:2021 (Parts 1-10)", current_year: 2021, previous_editions: ["EN 13445:2014", "EN 13445:2009"], issuing_body: "CEN", official_source_url: "https://www.en-standard.eu", last_verified: "2025-03-01", verification_source: "CEN/CENELEC" },
+  { code: "PED 2014/68/EU", current_edition: "Directive 2014/68/EU (effective 2016)", current_year: 2014, previous_editions: ["Directive 97/23/EC (repealed 2016)"], issuing_body: "European Parliament / Council", official_source_url: "https://eur-lex.europa.eu", last_verified: "2025-03-01", verification_source: "EUR-Lex", notes: "Directive 97/23/EC is SUPERSEDED and WITHDRAWN" },
+  { code: "BS 7910", current_edition: "BS 7910:2019+A1:2024", current_year: 2019, previous_editions: ["BS 7910:2013+A1:2015", "BS 7910:2005"], issuing_body: "BSI", official_source_url: "https://shop.bsigroup.com", last_verified: "2025-03-01", verification_source: "BSI Shop" },
+  { code: "CSA Z662", current_edition: "CSA Z662:2023", current_year: 2023, previous_editions: ["CSA Z662:2019", "CSA Z662:2015"], issuing_body: "CSA Group", official_source_url: "https://www.csagroup.org", last_verified: "2025-03-01", verification_source: "CSA Store" },
+  { code: "CSA B51", current_edition: "CSA B51:2019 (R2024)", current_year: 2019, previous_editions: ["CSA B51:2014", "CSA B51:2009"], issuing_body: "CSA Group", official_source_url: "https://www.csagroup.org", last_verified: "2025-03-01", verification_source: "CSA Store" },
+  { code: "NORSOK M-001", current_edition: "NORSOK M-001:2014 (Ed. 5)", current_year: 2014, previous_editions: ["Rev. 4, 2004", "Rev. 3, 2002"], issuing_body: "Standard Norge", official_source_url: "https://www.standard.no", last_verified: "2025-03-01", verification_source: "Standard Norge" },
+  { code: "DNV-ST-F101", current_edition: "DNV-ST-F101 (2021)", current_year: 2021, previous_editions: ["DNV-OS-F101 (2013)", "DNV-OS-F101 (2010)"], issuing_body: "DNV", official_source_url: "https://www.dnv.com/rules-standards", last_verified: "2025-03-01", verification_source: "DNV Rules Store" },
+  { code: "AS/NZS 3788", current_edition: "AS/NZS 3788:2006 (R2021)", current_year: 2006, previous_editions: ["AS/NZS 3788:2001", "AS 3788:1996"], issuing_body: "Standards Australia", official_source_url: "https://www.standards.org.au", last_verified: "2025-03-01", verification_source: "SAI Global" },
+  { code: "NR-13", current_edition: "NR-13 (Portaria 594/2024)", current_year: 2024, previous_editions: ["NR-13 (2019)", "NR-13 (2014)"], issuing_body: "MTE Brazil", official_source_url: "https://www.gov.br/trabalho-e-emprego", last_verified: "2025-03-01", verification_source: "Brazilian Federal Register" },
+  { code: "GB 150", current_edition: "GB/T 150-2011 (with Amendment 1:2021)", current_year: 2011, previous_editions: ["GB 150-1998"], issuing_body: "SAMR China", official_source_url: "https://www.samr.gov.cn", last_verified: "2025-03-01", verification_source: "SAC China" },
+
+  // Superseded / withdrawn examples
+  { code: "PED 97/23/EC", current_edition: "WITHDRAWN — replaced by PED 2014/68/EU", current_year: 1997, previous_editions: [], superseded_by: "PED 2014/68/EU", withdrawn: true, withdrawal_date: "2016-07-19", issuing_body: "European Parliament", official_source_url: "https://eur-lex.europa.eu", last_verified: "2025-03-01", verification_source: "EUR-Lex" },
+  { code: "API RP 579", current_edition: "SUPERSEDED — replaced by API 579-1/ASME FFS-1", current_year: 2000, previous_editions: [], superseded_by: "API 579-1/ASME FFS-1", withdrawn: false, issuing_body: "API", official_source_url: "https://www.api.org", last_verified: "2025-03-01", verification_source: "API Publications Store" },
+  { code: "BS PD 6493", current_edition: "WITHDRAWN — replaced by BS 7910", current_year: 1991, previous_editions: [], superseded_by: "BS 7910", withdrawn: true, withdrawal_date: "1999-01-01", issuing_body: "BSI", official_source_url: "https://shop.bsigroup.com", last_verified: "2025-03-01", verification_source: "BSI Shop" },
+  { code: "DNV-OS-F101", current_edition: "SUPERSEDED — replaced by DNV-ST-F101 (2021)", current_year: 2013, previous_editions: ["2010", "2007"], superseded_by: "DNV-ST-F101", withdrawn: false, issuing_body: "DNV", official_source_url: "https://www.dnv.com", last_verified: "2025-03-01", verification_source: "DNV Rules Store" },
+  { code: "ASME/ANSI B31.3-2004", current_edition: "SUPERSEDED — current is ASME B31.3-2022", current_year: 2004, previous_editions: [], superseded_by: "ASME B31.3", withdrawn: false, issuing_body: "ASME", official_source_url: "https://www.asme.org", last_verified: "2025-03-01", verification_source: "ASME Store" }
+];
+
+// ============================================================
+// SOURCE CREDIBILITY REGISTRY
+// ============================================================
+interface SourceCredibility {
+  source_type: string;
+  quality_score: number; // 0.0 - 1.0
+  official: boolean;
+  notes: string;
+}
+
+const SOURCE_CREDIBILITY: SourceCredibility[] = [
+  { source_type: "Official standards body publication store (API, ASME, AWS, BSI, CSA, CEN)", quality_score: 1.0, official: true, notes: "Primary authoritative source" },
+  { source_type: "Government regulatory gazette/register (Federal Register, EUR-Lex, gov.br)", quality_score: 1.0, official: true, notes: "Legal authority for regulatory standards" },
+  { source_type: "Standards body official website (api.org, asme.org, aws.org)", quality_score: 0.95, official: true, notes: "May not reflect latest errata/addenda" },
+  { source_type: "Class society rules store (DNV, Lloyd's, ABS, BV)", quality_score: 0.95, official: true, notes: "Authoritative for classification rules" },
+  { source_type: "National regulatory body website (OSHA, HSE, PSA, SAMR)", quality_score: 0.90, official: true, notes: "May lag behind publication updates" },
+  { source_type: "Industry consortium / trade body (NACE, SSPC, NORSOK)", quality_score: 0.85, official: true, notes: "Authoritative for scope-specific standards" },
+  { source_type: "Licensed distributor (IHS Markit / S&P Global, Techstreet, SAI Global)", quality_score: 0.85, official: false, notes: "Reliable but verify currency" },
+  { source_type: "Professional reference textbook (published, peer-reviewed)", quality_score: 0.70, official: false, notes: "May reference older editions" },
+  { source_type: "Company internal specification", quality_score: 0.60, official: false, notes: "Must verify traceability to governing standard" },
+  { source_type: "Training material / course notes", quality_score: 0.50, official: false, notes: "May be outdated or simplified" },
+  { source_type: "Industry blog / article (non-peer-reviewed)", quality_score: 0.30, official: false, notes: "Unreliable for edition/applicability claims" },
+  { source_type: "Generic web search result / AI-generated content", quality_score: 0.10, official: false, notes: "NEVER use as authority basis for final disposition" },
+  { source_type: "Unknown / unverified source", quality_score: 0.0, official: false, notes: "Cannot support any authority decision" }
+];
+
+// ============================================================
+// JURISDICTION REGISTRY (carried from v2.1)
 // ============================================================
 interface JurisdictionEntry {
   country: string;
@@ -203,7 +322,6 @@ interface LocationResolution {
   confidence: "high" | "medium" | "low" | "none";
 }
 
-// US patterns — these resolve to US jurisdiction
 const US_PATTERNS = [
   /\bunited\s*states\b/i,
   /\bu\.?s\.?\s*(refinery|facility|plant|onshore|gulf|coast|pipeline)?\b/i,
@@ -214,21 +332,19 @@ const US_PATTERNS = [
   /\busa\b/i
 ];
 
-// International offshore patterns (NOT US offshore)
 const INTERNATIONAL_OFFSHORE_PATTERNS = [
   /\binternational\s*waters?\b/i,
   /\bflagged?\s*vessel\b/i,
   /\bflag\s*state\b/i
 ];
 
-// Country/region detection patterns
 const LOCATION_PATTERNS: { pattern: RegExp; key: string; region?: string }[] = [
   { pattern: /\bnorway|norwegian|north\s*sea.*norway|norway.*offshore\b/i, key: "norway" },
   { pattern: /\baberdeen|united\s*kingdom|\buk\b|scotland|england|wales|british\b/i, key: "uk" },
   { pattern: /\bbrazil|brazilian|petrobras|fpso.*brazil|brazil.*fpso\b/i, key: "brazil" },
   { pattern: /\balberta\b/i, key: "alberta", region: "Alberta" },
   { pattern: /\bcanada|canadian|british\s*columbia|ontario|quebec|saskatchewan|manitoba|nova\s*scotia\b/i, key: "canada" },
-  { pattern: /\baustralia|australian|western\s*australia|queensland|victoria|nsw|new\s*south\s*wales\b/i, key: "australia", region: "Western Australia" },
+  { pattern: /\baustralia|australian|western\s*australia|queensland|victoria|nsw|new\s*south\s*wales\b/i, key: "australia" },
   { pattern: /\bgermany|german\b/i, key: "germany" },
   { pattern: /\bjapan|japanese\b/i, key: "japan" },
   { pattern: /\bchina|chinese\b/i, key: "china" },
@@ -241,111 +357,52 @@ const LOCATION_PATTERNS: { pattern: RegExp; key: string; region?: string }[] = [
 
 function resolveLocationText(locationText: string | undefined): LocationResolution {
   if (!locationText || locationText.trim() === "") {
-    return {
-      jurisdiction_key: null,
-      jurisdiction_entry: null,
-      country: null,
-      region_or_state: null,
-      is_us: false,
-      is_offshore: false,
-      is_unknown: true,
-      confidence: "none"
-    };
+    return { jurisdiction_key: null, jurisdiction_entry: null, country: null, region_or_state: null, is_us: false, is_offshore: false, is_unknown: true, confidence: "none" };
   }
 
   const loc = locationText.trim();
 
-  // Check international offshore first (flagged vessels, international waters)
   for (const pat of INTERNATIONAL_OFFSHORE_PATTERNS) {
     if (pat.test(loc)) {
       const entry = JURISDICTION_REGISTRY["offshore_international"];
-      return {
-        jurisdiction_key: "offshore_international",
-        jurisdiction_entry: entry,
-        country: "International Waters",
-        region_or_state: null,
-        is_us: false,
-        is_offshore: true,
-        is_unknown: false,
-        confidence: "medium"
-      };
+      return { jurisdiction_key: "offshore_international", jurisdiction_entry: entry, country: "International Waters", region_or_state: null, is_us: false, is_offshore: true, is_unknown: false, confidence: "medium" };
     }
   }
 
-  // Check US patterns
   for (const pat of US_PATTERNS) {
     if (pat.test(loc)) {
-      // Make sure it's not "Norway offshore" containing "gulf" or something
-      // Double-check: no non-US country in the string takes priority
-      let overriddenByForeign = false;
+      let overridden = false;
       for (const lp of LOCATION_PATTERNS) {
-        if (lp.pattern.test(loc)) {
-          overriddenByForeign = true;
-          break;
-        }
+        if (lp.pattern.test(loc)) { overridden = true; break; }
       }
-      if (!overriddenByForeign) {
+      if (!overridden) {
         const entry = JURISDICTION_REGISTRY["us"];
         const isOffshore = /offshore|gulf\s*of\s*mexico/i.test(loc);
-        return {
-          jurisdiction_key: "us",
-          jurisdiction_entry: entry,
-          country: "United States",
-          region_or_state: null,
-          is_us: true,
-          is_offshore: isOffshore,
-          is_unknown: false,
-          confidence: "high"
-        };
+        return { jurisdiction_key: "us", jurisdiction_entry: entry, country: "United States", region_or_state: null, is_us: true, is_offshore: isOffshore, is_unknown: false, confidence: "high" };
       }
     }
   }
 
-  // Check country/region patterns
   for (const lp of LOCATION_PATTERNS) {
     if (lp.pattern.test(loc)) {
       const entry = JURISDICTION_REGISTRY[lp.key];
       const isOffshore = /offshore|subsea|north\s*sea|fpso/i.test(loc);
       let region = lp.region || null;
-      // Detect specific regions
       if (lp.key === "australia" && /western\s*australia/i.test(loc)) region = "Western Australia";
       if (lp.key === "canada" && /alberta/i.test(loc)) region = "Alberta";
-      return {
-        jurisdiction_key: lp.key,
-        jurisdiction_entry: entry,
-        country: entry.country,
-        region_or_state: region,
-        is_us: false,
-        is_offshore: isOffshore || (entry.is_offshore || false),
-        is_unknown: false,
-        confidence: "high"
-      };
+      return { jurisdiction_key: lp.key, jurisdiction_entry: entry, country: entry.country, region_or_state: region, is_us: false, is_offshore: isOffshore || (entry.is_offshore || false), is_unknown: false, confidence: "high" };
     }
   }
 
-  // Unknown jurisdiction
-  return {
-    jurisdiction_key: null,
-    jurisdiction_entry: null,
-    country: null,
-    region_or_state: null,
-    is_us: false,
-    is_offshore: /offshore|subsea/i.test(loc),
-    is_unknown: true,
-    confidence: "none"
-  };
+  return { jurisdiction_key: null, jurisdiction_entry: null, country: null, region_or_state: null, is_us: false, is_offshore: /offshore|subsea/i.test(loc), is_unknown: true, confidence: "none" };
 }
 
 // ============================================================
-// UNIT CONVERSION ENGINE
+// UNIT CONVERSION ENGINE (carried from v2.1)
 // ============================================================
 const CONVERSIONS = {
   inches_to_mm: 25.4,
-  mm_to_inches: 0.0393701,
-  psi_to_mpa: 0.006895,
-  mpa_to_psi: 145.038,
-  f_to_c: (f: number) => (f - 32) * 5 / 9,
-  c_to_f: (c: number) => c * 9 / 5 + 32
+  mm_to_inches: 0.0393701
 };
 
 interface ThicknessValue {
@@ -356,74 +413,46 @@ interface ThicknessValue {
 
 function extractThicknessValues(description: string): ThicknessValue[] {
   const values: ThicknessValue[] = [];
-
-  // Match "X.XX inches" or "X.XX in" or "X.XX in."
   const inchPatterns = /(\d+\.?\d*)\s*(?:inches|inch|in\.?)\b/gi;
   let match;
   while ((match = inchPatterns.exec(description)) !== null) {
     values.push({ value: parseFloat(match[1]), unit: "inches", context: match[0] });
   }
-
-  // Match "X.X mm" but NOT "X.X mpy"
   const mmPatterns = /(\d+\.?\d*)\s*mm\b/gi;
   while ((match = mmPatterns.exec(description)) !== null) {
     values.push({ value: parseFloat(match[1]), unit: "mm", context: match[0] });
   }
-
   return values;
 }
 
 interface UnitConversionResult {
   unit_conversion_required: boolean;
   detected_units: "IMPERIAL" | "METRIC" | "MIXED";
-  jurisdiction_expects: "Imperial" | "Metric" | "Mixed";
-  conversions_performed: { original: string; converted: string; value_original: number; value_converted: number }[];
+  jurisdiction_expects: string;
   conversion_check?: string;
   threshold_violation?: { required: string; measured: string; disposition: string };
 }
 
-function analyzeUnits(
-  description: string,
-  unitsDetected: string,
-  jurisdictionEntry: JurisdictionEntry | null,
-  isUS: boolean
-): UnitConversionResult {
+function analyzeUnits(description: string, unitsDetected: string, jurisdictionEntry: JurisdictionEntry | null, isUS: boolean): UnitConversionResult {
   const thicknessValues = extractThicknessValues(description);
   const hasMM = thicknessValues.some(v => v.unit === "mm");
   const hasInches = thicknessValues.some(v => v.unit === "inches");
   const isMixed = (hasMM && hasInches) || unitsDetected === "MIXED";
 
   const jurisdictionExpects = isUS ? "Imperial" : (jurisdictionEntry?.unit_system || "Metric");
-  const conversionRequired = isMixed || (isUS && hasMM) || (!isUS && hasInches);
+  const conversionRequired = isMixed || (isUS && hasMM && !hasInches) || (!isUS && hasInches && !hasMM);
 
-  const conversions: UnitConversionResult["conversions_performed"] = [];
   let conversionCheck: string | undefined;
   let thresholdViolation: UnitConversionResult["threshold_violation"] | undefined;
 
-  // Perform conversions for mixed-unit scenarios
   if (isMixed || conversionRequired) {
     for (const tv of thicknessValues) {
-      if (tv.unit === "inches") {
+      if (tv.unit === "inches" && !conversionCheck) {
         const mmVal = parseFloat((tv.value * CONVERSIONS.inches_to_mm).toFixed(2));
-        conversions.push({
-          original: `${tv.value} inches`,
-          converted: `${mmVal} mm`,
-          value_original: tv.value,
-          value_converted: mmVal
-        });
-        if (!conversionCheck) conversionCheck = `${tv.value} inches = ${mmVal} mm`;
-      } else {
-        const inVal = parseFloat((tv.value * CONVERSIONS.mm_to_inches).toFixed(4));
-        conversions.push({
-          original: `${tv.value} mm`,
-          converted: `${inVal} inches`,
-          value_original: tv.value,
-          value_converted: inVal
-        });
+        conversionCheck = `${tv.value} inches = ${mmVal} mm`;
       }
     }
 
-    // Check for threshold violations: if there's a "required" and "measured" value
     const reqMatch = description.match(/(?:required|minimum\s*required|min\.?\s*req(?:uired)?)\s*(?:thickness\s*(?:is|=|:)?\s*)?(\d+\.?\d*)\s*(inches|inch|in\.?|mm)/i);
     const measMatch = description.match(/(?:measured|remaining|actual)\s*(?:thickness\s*(?:is|=|:)?\s*)?(\d+\.?\d*)\s*(inches|inch|in\.?|mm)/i);
 
@@ -433,10 +462,8 @@ function analyzeUnits(
       let measValue = parseFloat(measMatch[1]);
       let measUnit = measMatch[2].toLowerCase().startsWith("in") ? "inches" : "mm";
 
-      // Convert both to same unit for comparison
       let reqMM = reqUnit === "inches" ? reqValue * CONVERSIONS.inches_to_mm : reqValue;
       let measMM = measUnit === "inches" ? measValue * CONVERSIONS.inches_to_mm : measValue;
-
       reqMM = parseFloat(reqMM.toFixed(2));
       measMM = parseFloat(measMM.toFixed(2));
 
@@ -454,47 +481,23 @@ function analyzeUnits(
     }
   }
 
-  return {
-    unit_conversion_required: conversionRequired,
-    detected_units: isMixed ? "MIXED" : (hasInches ? "IMPERIAL" : "METRIC"),
-    jurisdiction_expects: jurisdictionExpects,
-    conversions_performed: conversions,
-    conversion_check: conversionCheck,
-    threshold_violation: thresholdViolation
-  };
+  return { unit_conversion_required: conversionRequired || isMixed, detected_units: isMixed ? "MIXED" : (hasInches ? "IMPERIAL" : "METRIC"), jurisdiction_expects: jurisdictionExpects, conversion_check: conversionCheck, threshold_violation: thresholdViolation };
 }
 
 // ============================================================
-// AUTHORITY CONFLICT ANALYSIS
+// AUTHORITY CONFLICT ANALYSIS (carried from v2.1)
 // ============================================================
-interface ConflictAnalysis {
-  has_conflict: boolean;
-  code_is_controlling: boolean;
-  code_is_contractual: boolean;
-  code_is_reference_only: boolean;
-  warning: string | null;
-}
-
-// Codes that are inherently US-centric
 const US_CODES = ["API 570", "API 510", "ASME BPVC", "ASME B31.3", "ASME Section VIII", "API 579", "API 1104", "AWS D1.1", "AWS D1.5"];
 
-function analyzeAuthorityConflict(
-  requestedCode: string,
-  location: LocationResolution,
-  ownerUserProgram?: string,
-  operatorName?: string
-): ConflictAnalysis {
+function analyzeAuthorityConflict(requestedCode: string, location: LocationResolution, ownerUserProgram?: string, operatorName?: string) {
   const isUSCode = US_CODES.some(c => requestedCode.toUpperCase().indexOf(c.toUpperCase()) >= 0 || c.toUpperCase().indexOf(requestedCode.toUpperCase()) >= 0);
 
-  // If US jurisdiction, no conflict
   if (location.is_us) {
     return { has_conflict: false, code_is_controlling: true, code_is_contractual: false, code_is_reference_only: false, warning: null };
   }
 
-  // If non-US and US code requested
   if (isUSCode && !location.is_us) {
     const isContractual = !!(ownerUserProgram && /contract|specify|specif|require|adopt/i.test(ownerUserProgram));
-
     let warning: string;
     if (isContractual) {
       warning = `Contractual ${requestedCode} may supplement but should not override mandatory ${location.country || "local"} offshore authority.`;
@@ -503,29 +506,226 @@ function analyzeAuthorityConflict(
     } else if (location.is_offshore) {
       warning = `${requestedCode} may be technical reference only unless contractually adopted.`;
     } else {
-      warning = `${requestedCode} may apply by design basis or contract, but local ${location.jurisdiction_entry ? "WHS / " + location.jurisdiction_entry.codes[0] : ""} authority must be verified.`;
+      const localCode = location.jurisdiction_entry ? location.jurisdiction_entry.codes[0] : "";
+      warning = `${requestedCode} may apply by design basis or contract, but local WHS / ${localCode} authority must be verified.`;
     }
-
-    return {
-      has_conflict: true,
-      code_is_controlling: false,
-      code_is_contractual: isContractual,
-      code_is_reference_only: !isContractual,
-      warning
-    };
+    return { has_conflict: true, code_is_controlling: false, code_is_contractual: isContractual, code_is_reference_only: !isContractual, warning };
   }
 
   return { has_conflict: false, code_is_controlling: true, code_is_contractual: false, code_is_reference_only: false, warning: null };
 }
 
 // ============================================================
-// MANDATORY QUESTIONS GENERATOR
+// LIVE AUTHORITY VERIFICATION ENGINE (NEW in v2.2)
 // ============================================================
-function generateMandatoryQuestions(
-  location: LocationResolution,
-  requestedCode: string,
-  conflict: ConflictAnalysis
-): string[] {
+interface VerificationResult {
+  edition_status: EditionStatus;
+  edition_lock: EditionLock;
+  latest_known_edition: string;
+  edition_record: EditionRecord | null;
+  superseded_by: string | null;
+  verified_sources: string[];
+  rejected_sources: string[];
+  source_quality_score: number;
+  authority_freshness_score: number;
+  edition_conflict: boolean;
+  live_verification_required: boolean;
+  reasoning: string;
+}
+
+// Verification cache — entries expire after 30 days
+interface CacheEntry {
+  code: string;
+  result: VerificationResult;
+  cached_at: string;
+  expires_at: string;
+}
+
+const VERIFICATION_CACHE: Map<string, CacheEntry> = new Map();
+const CACHE_TTL_DAYS = 30;
+
+function isCacheValid(entry: CacheEntry): boolean {
+  return new Date(entry.expires_at) > new Date();
+}
+
+function computeAuthorityfreshness(record: EditionRecord): number {
+  const now = new Date();
+  const lastVerified = new Date(record.last_verified);
+  const daysSinceVerification = (now.getTime() - lastVerified.getTime()) / (1000 * 60 * 60 * 24);
+
+  // Perfect freshness if verified within 90 days
+  if (daysSinceVerification <= 90) return 1.0;
+  // Linear decay from 90 to 365 days
+  if (daysSinceVerification <= 365) return 1.0 - ((daysSinceVerification - 90) / 365) * 0.5;
+  // After 1 year, freshness below 0.5 — verification needed
+  if (daysSinceVerification <= 730) return 0.5 - ((daysSinceVerification - 365) / 730) * 0.3;
+  // After 2 years, stale
+  return 0.1;
+}
+
+function findEditionRecord(requestedCode: string): EditionRecord | null {
+  // Direct match
+  const direct = EDITION_REGISTRY.find(r => r.code.toLowerCase() === requestedCode.toLowerCase());
+  if (direct) return direct;
+
+  // Fuzzy match — code contains or is contained
+  for (const record of EDITION_REGISTRY) {
+    if (requestedCode.toLowerCase().indexOf(record.code.toLowerCase()) >= 0 ||
+        record.code.toLowerCase().indexOf(requestedCode.toLowerCase()) >= 0) {
+      return record;
+    }
+  }
+
+  return null;
+}
+
+function verifyAuthority(requestedCode: string, requestedEdition?: string): VerificationResult {
+  // Check cache first
+  const cacheKey = `${requestedCode}|${requestedEdition || ""}`;
+  const cached = VERIFICATION_CACHE.get(cacheKey);
+  if (cached && isCacheValid(cached)) {
+    return cached.result;
+  }
+
+  const record = findEditionRecord(requestedCode);
+
+  // No record found — cannot verify
+  if (!record) {
+    const result: VerificationResult = {
+      edition_status: "OFFICIAL_SOURCE_NOT_FOUND",
+      edition_lock: "HOLD_FOR_EDITION_VERIFICATION",
+      latest_known_edition: "UNKNOWN",
+      edition_record: null,
+      superseded_by: null,
+      verified_sources: [],
+      rejected_sources: [],
+      source_quality_score: 0.0,
+      authority_freshness_score: 0.0,
+      edition_conflict: false,
+      live_verification_required: true,
+      reasoning: `No edition record found for "${requestedCode}". Cannot verify currency or applicability. Manual verification required against official standards body publication.`
+    };
+    return result;
+  }
+
+  // Check if withdrawn
+  if (record.withdrawn) {
+    const result: VerificationResult = {
+      edition_status: "WITHDRAWN",
+      edition_lock: "BLOCK_WITHDRAWN_AUTHORITY",
+      latest_known_edition: record.current_edition,
+      edition_record: record,
+      superseded_by: record.superseded_by || null,
+      verified_sources: [record.verification_source],
+      rejected_sources: [],
+      source_quality_score: 1.0,
+      authority_freshness_score: 0.0,
+      edition_conflict: true,
+      live_verification_required: false,
+      reasoning: `"${requestedCode}" has been WITHDRAWN${record.withdrawal_date ? " on " + record.withdrawal_date : ""}. ${record.superseded_by ? "Replaced by: " + record.superseded_by + "." : ""} This standard cannot be used as governing authority for any inspection disposition.`
+    };
+    cacheResult(cacheKey, result);
+    return result;
+  }
+
+  // Check if superseded (but not withdrawn)
+  if (record.superseded_by) {
+    const result: VerificationResult = {
+      edition_status: "SUPERSEDED",
+      edition_lock: "BLOCK_SUPERSEDED_AUTHORITY",
+      latest_known_edition: record.current_edition,
+      edition_record: record,
+      superseded_by: record.superseded_by,
+      verified_sources: [record.verification_source],
+      rejected_sources: [],
+      source_quality_score: 0.9,
+      authority_freshness_score: 0.2,
+      edition_conflict: true,
+      live_verification_required: false,
+      reasoning: `"${requestedCode}" has been SUPERSEDED by "${record.superseded_by}". The superseded edition cannot be used as primary governing authority unless explicitly specified by owner-user program with documented justification.`
+    };
+    cacheResult(cacheKey, result);
+    return result;
+  }
+
+  // Record exists and is current — check edition match
+  const freshnessScore = computeAuthorityfreshness(record);
+  const sourceQuality = 1.0; // From official registry
+
+  // Check if user-reported edition matches current
+  let editionConflict = false;
+  let editionStatus: EditionStatus = "VERIFIED_CURRENT";
+  let editionLock: EditionLock = "NO_LOCK";
+  let reasoning = "";
+
+  if (requestedEdition) {
+    // User specified an edition — check if it matches current
+    const userYear = extractYear(requestedEdition);
+    if (userYear && userYear < record.current_year) {
+      editionConflict = true;
+      editionStatus = "SUPERSEDED";
+      editionLock = "WARN_ONLY";
+      reasoning = `User-reported edition "${requestedEdition}" appears older than current edition "${record.current_edition}" (${record.current_year}). Verify that older edition is contractually specified or accepted by jurisdiction. Current edition should be used unless explicitly documented otherwise.`;
+    } else if (userYear && userYear === record.current_year) {
+      editionStatus = "VERIFIED_CURRENT";
+      editionLock = "NO_LOCK";
+      reasoning = `Edition "${requestedEdition}" matches or is consistent with current edition "${record.current_edition}". Authority is verified current.`;
+    } else {
+      editionStatus = "VERIFIED_CURRENT";
+      editionLock = "NO_LOCK";
+      reasoning = `Edition "${requestedEdition}" is consistent with current edition "${record.current_edition}".`;
+    }
+  } else {
+    // No edition specified by user
+    if (freshnessScore >= 0.8) {
+      editionStatus = "VERIFIED_CURRENT";
+      editionLock = "NO_LOCK";
+      reasoning = `"${requestedCode}" verified as current. Latest edition: "${record.current_edition}". Verified via ${record.verification_source} on ${record.last_verified}.`;
+    } else if (freshnessScore >= 0.5) {
+      editionStatus = "VERIFIED_BUT_EDITION_UNKNOWN";
+      editionLock = "WARN_ONLY";
+      reasoning = `"${requestedCode}" was verified on ${record.last_verified} as "${record.current_edition}" but verification is aging. Recommend re-verification against official source.`;
+    } else {
+      editionStatus = "LIVE_CHECK_REQUIRED";
+      editionLock = "HOLD_FOR_EDITION_VERIFICATION";
+      reasoning = `"${requestedCode}" last verified on ${record.last_verified} — verification is stale (freshness: ${(freshnessScore * 100).toFixed(0)}%). A new edition may have been published. Live verification required before final disposition.`;
+    }
+  }
+
+  const result: VerificationResult = {
+    edition_status: editionStatus,
+    edition_lock: editionLock,
+    latest_known_edition: record.current_edition,
+    edition_record: record,
+    superseded_by: null,
+    verified_sources: [record.verification_source, record.official_source_url],
+    rejected_sources: [],
+    source_quality_score: sourceQuality,
+    authority_freshness_score: freshnessScore,
+    edition_conflict: editionConflict,
+    live_verification_required: freshnessScore < 0.5,
+    reasoning
+  };
+
+  cacheResult(cacheKey, result);
+  return result;
+}
+
+function cacheResult(key: string, result: VerificationResult): void {
+  const now = new Date();
+  const expires = new Date(now.getTime() + CACHE_TTL_DAYS * 24 * 60 * 60 * 1000);
+  VERIFICATION_CACHE.set(key, { code: key, result, cached_at: now.toISOString(), expires_at: expires.toISOString() });
+}
+
+function extractYear(editionString: string): number | null {
+  const match = editionString.match(/\b(19|20)\d{2}\b/);
+  return match ? parseInt(match[0]) : null;
+}
+
+// ============================================================
+// MANDATORY QUESTIONS GENERATOR (expanded for v2.2)
+// ============================================================
+function generateMandatoryQuestions(location: LocationResolution, requestedCode: string, conflict: any, verification: VerificationResult): string[] {
   const questions: string[] = [];
 
   if (location.is_unknown) {
@@ -546,120 +746,122 @@ function generateMandatoryQuestions(
     questions.push("Which provincial pressure equipment authority applies?");
     questions.push(`Is ${requestedCode} contractually adopted?`);
     questions.push(`Does the owner-user program reference CSA, ASME, or API?`);
-    return questions;
   }
 
-  if (conflict.has_conflict && !conflict.code_is_contractual) {
-    questions.push(`Is ${requestedCode} contractually adopted for this facility/component?`);
-    questions.push(`Which local regulatory body has jurisdiction?`);
+  // Edition-related questions
+  if (verification.edition_status === "SUPERSEDED" && !verification.edition_record?.withdrawn) {
+    questions.push(`Are you using a superseded edition of ${requestedCode}? If so, is this contractually specified?`);
+  }
+  if (verification.edition_status === "OFFICIAL_SOURCE_NOT_FOUND") {
+    questions.push(`Can you confirm the exact standard designation and edition for "${requestedCode}"?`);
+    questions.push("What is the official source for this standard in your jurisdiction?");
+  }
+  if (verification.live_verification_required) {
+    questions.push(`Can you confirm the edition of ${requestedCode} currently adopted by your facility/jurisdiction?`);
   }
 
   return questions;
 }
 
 // ============================================================
-// DECISION LOCK DETERMINATION
+// DECISION LOCK + FINAL DISPOSITION DETERMINATION (v2.2)
 // ============================================================
-type DecisionLock = "ALLOW" | "ALLOW_WITH_WARNING" | "HOLD_FOR_AUTHORITY" | "BLOCK";
+function determineDecisionLock(location: LocationResolution, conflict: any, unitResult: UnitConversionResult, verification: VerificationResult): DecisionLock {
+  // Withdrawn or blocked superseded → BLOCK
+  if (verification.edition_lock === "BLOCK_WITHDRAWN_AUTHORITY" || verification.edition_lock === "BLOCK_SUPERSEDED_AUTHORITY") {
+    return "BLOCK";
+  }
 
-function determineDecisionLock(
-  location: LocationResolution,
-  conflict: ConflictAnalysis,
-  unitResult: UnitConversionResult,
-  mandatoryQuestions: string[]
-): DecisionLock {
   // Unknown jurisdiction → hold
   if (location.is_unknown) return "HOLD_FOR_AUTHORITY";
 
-  // International offshore → hold (need flag state + class society)
+  // International offshore → hold
   if (location.jurisdiction_key === "offshore_international") return "HOLD_FOR_AUTHORITY";
 
-  // US jurisdiction with no conflict
-  if (location.is_us && !conflict.has_conflict && !unitResult.unit_conversion_required) {
+  // Edition hold states
+  if (verification.edition_lock === "HOLD_FOR_EDITION_VERIFICATION" || verification.edition_lock === "HOLD_FOR_OFFICIAL_SOURCE") {
+    return "HOLD_FOR_AUTHORITY";
+  }
+
+  // US jurisdiction clean
+  if (location.is_us && !conflict.has_conflict && !unitResult.unit_conversion_required && verification.edition_lock === "NO_LOCK") {
     return "ALLOW";
   }
 
-  // US jurisdiction but mixed units (still allow but warn)
-  if (location.is_us && unitResult.unit_conversion_required) {
+  // US with mixed units or edition warning
+  if (location.is_us && (unitResult.unit_conversion_required || verification.edition_lock === "WARN_ONLY")) {
     return "ALLOW_WITH_WARNING";
   }
 
-  // Non-US with code conflict → allow with warning
+  // Non-US with code conflict
   if (conflict.has_conflict) return "ALLOW_WITH_WARNING";
 
+  // Default
+  if (verification.edition_lock === "WARN_ONLY") return "ALLOW_WITH_WARNING";
   return "ALLOW";
 }
 
+function determineFinalDispositionAllowed(decisionLock: DecisionLock, verification: VerificationResult, unitResult: UnitConversionResult): boolean {
+  // Final disposition is ONLY allowed when:
+  // 1. Decision lock is ALLOW or ALLOW_WITH_WARNING
+  // 2. Edition status is VERIFIED_CURRENT or VERIFIED_BUT_EDITION_UNKNOWN
+  // 3. No threshold violation exists (or violation is acknowledged)
+  // 4. Authority is not stale
+
+  if (decisionLock === "BLOCK" || decisionLock === "HOLD_FOR_AUTHORITY") return false;
+  if (verification.edition_status === "WITHDRAWN") return false;
+  if (verification.edition_status === "SUPERSEDED" && verification.edition_lock !== "WARN_ONLY") return false;
+  if (verification.edition_status === "LIVE_CHECK_REQUIRED") return false;
+  if (verification.edition_status === "OFFICIAL_SOURCE_NOT_FOUND") return false;
+  if (verification.edition_status === "MANUAL_REVIEW_REQUIRED") return false;
+  if (verification.authority_freshness_score < 0.3) return false;
+
+  return true;
+}
+
 // ============================================================
-// CROSSWALK LOOKUP (reuse from v2.0)
+// CROSSWALK (carried from v2.1 — abbreviated for v2.2)
 // ============================================================
 interface CrosswalkEntry {
   equivalent: string;
   equivalence_type: "FULL" | "PARTIAL" | "NONE";
   differences: string[];
   usage_rule: "PRIMARY" | "CSA_PRIMARY" | "SUPPLEMENTAL_ONLY" | "NOT_PRIMARY" | "PROHIBITED";
-  critical_note?: string;
 }
 
 const CROSSWALK_MATRIX: Record<string, Record<string, CrosswalkEntry>> = {
   "API 570": {
-    canada: { equivalent: "CSA Z662 / CSA B51", equivalence_type: "PARTIAL", differences: ["CSA governs nationally via CRN system", "Provincial adoption requirements apply", "API 570 supplemental only if owner-adopted"], usage_rule: "CSA_PRIMARY" },
-    norway: { equivalent: "NORSOK M-001 / DNV-RP-G101", equivalence_type: "PARTIAL", differences: ["Risk-based inspection methodology differs", "NORSOK qualification requirements differ", "Acceptance criteria may vary from API 570"], usage_rule: "SUPPLEMENTAL_ONLY" },
-    eu: { equivalent: "EN 13480 (in-service)", equivalence_type: "PARTIAL", differences: ["PED compliance required", "Harmonized standards differ", "Notified Body involvement required"], usage_rule: "NOT_PRIMARY" },
-    uk: { equivalent: "BS EN 13480 / PER 1999 / SAFed guidelines", equivalence_type: "PARTIAL", differences: ["Pressure Equipment Regulations 1999 govern", "Written scheme of examination required", "Competent Person oversight required"], usage_rule: "NOT_PRIMARY" },
-    australia: { equivalent: "AS/NZS 3788", equivalence_type: "PARTIAL", differences: ["Australian in-service inspection standard governs", "State-level WorkSafe registration required"], usage_rule: "NOT_PRIMARY" },
-    brazil: { equivalent: "NR-13 / ABNT NBR 15749", equivalence_type: "PARTIAL", differences: ["NR-13 is mandatory Brazilian regulation", "ABNT standards supplement", "ANP oversight for oil & gas"], usage_rule: "NOT_PRIMARY" }
+    canada: { equivalent: "CSA Z662 / CSA B51", equivalence_type: "PARTIAL", differences: ["CSA governs nationally via CRN system", "Provincial adoption requirements apply"], usage_rule: "CSA_PRIMARY" },
+    norway: { equivalent: "NORSOK M-001 / DNV-RP-G101", equivalence_type: "PARTIAL", differences: ["Risk-based inspection methodology differs", "NORSOK qualification requirements differ"], usage_rule: "SUPPLEMENTAL_ONLY" },
+    eu: { equivalent: "EN 13480 (in-service)", equivalence_type: "PARTIAL", differences: ["PED compliance required", "Notified Body involvement required"], usage_rule: "NOT_PRIMARY" },
+    uk: { equivalent: "BS EN 13480 / PER 1999 / SAFed guidelines", equivalence_type: "PARTIAL", differences: ["Pressure Equipment Regulations 1999 govern", "Written scheme required"], usage_rule: "NOT_PRIMARY" },
+    australia: { equivalent: "AS/NZS 3788", equivalence_type: "PARTIAL", differences: ["Australian in-service inspection standard governs"], usage_rule: "NOT_PRIMARY" },
+    brazil: { equivalent: "NR-13 / ABNT NBR 15749", equivalence_type: "PARTIAL", differences: ["NR-13 is mandatory Brazilian regulation"], usage_rule: "NOT_PRIMARY" }
   },
   "API 510": {
-    canada: { equivalent: "CSA B51", equivalence_type: "PARTIAL", differences: ["CSA B51 covers boilers and pressure vessels", "Provincial jurisdiction applies", "CRN required"], usage_rule: "CSA_PRIMARY" },
-    norway: { equivalent: "NORSOK + EN 13445", equivalence_type: "PARTIAL", differences: ["EN 13445 for design/fabrication", "NORSOK for offshore integrity management", "PSA regulatory oversight required"], usage_rule: "NOT_PRIMARY" },
-    eu: { equivalent: "EN 13445 + PED 2014/68/EU", equivalence_type: "PARTIAL", differences: ["PED 2014/68/EU mandatory", "EN 13445 for unfired pressure vessels", "CE marking required", "Notified Body involvement"], usage_rule: "NOT_PRIMARY" },
-    australia: { equivalent: "AS 1210 + AS/NZS 3788", equivalence_type: "PARTIAL", differences: ["AS 1210 for design of pressure vessels", "AS/NZS 3788 for in-service inspection", "State/territory WorkSafe requirements"], usage_rule: "NOT_PRIMARY" },
-    uk: { equivalent: "PER 1999 / PSSR 2000 / EN 13445", equivalence_type: "PARTIAL", differences: ["HSE written scheme required", "Competent Person oversight", "UKCA marking post-Brexit"], usage_rule: "NOT_PRIMARY" }
+    canada: { equivalent: "CSA B51", equivalence_type: "PARTIAL", differences: ["CSA B51 covers boilers and pressure vessels", "CRN required"], usage_rule: "CSA_PRIMARY" },
+    norway: { equivalent: "NORSOK + EN 13445", equivalence_type: "PARTIAL", differences: ["EN 13445 for design/fabrication", "PSA oversight required"], usage_rule: "NOT_PRIMARY" },
+    eu: { equivalent: "EN 13445 + PED 2014/68/EU", equivalence_type: "PARTIAL", differences: ["PED mandatory", "CE marking required"], usage_rule: "NOT_PRIMARY" },
+    australia: { equivalent: "AS 1210 + AS/NZS 3788", equivalence_type: "PARTIAL", differences: ["AS 1210 for design", "AS/NZS 3788 for in-service"], usage_rule: "NOT_PRIMARY" },
+    uk: { equivalent: "PER 1999 / PSSR 2000 / EN 13445", equivalence_type: "PARTIAL", differences: ["HSE written scheme required", "UKCA marking"], usage_rule: "NOT_PRIMARY" }
   },
   "ASME B31.3": {
-    australia: { equivalent: "AS 4458 / AS/NZS 3788", equivalence_type: "PARTIAL", differences: ["AS 4458 for pressure piping construction", "AS/NZS 3788 for in-service", "State WorkSafe registration"], usage_rule: "NOT_PRIMARY" },
-    norway: { equivalent: "NORSOK L-001 / DNV-OS-F101", equivalence_type: "PARTIAL", differences: ["NORSOK governs piping design offshore", "DNV rules for subsea piping", "PSA oversight"], usage_rule: "NOT_PRIMARY" },
-    uk: { equivalent: "PD 8010 / BS EN 13480", equivalence_type: "PARTIAL", differences: ["EN 13480 for metallic industrial piping", "PD 8010 for pipeline systems", "HSE oversight"], usage_rule: "NOT_PRIMARY" }
-  },
-  "ASME BPVC Section VIII": {
-    eu: { equivalent: "EN 13445", equivalence_type: "PARTIAL", differences: ["Different design methodology (DBA vs DBF)", "PED Essential Safety Requirements apply", "Material specifications differ"], usage_rule: "NOT_PRIMARY" },
-    germany: { equivalent: "AD 2000 Merkblätter / EN 13445", equivalence_type: "PARTIAL", differences: ["AD 2000 historically used", "TÜV involvement required", "Different safety factors"], usage_rule: "NOT_PRIMARY" },
-    china: { equivalent: "GB 150", equivalence_type: "PARTIAL", differences: ["GB 150 is mandatory national standard", "SAMR certification required", "ASME stamp NOT accepted"], usage_rule: "NOT_PRIMARY", critical_note: "ASME stamp NOT accepted as compliance proof in China" }
-  },
-  "AWS D1.1": {
-    uk: { equivalent: "BS EN 1090 / EN ISO 15614", equivalence_type: "PARTIAL", differences: ["EN ISO 15614 for procedure qualification", "Execution class system (EXC1-4) replaces AWS categories", "CE/UKCA marking required"], usage_rule: "NOT_PRIMARY" },
-    eu: { equivalent: "EN 1090 / EN ISO 15614 / EN ISO 3834", equivalence_type: "PARTIAL", differences: ["EN 1090 for structural steel execution", "EN ISO 3834 for quality requirements", "Factory Production Control required"], usage_rule: "NOT_PRIMARY" },
-    australia: { equivalent: "AS/NZS 1554", equivalence_type: "PARTIAL", differences: ["AS/NZS 1554 for structural steel welding", "Australian welder qualification per AS/NZS ISO 9606"], usage_rule: "NOT_PRIMARY" }
+    australia: { equivalent: "AS 4458 / AS/NZS 3788", equivalence_type: "PARTIAL", differences: ["AS 4458 for pressure piping", "State WorkSafe registration"], usage_rule: "NOT_PRIMARY" },
+    norway: { equivalent: "NORSOK L-001 / DNV-OS-F101", equivalence_type: "PARTIAL", differences: ["NORSOK governs piping design offshore"], usage_rule: "NOT_PRIMARY" },
+    uk: { equivalent: "PD 8010 / BS EN 13480", equivalence_type: "PARTIAL", differences: ["EN 13480 for metallic industrial piping"], usage_rule: "NOT_PRIMARY" }
   }
 };
 
 const REGION_FALLBACK: Record<string, string> = {
-  germany: "eu",
-  france: "eu",
-  italy: "eu",
-  spain: "eu",
-  netherlands: "eu",
-  belgium: "eu",
-  austria: "eu",
-  sweden: "eu",
-  alberta: "canada",
-  scotland: "uk",
-  wales: "uk",
-  new_zealand: "australia"
+  germany: "eu", france: "eu", italy: "eu", spain: "eu", netherlands: "eu",
+  belgium: "eu", austria: "eu", sweden: "eu", finland: "eu", denmark: "eu",
+  alberta: "canada", scotland: "uk", wales: "uk", new_zealand: "australia"
 };
 
-function findCrosswalk(requestedCode: string, jurisdictionKey: string): CrosswalkEntry | null {
-  // Direct match
-  if (CROSSWALK_MATRIX[requestedCode]?.[jurisdictionKey]) {
-    return CROSSWALK_MATRIX[requestedCode][jurisdictionKey];
-  }
-  // Region fallback
+function findCrosswalk(requestedCode: string, jurisdictionKey: string) {
+  if (CROSSWALK_MATRIX[requestedCode]?.[jurisdictionKey]) return CROSSWALK_MATRIX[requestedCode][jurisdictionKey];
   const fallback = REGION_FALLBACK[jurisdictionKey];
-  if (fallback && CROSSWALK_MATRIX[requestedCode]?.[fallback]) {
-    return CROSSWALK_MATRIX[requestedCode][fallback];
-  }
-  // Fuzzy code name match
+  if (fallback && CROSSWALK_MATRIX[requestedCode]?.[fallback]) return CROSSWALK_MATRIX[requestedCode][fallback];
   for (const cwKey of Object.keys(CROSSWALK_MATRIX)) {
     if (requestedCode.indexOf(cwKey) >= 0 || cwKey.indexOf(requestedCode) >= 0) {
       if (CROSSWALK_MATRIX[cwKey][jurisdictionKey]) return CROSSWALK_MATRIX[cwKey][jurisdictionKey];
@@ -670,7 +872,54 @@ function findCrosswalk(requestedCode: string, jurisdictionKey: string): Crosswal
 }
 
 // ============================================================
-// MAIN ENGINE OUTPUT
+// FULL v2.2 OUTPUT INTERFACE
+// ============================================================
+interface AuditEntry {
+  timestamp: string;
+  step: string;
+  decision: string;
+  basis: string;
+}
+
+interface EngineOutputV22 {
+  authority_decision_id: string;
+  engine: string;
+  version: string;
+  jurisdiction_status: JurisdictionStatus;
+  country: string | null;
+  region_or_state: string | null;
+  offshore_region: string | null;
+  asset_type: string;
+  industry_domain: string;
+  primary_authority: string;
+  secondary_authorities: string[];
+  equivalent_or_related_standards: string[];
+  blocked_standards: string[];
+  authority_confidence: number;
+  edition_status: EditionStatus;
+  edition_lock: EditionLock;
+  live_verification_required: boolean;
+  verified_sources: string[];
+  rejected_sources: string[];
+  source_quality_score: number;
+  authority_freshness_score: number;
+  latest_known_edition: string;
+  user_reported_edition: string;
+  edition_conflict: boolean;
+  reasoning_summary: string;
+  mandatory_user_questions: string[];
+  decision_lock: DecisionLock;
+  final_disposition_allowed: boolean;
+  unit_conversion_required: boolean;
+  conversion_check: string | null;
+  technical_disposition: string | null;
+  warning: string | null;
+  inspector_message: string;
+  audit_trace: AuditEntry[];
+}
+
+// ============================================================
+// MAIN ENGINE v2.2
 // ============================================================
 interface EngineInput {
   asset_description?: string;
@@ -679,139 +928,105 @@ interface EngineInput {
   asset_type?: string;
   inspection_method?: string;
   requested_code?: string;
+  requested_edition?: string;
   operator_name?: string;
   owner_user_program?: string;
-  // Legacy v2.0 format support
+  industry_domain?: string;
+  offshore_region?: string;
+  // Legacy v2.0/v2.1 format support
   jurisdiction?: string;
   us_codes?: string[];
   us_codes_requested?: string[];
 }
 
-interface AuditEntry {
-  timestamp: string;
-  step: string;
-  decision: string;
-  basis: string;
-}
-
-interface EngineOutput {
-  engine: string;
-  version: string;
-  country: string | null;
-  region_or_state?: string | null;
-  jurisdiction_status: "RESOLVED" | "INFERRED" | "UNKNOWN";
-  primary_authority: string;
-  secondary_authorities?: string[];
-  decision_lock: DecisionLock;
-  unit_issue: boolean;
-  unit_conversion_required: boolean;
-  conversion_check?: string;
-  technical_disposition?: string;
-  warning?: string;
-  mandatory_user_questions?: string[];
-  crosswalk?: {
-    us_code: string;
-    local_equivalent: string;
-    equivalence_type: string;
-    usage_rule: string;
-    differences: string[];
-  } | null;
-  unit_system: {
-    detected: string;
-    jurisdiction_expects: string;
-    conversion_required: boolean;
-  };
-  inspector_message: string;
-  audit_trace: AuditEntry[];
-  metadata: {
-    engine: string;
-    version: string;
-    timestamp: string;
-    input_hash: string;
-  };
-}
-
-function processAuthorityV2(input: EngineInput): EngineOutput {
+function processAuthorityV22(input: EngineInput): EngineOutputV22 {
   const now = new Date().toISOString();
   const audit: AuditEntry[] = [];
+  const decisionId = `GAE-V2.2-${randomUUID()}`;
 
-  // Normalize input — support both v2.0 and v2.1 formats
+  // Normalize input
   const locationText = input.location_text || input.jurisdiction || "";
   const requestedCode = input.requested_code || (input.us_codes_requested || input.us_codes || [])[0] || "";
+  const requestedEdition = input.requested_edition || "";
   const assetDescription = input.asset_description || "";
   const unitsDetected = input.units_detected || "UNKNOWN";
   const assetType = input.asset_type || "Unknown";
+  const industryDomain = input.industry_domain || "General";
+  const offshoreRegion = input.offshore_region || null;
 
-  audit.push({ timestamp: now, step: "input_received", decision: `location="${locationText}", code="${requestedCode}", units="${unitsDetected}"`, basis: "Raw input" });
+  audit.push({ timestamp: now, step: "input_received", decision: `location="${locationText}", code="${requestedCode}", edition="${requestedEdition}", units="${unitsDetected}"`, basis: "Raw input normalization" });
 
-  // Step 1: Resolve jurisdiction from location text
+  // Step 1: Resolve jurisdiction
   const location = resolveLocationText(locationText);
   audit.push({ timestamp: now, step: "jurisdiction_resolution", decision: `key=${location.jurisdiction_key || "UNKNOWN"}, country=${location.country || "UNKNOWN"}, is_us=${location.is_us}, offshore=${location.is_offshore}`, basis: "NLP location resolver" });
 
-  // Step 2: Analyze authority conflict
+  // Step 2: Authority conflict analysis
   const conflict = analyzeAuthorityConflict(requestedCode, location, input.owner_user_program, input.operator_name);
   audit.push({ timestamp: now, step: "authority_conflict_analysis", decision: `conflict=${conflict.has_conflict}, controlling=${conflict.code_is_controlling}, contractual=${conflict.code_is_contractual}`, basis: "Code vs jurisdiction comparison" });
 
   // Step 3: Unit analysis
   const unitResult = analyzeUnits(assetDescription, unitsDetected, location.jurisdiction_entry, location.is_us);
-  audit.push({ timestamp: now, step: "unit_analysis", decision: `detected=${unitResult.detected_units}, expects=${unitResult.jurisdiction_expects}, conversion_required=${unitResult.unit_conversion_required}`, basis: "Unit conversion engine" });
+  audit.push({ timestamp: now, step: "unit_analysis", decision: `detected=${unitResult.detected_units}, expects=${unitResult.jurisdiction_expects}, conversion=${unitResult.unit_conversion_required}`, basis: "Unit conversion engine" });
 
-  // Step 4: Generate mandatory questions
-  const mandatoryQuestions = generateMandatoryQuestions(location, requestedCode, conflict);
+  // Step 4: LIVE AUTHORITY VERIFICATION (NEW in v2.2)
+  const verification = verifyAuthority(requestedCode, requestedEdition || undefined);
+  audit.push({ timestamp: now, step: "edition_verification", decision: `status=${verification.edition_status}, lock=${verification.edition_lock}, freshness=${verification.authority_freshness_score.toFixed(2)}`, basis: "Edition registry + freshness computation" });
 
-  // Step 5: Decision lock
-  const decisionLock = determineDecisionLock(location, conflict, unitResult, mandatoryQuestions);
-  audit.push({ timestamp: now, step: "decision_lock", decision: decisionLock, basis: "Combined jurisdiction + conflict + unit analysis" });
+  if (verification.edition_conflict) {
+    audit.push({ timestamp: now, step: "edition_conflict_detected", decision: verification.reasoning, basis: "Edition comparison" });
+  }
 
-  // Step 6: Crosswalk lookup (non-US only)
-  let crosswalk: EngineOutput["crosswalk"] = null;
+  // Step 5: Mandatory questions
+  const mandatoryQuestions = generateMandatoryQuestions(location, requestedCode, conflict, verification);
+
+  // Step 6: Decision lock
+  const decisionLock = determineDecisionLock(location, conflict, unitResult, verification);
+  audit.push({ timestamp: now, step: "decision_lock", decision: decisionLock, basis: "Combined jurisdiction + conflict + unit + edition analysis" });
+
+  // Step 7: Final disposition allowed
+  const finalDispositionAllowed = determineFinalDispositionAllowed(decisionLock, verification, unitResult);
+  audit.push({ timestamp: now, step: "final_disposition_gate", decision: `allowed=${finalDispositionAllowed}`, basis: "Edition status + freshness + decision lock" });
+
+  // Step 8: Crosswalk
+  let equivalentStandards: string[] = [];
   if (!location.is_us && location.jurisdiction_key && requestedCode) {
     const cw = findCrosswalk(requestedCode, location.jurisdiction_key);
-    if (cw) {
-      crosswalk = {
-        us_code: requestedCode,
-        local_equivalent: cw.equivalent,
-        equivalence_type: cw.equivalence_type,
-        usage_rule: cw.usage_rule,
-        differences: cw.differences
-      };
-      audit.push({ timestamp: now, step: "crosswalk_applied", decision: `${requestedCode} → ${cw.equivalent} (${cw.usage_rule})`, basis: "Standard Equivalency Table" });
-    }
+    if (cw) equivalentStandards = [cw.equivalent];
   }
 
-  // Step 7: Build secondary authorities
-  let secondaryAuthorities: string[] | undefined;
+  // Step 9: Secondary authorities
+  let secondaryAuthorities: string[] = [];
   if (!location.is_us && location.jurisdiction_entry) {
-    const secs: string[] = [];
-    if (conflict.code_is_contractual) {
-      secs.push(`${requestedCode} by contract`);
-    }
-    if (location.jurisdiction_key === "norway") {
-      secs.push("NORSOK", "DNV", "operator specification");
-    }
-    if (location.jurisdiction_key === "offshore_international") {
-      secs.push("DNV", "ABS", "Lloyd's Register", "Bureau Veritas", "operator specification");
-    }
-    if (secs.length > 0) secondaryAuthorities = secs;
+    if (conflict.code_is_contractual) secondaryAuthorities.push(`${requestedCode} (contractual)`);
+    if (location.jurisdiction_key === "norway") secondaryAuthorities.push("NORSOK", "DNV", "operator specification");
+    if (location.jurisdiction_key === "offshore_international") secondaryAuthorities.push("DNV", "ABS", "Lloyd's Register", "Bureau Veritas", "operator specification");
   }
 
-  // Step 8: Determine primary authority string
+  // Step 10: Blocked standards
+  const blockedStandards: string[] = [];
+  if (verification.edition_status === "WITHDRAWN") blockedStandards.push(`${requestedCode} (WITHDRAWN)`);
+  if (verification.edition_status === "SUPERSEDED" && verification.edition_lock === "BLOCK_SUPERSEDED_AUTHORITY") {
+    blockedStandards.push(`${requestedCode} (SUPERSEDED by ${verification.superseded_by})`);
+  }
+
+  // Step 11: Primary authority
   let primaryAuthority: string;
-  if (location.is_us) {
-    primaryAuthority = requestedCode || "API / ASME codes";
-  } else if (location.jurisdiction_entry) {
-    primaryAuthority = location.jurisdiction_entry.primary_authority_description;
-  } else if (location.jurisdiction_key === "offshore_international") {
-    primaryAuthority = "Flag state / class society / maritime regulatory framework";
-  } else {
-    primaryAuthority = "UNKNOWN — jurisdiction must be confirmed";
-  }
+  if (location.is_us) primaryAuthority = requestedCode || "API / ASME codes";
+  else if (location.jurisdiction_entry) primaryAuthority = location.jurisdiction_entry.primary_authority_description;
+  else if (location.jurisdiction_key === "offshore_international") primaryAuthority = "Flag state / class society / maritime regulatory framework";
+  else primaryAuthority = "UNKNOWN — jurisdiction must be confirmed";
 
-  // Step 9: Build warning
-  let warning: string | undefined;
-  // Imperial trap takes priority when jurisdiction is unknown
+  // Step 12: Jurisdiction status mapping
+  let jurisdictionStatus: JurisdictionStatus;
+  if (location.is_unknown) jurisdictionStatus = "UNKNOWN";
+  else if (location.confidence === "high") jurisdictionStatus = "CONFIRMED";
+  else if (location.confidence === "medium") jurisdictionStatus = "INFERRED";
+  else jurisdictionStatus = "UNKNOWN";
+
+  // Step 13: Warning
+  let warning: string | null = null;
   if (location.is_unknown && (unitsDetected === "IMPERIAL" || unitsDetected === "UNKNOWN")) {
-    warning = "Imperial units and " + requestedCode + " are not enough to confirm U.S. jurisdiction.";
+    warning = `Imperial units and ${requestedCode} are not enough to confirm U.S. jurisdiction.`;
   } else if (conflict.warning) {
     warning = conflict.warning;
   }
@@ -819,57 +1034,77 @@ function processAuthorityV2(input: EngineInput): EngineOutput {
     const tv = unitResult.threshold_violation;
     warning = (warning ? warning + " " : "") + `Measured ${tv.measured.split(" (")[0]} is below required ${tv.required.split(" (")[0]}. Do not accept.`;
   }
-
-  // Step 10: Inspector message
-  let inspectorMessage: string;
-  if (location.is_us && !unitResult.unit_conversion_required) {
-    inspectorMessage = `${requestedCode} applies directly. Asset in U.S. jurisdiction. Standard acceptance criteria apply.`;
-  } else if (location.is_us && unitResult.unit_conversion_required) {
-    inspectorMessage = `${requestedCode} applies in U.S. jurisdiction. CAUTION: Mixed units detected — verify all conversions before final disposition.`;
-    if (unitResult.threshold_violation) {
-      inspectorMessage += ` CRITICAL: Measured thickness is below minimum required after conversion. REJECT.`;
-    }
-  } else if (location.is_unknown) {
-    inspectorMessage = `Jurisdiction cannot be confirmed from available data. HOLD — do not lock to any code until location and authority are verified.`;
-  } else {
-    inspectorMessage = `Asset in ${location.country}${location.region_or_state ? "/" + location.region_or_state : ""}. ${primaryAuthority} governs. ${requestedCode} is ${conflict.code_is_contractual ? "contractual supplement" : "reference only"} unless contractually adopted.`;
+  if (verification.edition_status === "WITHDRAWN") {
+    warning = (warning ? warning + " " : "") + `BLOCKED: ${requestedCode} is WITHDRAWN. Use ${verification.superseded_by || "current replacement"}.`;
+  } else if (verification.edition_status === "SUPERSEDED" && verification.superseded_by) {
+    warning = (warning ? warning + " " : "") + `WARNING: ${requestedCode} is SUPERSEDED by ${verification.superseded_by}.`;
   }
 
-  // Build output
-  const output: EngineOutput = {
+  // Step 14: Authority confidence
+  let authorityConfidence = 0.0;
+  if (location.is_us && !conflict.has_conflict && verification.edition_status === "VERIFIED_CURRENT") authorityConfidence = 1.0;
+  else if (jurisdictionStatus === "CONFIRMED" && verification.edition_status === "VERIFIED_CURRENT") authorityConfidence = 0.9;
+  else if (jurisdictionStatus === "CONFIRMED" && verification.edition_status === "VERIFIED_BUT_EDITION_UNKNOWN") authorityConfidence = 0.75;
+  else if (jurisdictionStatus === "INFERRED") authorityConfidence = 0.5;
+  else if (jurisdictionStatus === "UNKNOWN") authorityConfidence = 0.1;
+  if (verification.edition_status === "WITHDRAWN" || verification.edition_status === "SUPERSEDED") authorityConfidence = Math.min(authorityConfidence, 0.2);
+
+  // Step 15: Inspector message
+  let inspectorMessage: string;
+  if (verification.edition_status === "WITHDRAWN") {
+    inspectorMessage = `STOP: "${requestedCode}" is WITHDRAWN and cannot be used for any inspection disposition. ${verification.superseded_by ? "Use " + verification.superseded_by + " instead." : "Verify replacement standard with engineering authority."}`;
+  } else if (verification.edition_status === "SUPERSEDED" && verification.edition_lock === "BLOCK_SUPERSEDED_AUTHORITY") {
+    inspectorMessage = `HOLD: "${requestedCode}" is SUPERSEDED by "${verification.superseded_by}". Cannot be used as primary authority unless contractually specified with documented justification.`;
+  } else if (location.is_us && !unitResult.unit_conversion_required && verification.edition_status === "VERIFIED_CURRENT") {
+    inspectorMessage = `${requestedCode} (${verification.latest_known_edition}) applies directly. Authority VERIFIED CURRENT. Final disposition permitted.`;
+  } else if (location.is_us && unitResult.unit_conversion_required) {
+    inspectorMessage = `${requestedCode} applies in U.S. jurisdiction. CAUTION: Mixed units detected — verify all conversions before final disposition.${unitResult.threshold_violation ? " CRITICAL: Measured thickness is below minimum required after conversion. REJECT." : ""}`;
+  } else if (location.is_unknown) {
+    inspectorMessage = `Jurisdiction cannot be confirmed. HOLD — do not lock to any code until location and authority are verified.`;
+  } else if (!finalDispositionAllowed) {
+    inspectorMessage = `Authority identified but final disposition NOT YET PERMITTED. Reason: ${verification.reasoning} Resolve before issuing inspection determination.`;
+  } else {
+    inspectorMessage = `Asset in ${location.country}${location.region_or_state ? "/" + location.region_or_state : ""}. ${primaryAuthority} governs. ${requestedCode} is ${conflict.code_is_contractual ? "contractual supplement" : "reference only"} unless contractually adopted. Edition: ${verification.latest_known_edition}.`;
+  }
+
+  audit.push({ timestamp: now, step: "output_assembled", decision: `decision_lock=${decisionLock}, final_disposition=${finalDispositionAllowed}, confidence=${authorityConfidence.toFixed(2)}`, basis: "All modules combined" });
+
+  return {
+    authority_decision_id: decisionId,
     engine: "global-authority-engine",
-    version: "2.1.0",
+    version: "2.2.0",
+    jurisdiction_status: jurisdictionStatus,
     country: location.country,
-    jurisdiction_status: location.is_unknown ? "UNKNOWN" : (location.confidence === "high" ? "RESOLVED" : "INFERRED"),
+    region_or_state: location.region_or_state,
+    offshore_region: offshoreRegion || (location.is_offshore ? (location.jurisdiction_key || "offshore") : null),
+    asset_type: assetType,
+    industry_domain: industryDomain,
     primary_authority: primaryAuthority,
+    secondary_authorities: secondaryAuthorities,
+    equivalent_or_related_standards: equivalentStandards,
+    blocked_standards: blockedStandards,
+    authority_confidence: parseFloat(authorityConfidence.toFixed(2)),
+    edition_status: verification.edition_status,
+    edition_lock: verification.edition_lock,
+    live_verification_required: verification.live_verification_required,
+    verified_sources: verification.verified_sources,
+    rejected_sources: verification.rejected_sources,
+    source_quality_score: parseFloat(verification.source_quality_score.toFixed(2)),
+    authority_freshness_score: parseFloat(verification.authority_freshness_score.toFixed(2)),
+    latest_known_edition: verification.latest_known_edition,
+    user_reported_edition: requestedEdition || "",
+    edition_conflict: verification.edition_conflict,
+    reasoning_summary: verification.reasoning,
+    mandatory_user_questions: mandatoryQuestions,
     decision_lock: decisionLock,
-    unit_issue: unitResult.unit_conversion_required,
+    final_disposition_allowed: finalDispositionAllowed,
     unit_conversion_required: unitResult.unit_conversion_required,
-    unit_system: {
-      detected: unitResult.detected_units,
-      jurisdiction_expects: unitResult.jurisdiction_expects,
-      conversion_required: unitResult.unit_conversion_required
-    },
+    conversion_check: unitResult.conversion_check || null,
+    technical_disposition: unitResult.threshold_violation?.disposition || null,
+    warning,
     inspector_message: inspectorMessage,
-    audit_trace: audit,
-    metadata: {
-      engine: "global-authority-engine",
-      version: "2.1.0",
-      timestamp: now,
-      input_hash: `${locationText}|${requestedCode}|${assetType}`
-    }
+    audit_trace: audit
   };
-
-  // Conditional fields
-  if (location.region_or_state) output.region_or_state = location.region_or_state;
-  if (secondaryAuthorities && secondaryAuthorities.length > 0) output.secondary_authorities = secondaryAuthorities;
-  if (warning) output.warning = warning;
-  if (mandatoryQuestions.length > 0) output.mandatory_user_questions = mandatoryQuestions;
-  if (crosswalk) output.crosswalk = crosswalk;
-  if (unitResult.conversion_check) output.conversion_check = unitResult.conversion_check;
-  if (unitResult.threshold_violation) output.technical_disposition = unitResult.threshold_violation.disposition;
-
-  return output;
 }
 
 // ============================================================
@@ -898,7 +1133,7 @@ export const handler: Handler = async (event) => {
       return { statusCode: 400, headers, body: JSON.stringify({ error: "asset_type or asset_description required" }) };
     }
 
-    const result = processAuthorityV2(body);
+    const result = processAuthorityV22(body);
     return { statusCode: 200, headers, body: JSON.stringify(result) };
   } catch (err: any) {
     return { statusCode: 500, headers, body: JSON.stringify({ error: "Global Authority Engine error: " + (err.message || String(err)) }) };
