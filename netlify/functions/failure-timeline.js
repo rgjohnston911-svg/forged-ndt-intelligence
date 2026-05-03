@@ -384,6 +384,21 @@ var handler = async function(event) {
       else if (governingTimeYears < 3) urgency = "PRIORITY";
       else if (governingTimeYears < 10) urgency = "ELEVATED";
     }
+    // Crack-based urgency escalation: even without time_to_failure, high delta_K
+    // or deep crack ratio in aggressive environment demands elevated urgency
+    if (crackTimeline && crackTimeline.enabled && urgency === "STANDARD") {
+      var crackRatio = (parseFloat(body.crack_depth) || 0) / (parseFloat(body.wall_thickness) || 1);
+      var deltaK = crackTimeline.delta_K_ksi_sqrt_in || 0;
+      var isSourEnv = (serviceEnvironment.indexOf("sour") >= 0 || (body.environment && body.environment.indexOf("sour") >= 0));
+      // K_IC for carbon steel in sour is ~30-50 ksi√in; approaching that is critical
+      if (deltaK > 30 || (isSourEnv && deltaK > 20)) {
+        urgency = "CRITICAL";
+      } else if (crackRatio >= 0.4 || (isSourEnv && crackRatio >= 0.25)) {
+        urgency = "ELEVATED";
+      } else if (deltaK > 15 && crackRatio >= 0.2) {
+        urgency = "ELEVATED";
+      }
+    }
 
     // ====================================================================
     // v1.1: PROGRESSION STATE CLASSIFICATION (6-state taxonomy)
