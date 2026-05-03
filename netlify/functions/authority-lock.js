@@ -1,10 +1,12 @@
-// AUTHORITY LOCK ENGINE v1.1
+// AUTHORITY LOCK ENGINE v1.2
 // File: netlify/functions/authority-lock.js
 // NO TYPESCRIPT — PURE JAVASCRIPT
-// v1.1 — Component-type discriminator: resolves authority by COMPONENT TYPE,
-//         not just asset location. An offshore platform can have piping (API 570),
-//         vessels (API 510), and structural steel (API RP 2A) — the component
-//         being assessed determines the primary authority, not the facility.
+// v1.2 — GPT enterprise audit fixes:
+//         - Bridge assets → AWS D1.5 primary (not D1.1 refined downstream)
+//         - Nuclear domain → ASME Section XI primary (API suppressed)
+//         - Composite → ASTM/OEM-directed NDE redirect (not just PARTIAL)
+//         - Rail → AAR/AREMA redirect (not just PARTIAL)
+//         - Component-type discriminator retained from v1.1
 
 var handler = async function(event) {
   "use strict";
@@ -82,6 +84,37 @@ var handler = async function(event) {
       }
     }
 
+    // ============================================================
+    // DOMAIN DETECTION (v1.2)
+    // Detect specialty domains BEFORE facility routing.
+    // Nuclear, bridge, aerospace, rail, composite each have
+    // domain-specific primary authorities that override generic routing.
+    // ============================================================
+    var isNuclearDomain = (asset === "nuclear" || asset === "nuclear_plant" || asset === "nuclear_facility" ||
+                           jurisdiction.indexOf("nuclear") >= 0 || jurisdiction.indexOf("nrc") >= 0 ||
+                           componentDescription.indexOf("nuclear") >= 0 || componentDescription.indexOf("safety-related") >= 0 ||
+                           componentDescription.indexOf("safety related") >= 0 || componentDescription.indexOf("asme xi") >= 0 ||
+                           componentDescription.indexOf("section xi") >= 0);
+
+    var isBridgeDomain = (asset === "bridge" || asset === "highway_bridge" || asset === "railway_bridge" ||
+                          componentDescription.indexOf("bridge") >= 0 || componentDescription.indexOf("highway") >= 0 ||
+                          componentDescription.indexOf("aashto") >= 0);
+
+    var isAerospaceDomain = (asset === "aerospace" || asset === "aircraft" || asset === "aviation" ||
+                             componentDescription.indexOf("aerospace") >= 0 || componentDescription.indexOf("aircraft") >= 0 ||
+                             componentDescription.indexOf("aviation") >= 0 || componentDescription.indexOf("d17.1") >= 0);
+
+    var isRailDomain = (asset === "rail" || asset === "railroad" || asset === "railway" ||
+                        componentDescription.indexOf("rail") >= 0 || componentDescription.indexOf("axle") >= 0 ||
+                        componentDescription.indexOf("railcar") >= 0 || componentDescription.indexOf("locomotive") >= 0 ||
+                        componentDescription.indexOf("wheel") >= 0);
+
+    var isCompositeDomain = (asset === "composite" || asset === "frp" || asset === "cfrp" || asset === "gfrp" ||
+                             componentDescription.indexOf("composite") >= 0 || componentDescription.indexOf("carbon fiber") >= 0 ||
+                             componentDescription.indexOf("fiberglass") >= 0 || componentDescription.indexOf("frp") >= 0 ||
+                             componentDescription.indexOf("laminate") >= 0 || componentDescription.indexOf("non-metallic") >= 0 ||
+                             componentDescription.indexOf("delamination") >= 0);
+
     // Determine if this is a facility-type asset with components on it
     var isFacilityAsset = (asset === "offshore_platform" || asset === "offshore_fixed_platform" ||
                            asset === "offshore_floating" || asset === "refinery" ||
@@ -104,8 +137,79 @@ var handler = async function(event) {
       lockReasons.push("Offshore asset -> BSEE/USCG regulatory overlay applied");
     }
 
+    // ============================================================
+    // SPECIALTY DOMAIN OVERRIDES (v1.2)
+    // These domains have unique primary authorities that take
+    // precedence over generic component-type routing.
+    // The governing code must be correct AT THE DECISION POINT,
+    // not "refined downstream" — per audit requirements.
+    // ============================================================
+
+    // NUCLEAR — ASME Section XI dominates; API becomes secondary
+    if (isNuclearDomain) {
+      authorities.push({ code: "ASME BPVC Section XI", title: "Rules for Inservice Inspection of Nuclear Power Plant Components", role: "primary_inspection", locked: true });
+      lockReasons.push("Nuclear domain detected -> ASME Section XI is primary inspection authority (overrides API framework)");
+      authorities.push({ code: "ASME BPVC Section V", title: "Nondestructive Examination", role: "nde_method_authority", locked: true });
+      lockReasons.push("Nuclear NDE -> ASME Section V mandatory");
+      authorities.push({ code: "ASME BPVC Section IX", title: "Welding, Brazing, and Fusing Qualifications", role: "welding_qualification", locked: true });
+      lockReasons.push("Nuclear welding -> ASME Section IX qualification required");
+      supplementalCodes.push({ code: "10 CFR 50 / NRC", title: "Nuclear Regulatory Commission Requirements", role: "regulatory_overlay", locked: true });
+      supplementalCodes.push({ code: "Owner Nuclear Program", title: "Owner/Licensee Quality Assurance Program", role: "program_authority", locked: true });
+      lockReasons.push("Nuclear regulatory -> 10 CFR 50 / NRC + Owner QA program overlay");
+
+      // Add construction code based on component type (secondary to Section XI)
+      if (resolvedComponentType === "piping" || componentDescription.indexOf("piping") >= 0 || componentDescription.indexOf("pipe") >= 0) {
+        supplementalCodes.push({ code: "ASME B31.1", title: "Power Piping (nuclear-class piping reference)", role: "construction_reference", locked: false });
+      }
+      if (resolvedComponentType === "vessel" || resolvedComponentType === "pressure_vessel") {
+        supplementalCodes.push({ code: "ASME BPVC Section III", title: "Rules for Construction of Nuclear Facility Components", role: "construction_reference", locked: false });
+      }
+    }
+
+    // BRIDGE — AWS D1.5 primary (NOT D1.1 refined later)
+    if (isBridgeDomain && !isNuclearDomain) {
+      authorities.push({ code: "AWS D1.5", title: "Bridge Welding Code", role: "primary_construction", locked: true });
+      lockReasons.push("Bridge domain detected -> AWS D1.5 is primary authority (not generic D1.1)");
+      supplementalCodes.push({ code: "AASHTO", title: "AASHTO Bridge Design/Inspection Standards", role: "owner_requirements", locked: false });
+      lockReasons.push("Bridge -> AASHTO owner requirements overlay");
+      supplementalCodes.push({ code: "ASME BPVC Section V", title: "Nondestructive Examination", role: "nde_method_authority", locked: false });
+    }
+
+    // AEROSPACE — AWS D17.1 primary
+    if (isAerospaceDomain && !isNuclearDomain) {
+      authorities.push({ code: "AWS D17.1", title: "Specification for Fusion Welding for Aerospace Applications", role: "primary_construction", locked: true });
+      lockReasons.push("Aerospace domain detected -> AWS D17.1 primary authority");
+      supplementalCodes.push({ code: "Customer Aerospace Procedure", title: "OEM/Customer Specific Welding and NDE Procedure", role: "program_authority", locked: true });
+      lockReasons.push("Aerospace -> OEM/customer procedure required (no generic acceptance)");
+    }
+
+    // RAIL — AAR/AREMA primary
+    if (isRailDomain && !isNuclearDomain) {
+      authorities.push({ code: "AAR/AREMA Standards", title: "Association of American Railroads / American Railway Engineering and Maintenance-of-Way Association", role: "primary_inspection", locked: true });
+      lockReasons.push("Rail domain detected -> AAR/AREMA primary inspection authority");
+      supplementalCodes.push({ code: "FRA 49 CFR Part 213/238", title: "Federal Railroad Administration Safety Standards", role: "regulatory_overlay", locked: true });
+      lockReasons.push("Rail regulatory -> FRA safety standards overlay");
+      supplementalCodes.push({ code: "ASME BPVC Section V", title: "Nondestructive Examination", role: "nde_method_authority", locked: false });
+    }
+
+    // COMPOSITE / NON-METALLIC — ASTM + OEM-directed NDE
+    if (isCompositeDomain && !isNuclearDomain) {
+      authorities.push({ code: "ASTM D7136/D7137", title: "ASTM Composite Damage Tolerance Standards", role: "primary_inspection", locked: true });
+      lockReasons.push("Composite domain detected -> ASTM composite standards primary authority");
+      authorities.push({ code: "OEM Procedure Required", title: "Original Equipment Manufacturer Inspection/Acceptance Procedure", role: "program_authority", locked: true });
+      lockReasons.push("Composite -> OEM procedure required for acceptance criteria");
+      supplementalCodes.push({ code: "ASTM E2580/E2582", title: "ASTM Ultrasonic Examination of Composites", role: "nde_method_authority", locked: false });
+      supplementalCodes.push({ code: "Physics-Based NDE", title: "UT C-scan, Thermography, Shearography (metallic corrosion logic suppressed)", role: "method_redirect", locked: true });
+      lockReasons.push("Composite -> metallic corrosion logic SUPPRESSED; physics-based NDE methods required");
+    }
+
+    // ============================================================
+    // STANDARD DOMAIN ROUTING (skip if specialty domain already resolved)
+    // ============================================================
+    var specialtyDomainResolved = isNuclearDomain || isBridgeDomain || isAerospaceDomain || isRailDomain || isCompositeDomain;
+
     // PIPELINE
-    if (primaryRouteKey === "pipeline" || primaryRouteKey === "transmission_pipeline" || primaryRouteKey === "gathering_line") {
+    if (!specialtyDomainResolved && (primaryRouteKey === "pipeline" || primaryRouteKey === "transmission_pipeline" || primaryRouteKey === "gathering_line")) {
       authorities.push({ code: "ASME B31.8", title: "Gas Transmission and Distribution Piping Systems", role: "primary_construction", locked: true });
       lockReasons.push("Pipeline asset -> ASME B31.8 primary authority");
 
@@ -124,7 +228,7 @@ var handler = async function(event) {
     }
 
     // PRESSURE VESSEL
-    if (primaryRouteKey === "pressure_vessel" || primaryRouteKey === "vessel" || primaryRouteKey === "reactor" || primaryRouteKey === "drum" || primaryRouteKey === "heat_exchanger") {
+    if (!specialtyDomainResolved && (primaryRouteKey === "pressure_vessel" || primaryRouteKey === "vessel" || primaryRouteKey === "reactor" || primaryRouteKey === "drum" || primaryRouteKey === "heat_exchanger")) {
       authorities.push({ code: "API 510", title: "Pressure Vessel Inspection Code", role: "inspection_authority", locked: true });
       lockReasons.push("Pressure vessel component -> API 510 inspection authority");
       authorities.push({ code: "ASME BPVC Section VIII", title: "Boiler and Pressure Vessel Code - Pressure Vessels", role: "primary_construction", locked: true });
@@ -134,9 +238,9 @@ var handler = async function(event) {
     }
 
     // PIPING
-    if (primaryRouteKey === "piping" || primaryRouteKey === "process_piping" || primaryRouteKey === "plant_piping" ||
+    if (!specialtyDomainResolved && (primaryRouteKey === "piping" || primaryRouteKey === "process_piping" || primaryRouteKey === "plant_piping" ||
         primaryRouteKey === "header" || primaryRouteKey === "production_header" || primaryRouteKey === "flowline" ||
-        primaryRouteKey === "riser" || primaryRouteKey === "manifold") {
+        primaryRouteKey === "riser" || primaryRouteKey === "manifold")) {
       authorities.push({ code: "API 570", title: "Piping Inspection Code", role: "inspection_authority", locked: true });
       lockReasons.push("Piping component -> API 570 inspection authority");
       authorities.push({ code: "ASME B31.3", title: "Process Piping", role: "primary_construction", locked: true });
@@ -157,7 +261,7 @@ var handler = async function(event) {
     }
 
     // VALVE / RELIEF DEVICE (on facility)
-    if (primaryRouteKey === "valve" || primaryRouteKey === "relief_device") {
+    if (!specialtyDomainResolved && (primaryRouteKey === "valve" || primaryRouteKey === "relief_device")) {
       authorities.push({ code: "API 570", title: "Piping Inspection Code", role: "inspection_authority", locked: true });
       lockReasons.push("Valve/relief device -> API 570 inspection authority (in-line component)");
       authorities.push({ code: "API 576", title: "Inspection of Pressure-Relieving Devices", role: "supplemental_inspection", locked: true });
@@ -166,7 +270,7 @@ var handler = async function(event) {
     }
 
     // STORAGE TANK
-    if (primaryRouteKey === "storage_tank" || primaryRouteKey === "tank" || primaryRouteKey === "aboveground_storage_tank" || primaryRouteKey === "ast") {
+    if (!specialtyDomainResolved && (primaryRouteKey === "storage_tank" || primaryRouteKey === "tank" || primaryRouteKey === "aboveground_storage_tank" || primaryRouteKey === "ast")) {
       authorities.push({ code: "API 653", title: "Tank Inspection, Repair, Alteration, and Reconstruction", role: "inspection_authority", locked: true });
       lockReasons.push("Storage tank asset -> API 653 inspection authority");
       authorities.push({ code: "API 650", title: "Welded Tanks for Oil Storage", role: "primary_construction", locked: true });
@@ -174,15 +278,15 @@ var handler = async function(event) {
     }
 
     // BOILER
-    if (primaryRouteKey === "boiler" || primaryRouteKey === "power_boiler" || primaryRouteKey === "heating_boiler") {
+    if (!specialtyDomainResolved && (primaryRouteKey === "boiler" || primaryRouteKey === "power_boiler" || primaryRouteKey === "heating_boiler")) {
       authorities.push({ code: "NB-23 (NBIC)", title: "National Board Inspection Code", role: "inspection_authority", locked: true });
       lockReasons.push("Boiler asset -> NBIC inspection authority");
       authorities.push({ code: "ASME BPVC Section I", title: "Boiler and Pressure Vessel Code - Power Boilers", role: "primary_construction", locked: true });
       lockReasons.push("Boiler -> ASME Section I construction code");
     }
 
-    // STRUCTURAL (only when the component itself is structural steel)
-    if (primaryRouteKey === "structural" || primaryRouteKey === "structural_steel" || primaryRouteKey === "bridge" || primaryRouteKey === "offshore_structure") {
+    // STRUCTURAL (only when the component itself is structural steel — bridge handled above in specialty domains)
+    if (!specialtyDomainResolved && (primaryRouteKey === "structural" || primaryRouteKey === "structural_steel" || primaryRouteKey === "offshore_structure")) {
       authorities.push({ code: "AWS D1.1", title: "Structural Welding Code - Steel", role: "primary_construction", locked: true });
       lockReasons.push("Structural steel component -> AWS D1.1 construction/inspection authority");
       if (primaryRouteKey === "offshore_structure" || asset === "offshore_platform" || asset === "offshore_fixed_platform") {
@@ -290,7 +394,7 @@ var handler = async function(event) {
       trigger_sour_service: hasSourCracking,
       metadata: {
         engine: "authority-lock",
-        version: "1.1",
+        version: "1.2",
         asset_type: asset,
         component_type: resolvedComponentType || null,
         component_type_source: component ? "explicit" : (resolvedComponentType ? "inferred_from_description" : "none"),
