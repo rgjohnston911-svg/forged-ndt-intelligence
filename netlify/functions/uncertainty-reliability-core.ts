@@ -1150,37 +1150,81 @@ async function runFull(input) {
   });
   proofTrace = proofTrace.concat(survivalResult.proof_trace || []);
 
-  var classificationResult = runClassification({
-    survival_results: survivalResult.deterministic,
-    conformal_confidence: conformalConfidence,
-    mc_p05_remaining: mcP05Remaining,
-    mechanism: input.mechanism || ""
+  var conformalResult = runConformal({
+    base_prediction: mcP05Remaining || survivalResult.deterministic?.remaining_life_years || null,
+    confidence_level: conformalConfidence,
+    calibration_residuals: input.calibration_residuals || []
   });
-
-  proofTrace.push({
-    step: "RELIABILITY_CLASS_ASSIGNED",
-    output: {
-      class: classificationResult.reliability_class,
-      confidence: classificationResult.confidence
-    },
-    rationale: "Classification based on failure probabilities and confidence"
-  });
-
-  proofTrace.push({
-    step: "FINAL_RECOMMENDATION_ISSUED",
-    output: {
-      recommendation: classificationResult.recommendation,
-      authority_lock_required: classificationResult.authority_lock_required
-    },
-    rationale: "Final recommendation with proof trace for inspection documentation"
-  });
+  proofTrace = proofTrace.concat(conformalResult.proof_trace || []);
 
   return {
-    deterministic: survivalResult.deterministic || {},
     monte_carlo: monteCarloResult.deterministic?.monte_carlo || null,
-    classification: classificationResult,
-    proof_trace: proofTrace
+    survival: survivalResult.deterministic || null,
+    conformal: conformalResult.deterministic || null,
+    proof_trace: proofTrace,
+    provenance: {
+      engine: "uncertainty-reliability-core",
+      version: "URC-1.0.0",
+      deploy: "DEPLOY351",
+      mode: "full_assessment",
+      timestamp: new Date().toISOString()
+    }
   };
 }
 
-export { handler };
+var handler = async function(event: any) {
+  var corsHeaders: Record<string, string> = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Content-Type": "application/json"
+  };
+
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: corsHeaders, body: "" };
+  }
+
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "Method not allowed" }) };
+  }
+
+  try {
+    var body = JSON.parse(event.body || "{}");
+    var action = body.action || "get_registry";
+
+    if (action === "get_registry") {
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(getRegistry()) };
+    }
+
+    if (action === "monte_carlo") {
+      var mcResult = await runMonteCarlo(body);
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(mcResult) };
+    }
+
+    if (action === "survival") {
+      var surResult = runSurvival(body);
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(surResult) };
+    }
+
+    if (action === "conformal") {
+      var confResult = runConformal(body);
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(confResult) };
+    }
+
+    if (action === "full_assessment") {
+      var fullResult = await runFull(body);
+      return { statusCode: 200, headers: corsHeaders, body: JSON.stringify(fullResult) };
+    }
+
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Unknown action: " + action }) };
+
+  } catch (err) {
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({ error: "Uncertainty reliability core error: " + String(err) })
+    };
+  }
+};
+
+module.exports = { handler: handler };
