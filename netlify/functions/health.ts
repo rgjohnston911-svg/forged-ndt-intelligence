@@ -176,7 +176,14 @@ var CRITICAL_TABLES = [
   { name: "distribution_sampler_results", deploy: "DEPLOY352", critical: false },
   { name: "cfi_context_patterns", deploy: "CFI-v1", critical: false },
   { name: "cfi_case_findings", deploy: "CFI-v1", critical: false },
-  { name: "cfi_feedback_events", deploy: "CFI-v1", critical: false }
+  { name: "cfi_feedback_events", deploy: "CFI-v1", critical: false },
+  { name: "global_jurisdiction_registry", deploy: "DEPLOY353", critical: false },
+  { name: "global_edition_registry", deploy: "DEPLOY353", critical: false },
+  { name: "global_authority_decisions", deploy: "DEPLOY353", critical: false },
+  { name: "field_chaos_cases", deploy: "DEPLOY354", critical: false },
+  { name: "field_chaos_documents", deploy: "DEPLOY354", critical: false },
+  { name: "field_chaos_conflicts", deploy: "DEPLOY354", critical: false },
+  { name: "field_chaos_results", deploy: "DEPLOY354", critical: false }
 ];
 
 var ENGINE_REGISTRY = [
@@ -326,7 +333,9 @@ var ENGINE_REGISTRY = [
   { name: "disposition-pathway", deploy: "DEPLOY180", mode: "deterministic", path: "/api/disposition-pathway" },
   { name: "tier-gate", deploy: "DEPLOY353", mode: "deterministic", path: "/api/tier-gate" },
   { name: "ai-chat", deploy: "DEPLOY353", mode: "ai_assisted", path: "/api/ai-chat" },
-  { name: "peer-review-gate", deploy: "DEPLOY354", mode: "hybrid", path: "/api/peer-review-gate" }
+  { name: "peer-review-gate", deploy: "DEPLOY354", mode: "hybrid", path: "/api/peer-review-gate" },
+  { name: "global-authority-engine", deploy: "DEPLOY353", mode: "deterministic", path: "/api/global-authority-engine" },
+  { name: "field-chaos-validator", deploy: "DEPLOY354", mode: "deterministic", path: "/api/field-chaos-validator" }
 ];
 
 function countByMode(mode) {

@@ -269,6 +269,8 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY353: Tier Gate", "/api/tier-gate", { action: "get_registry" });
   await testEndpoint("DEPLOY353: AI Chat", "/api/ai-chat", { action: "get_registry" });
   await testEndpoint("DEPLOY354: Peer Review Gate", "/api/peer-review-gate", { action: "get_registry" });
+  await testEndpoint("DEPLOY353: Global Authority Engine", "/api/global-authority-engine", { asset_type: "Pressure Vessel", location_text: "Texas, USA", requested_code: "API 510", units_detected: "IMPERIAL" });
+  await testEndpoint("DEPLOY354: Field Chaos Validator", "/api/field-chaos-validator", { case_id: "HEALTH-CHECK", case_title: "System Check", documents: [{ filename: "test.pdf", type: "ut_report", ocr_confidence: 0.9 }], asset_info: { asset_type: "Piping", location_text: "Texas" } });
   document.getElementById("runBtn").textContent = "Run Full System Check";
   document.getElementById("runBtn").disabled = false;
 }

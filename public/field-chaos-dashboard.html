@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Field Chaos Validation Dashboard — FORGED 4D NDT Intelligence OS</title>
+  <style>
+    :root { --bg: #0a0e17; --card: #131a2b; --border: #1e2a42; --accent: #00d4ff; --green: #00e676; --yellow: #ffc107; --red: #ff5252; --text: #e0e6ef; --muted: #6b7a94; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .header { background: linear-gradient(135deg, #0d1b3e, #1a2744); border-bottom: 1px solid var(--border); padding: 24px 32px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 20px; font-weight: 700; color: var(--accent); }
+    .header .subtitle { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .header .actions { display: flex; gap: 10px; }
+    .btn { padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); cursor: pointer; font-size: 13px; transition: all 0.2s; }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn.primary { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+    .btn.primary:hover { opacity: 0.85; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; padding: 24px 32px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; text-align: center; }
+    .card .value { font-size: 28px; font-weight: 700; margin-top: 8px; }
+    .card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .card.green .value { color: var(--green); }
+    .card.yellow .value { color: var(--yellow); }
+    .card.red .value { color: var(--red); }
+    .card.blue .value { color: var(--accent); }
+    .table-container { padding: 0 32px 32px; }
+    table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    th { background: #0d1527; padding: 12px 16px; text-align: left; font-size: 12px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); }
+    td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
+    tr:hover { background: #1a2540; }
+    .badge { padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .badge-pass { background: rgba(0,230,118,0.15); color: var(--green); }
+    .badge-warn { background: rgba(255,193,7,0.15); color: var(--yellow); }
+    .badge-fail { background: rgba(255,82,82,0.15); color: var(--red); }
+    .badge-hold { background: rgba(0,212,255,0.15); color: var(--accent); }
+    .badge-block { background: rgba(255,82,82,0.25); color: var(--red); }
+    .badge-allow { background: rgba(0,230,118,0.15); color: var(--green); }
+    .readiness { margin: 0 32px 24px; padding: 16px 24px; border-radius: 8px; font-weight: 700; font-size: 16px; text-align: center; }
+    .readiness.enterprise { background: rgba(0,230,118,0.1); border: 2px solid var(--green); color: var(--green); }
+    .readiness.demo { background: rgba(0,212,255,0.1); border: 2px solid var(--accent); color: var(--accent); }
+    .readiness.internal { background: rgba(255,193,7,0.1); border: 2px solid var(--yellow); color: var(--yellow); }
+    .readiness.fail { background: rgba(255,82,82,0.1); border: 2px solid var(--red); color: var(--red); }
+    .detail-drawer { display: none; position: fixed; right: 0; top: 0; width: 50%; height: 100vh; background: var(--card); border-left: 2px solid var(--border); overflow-y: auto; padding: 24px; z-index: 100; }
+    .detail-drawer.open { display: block; }
+    .detail-drawer h2 { font-size: 18px; margin-bottom: 16px; color: var(--accent); }
+    .detail-section { margin-bottom: 20px; }
+    .detail-section h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+    .detail-section pre { background: #0a0e17; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; }
+    .close-btn { position: absolute; top: 16px; right: 16px; background: none; border: none; color: var(--text); font-size: 24px; cursor: pointer; }
+    .spinner { display: none; border: 3px solid var(--border); border-top: 3px solid var(--accent); border-radius: 50%; width: 20px; height: 20px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading .spinner { display: inline-block; }
+    .conflict-item { padding: 8px 12px; margin: 4px 0; border-radius: 4px; font-size: 12px; }
+    .conflict-CRITICAL { background: rgba(255,82,82,0.1); border-left: 3px solid var(--red); }
+    .conflict-HIGH { background: rgba(255,193,7,0.1); border-left: 3px solid var(--yellow); }
+    .conflict-MEDIUM { background: rgba(0,212,255,0.1); border-left: 3px solid var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>Field Chaos → Real Data Validation</h1>
+      <div class="subtitle">FORGED 4D NDT Intelligence OS — Enterprise Readiness Testing</div>
+    </div>
+    <div class="actions">
+      <button class="btn primary" onclick="runAllCases()">Run All Cases</button>
+      <button class="btn" onclick="exportJSON()">Export JSON</button>
+      <button class="btn" onclick="exportReport()">Export Report</button>
+    </div>
+  </div>
+
+  <div class="cards" id="summary-cards">
+    <div class="card blue"><div class="label">Total Cases</div><div class="value" id="card-total">10</div></div>
+    <div class="card green"><div class="label">Passed</div><div class="value" id="card-passed">—</div></div>
+    <div class="card yellow"><div class="label">Warnings</div><div class="value" id="card-warned">—</div></div>
+    <div class="card red"><div class="label">Failed</div><div class="value" id="card-failed">—</div></div>
+    <div class="card red"><div class="label">Critical Fail</div><div class="value" id="card-critical">—</div></div>
+    <div class="card blue"><div class="label">Avg Confidence</div><div class="value" id="card-confidence">—</div></div>
+    <div class="card blue"><div class="label">Dispositions Allowed</div><div class="value" id="card-dispositions">—</div></div>
+    <div class="card blue"><div class="label">Holds Generated</div><div class="value" id="card-holds">—</div></div>
+  </div>
+
+  <div class="readiness" id="readiness-bar" style="display:none;"></div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>Case</th>
+          <th>Title</th>
+          <th>Quality</th>
+          <th>Confidence</th>
+          <th>Conflicts</th>
+          <th>Decision Lock</th>
+          <th>Disposition</th>
+          <th>Score</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="case-table"></tbody>
+    </table>
+  </div>
+
+  <div class="detail-drawer" id="detail-drawer">
+    <button class="close-btn" onclick="closeDrawer()">&times;</button>
+    <div id="drawer-content"></div>
+  </div>
+
+  <script>
+    const API = "/.netlify/functions/field-chaos-validator";
+    let results = [];
+
+    const CASES = [
+      { case_id: "FCV-001", case_title: "Scanned UT Report — Missing Location", input: { case_id: "FCV-001", case_title: "Scanned UT Report — Missing Location", documents: [{ filename: "UT_Report_Line12C44.pdf", type: "ut_report", content_text: "Line 12-C-44 UT Survey", ocr_confidence: 0.75 }], measurements: [{ location: "CML-1", value: 0.187, unit: "in" }, { location: "CML-4", value: 0.178, unit: "in" }], asset_info: { asset_type: "Process Piping", asset_id: "Line 12-C-44", location_text: "" }, code_references: { requested_code: "API 570" } } },
+      { case_id: "FCV-002", case_title: "WPS Conflict — CS WPS vs SS Weld", input: { case_id: "FCV-002", case_title: "WPS Conflict — CS WPS vs SS Weld", documents: [{ filename: "WPS-2201.pdf", type: "wps", content_text: "SMAW E7018 Carbon Steel", ocr_confidence: 0.92 }], photos: [{ filename: "weld_316L.jpg", type: "photo", content_text: "316L socket weld", ocr_confidence: 0.8 }], wps_data: [{ revision: "Rev A", process: "SMAW", filler_metal: "E7018", base_material: "Carbon Steel SA-106B" }], asset_info: { asset_type: "Process Piping", location_text: "U.S. chemical plant, Texas", material: "316L Stainless Steel" }, code_references: { requested_code: "AWS D1.1" } } },
+      { case_id: "FCV-003", case_title: "Voice Transcript — Below Min Override", input: { case_id: "FCV-003", case_title: "Voice Transcript — Below Min Override", documents: [{ filename: "UT_CML7.pdf", type: "ut_report", content_text: "CML-7: 0.094in, Min: 0.125in", ocr_confidence: 0.9 }], voice_transcripts: [{ speaker: "Inspector", text: "CML-7 is under min, don't red tag yet, boss wants it green.", confidence: 0.88 }], measurements: [{ location: "CML-7", value: 0.094, unit: "in", t_min: 0.125 }], asset_info: { asset_type: "Process Piping", location_text: "Texas refinery, USA" }, code_references: { requested_code: "API 570" }, acceptance_criteria: { code: "API 570", minimum_thickness: 0.125, minimum_thickness_unit: "in" } } },
+      { case_id: "FCV-004", case_title: "WPS Revision Conflict — Preheat", input: { case_id: "FCV-004", case_title: "WPS Revision Conflict — Preheat", documents: [{ filename: "WPS_Rev2.pdf", type: "wps", ocr_confidence: 0.9 }, { filename: "WPS_Rev5.pdf", type: "wps", ocr_confidence: 0.92 }], wps_data: [{ revision: "Rev 2", preheat_value: 150, preheat_unit: "F" }, { revision: "Rev 5", preheat_value: 250, preheat_unit: "F" }], asset_info: { asset_type: "Pressure Vessel", location_text: "Houston, Texas, USA" }, code_references: { requested_code: "ASME BPVC Section VIII" } } },
+      { case_id: "FCV-005", case_title: "Blurry PAUT — Low OCR", input: { case_id: "FCV-005", case_title: "Blurry PAUT — Low OCR", documents: [{ filename: "PAUT_blurry.pdf", type: "paut_report", content_text: "Flaw: ?8mm", ocr_confidence: 0.35 }], measurements: [{ location: "Weld 14", value: 18, unit: "mm" }], asset_info: { asset_type: "Process Piping", location_text: "Louisiana chemical plant, USA" }, code_references: { requested_code: "ASME B31.3" }, acceptance_criteria: { readable: false } } },
+      { case_id: "FCV-006", case_title: "International Vessel — No Flag/Class", input: { case_id: "FCV-006", case_title: "International Vessel — No Flag/Class", documents: [{ filename: "hull_ut.pdf", type: "ut_report", content_text: "Hull UT survey", ocr_confidence: 0.88 }], measurements: [{ location: "Frame 42", value: 14.2, unit: "mm" }], asset_info: { asset_type: "Hull Plate", location_text: "International waters", component_type: "hull" }, code_references: { requested_code: "API 570" }, flags: ["INTERNATIONAL_WATERS"] } },
+      { case_id: "FCV-007", case_title: "Stale Edition — API 510 2006", input: { case_id: "FCV-007", case_title: "Stale Edition — API 510 2006", documents: [{ filename: "procedure.pdf", type: "procedure", ocr_confidence: 0.9 }], measurements: [{ location: "Shell 1", value: 0.485, unit: "in", t_min: 0.375 }], asset_info: { asset_type: "Pressure Vessel", location_text: "Oklahoma, USA" }, code_references: { requested_code: "API 510", procedure_edition: "9th Edition, 2006" }, acceptance_criteria: { code: "API 510", minimum_thickness: 0.375, minimum_thickness_unit: "in", readable: true } } },
+      { case_id: "FCV-008", case_title: "European Decimal + Mixed Units", input: { case_id: "FCV-008", case_title: "European Decimal + Mixed Units", documents: [{ filename: "rotterdam_report.pdf", type: "ut_report", ocr_confidence: 0.87 }], measurements: [{ location: "Nozzle N1", value: 7.4, unit: "mm", t_min: 0.300 }], asset_info: { asset_type: "Pressure Vessel", location_text: "Rotterdam, Netherlands" }, code_references: { requested_code: "API 510" }, acceptance_criteria: { code: "API 510", minimum_thickness: 0.300, minimum_thickness_unit: "in", readable: true }, flags: ["EUROPEAN_DECIMAL_COMMA"] } },
+      { case_id: "FCV-009", case_title: "Multi-Asset Hurricane Package", input: { case_id: "FCV-009", case_title: "Multi-Asset Hurricane Package", documents: [{ filename: "hurricane_pkg.pdf", type: "ut_report", ocr_confidence: 0.82 }], measurements: [{ location: "Tank Roof", value: 0.188, unit: "in" }], asset_info: { asset_type: "Multiple", location_text: "Gulf of Mexico, offshore USA", multi_asset: true, asset_list: ["Tank Roof", "Process Piping", "Vessel Skirt", "Platform Braces"] }, code_references: { requested_code: "API 570" } } },
+      { case_id: "FCV-010", case_title: "Owner Spec vs Regulation — Alberta", input: { case_id: "FCV-010", case_title: "Owner Spec vs Regulation — Alberta", documents: [{ filename: "owner_spec.pdf", type: "client_spec", ocr_confidence: 0.91 }], measurements: [{ location: "Elbow E-12", value: 4.8, unit: "mm", t_min: 5.5 }], asset_info: { asset_type: "Process Piping", location_text: "Alberta, Canada" }, code_references: { requested_code: "CSA Z662" }, acceptance_criteria: { code: "CSA Z662", minimum_thickness: 5.5, minimum_thickness_unit: "mm", readable: true }, flags: ["OWNER_SPEC_OVERRIDE_ATTEMPT"] } }
+    ];
+
+    async function runCase(idx) {
+      const c = CASES[idx];
+      const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(c.input) });
+      const data = await res.json();
+      results[idx] = data;
+      renderTable();
+      return data;
+    }
+
+    async function runAllCases() {
+      results = [];
+      document.getElementById("readiness-bar").style.display = "none";
+      for (let i = 0; i < CASES.length; i++) {
+        await runCase(i);
+      }
+      updateSummary();
+    }
+
+    function updateSummary() {
+      let passed = 0, warned = 0, failed = 0, critical = 0, holds = 0, dispositions = 0;
+      let conf_sum = 0;
+      for (const r of results) {
+        if (!r) continue;
+        conf_sum += (r.extraction_confidence || 0);
+        if (r.final_disposition_allowed) dispositions++;
+        if (r.decision_lock && r.decision_lock.startsWith("HOLD")) holds++;
+        if (r.decision_lock === "BLOCK") holds++;
+        // Simple scoring
+        const score = scoreResult(r);
+        if (score >= 85) passed++;
+        else if (score >= 70) warned++;
+        else failed++;
+      }
+      document.getElementById("card-passed").textContent = passed;
+      document.getElementById("card-warned").textContent = warned;
+      document.getElementById("card-failed").textContent = failed;
+      document.getElementById("card-critical").textContent = critical;
+      document.getElementById("card-confidence").textContent = (conf_sum / results.filter(r=>r).length).toFixed(2);
+      document.getElementById("card-dispositions").textContent = dispositions;
+      document.getElementById("card-holds").textContent = holds;
+
+      const avg = Math.round(results.filter(r=>r).reduce((a,r) => a + scoreResult(r), 0) / results.filter(r=>r).length);
+      const bar = document.getElementById("readiness-bar");
+      bar.style.display = "block";
+      if (critical === 0 && avg >= 90) { bar.className = "readiness enterprise"; bar.textContent = "ENTERPRISE PILOT READY"; }
+      else if (critical === 0 && avg >= 80) { bar.className = "readiness demo"; bar.textContent = "DEMO READY"; }
+      else if (critical === 0 && avg >= 70) { bar.className = "readiness internal"; bar.textContent = "INTERNAL TEST READY"; }
+      else { bar.className = "readiness fail"; bar.textContent = critical > 0 ? "CRITICAL FAILURE" : "NOT READY"; }
+    }
+
+    function scoreResult(r) {
+      let s = 0;
+      if (r.documents_processed?.length > 0) s += 15;
+      if (r.extracted_facts && Object.keys(r.extracted_facts).length > 3) s += 15;
+      if (r.conflicts_detected?.length > 0) s += 20;
+      if (r.authority_decision) s += 15;
+      if (r.decision_lock && r.decision_lock !== "ALLOW") s += 15;
+      if (!r.final_disposition_allowed) s += 10;
+      if (r.audit_trace?.length >= 5) s += 10;
+      return Math.min(s, 100);
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById("case-table");
+      tbody.innerHTML = "";
+      for (let i = 0; i < CASES.length; i++) {
+        const c = CASES[i];
+        const r = results[i];
+        const tr = document.createElement("tr");
+        tr.style.cursor = "pointer";
+        tr.onclick = () => openDrawer(i);
+        if (!r) {
+          tr.innerHTML = `<td>${c.case_id}</td><td>${c.case_title}</td><td colspan="7" style="color:var(--muted)">Not run yet</td>`;
+        } else {
+          const score = scoreResult(r);
+          const status = score >= 85 ? "pass" : score >= 70 ? "warn" : "fail";
+          const lockClass = r.decision_lock === "ALLOW" ? "allow" : r.decision_lock === "BLOCK" ? "block" : "hold";
+          tr.innerHTML = `
+            <td>${c.case_id}</td>
+            <td>${c.case_title}</td>
+            <td>${r.input_quality_score?.toFixed(2) || "—"}</td>
+            <td>${r.extraction_confidence?.toFixed(2) || "—"}</td>
+            <td>${r.conflicts_detected?.length || 0}</td>
+            <td><span class="badge badge-${lockClass}">${r.decision_lock || "—"}</span></td>
+            <td>${r.final_disposition_allowed ? "YES" : "NO"}</td>
+            <td>${score}/100</td>
+            <td><span class="badge badge-${status}">${status.toUpperCase()}</span></td>`;
+        }
+        tbody.appendChild(tr);
+      }
+    }
+
+    function openDrawer(idx) {
+      const r = results[idx];
+      if (!r) return;
+      const drawer = document.getElementById("detail-drawer");
+      const content = document.getElementById("drawer-content");
+      content.innerHTML = `
+        <h2>${r.case_id} — ${r.case_title}</h2>
+        <div class="detail-section"><h3>Inspector Message</h3><pre>${r.inspector_message || "N/A"}</pre></div>
+        <div class="detail-section"><h3>Decision Lock</h3><pre>${r.decision_lock}</pre></div>
+        <div class="detail-section"><h3>Final Disposition Allowed</h3><pre>${r.final_disposition_allowed}</pre></div>
+        <div class="detail-section"><h3>Conflicts Detected (${r.conflicts_detected?.length || 0})</h3>
+          ${(r.conflicts_detected||[]).map(c => `<div class="conflict-item conflict-${c.severity}"><strong>${c.type}</strong> [${c.severity}]<br>${c.description}</div>`).join("")}
+        </div>
+        <div class="detail-section"><h3>Missing Required Data</h3><pre>${JSON.stringify(r.missing_required_data, null, 2)}</pre></div>
+        <div class="detail-section"><h3>Mandatory Questions</h3><pre>${JSON.stringify(r.mandatory_questions, null, 2)}</pre></div>
+        <div class="detail-section"><h3>Authority Decision</h3><pre>${JSON.stringify(r.authority_decision, null, 2)}</pre></div>
+        <div class="detail-section"><h3>Technical Sufficiency</h3><pre>${JSON.stringify(r.technical_sufficiency, null, 2)}</pre></div>
+        <div class="detail-section"><h3>Extracted Facts</h3><pre>${JSON.stringify(r.extracted_facts, null, 2)}</pre></div>
+        <div class="detail-section"><h3>Recommended Next Actions</h3><pre>${JSON.stringify(r.recommended_next_actions, null, 2)}</pre></div>
+        <div class="detail-section"><h3>Audit Trace</h3><pre>${JSON.stringify(r.audit_trace, null, 2)}</pre></div>
+      `;
+      drawer.classList.add("open");
+    }
+
+    function closeDrawer() { document.getElementById("detail-drawer").classList.remove("open"); }
+
+    function exportJSON() {
+      const blob = new Blob([JSON.stringify(results, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = "field-chaos-results.json"; a.click();
+    }
+
+    function exportReport() {
+      let report = "# Field Chaos → Real Data Validation Report\n\n";
+      report += `## Executive Summary\nDate: ${new Date().toISOString()}\nCases: ${results.filter(r=>r).length}\n\n`;
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (!r) continue;
+        report += `### ${r.case_id} — ${r.case_title}\n`;
+        report += `- Decision Lock: ${r.decision_lock}\n`;
+        report += `- Disposition Allowed: ${r.final_disposition_allowed}\n`;
+        report += `- Conflicts: ${r.conflicts_detected?.length || 0}\n`;
+        report += `- Inspector Message: ${r.inspector_message}\n\n`;
+      }
+      const blob = new Blob([report], { type: "text/markdown" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = "field-chaos-report.md"; a.click();
+    }
+
+    // Init table
+    renderTable();
+  </script>
+</body>
+</html>
