@@ -325,7 +325,8 @@ var ENGINE_REGISTRY = [
   { name: "nde-image-analysis", deploy: "DEPLOY280", mode: "ai_assisted", path: "/api/nde-image-analysis" },
   { name: "disposition-pathway", deploy: "DEPLOY180", mode: "deterministic", path: "/api/disposition-pathway" },
   { name: "tier-gate", deploy: "DEPLOY353", mode: "deterministic", path: "/api/tier-gate" },
-  { name: "ai-chat", deploy: "DEPLOY353", mode: "ai_assisted", path: "/api/ai-chat" }
+  { name: "ai-chat", deploy: "DEPLOY353", mode: "ai_assisted", path: "/api/ai-chat" },
+  { name: "peer-review-gate", deploy: "DEPLOY354", mode: "hybrid", path: "/api/peer-review-gate" }
 ];
 
 function countByMode(mode) {
