@@ -213,7 +213,8 @@ var handler = async function(event) {
         hasCrackingMechanism = true;
       }
       if (mech.indexOf("ssc") >= 0 || mech.indexOf("sscc") >= 0 || mech.indexOf("hic") >= 0 ||
-          mech.indexOf("sohic") >= 0 || mech.indexOf("sour") >= 0) {
+          mech.indexOf("sohic") >= 0 || mech.indexOf("sour") >= 0 ||
+          mech === "hydrogen_induced_cracking" || mech === "sulfide_stress_cracking") {
         hasSourCracking = true;
       }
       if (mech.indexOf("corrosion") >= 0 || mech.indexOf("wall_loss") >= 0 || mech.indexOf("pitting") >= 0 ||
@@ -231,11 +232,16 @@ var handler = async function(event) {
       lockReasons.push("Cracking on pressure boundary -> API 579-1 Part 9 crack assessment required");
     }
 
-    if (hasSourCracking) {
+    // SERVICE ENVIRONMENT CHECK: sour/H2S service always requires NACE regardless of asset type
+    var isSourService = service.indexOf("sour") >= 0 || service.indexOf("h2s") >= 0 || service.indexOf("hydrogen sulfide") >= 0;
+
+    if (hasSourCracking || isSourService) {
       var hasNace = authorities.some(function(a) { return a.code.indexOf("NACE") >= 0 || a.code.indexOf("ISO 15156") >= 0; });
       if (!hasNace) {
         authorities.push({ code: "NACE MR0175/ISO 15156", title: "Materials for Use in H2S-Containing Environments", role: "material_suitability", locked: true });
-        lockReasons.push("Sour cracking mechanism detected -> NACE MR0175/ISO 15156 locked");
+        lockReasons.push(hasSourCracking
+          ? "Sour cracking mechanism detected -> NACE MR0175/ISO 15156 locked"
+          : "Sour/H2S service environment -> NACE MR0175/ISO 15156 locked");
       }
     }
 
