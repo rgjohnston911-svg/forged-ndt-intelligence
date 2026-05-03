@@ -1,4 +1,4 @@
-// AUTHORITY LOCK ENGINE v1.2
+// AUTHORITY LOCK ENGINE v1.3
 // File: netlify/functions/authority-lock.js
 // NO TYPESCRIPT — PURE JAVASCRIPT
 // v1.2 — GPT enterprise audit fixes:
@@ -104,10 +104,15 @@ var handler = async function(event) {
                              componentDescription.indexOf("aerospace") >= 0 || componentDescription.indexOf("aircraft") >= 0 ||
                              componentDescription.indexOf("aviation") >= 0 || componentDescription.indexOf("d17.1") >= 0);
 
+    // Rail detection: use specific terms to avoid false positives
+    // "wheel" alone triggers on "wheel valve" (piping); "rail" alone triggers on "handrail"/"guardrail"
+    // Safe terms: railcar, railroad, railway, locomotive, railwheel, wheelset, rail axle, train axle
     var isRailDomain = (asset === "rail" || asset === "railroad" || asset === "railway" ||
-                        componentDescription.indexOf("rail") >= 0 || componentDescription.indexOf("axle") >= 0 ||
                         componentDescription.indexOf("railcar") >= 0 || componentDescription.indexOf("locomotive") >= 0 ||
-                        componentDescription.indexOf("wheel") >= 0);
+                        componentDescription.indexOf("railroad") >= 0 || componentDescription.indexOf("railway") >= 0 ||
+                        componentDescription.indexOf("railwheel") >= 0 || componentDescription.indexOf("wheelset") >= 0 ||
+                        componentDescription.indexOf("rail axle") >= 0 || componentDescription.indexOf("train axle") >= 0 ||
+                        componentDescription.indexOf("rail weld") >= 0 || componentDescription.indexOf("rail joint") >= 0);
 
     var isCompositeDomain = (asset === "composite" || asset === "frp" || asset === "cfrp" || asset === "gfrp" ||
                              componentDescription.indexOf("composite") >= 0 || componentDescription.indexOf("carbon fiber") >= 0 ||
@@ -192,8 +197,12 @@ var handler = async function(event) {
       supplementalCodes.push({ code: "ASME BPVC Section V", title: "Nondestructive Examination", role: "nde_method_authority", locked: false });
     }
 
+    // HYBRID COMPOSITE/METAL — truly OOD, cannot lock into standard composite or metallic codes alone
+    var isHybridComposite = isCompositeDomain && (asset.indexOf("hybrid") >= 0 || componentDescription.indexOf("hybrid") >= 0 ||
+                            (componentDescription.indexOf("metal") >= 0 && componentDescription.indexOf("composite") >= 0));
+
     // COMPOSITE / NON-METALLIC — ASTM + OEM-directed NDE
-    if (isCompositeDomain && !isNuclearDomain) {
+    if (isCompositeDomain && !isNuclearDomain && !isHybridComposite) {
       authorities.push({ code: "ASTM D7136/D7137", title: "ASTM Composite Damage Tolerance Standards", role: "primary_inspection", locked: true });
       lockReasons.push("Composite domain detected -> ASTM composite standards primary authority");
       authorities.push({ code: "OEM Procedure Required", title: "Original Equipment Manufacturer Inspection/Acceptance Procedure", role: "program_authority", locked: true });
@@ -203,10 +212,15 @@ var handler = async function(event) {
       lockReasons.push("Composite -> metallic corrosion logic SUPPRESSED; physics-based NDE methods required");
     }
 
+    // HYBRID COMPOSITE/METAL — OOD: neither pure composite nor pure metallic codes suffice
+    if (isHybridComposite && !isNuclearDomain) {
+      lockReasons.push("Hybrid composite/metal material detected - standard composite and metallic codes insufficient - specialist assessment required");
+    }
+
     // ============================================================
     // STANDARD DOMAIN ROUTING (skip if specialty domain already resolved)
     // ============================================================
-    var specialtyDomainResolved = isNuclearDomain || isBridgeDomain || isAerospaceDomain || isRailDomain || isCompositeDomain;
+    var specialtyDomainResolved = isNuclearDomain || isBridgeDomain || isAerospaceDomain || isRailDomain || (isCompositeDomain && !isHybridComposite);
 
     // PIPELINE
     if (!specialtyDomainResolved && (primaryRouteKey === "pipeline" || primaryRouteKey === "transmission_pipeline" || primaryRouteKey === "gathering_line")) {
@@ -317,12 +331,12 @@ var handler = async function(event) {
         hasCrackingMechanism = true;
       }
       if (mech.indexOf("ssc") >= 0 || mech.indexOf("sscc") >= 0 || mech.indexOf("hic") >= 0 ||
-          mech.indexOf("sohic") >= 0 || mech.indexOf("sour") >= 0 ||
+          mech.indexOf("sohic") >= 0 || /(?:^|_)sour(?:_|$)/.test(mech) ||
           mech === "hydrogen_induced_cracking" || mech === "sulfide_stress_cracking") {
         hasSourCracking = true;
       }
       if (mech.indexOf("corrosion") >= 0 || mech.indexOf("wall_loss") >= 0 || mech.indexOf("pitting") >= 0 ||
-          mech.indexOf("erosion") >= 0 || mech.indexOf("mic") >= 0 || mech.indexOf("co2") >= 0) {
+          mech.indexOf("erosion") >= 0 || /(?:^|_)mic(?:_|$)/.test(mech) || mech.indexOf("co2") >= 0) {
         hasCorrosion = true;
       }
     });
@@ -379,8 +393,169 @@ var handler = async function(event) {
       lockReasons.push("No asset type provided - cannot resolve authority");
     }
 
+    // HYBRID COMPOSITE/METAL OVERRIDE: even if FFS codes were added by cracking/corrosion gates,
+    // the hybrid material domain is genuinely OOD — no single code set fully covers it
+    if (isHybridComposite && status === "LOCKED") {
+      status = "PARTIAL";
+      confidence = "low";
+      lockReasons.push("Asset type '" + asset + "' not in authority matrix - manual code assignment required");
+    }
+
+    // ============================================================
+    // GLOBAL CODE INTELLIGENCE — JURISDICTION AWARENESS (v1.3)
+    // ============================================================
+    // If jurisdiction is non-US and resolved codes are US-only, override to PARTIAL
+    // Non-US jurisdictions have their own primary standards that must govern
+    var JURISDICTION_MAP = {
+      "canada": { codes: ["CSA Z662", "CSA B51", "CSA W59"], region: "Canada", note: "Canadian Standards Association primary; API supplemental only if adopted by owner" },
+      "alberta": { codes: ["CSA Z662", "ABSA"], region: "Canada/Alberta", note: "Alberta Boilers Safety Association + CSA standards govern" },
+      "germany": { codes: ["PED 2014/68/EU", "EN 13445", "AD 2000"], region: "EU/Germany", note: "Pressure Equipment Directive + EN harmonized standards" },
+      "eu": { codes: ["PED 2014/68/EU", "EN 13445", "EN 12952"], region: "European Union", note: "PED + EN harmonized standards govern; ASME not primary" },
+      "uk": { codes: ["BS EN 1090", "BS 7910", "PER 1999"], region: "United Kingdom", note: "BS EN Eurocodes + Pressure Equipment Regulations" },
+      "australia": { codes: ["AS/NZS 3788", "AS 4458", "AS 2885"], region: "Australia/NZ", note: "Australian/NZ Standards govern" },
+      "norway": { codes: ["NORSOK M-001", "NORSOK M-501", "DNV-OS-F101"], region: "Norway", note: "NORSOK standards + DNV rules govern offshore" },
+      "brazil": { codes: ["NR-13", "ABNT NBR"], region: "Brazil", note: "NR-13 regulatory + ABNT national standards" },
+      "japan": { codes: ["JIS B 8265", "METI High Pressure Gas Safety Act"], region: "Japan", note: "JIS standards + METI regulations" },
+      "singapore": { codes: ["SS CP 79", "WSH Act"], region: "Singapore", note: "Singapore Standards + Workplace Safety regulations" },
+      "middle_east": { codes: ["ARAMCO Standards", "ADNOC Standards"], region: "Middle East", note: "Owner/national standards often adopt API with modifications" },
+      "korea": { codes: ["KGS FP 111", "KOSHA"], region: "South Korea", note: "Korean Gas Safety + occupational safety standards" },
+      "india": { codes: ["IS 2825", "IBR 1950", "OISD Standards"], region: "India", note: "Indian Boiler Regulations + OISD for petroleum" }
+    };
+
+    // GLOBAL CODE CROSSWALK — maps US codes to foreign equivalents with differences
+    var CROSSWALK = {
+      "API 570": {
+        "canada": { equivalent: "CSA Z662", equivalence_type: "PARTIAL", differences: ["Pipeline vs process piping scope differences", "CSA governs nationally", "Provincial adoption requirements apply"], usage_rule: "CSA_PRIMARY" },
+        "norway": { equivalent: "NORSOK M-001", equivalence_type: "PARTIAL", differences: ["Inspection interval basis differs", "Qualification requirements differ", "Owner/operator integrity programs dominate", "Acceptance criteria may vary"], usage_rule: "SUPPLEMENTAL_ONLY" },
+        "eu": { equivalent: "EN 13480", equivalence_type: "PARTIAL", differences: ["PED compliance required", "Harmonized standards structure", "Not directly interchangeable with API"], usage_rule: "NOT_PRIMARY" },
+        "uk": { equivalent: "BS EN 13480 / PER 1999", equivalence_type: "PARTIAL", differences: ["Pressure Equipment Regulations govern", "BS EN standards primary", "AWS not recognized for structural"], usage_rule: "NOT_PRIMARY" },
+        "australia": { equivalent: "AS/NZS 3788", equivalence_type: "PARTIAL", differences: ["Australian in-service inspection standard governs", "Different risk-based interval methodology"], usage_rule: "NOT_PRIMARY" }
+      },
+      "API 510": {
+        "canada": { equivalent: "CSA B51", equivalence_type: "PARTIAL", differences: ["CSA B51 covers boilers and pressure vessels", "Provincial jurisdiction applies", "CRN (Canadian Registration Number) required"], usage_rule: "CSA_PRIMARY" },
+        "norway": { equivalent: "NORSOK + EN 13445", equivalence_type: "PARTIAL", differences: ["EN 13445 for design/fabrication", "NORSOK for offshore integrity", "DNV rules may apply"], usage_rule: "NOT_PRIMARY" },
+        "eu": { equivalent: "EN 13445 + PED", equivalence_type: "PARTIAL", differences: ["PED 2014/68/EU mandatory", "EN 13445 for unfired pressure vessels", "CE marking required", "Notified Body involvement"], usage_rule: "NOT_PRIMARY" },
+        "australia": { equivalent: "AS 1210 + AS/NZS 3788", equivalence_type: "PARTIAL", differences: ["AS 1210 for design", "AS/NZS 3788 for in-service inspection", "State/territory WorkSafe requirements"], usage_rule: "NOT_PRIMARY" }
+      },
+      "ASME Section VIII": {
+        "eu": { equivalent: "EN 13445", equivalence_type: "PARTIAL", differences: ["Different design methodology (DBA vs DBF)", "PED Essential Safety Requirements apply", "Material specifications differ (EN vs ASTM)", "Fabrication tolerances differ"], usage_rule: "NOT_PRIMARY" },
+        "germany": { equivalent: "AD 2000 Merkblätter / EN 13445", equivalence_type: "PARTIAL", differences: ["AD 2000 historically used (being replaced by EN)", "TÜV involvement required", "German pressure vessel regulation (BetrSichV)"], usage_rule: "NOT_PRIMARY" },
+        "japan": { equivalent: "JIS B 8265 / JIS B 8266", equivalence_type: "PARTIAL", differences: ["METI High Pressure Gas Safety Act governs", "Different design allowable stress basis", "Material equivalence not direct"], usage_rule: "NOT_PRIMARY" }
+      },
+      "AWS D1.1": {
+        "uk": { equivalent: "BS EN 1090 / EN ISO 15614", equivalence_type: "PARTIAL", differences: ["EN ISO 15614 for procedure qualification", "EN ISO 9606 for welder qualification", "Execution class system (EXC1-4) replaces AWS categories", "CE marking for structural steel"], usage_rule: "NOT_PRIMARY" },
+        "eu": { equivalent: "EN 1090 / EN ISO 15614", equivalence_type: "PARTIAL", differences: ["EN 1090 for structural steel execution", "EN ISO 3834 for quality requirements", "Different acceptance criteria structure"], usage_rule: "NOT_PRIMARY" },
+        "australia": { equivalent: "AS/NZS 1554", equivalence_type: "PARTIAL", differences: ["AS/NZS 1554 for structural steel welding", "Different category system (SP vs GP)", "Australian welder qualification per AS/NZS ISO 9606"], usage_rule: "NOT_PRIMARY" }
+      },
+      "AWS D1.5": {
+        "uk": { equivalent: "BS EN 1090 / EN 1993 (Eurocode 3)", equivalence_type: "PARTIAL", differences: ["EN 1090-2 for bridge execution class EXC3/EXC4", "EN 1993-2 for steel bridge design", "BS 7608 for fatigue of welded joints", "No direct AWS D1.5 equivalent — Eurocode system replaces"], usage_rule: "NOT_PRIMARY" },
+        "eu": { equivalent: "EN 1090-2 / EN 1993-2", equivalence_type: "PARTIAL", differences: ["EN 1090-2 execution standard for bridges", "EN 1993-2 design of steel bridges", "Execution class EXC3/EXC4 required for bridges", "Different fatigue classification system"], usage_rule: "NOT_PRIMARY" },
+        "australia": { equivalent: "AS 5100 / AS/NZS 1554.4", equivalence_type: "PARTIAL", differences: ["AS 5100 Bridge Design standard", "AS/NZS 1554.4 for structural steel welding (bridges)", "Different fatigue detail categories"], usage_rule: "NOT_PRIMARY" }
+      },
+      "API 1104": {
+        "australia": { equivalent: "AS 2885", equivalence_type: "PARTIAL", differences: ["AS 2885 for pipeline systems", "Different ECA approach", "Australian pipeline licensing requirements"], usage_rule: "NOT_PRIMARY" },
+        "canada": { equivalent: "CSA Z662", equivalence_type: "PARTIAL", differences: ["CSA Z662 comprehensive pipeline code", "Includes welding + inspection + integrity", "NEB/CER regulatory oversight"], usage_rule: "CSA_PRIMARY" },
+        "norway": { equivalent: "DNV-OS-F101 / NORSOK M-001", equivalence_type: "PARTIAL", differences: ["DNV for submarine pipelines", "NORSOK for topsides piping", "Different defect acceptance criteria"], usage_rule: "NOT_PRIMARY" }
+      }
+    };
+
+    var jurisdictionResolved = null;
+    var jurisdictionMismatch = false;
+
+    // US-equivalent jurisdictions: treat as domestic (no jurisdiction mismatch)
+    var US_JURISDICTIONS = /^(us|usa|united_states|domestic|refinery|petrochemical|chemical_plant|offshore_gulf_of_mexico|gulf_of_mexico|offshore_us|alaska|hawaii|continental_us)$/;
+    var isUSJurisdiction = !jurisdiction || US_JURISDICTIONS.test(jurisdiction) || jurisdiction.indexOf("offshore_gulf") >= 0 || jurisdiction.indexOf("us_") >= 0;
+
+    if (jurisdiction && !isUSJurisdiction) {
+      // Check if jurisdiction maps to a known non-US region
+      var jKeys = Object.keys(JURISDICTION_MAP);
+      for (var ji = 0; ji < jKeys.length; ji++) {
+        if (jurisdiction.indexOf(jKeys[ji]) >= 0 || jKeys[ji].indexOf(jurisdiction) >= 0) {
+          jurisdictionResolved = JURISDICTION_MAP[jKeys[ji]];
+          break;
+        }
+      }
+
+      if (jurisdictionResolved) {
+        // Non-US jurisdiction detected — US codes cannot be primary authority
+        jurisdictionMismatch = true;
+        if (status === "LOCKED") {
+          status = "PARTIAL";
+          confidence = "low";
+        }
+        lockReasons.push("Jurisdiction: " + jurisdictionResolved.region + " — " + jurisdictionResolved.note);
+        lockReasons.push("U.S. codes (API/ASME) not primary authority in " + jurisdictionResolved.region + " — local standards govern");
+        // Add jurisdiction-appropriate codes as supplemental guidance
+        jurisdictionResolved.codes.forEach(function(jc) {
+          supplementalCodes.push({ code: jc, title: jurisdictionResolved.region + " applicable standard", role: "jurisdiction_primary", locked: true });
+        });
+      } else if (jurisdiction !== "" && !US_JURISDICTIONS.test(jurisdiction) && jurisdiction.indexOf("offshore_gulf") < 0 && jurisdiction.indexOf("us_") < 0) {
+        // Unknown non-US jurisdiction — flag it
+        jurisdictionMismatch = true;
+        if (status === "LOCKED") {
+          status = "PARTIAL";
+          confidence = "low";
+        }
+        lockReasons.push("Jurisdiction '" + jurisdiction + "' specified — U.S. codes may not be primary authority; verify local standards");
+      }
+    }
+
+    // If NO jurisdiction provided and no location context available — this is acceptable
+    // (backward compatible: existing US-centric behavior preserved when jurisdiction is empty)
+
     var allCodes = authorities.concat(supplementalCodes);
     var codeList = allCodes.map(function(c) { return c.code; });
+
+    // UNIT SYSTEM MAP — which measurement system each jurisdiction uses
+    var UNIT_SYSTEM_MAP = {
+      "us": { system: "Imperial", thickness: "inches", pressure: "psi", temperature: "°F", length: "feet", stress: "ksi", note: "US codes use Imperial (inches, psi, °F)" },
+      "canada": { system: "Metric", thickness: "mm", pressure: "MPa", temperature: "°C", length: "m", stress: "MPa", note: "CSA codes use SI metric (mm, MPa, °C)" },
+      "alberta": { system: "Metric", thickness: "mm", pressure: "MPa", temperature: "°C", length: "m", stress: "MPa", note: "Alberta uses SI metric per CSA" },
+      "eu": { system: "Metric", thickness: "mm", pressure: "bar/MPa", temperature: "°C", length: "m", stress: "MPa", note: "EN standards use SI metric (mm, MPa/bar, °C)" },
+      "germany": { system: "Metric", thickness: "mm", pressure: "bar", temperature: "°C", length: "m", stress: "N/mm²", note: "German standards use SI metric (mm, bar, °C)" },
+      "uk": { system: "Metric", thickness: "mm", pressure: "bar/MPa", temperature: "°C", length: "m", stress: "MPa", note: "BS EN standards use SI metric (mm, MPa, °C)" },
+      "australia": { system: "Metric", thickness: "mm", pressure: "MPa", temperature: "°C", length: "m", stress: "MPa", note: "AS/NZS standards use SI metric (mm, MPa, °C)" },
+      "norway": { system: "Metric", thickness: "mm", pressure: "bar/MPa", temperature: "°C", length: "m", stress: "MPa", note: "NORSOK/DNV use SI metric (mm, MPa, °C)" },
+      "brazil": { system: "Metric", thickness: "mm", pressure: "kgf/cm²/MPa", temperature: "°C", length: "m", stress: "MPa", note: "NR-13/ABNT use SI metric (mm, MPa, °C)" },
+      "japan": { system: "Metric", thickness: "mm", pressure: "MPa", temperature: "°C", length: "m", stress: "MPa", note: "JIS standards use SI metric (mm, MPa, °C)" },
+      "singapore": { system: "Metric", thickness: "mm", pressure: "bar", temperature: "°C", length: "m", stress: "MPa", note: "Singapore standards use SI metric" },
+      "middle_east": { system: "Mixed", thickness: "mm/inches", pressure: "psi/bar", temperature: "°C/°F", length: "m/ft", stress: "MPa/ksi", note: "Middle East often mixes Imperial (API-adopted) and Metric — verify per owner specification" },
+      "korea": { system: "Metric", thickness: "mm", pressure: "MPa", temperature: "°C", length: "m", stress: "MPa", note: "KGS/KOSHA use SI metric" },
+      "india": { system: "Metric", thickness: "mm", pressure: "kg/cm²/MPa", temperature: "°C", length: "m", stress: "MPa", note: "IS/IBR standards use SI metric (mm, kg/cm², °C)" }
+    };
+
+    // UNIT CONVERSION CONSTANTS — Imperial ↔ Metric
+    var UNIT_CONVERSIONS = {
+      thickness: { imperial_to_metric: 25.4, metric_to_imperial: 0.03937, from: "inches", to: "mm" },
+      pressure_psi_mpa: { imperial_to_metric: 0.006895, metric_to_imperial: 145.038, from: "psi", to: "MPa" },
+      pressure_psi_bar: { imperial_to_metric: 0.06895, metric_to_imperial: 14.504, from: "psi", to: "bar" },
+      temperature: { imperial_to_metric_fn: "°C = (°F - 32) × 5/9", metric_to_imperial_fn: "°F = °C × 9/5 + 32" },
+      length_ft_m: { imperial_to_metric: 0.3048, metric_to_imperial: 3.2808, from: "feet", to: "meters" },
+      stress_ksi_mpa: { imperial_to_metric: 6.895, metric_to_imperial: 0.1450, from: "ksi", to: "MPa" },
+      corrosion_rate: { imperial_to_metric: 0.0254, metric_to_imperial: 39.37, from: "mpy (mils/year)", to: "mm/year" }
+    };
+
+    // CROSSWALK REGION FALLBACK MAP — specific jurisdictions fall back to parent region
+    var REGION_FALLBACK = {
+      "germany": "eu",
+      "france": "eu",
+      "italy": "eu",
+      "spain": "eu",
+      "netherlands": "eu",
+      "belgium": "eu",
+      "alberta": "canada"
+    };
+
+    // Pre-compute jurisdiction key for crosswalk and unit system lookups
+    var resolvedJKey = "";
+    if (jurisdictionMismatch && jurisdiction) {
+      var jKeys3 = Object.keys(JURISDICTION_MAP);
+      for (var jk = 0; jk < jKeys3.length; jk++) {
+        if (jurisdiction.indexOf(jKeys3[jk]) >= 0 || jKeys3[jk].indexOf(jurisdiction) >= 0) {
+          resolvedJKey = jKeys3[jk]; break;
+        }
+      }
+    }
 
     var result = {
       status: status,
@@ -392,9 +567,80 @@ var handler = async function(event) {
       trigger_b31g: triggerB31G,
       trigger_crack_assessment: hasCrackingMechanism && isPressureBoundary,
       trigger_sour_service: hasSourCracking,
+      jurisdiction_mismatch: jurisdictionMismatch,
+      jurisdiction_codes: jurisdictionResolved ? jurisdictionResolved.codes : [],
+      crosswalk: (function() {
+        if (!jurisdictionMismatch || !jurisdictionResolved) return null;
+        var cw = [];
+        var jKey = resolvedJKey;
+        if (jKey) {
+          // Helper: fuzzy match authority code against CROSSWALK keys
+          function findCrosswalkEntry(authCode, jurisdictionKey) {
+            // Direct match first
+            if (CROSSWALK[authCode] && CROSSWALK[authCode][jurisdictionKey]) {
+              return { cwKey: authCode, jKey: jurisdictionKey };
+            }
+            // Try region fallback (e.g., "germany" → "eu")
+            var fallbackRegion = REGION_FALLBACK[jurisdictionKey];
+            if (fallbackRegion && CROSSWALK[authCode] && CROSSWALK[authCode][fallbackRegion]) {
+              return { cwKey: authCode, jKey: fallbackRegion };
+            }
+            // Fuzzy match on code name — check if authority code CONTAINS a crosswalk key or vice versa
+            var cwKeys = Object.keys(CROSSWALK);
+            for (var ci = 0; ci < cwKeys.length; ci++) {
+              if (authCode.indexOf(cwKeys[ci]) >= 0 || cwKeys[ci].indexOf(authCode) >= 0) {
+                if (CROSSWALK[cwKeys[ci]][jurisdictionKey]) {
+                  return { cwKey: cwKeys[ci], jKey: jurisdictionKey };
+                }
+                if (fallbackRegion && CROSSWALK[cwKeys[ci]][fallbackRegion]) {
+                  return { cwKey: cwKeys[ci], jKey: fallbackRegion };
+                }
+              }
+            }
+            return null;
+          }
+
+          authorities.forEach(function(auth) {
+            var match = findCrosswalkEntry(auth.code, jKey);
+            if (match) {
+              var mapping = CROSSWALK[match.cwKey][match.jKey];
+              cw.push({
+                us_code: auth.code,
+                local_equivalent: mapping.equivalent,
+                equivalence_type: mapping.equivalence_type,
+                key_differences: mapping.differences,
+                usage_rule: mapping.usage_rule
+              });
+            }
+          });
+        }
+        return cw.length > 0 ? cw : null;
+      })(),
+      unit_system: (function() {
+        // Determine unit system for resolved jurisdiction
+        var resolvedJurisdiction = resolvedJKey || (jurisdiction && !jurisdiction.match(/^(us|usa|united_states|domestic|refinery|petrochemical|chemical_plant)$/) ? jurisdiction : "us");
+        var unitInfo = UNIT_SYSTEM_MAP[resolvedJurisdiction] || UNIT_SYSTEM_MAP["us"];
+        var usUnits = UNIT_SYSTEM_MAP["us"];
+        var conversionRequired = unitInfo.system !== "Imperial";
+        return {
+          source_system: "Imperial",
+          source_note: "US codes (API/ASME/AWS) use Imperial units",
+          target_system: unitInfo.system,
+          target_note: unitInfo.note,
+          conversion_required: conversionRequired,
+          conversions: conversionRequired ? UNIT_CONVERSIONS : null,
+          target_units: conversionRequired ? {
+            thickness: unitInfo.thickness,
+            pressure: unitInfo.pressure,
+            temperature: unitInfo.temperature,
+            length: unitInfo.length,
+            stress: unitInfo.stress
+          } : null
+        };
+      })(),
       metadata: {
         engine: "authority-lock",
-        version: "1.2",
+        version: "1.4",
         asset_type: asset,
         component_type: resolvedComponentType || null,
         component_type_source: component ? "explicit" : (resolvedComponentType ? "inferred_from_description" : "none"),
