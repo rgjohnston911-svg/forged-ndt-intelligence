@@ -1146,4 +1146,41 @@ async function runFull(input) {
     model_type: survivalModel,
     model_params: survivalParams,
     time_horizons_years: timeHorizons,
-  
+    current_age_years: currentAge
+  });
+  proofTrace = proofTrace.concat(survivalResult.proof_trace || []);
+
+  var classificationResult = runClassification({
+    survival_results: survivalResult.deterministic,
+    conformal_confidence: conformalConfidence,
+    mc_p05_remaining: mcP05Remaining,
+    mechanism: input.mechanism || ""
+  });
+
+  proofTrace.push({
+    step: "RELIABILITY_CLASS_ASSIGNED",
+    output: {
+      class: classificationResult.reliability_class,
+      confidence: classificationResult.confidence
+    },
+    rationale: "Classification based on failure probabilities and confidence"
+  });
+
+  proofTrace.push({
+    step: "FINAL_RECOMMENDATION_ISSUED",
+    output: {
+      recommendation: classificationResult.recommendation,
+      authority_lock_required: classificationResult.authority_lock_required
+    },
+    rationale: "Final recommendation with proof trace for inspection documentation"
+  });
+
+  return {
+    deterministic: survivalResult.deterministic || {},
+    monte_carlo: monteCarloResult.deterministic?.monte_carlo || null,
+    classification: classificationResult,
+    proof_trace: proofTrace
+  };
+}
+
+export { handler };

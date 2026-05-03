@@ -26,7 +26,7 @@
 </head>
 <body>
 <h1>FORGED NDT Intelligence OS — System Check</h1>
-<p class="subtitle">FORGED-NDT/3.1.0 — All 146 engines — Full endpoint verification</p>
+<p class="subtitle">FORGED-NDT/3.1.0 — All 147 engines — Full endpoint verification</p>
 <div class="summary-bar">
   <div class="summary-box"><div class="num" id="totalPass" style="color:#22c55e">-</div><div class="lbl">PASS</div></div>
   <div class="summary-box"><div class="num" id="totalFail" style="color:#ef4444">-</div><div class="lbl">FAIL</div></div>
@@ -268,6 +268,7 @@ async function runAllChecks() {
   await testEndpoint("DEPLOY180: Disposition Pathway", "/api/disposition-pathway", { action: "get_registry" });
   await testEndpoint("DEPLOY353: Tier Gate", "/api/tier-gate", { action: "get_registry" });
   await testEndpoint("DEPLOY353: AI Chat", "/api/ai-chat", { action: "get_registry" });
+  await testEndpoint("DEPLOY354: Peer Review Gate", "/api/peer-review-gate", { action: "get_registry" });
   document.getElementById("runBtn").textContent = "Run Full System Check";
   document.getElementById("runBtn").disabled = false;
 }

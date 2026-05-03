@@ -2050,4 +2050,35 @@ function printScorecard(results) {
 
   console.log('  BY EXPECTED BAND:');
   var bandKeys = Object.keys(bandStats);
-  for (var bk = 0
+  for (var bk = 0; bk < bandKeys.length; bk++) {
+    var bs = bandStats[bandKeys[bk]];
+    console.log('    ' + bandKeys[bk] + ': ' + bs.pass + '/' + bs.total + ' (' + Math.round(100 * bs.pass / bs.total) + '%)');
+  }
+
+  console.log('  FAILING MECHANISMS (systemic patterns):');
+  var mechKeys = Object.keys(mechStats);
+  if (mechKeys.length === 0) {
+    console.log('    None — all mechanisms classified correctly!');
+  } else {
+    for (var mk = 0; mk < mechKeys.length; mk++) {
+      console.log('    ' + mechKeys[mk] + ' (' + mechStats[mechKeys[mk]].length + ' failures): ' + mechStats[mechKeys[mk]].join(', '));
+    }
+  }
+
+  console.log('\n════════════════════════════════════════════════════════════════');
+  console.log('OVERALL: ' + (allPass ? 'ALL THRESHOLDS PASSED' : 'SOME THRESHOLDS NOT MET'));
+  console.log('════════════════════════════════════════════════════════════════');
+}
+
+// ── MAIN ─────────────────────────────────────────────────────────────
+
+console.log('════════════════════════════════════════════════════════════════');
+console.log('GENERALIZATION SUITE 2 — 50 NEW CASES (51–100)');
+console.log('FORGED 4D NDT Intelligence OS — Generalization Test');
+console.log('Target: ' + BASE_URL);
+console.log('Cases: ' + TEST_CASES.length);
+console.log('════════════════════════════════════════════════════════════════');
+
+runAllCases(TEST_CASES, 0, [], function(results) {
+  printScorecard(results);
+});

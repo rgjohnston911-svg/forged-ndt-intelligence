@@ -1,6 +1,10 @@
-// AUTHORITY LOCK ENGINE v1.0
+// AUTHORITY LOCK ENGINE v1.1
 // File: netlify/functions/authority-lock.js
 // NO TYPESCRIPT — PURE JAVASCRIPT
+// v1.1 — Component-type discriminator: resolves authority by COMPONENT TYPE,
+//         not just asset location. An offshore platform can have piping (API 570),
+//         vessels (API 510), and structural steel (API RP 2A) — the component
+//         being assessed determines the primary authority, not the facility.
 
 var handler = async function(event) {
   "use strict";
@@ -23,20 +27,85 @@ var handler = async function(event) {
   try {
     var body = JSON.parse(event.body || "{}");
     var asset = (body.asset_type || "").toLowerCase().trim();
+    var component = (body.component_type || "").toLowerCase().trim();
     var service = (body.service_environment || "").toLowerCase().trim();
     var damage = (body.damage_mechanisms || []).map(function(d) { return (d || "").toLowerCase().trim(); });
     var jurisdiction = (body.jurisdiction || "").toLowerCase().trim();
     var wallLossPercent = body.wall_loss_percent || 0;
     var hasCracking = body.has_cracking || false;
     var isPressureBoundary = body.is_pressure_boundary !== false;
+    var componentDescription = (body.component_description || "").toLowerCase().trim();
 
     var authorities = [];
     var lockReasons = [];
     var supplementalCodes = [];
     var triggerB31G = false;
 
+    // ============================================================
+    // COMPONENT-TYPE DISCRIMINATOR (v1.1)
+    // When a component_type is provided OR can be inferred from the
+    // component_description, it OVERRIDES the asset_type for primary
+    // authority selection. The asset_type still provides facility-level
+    // overlay (regulatory jurisdiction, environmental factors).
+    // ============================================================
+    var resolvedComponentType = component;
+
+    // Auto-detect component type from description if not explicitly provided
+    if (!resolvedComponentType && componentDescription) {
+      if (componentDescription.indexOf("header") >= 0 || componentDescription.indexOf("piping") >= 0 ||
+          componentDescription.indexOf("pipe") >= 0 || componentDescription.indexOf("pipeline") >= 0 ||
+          componentDescription.indexOf("riser") >= 0 || componentDescription.indexOf("flowline") >= 0 ||
+          componentDescription.indexOf("manifold") >= 0 || componentDescription.indexOf("spool") >= 0 ||
+          componentDescription.indexOf("branch connection") >= 0 || componentDescription.indexOf("nozzle") >= 0 ||
+          componentDescription.indexOf("weldolet") >= 0) {
+        resolvedComponentType = "piping";
+      } else if (componentDescription.indexOf("vessel") >= 0 || componentDescription.indexOf("separator") >= 0 ||
+                 componentDescription.indexOf("drum") >= 0 || componentDescription.indexOf("reactor") >= 0 ||
+                 componentDescription.indexOf("column") >= 0 || componentDescription.indexOf("tower") >= 0 ||
+                 componentDescription.indexOf("accumulator") >= 0 || componentDescription.indexOf("receiver") >= 0) {
+        resolvedComponentType = "pressure_vessel";
+      } else if (componentDescription.indexOf("exchanger") >= 0 || componentDescription.indexOf("cooler") >= 0 ||
+                 componentDescription.indexOf("condenser") >= 0 || componentDescription.indexOf("reboiler") >= 0) {
+        resolvedComponentType = "heat_exchanger";
+      } else if (componentDescription.indexOf("tank") >= 0) {
+        resolvedComponentType = "storage_tank";
+      } else if (componentDescription.indexOf("structural") >= 0 || componentDescription.indexOf("beam") >= 0 ||
+                 componentDescription.indexOf("brace") >= 0 || componentDescription.indexOf("jacket") >= 0 ||
+                 componentDescription.indexOf("deck plate") >= 0 || componentDescription.indexOf("truss") >= 0 ||
+                 componentDescription.indexOf("framing") >= 0) {
+        resolvedComponentType = "structural";
+      } else if (componentDescription.indexOf("valve") >= 0 || componentDescription.indexOf("relief") >= 0 ||
+                 componentDescription.indexOf("psv") >= 0 || componentDescription.indexOf("prv") >= 0) {
+        resolvedComponentType = "valve";
+      } else if (componentDescription.indexOf("boiler") >= 0) {
+        resolvedComponentType = "boiler";
+      }
+    }
+
+    // Determine if this is a facility-type asset with components on it
+    var isFacilityAsset = (asset === "offshore_platform" || asset === "offshore_fixed_platform" ||
+                           asset === "offshore_floating" || asset === "refinery" ||
+                           asset === "chemical_plant" || asset === "petrochemical" ||
+                           asset === "power_plant" || asset === "production_facility" ||
+                           asset === "fpso" || asset === "processing_platform");
+
+    // Use component type for primary authority when available on facility assets
+    var primaryRouteKey = asset;
+    if (isFacilityAsset && resolvedComponentType) {
+      primaryRouteKey = resolvedComponentType;
+      lockReasons.push("Component type '" + resolvedComponentType + "' detected on facility '" + asset + "' — routing authority by component, not facility");
+    }
+
+    // Add facility-level regulatory overlay for offshore assets
+    if (asset === "offshore_platform" || asset === "offshore_fixed_platform" ||
+        asset === "offshore_floating" || asset === "fpso" || asset === "processing_platform") {
+      supplementalCodes.push({ code: "BSEE 30 CFR Part 250", title: "Oil and Gas and Sulphur Operations in the Outer Continental Shelf", role: "regulatory_overlay", locked: false });
+      supplementalCodes.push({ code: "USCG 33 CFR/46 CFR", title: "Coast Guard OCS Requirements", role: "regulatory_overlay", locked: false });
+      lockReasons.push("Offshore asset -> BSEE/USCG regulatory overlay applied");
+    }
+
     // PIPELINE
-    if (asset === "pipeline" || asset === "transmission_pipeline" || asset === "gathering_line") {
+    if (primaryRouteKey === "pipeline" || primaryRouteKey === "transmission_pipeline" || primaryRouteKey === "gathering_line") {
       authorities.push({ code: "ASME B31.8", title: "Gas Transmission and Distribution Piping Systems", role: "primary_construction", locked: true });
       lockReasons.push("Pipeline asset -> ASME B31.8 primary authority");
 
@@ -55,9 +124,9 @@ var handler = async function(event) {
     }
 
     // PRESSURE VESSEL
-    if (asset === "pressure_vessel" || asset === "vessel" || asset === "reactor" || asset === "drum" || asset === "heat_exchanger") {
+    if (primaryRouteKey === "pressure_vessel" || primaryRouteKey === "vessel" || primaryRouteKey === "reactor" || primaryRouteKey === "drum" || primaryRouteKey === "heat_exchanger") {
       authorities.push({ code: "API 510", title: "Pressure Vessel Inspection Code", role: "inspection_authority", locked: true });
-      lockReasons.push("Pressure vessel asset -> API 510 inspection authority");
+      lockReasons.push("Pressure vessel component -> API 510 inspection authority");
       authorities.push({ code: "ASME BPVC Section VIII", title: "Boiler and Pressure Vessel Code - Pressure Vessels", role: "primary_construction", locked: true });
       lockReasons.push("Pressure vessel -> ASME Section VIII construction code");
       authorities.push({ code: "API 579-1/ASME FFS-1", title: "Fitness-For-Service", role: "fitness_for_service", locked: true });
@@ -65,21 +134,39 @@ var handler = async function(event) {
     }
 
     // PIPING
-    if (asset === "piping" || asset === "process_piping" || asset === "plant_piping") {
+    if (primaryRouteKey === "piping" || primaryRouteKey === "process_piping" || primaryRouteKey === "plant_piping" ||
+        primaryRouteKey === "header" || primaryRouteKey === "production_header" || primaryRouteKey === "flowline" ||
+        primaryRouteKey === "riser" || primaryRouteKey === "manifold") {
       authorities.push({ code: "API 570", title: "Piping Inspection Code", role: "inspection_authority", locked: true });
-      lockReasons.push("Piping asset -> API 570 inspection authority");
+      lockReasons.push("Piping component -> API 570 inspection authority");
       authorities.push({ code: "ASME B31.3", title: "Process Piping", role: "primary_construction", locked: true });
-      lockReasons.push("Process piping -> ASME B31.3 construction code");
+      lockReasons.push("Process piping -> ASME B31.3 construction/design code");
       authorities.push({ code: "API 579-1/ASME FFS-1", title: "Fitness-For-Service", role: "fitness_for_service", locked: true });
       lockReasons.push("Piping integrity -> API 579-1 FFS authority");
 
-      if (jurisdiction === "refinery" || jurisdiction === "petrochemical" || jurisdiction === "chemical_plant") {
+      // API 571 for damage mechanism identification on all piping
+      supplementalCodes.push({ code: "API 571", title: "Damage Mechanisms Affecting Fixed Equipment in the Refining Industry", role: "damage_mechanism_reference", locked: false });
+
+      // ASME Section V for NDE method authority
+      supplementalCodes.push({ code: "ASME BPVC Section V", title: "Nondestructive Examination", role: "nde_method_authority", locked: false });
+
+      if (jurisdiction === "refinery" || jurisdiction === "petrochemical" || jurisdiction === "chemical_plant" ||
+          isFacilityAsset) {
         supplementalCodes.push({ code: "API 574", title: "Inspection Practices for Piping System Components", role: "supplemental_inspection", locked: false });
       }
     }
 
+    // VALVE / RELIEF DEVICE (on facility)
+    if (primaryRouteKey === "valve" || primaryRouteKey === "relief_device") {
+      authorities.push({ code: "API 570", title: "Piping Inspection Code", role: "inspection_authority", locked: true });
+      lockReasons.push("Valve/relief device -> API 570 inspection authority (in-line component)");
+      authorities.push({ code: "API 576", title: "Inspection of Pressure-Relieving Devices", role: "supplemental_inspection", locked: true });
+      lockReasons.push("Pressure-relieving device -> API 576 supplemental authority");
+      authorities.push({ code: "API 579-1/ASME FFS-1", title: "Fitness-For-Service", role: "fitness_for_service", locked: true });
+    }
+
     // STORAGE TANK
-    if (asset === "storage_tank" || asset === "tank" || asset === "aboveground_storage_tank" || asset === "ast") {
+    if (primaryRouteKey === "storage_tank" || primaryRouteKey === "tank" || primaryRouteKey === "aboveground_storage_tank" || primaryRouteKey === "ast") {
       authorities.push({ code: "API 653", title: "Tank Inspection, Repair, Alteration, and Reconstruction", role: "inspection_authority", locked: true });
       lockReasons.push("Storage tank asset -> API 653 inspection authority");
       authorities.push({ code: "API 650", title: "Welded Tanks for Oil Storage", role: "primary_construction", locked: true });
@@ -87,20 +174,30 @@ var handler = async function(event) {
     }
 
     // BOILER
-    if (asset === "boiler" || asset === "power_boiler" || asset === "heating_boiler") {
+    if (primaryRouteKey === "boiler" || primaryRouteKey === "power_boiler" || primaryRouteKey === "heating_boiler") {
       authorities.push({ code: "NB-23 (NBIC)", title: "National Board Inspection Code", role: "inspection_authority", locked: true });
       lockReasons.push("Boiler asset -> NBIC inspection authority");
       authorities.push({ code: "ASME BPVC Section I", title: "Boiler and Pressure Vessel Code - Power Boilers", role: "primary_construction", locked: true });
       lockReasons.push("Boiler -> ASME Section I construction code");
     }
 
-    // STRUCTURAL
-    if (asset === "structural" || asset === "structural_steel" || asset === "bridge" || asset === "offshore_structure") {
+    // STRUCTURAL (only when the component itself is structural steel)
+    if (primaryRouteKey === "structural" || primaryRouteKey === "structural_steel" || primaryRouteKey === "bridge" || primaryRouteKey === "offshore_structure") {
       authorities.push({ code: "AWS D1.1", title: "Structural Welding Code - Steel", role: "primary_construction", locked: true });
-      lockReasons.push("Structural steel -> AWS D1.1 construction/inspection authority");
-      if (asset === "offshore_structure") {
+      lockReasons.push("Structural steel component -> AWS D1.1 construction/inspection authority");
+      if (primaryRouteKey === "offshore_structure" || asset === "offshore_platform" || asset === "offshore_fixed_platform") {
         authorities.push({ code: "API RP 2A", title: "Planning, Designing, and Constructing Fixed Offshore Platforms", role: "design_authority", locked: true });
-        lockReasons.push("Offshore structure -> API RP 2A design authority");
+        lockReasons.push("Offshore structural component -> API RP 2A design authority");
+      }
+    }
+
+    // OFFSHORE PLATFORM WITH NO COMPONENT TYPE — FALLBACK WITH WARNING
+    // If an offshore platform asset is provided with NO identifiable component type,
+    // default to API RP 2A but flag that component-level resolution is needed
+    if (isFacilityAsset && !resolvedComponentType && authorities.length === 0) {
+      if (asset === "offshore_platform" || asset === "offshore_fixed_platform") {
+        authorities.push({ code: "API RP 2A", title: "Planning, Designing, and Constructing Fixed Offshore Platforms", role: "facility_default", locked: false });
+        lockReasons.push("WARNING: Offshore platform asset with no component type specified — defaulting to API RP 2A facility-level authority. Provide component_type or component_description for accurate authority resolution (piping->API 570, vessel->API 510, structural->API RP 2A)");
       }
     }
 
@@ -187,8 +284,12 @@ var handler = async function(event) {
       trigger_sour_service: hasSourCracking,
       metadata: {
         engine: "authority-lock",
-        version: "1.0",
+        version: "1.1",
         asset_type: asset,
+        component_type: resolvedComponentType || null,
+        component_type_source: component ? "explicit" : (resolvedComponentType ? "inferred_from_description" : "none"),
+        primary_route_key: primaryRouteKey,
+        is_facility_asset: isFacilityAsset,
         service_environment: service,
         damage_mechanisms: damage,
         jurisdiction: jurisdiction,
