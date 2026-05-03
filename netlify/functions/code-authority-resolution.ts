@@ -146,6 +146,7 @@ type ResolutionBucketType =
 interface GovernanceInput {
   raw_text: string;
   asset_class: AssetClass;
+  component_type: string;
   inspection_context: InspectionContext;
   jurisdiction: Jurisdiction;
   service_environment: ServiceEnvironment[];
@@ -357,6 +358,45 @@ function detectServiceEnvironment(rawText: string): ServiceEnvironment[] {
 }
 
 /* =========================================================
+   COMPONENT-TYPE DISCRIMINATOR (v1.1)
+   When the asset is a facility (platform, refinery, etc.),
+   the component being inspected determines primary authority.
+   ========================================================= */
+
+function detectComponentType(rawText: string): string {
+  var t = lower(rawText);
+
+  // Piping components
+  if (includesAny(t, ["header", "piping", "pipe", "riser", "flowline", "manifold",
+                       "spool", "branch connection", "weldolet", "nozzle"])) return "piping";
+
+  // Pressure vessels
+  if (includesAny(t, ["vessel", "separator", "drum", "reactor", "column", "tower",
+                       "accumulator", "receiver", "scrubber"])) return "pressure_vessel";
+
+  // Heat exchangers
+  if (includesAny(t, ["exchanger", "cooler", "condenser", "reboiler"])) return "heat_exchanger";
+
+  // Storage tanks
+  if (includesAny(t, ["storage tank", "tank"])) return "storage_tank";
+
+  // Structural
+  if (includesAny(t, ["structural", "beam", "brace", "jacket leg", "deck plate",
+                       "truss", "framing", "caisson", "mudline"])) return "structural";
+
+  // Valves and relief devices
+  if (includesAny(t, ["valve", "relief", "psv", "prv", "safety valve"])) return "valve";
+
+  return "";
+}
+
+function isFacilityClass(ac: AssetClass): boolean {
+  return ac === "offshore_fixed_platform" || ac === "offshore_floating_facility" ||
+         ac === "refinery_process_facility" || ac === "chemical_process_facility" ||
+         ac === "power_generation_equipment";
+}
+
+/* =========================================================
    AI FALLBACK STUB FOR UNKNOWN ASSETS
    ========================================================= */
 
@@ -452,7 +492,22 @@ function resolvePrimaryAssetCode(input: GovernanceInput, fallback: AIFallbackRes
   }
 
   if (asset === "offshore_fixed_platform") {
-    return { authority: "API RP 2A", reason_tags: ["asset_direct_match"], rationale: "Fixed offshore structural inspection is primarily routed through API RP 2A, with BSEE as primary regulator and USCG retaining OCS framework authority.", confidence: 90 };
+    // v1.1 COMPONENT-TYPE DISCRIMINATOR: resolve by component, not facility
+    var ct = input.component_type;
+    if (ct === "piping") {
+      return { authority: "API 570", reason_tags: ["component_type_override", "asset_facility_context"], rationale: "Piping component on offshore platform — primary authority is API 570 (Piping Inspection Code), not API RP 2A. API RP 2A governs the platform structure; the piping system is governed by API 570 with ASME B31.3 as the construction/design code.", confidence: 96 };
+    }
+    if (ct === "pressure_vessel" || ct === "heat_exchanger") {
+      return { authority: "API 510", reason_tags: ["component_type_override", "asset_facility_context"], rationale: "Pressure vessel/heat exchanger on offshore platform — primary authority is API 510 (Pressure Vessel Inspection Code), not API RP 2A.", confidence: 96 };
+    }
+    if (ct === "valve") {
+      return { authority: "API 570", reason_tags: ["component_type_override", "asset_facility_context"], rationale: "Valve/in-line component on offshore platform — governed under API 570 as piping component.", confidence: 92 };
+    }
+    if (ct === "storage_tank") {
+      return { authority: "API 653", reason_tags: ["component_type_override", "asset_facility_context"], rationale: "Storage tank on offshore platform — governed under API 653.", confidence: 94 };
+    }
+    // Default to structural only when component IS structural or unspecified
+    return { authority: "API RP 2A", reason_tags: ["asset_direct_match"], rationale: "Fixed offshore platform structural inspection is primarily routed through API RP 2A, with BSEE as primary regulator. Note: if the assessed component is piping, a vessel, or other non-structural equipment, specify component_type for accurate authority routing.", confidence: 90 };
   }
 
   if (asset === "offshore_floating_facility") {
@@ -1088,9 +1143,15 @@ var handler: Handler = async function (event) {
     var jurisdiction: Jurisdiction = body.jurisdiction || detectJurisdiction(rawText, assetClass);
     var serviceEnv: ServiceEnvironment[] = body.service_environment || detectServiceEnvironment(rawText);
 
+    var componentType = (body.component_type || "").toLowerCase().trim();
+    if (!componentType) {
+      componentType = detectComponentType(rawText);
+    }
+
     var input: GovernanceInput = {
       raw_text: rawText,
       asset_class: assetClass,
+      component_type: componentType,
       inspection_context: inspectionContext,
       jurisdiction: jurisdiction,
       service_environment: serviceEnv
