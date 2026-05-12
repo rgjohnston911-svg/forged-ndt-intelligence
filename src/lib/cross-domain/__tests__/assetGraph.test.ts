@@ -52,14 +52,14 @@ function mkAsset(id: string, overrides: Record<string, unknown> = {}) {
 
 function seed() {
   return {
-    asset_nodes: [
+    cd_asset_nodes: [
       mkAsset(A_PARENT),
       mkAsset(A_ROOT, { parent_asset_id: A_PARENT, service_environment: "splash_zone" }),
       mkAsset(A_CHILD),
       mkAsset(A_NEIGHBOR, { service_environment: "splash_zone" }),
       mkAsset(A_DOWNSTREAM),
     ],
-    asset_relationships: [
+    cd_asset_relationships: [
       {
         id: "r1", org_id: ORG, source_asset_id: A_CHILD, target_asset_id: A_ROOT,
         relationship_type: "parent_child", confidence: 1, description: null,
@@ -76,7 +76,7 @@ function seed() {
         created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
       },
     ],
-    inspection_events: [
+    cd_inspection_events: [
       {
         id: "ie1", org_id: ORG, asset_id: A_ROOT, domain: "pipeline",
         inspection_type: "UT", inspection_date: "2026-04-01",
@@ -84,7 +84,7 @@ function seed() {
         created_at: "2026-04-01T00:00:00Z", updated_at: "2026-04-01T00:00:00Z",
       },
     ],
-    asset_anomalies: [
+    cd_asset_anomalies: [
       {
         id: "an1", org_id: ORG, asset_id: A_ROOT, inspection_event_id: "ie1",
         domain: "pipeline", anomaly_type: "crack", mechanism_key: "fatigue_cracking",
@@ -100,7 +100,7 @@ function seed() {
         created_at: "2026-04-02T00:00:00Z", updated_at: "2026-04-02T00:00:00Z",
       },
     ],
-    causal_chains: [
+    cd_causal_chains: [
       {
         id: "cc1", org_id: ORG, asset_id: A_ROOT, title: "Fatigue chain",
         summary: null, chain_type: "degradation", linked_anomaly_ids: [], linked_asset_ids: [],
@@ -109,7 +109,7 @@ function seed() {
         created_by: "system", created_at: "2026-04-03T00:00:00Z", updated_at: "2026-04-03T00:00:00Z",
       },
     ],
-    asset_timeline_events: [
+    cd_asset_timeline_events: [
       {
         id: "te1", org_id: ORG, asset_id: A_ROOT, event_type: "inspection",
         event_date: "2026-04-01T00:00:00Z", title: "UT scan", description: null,
