@@ -145,11 +145,12 @@ export interface AICostInfo {
   supabaseAdmin: SupabaseClient;
 }
 
-export interface SpecialistOutput<T = unknown> {
+export interface SpecialistOutput {
   role: SpecialistRole;
   model: string;
   ok: boolean;
-  result: T;
+  response: string | null;
+  latency_ms: number;
   cost: {
     input_tokens: number;
     output_tokens: number;
