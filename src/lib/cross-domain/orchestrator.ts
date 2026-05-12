@@ -40,11 +40,17 @@ import {
 } from "./aiSpecialists";
 import { buildCausalChain } from "./causalChainEngine";
 import { checkOrgBudget, recordSpend } from "./budgetGuard";
+import { SPECIALIST_ORDER } from "./deliberationState";
 
 export interface RunDeliberationOptions {
   org_id: string;
   deliberation_id: string;
   supabase: SupabaseClient;
+  // Sprint 3 — resume support for the chunked-async runtime. When set,
+  // the orchestrator loads existing specialist_outputs + total_cost_usd
+  // from the cd_deliberation_log row and resumes from that specialist
+  // instead of restarting at Inspector.
+  resume_from_specialist?: SpecialistRole;
 }
 
 // ------------------------------------------------------------
@@ -140,23 +146,56 @@ export function arbitrate(analyses: SpecialistAnalysis[]): ArbitrationDecision {
 // Persistence
 // ------------------------------------------------------------
 
-function consensusLevelFor(
-  arbitration: ArbitrationDecision
-): "unanimous" | "majority_with_dissent" | "split" | "unresolved" {
-  if (arbitration.status === "accepted") {
-    return arbitration.devils_advocate_objections_unresolved === 0
-      ? "unanimous"
-      : "majority_with_dissent";
-  }
-  if (arbitration.status === "flagged_dissent") return "majority_with_dissent";
-  return "unresolved";
+// Sprint 3 vocabulary — matches ArbitrationDecision.status verbatim so the
+// polling endpoint can route status === 'failed' to the failed UI state.
+// SCHEMA NOTE (PR body): the existing cd_deliberation_log.consensus_level
+// enum is unanimous|majority_with_dissent|split|unresolved — these new
+// values require an enum migration. Sprint 3 writes them anyway; migration
+// ships separately.
+function consensusLevelFor(arbitration: ArbitrationDecision): string {
+  return arbitration.status;
 }
 
+function escalatedFor(arbitration: ArbitrationDecision): boolean {
+  return (
+    arbitration.status === "flagged_dissent" ||
+    arbitration.status === "rejected_low_confidence"
+  );
+}
+
+// Idempotent: if the row was pre-created by the trigger endpoint
+// (Sprint 3 chunked-async flow), skip INSERT and just stamp
+// deliberation_started_at. Otherwise INSERT as before.
 async function ensureLogRow(
   supabase: SupabaseClient,
   opts: RunDeliberationOptions,
   anomaly: AnomalyContext
-): Promise<void> {
+): Promise<{
+  specialist_outputs: SpecialistAnalysis[];
+  total_cost_usd: number;
+} | null> {
+  const { data: existing } = await supabase
+    .from("cd_deliberation_log")
+    .select(
+      "id, deliberation_started_at, specialist_outputs, total_cost_usd"
+    )
+    .eq("id", opts.deliberation_id)
+    .maybeSingle();
+  if (existing) {
+    const row = existing as Record<string, unknown>;
+    if (!row.deliberation_started_at) {
+      await supabase
+        .from("cd_deliberation_log")
+        .update({ deliberation_started_at: new Date().toISOString() })
+        .eq("id", opts.deliberation_id);
+    }
+    const outputs = Array.isArray(row.specialist_outputs)
+      ? (row.specialist_outputs as SpecialistAnalysis[])
+      : [];
+    const cost =
+      typeof row.total_cost_usd === "number" ? row.total_cost_usd : 0;
+    return { specialist_outputs: outputs, total_cost_usd: cost };
+  }
   await supabase.from("cd_deliberation_log").insert({
     id: opts.deliberation_id,
     org_id: opts.org_id,
@@ -169,6 +208,7 @@ async function ensureLogRow(
     escalated_to_human: false,
     total_cost_usd: 0,
   });
+  return null;
 }
 
 async function appendSpecialistToLog(
@@ -201,6 +241,31 @@ async function finalizeLog(
       synthesizer_decision: synthesizer,
       arbitration_rules_applied: [arbitration],
       consensus_level: consensusLevelFor(arbitration),
+      escalated_to_human: escalatedFor(arbitration),
+      total_cost_usd: totalCost,
+      deliberation_completed_at: new Date().toISOString(),
+    })
+    .eq("id", opts.deliberation_id);
+}
+
+// System-failure finalization (engineer crash, cap exceeded, etc.).
+// Writes consensus_level='failed' and records the error in
+// arbitration_rules_applied.error for the polling endpoint to surface.
+async function finalizeLogAsFailure(
+  supabase: SupabaseClient,
+  opts: RunDeliberationOptions,
+  perSpecialist: SpecialistAnalysis[],
+  errorMessage: string,
+  totalCost: number
+): Promise<void> {
+  await supabase
+    .from("cd_deliberation_log")
+    .update({
+      specialist_outputs: perSpecialist,
+      synthesizer_decision: null,
+      arbitration_rules_applied: { error: errorMessage },
+      consensus_level: "failed",
+      escalated_to_human: true,
       total_cost_usd: totalCost,
       deliberation_completed_at: new Date().toISOString(),
     })
@@ -267,18 +332,57 @@ export async function runDeliberation(
   }
   const perDelibCap = budget.per_deliberation_cap_usd;
 
-  await ensureLogRow(supabase, opts, input.anomaly);
+  // ensureLogRow is idempotent — if the trigger endpoint pre-created
+  // the row, it returns the existing specialist_outputs + total_cost_usd
+  // so we can resume.
+  const existing = await ensureLogRow(supabase, opts, input.anomaly);
 
   const ctx = { cost: { orgId: org_id, supabaseAdmin: supabase } };
-  const perSpecialist: SpecialistAnalysis[] = [];
-  let runningCost = 0;
+  const perSpecialist: SpecialistAnalysis[] = existing?.specialist_outputs
+    ? [...existing.specialist_outputs]
+    : [];
+  let runningCost = existing?.total_cost_usd ?? 0;
   let causalChain: CausalChainResult | null = null;
+
+  // resume_from_specialist controls which steps to skip. If we're
+  // resuming, the orchestrator uses the loaded prior outputs for
+  // anything before this specialist instead of re-running them.
+  const resumeIdx = opts.resume_from_specialist
+    ? SPECIALIST_ORDER.indexOf(opts.resume_from_specialist)
+    : 0;
+  const shouldRun = (role: SpecialistRole): boolean =>
+    SPECIALIST_ORDER.indexOf(role) >= resumeIdx;
 
   const recordOutcome = async (a: SpecialistAnalysis): Promise<void> => {
     perSpecialist.push(a);
     runningCost += a.cost_usd;
     await appendSpecialistToLog(supabase, opts, perSpecialist, runningCost);
   };
+
+  const priorOutputFor = (role: SpecialistRole): SpecialistAnalysis | null => {
+    return perSpecialist.find((s) => s.role === role) ?? null;
+  };
+
+  // Helper: either run the specialist or return the prior analysis
+  // (when shouldRun(role) is false and we have an existing entry).
+  // Returns a result-shaped object so callers can check .ok / .analysis
+  // uniformly.
+  async function step(
+    role: SpecialistRole,
+    callFn: () => Promise<{ ok: boolean; analysis: SpecialistAnalysis; error?: string }>
+  ): Promise<{ ok: boolean; analysis: SpecialistAnalysis; error?: string; ran: boolean }> {
+    if (!shouldRun(role)) {
+      const prior = priorOutputFor(role);
+      if (prior) {
+        return { ok: true, analysis: prior, ran: false };
+      }
+      // Resume index says skip but no prior output present — fall
+      // through and actually run (defensive).
+    }
+    const r = await callFn();
+    await recordOutcome(r.analysis);
+    return { ...r, ran: true };
+  }
 
   const inputWithChain = (): DeliberationInput => ({
     ...input,
@@ -287,11 +391,18 @@ export async function runDeliberation(
   });
 
   // ---- Step 1: Inspector ----
-  const inspector = await deliberateAsInspector(inputWithChain(), ctx);
-  await recordOutcome(inspector.analysis);
-  if (runningCost > perDelibCap) {
+  const inspector = await step("inspector", () =>
+    deliberateAsInspector(inputWithChain(), ctx)
+  );
+  if (inspector.ran && runningCost > perDelibCap) {
     const arb = emptyArbitration("per_deliberation_cap_exceeded");
-    await finalizeLog(supabase, opts, perSpecialist, arb, null, runningCost);
+    await finalizeLogAsFailure(
+      supabase,
+      opts,
+      perSpecialist,
+      "per_deliberation_cap_exceeded",
+      runningCost
+    );
     return emptyResult(
       opts,
       perSpecialist,
@@ -304,11 +415,18 @@ export async function runDeliberation(
   }
 
   // ---- Step 2: Engineer ----
-  const engineer = await deliberateAsEngineer(inputWithChain(), ctx);
-  await recordOutcome(engineer.analysis);
+  const engineer = await step("engineer", () =>
+    deliberateAsEngineer(inputWithChain(), ctx)
+  );
   if (!engineer.ok) {
     const arb = emptyArbitration(`engineer_failed: ${engineer.error ?? "unknown"}`);
-    await finalizeLog(supabase, opts, perSpecialist, arb, null, runningCost);
+    await finalizeLogAsFailure(
+      supabase,
+      opts,
+      perSpecialist,
+      `engineer_failed: ${engineer.error ?? "unknown"}`,
+      runningCost
+    );
     await recordSpend(supabase, org_id, deliberation_id, runningCost);
     return emptyResult(
       opts,
@@ -320,9 +438,15 @@ export async function runDeliberation(
       Date.now() - t0
     );
   }
-  if (runningCost > perDelibCap) {
+  if (engineer.ran && runningCost > perDelibCap) {
     const arb = emptyArbitration("per_deliberation_cap_exceeded");
-    await finalizeLog(supabase, opts, perSpecialist, arb, null, runningCost);
+    await finalizeLogAsFailure(
+      supabase,
+      opts,
+      perSpecialist,
+      "per_deliberation_cap_exceeded",
+      runningCost
+    );
     await recordSpend(supabase, org_id, deliberation_id, runningCost);
     return emptyResult(
       opts,
@@ -336,6 +460,8 @@ export async function runDeliberation(
   }
 
   // ---- Step 3: Causal chain (rules-based; uses Engineer's output) ----
+  // Build deterministically from engineer.analysis.cited_mechanisms.
+  // Engineer may have run just now or been loaded from a prior run.
   causalChain = await buildCausalChain({
     anomaly: input.anomaly,
     asset: input.asset,
@@ -345,11 +471,18 @@ export async function runDeliberation(
   });
 
   // ---- Step 4: Researcher ----
-  const researcher = await deliberateAsResearcher(inputWithChain(), ctx);
-  await recordOutcome(researcher.analysis);
-  if (runningCost > perDelibCap) {
+  const researcher = await step("researcher", () =>
+    deliberateAsResearcher(inputWithChain(), ctx)
+  );
+  if (researcher.ran && runningCost > perDelibCap) {
     const arb = emptyArbitration("per_deliberation_cap_exceeded");
-    await finalizeLog(supabase, opts, perSpecialist, arb, null, runningCost);
+    await finalizeLogAsFailure(
+      supabase,
+      opts,
+      perSpecialist,
+      "per_deliberation_cap_exceeded",
+      runningCost
+    );
     await recordSpend(supabase, org_id, deliberation_id, runningCost);
     return emptyResult(
       opts,
@@ -363,11 +496,18 @@ export async function runDeliberation(
   }
 
   // ---- Step 5: Devil's Advocate ----
-  const da = await deliberateAsDevilsAdvocate(inputWithChain(), ctx);
-  await recordOutcome(da.analysis);
-  if (runningCost > perDelibCap) {
+  const da = await step("devils_advocate", () =>
+    deliberateAsDevilsAdvocate(inputWithChain(), ctx)
+  );
+  if (da.ran && runningCost > perDelibCap) {
     const arb = emptyArbitration("per_deliberation_cap_exceeded");
-    await finalizeLog(supabase, opts, perSpecialist, arb, null, runningCost);
+    await finalizeLogAsFailure(
+      supabase,
+      opts,
+      perSpecialist,
+      "per_deliberation_cap_exceeded",
+      runningCost
+    );
     await recordSpend(supabase, org_id, deliberation_id, runningCost);
     return emptyResult(
       opts,
@@ -384,11 +524,18 @@ export async function runDeliberation(
   // Sprint 2 placeholder: any pre-filtered analogous cases are
   // already in input.priorAnalyses via the caller (deliberate
   // endpoint). Sprint 4 swaps for vector retrieval.
-  const historian = await deliberateAsHistorian(inputWithChain(), ctx);
-  await recordOutcome(historian.analysis);
-  if (runningCost > perDelibCap) {
+  const historian = await step("historian", () =>
+    deliberateAsHistorian(inputWithChain(), ctx)
+  );
+  if (historian.ran && runningCost > perDelibCap) {
     const arb = emptyArbitration("per_deliberation_cap_exceeded");
-    await finalizeLog(supabase, opts, perSpecialist, arb, null, runningCost);
+    await finalizeLogAsFailure(
+      supabase,
+      opts,
+      perSpecialist,
+      "per_deliberation_cap_exceeded",
+      runningCost
+    );
     await recordSpend(supabase, org_id, deliberation_id, runningCost);
     return emptyResult(
       opts,
@@ -405,25 +552,32 @@ export async function runDeliberation(
   const arbitration = arbitrate(perSpecialist);
 
   // ---- Step 7: Synthesizer ----
-  const synthesizerInput: DeliberationInput = {
-    ...inputWithChain(),
-    priorAnalyses: [...perSpecialist],
-  };
-  const synthesizer = await deliberateAsSynthesizer(
-    synthesizerInput,
-    { status: arbitration.status, reason: arbitration.reason },
-    ctx
+  const synthesizer = await step("synthesizer", () =>
+    deliberateAsSynthesizer(
+      { ...inputWithChain(), priorAnalyses: [...perSpecialist] },
+      { status: arbitration.status, reason: arbitration.reason },
+      ctx
+    )
   );
-  await recordOutcome(synthesizer.analysis);
 
-  await finalizeLog(
-    supabase,
-    opts,
-    perSpecialist,
-    arbitration,
-    synthesizer.ok ? synthesizer.analysis : null,
-    runningCost
-  );
+  if (synthesizer.ok) {
+    await finalizeLog(
+      supabase,
+      opts,
+      perSpecialist,
+      arbitration,
+      synthesizer.analysis,
+      runningCost
+    );
+  } else {
+    await finalizeLogAsFailure(
+      supabase,
+      opts,
+      perSpecialist,
+      `synthesizer_failed: ${synthesizer.error ?? "unknown"}`,
+      runningCost
+    );
+  }
   await recordSpend(supabase, org_id, deliberation_id, runningCost);
 
   if (!synthesizer.ok) {
