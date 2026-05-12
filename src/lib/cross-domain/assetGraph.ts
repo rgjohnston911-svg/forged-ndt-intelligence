@@ -1,7 +1,7 @@
 // ============================================================
 // DEPLOY355 — Cross-domain asset graph engine
 //
-// Five async functions over the asset_nodes / asset_relationships
+// Five async functions over the cd_asset_nodes / cd_asset_relationships
 // graph plus related history. All functions take a Supabase client
 // as a DI parameter so callers control whether they use anon or
 // service-role context. The client's session/key governs RLS.
@@ -33,7 +33,7 @@ async function loadAssetsByIds(
 ): Promise<AssetNode[]> {
   if (!ids.length) return [];
   const { data, error } = await supabase
-    .from("asset_nodes")
+    .from("cd_asset_nodes")
     .select(ASSET_COLUMNS)
     .eq("org_id", orgId)
     .in("id", ids);
@@ -47,7 +47,7 @@ async function loadRelationships(
   assetId: string
 ): Promise<AssetRelationship[]> {
   const { data, error } = await supabase
-    .from("asset_relationships")
+    .from("cd_asset_relationships")
     .select("*")
     .eq("org_id", orgId)
     .or(`source_asset_id.eq.${assetId},target_asset_id.eq.${assetId}`);
@@ -111,7 +111,7 @@ export async function getAssetGraph(
   if (!orgId || !assetId) return empty;
 
   const { data: assetRow, error: assetErr } = await supabase
-    .from("asset_nodes")
+    .from("cd_asset_nodes")
     .select(ASSET_COLUMNS)
     .eq("org_id", orgId)
     .eq("id", assetId)
@@ -146,25 +146,25 @@ export async function getAssetGraph(
   ] = await Promise.all([
     loadAssetsByIds(supabase, orgId, allRelatedIds),
     supabase
-      .from("inspection_events")
+      .from("cd_inspection_events")
       .select("*")
       .eq("org_id", orgId)
       .eq("asset_id", assetId)
       .order("inspection_date", { ascending: false }),
     supabase
-      .from("asset_anomalies")
+      .from("cd_asset_anomalies")
       .select("*")
       .eq("org_id", orgId)
       .eq("asset_id", assetId)
       .order("created_at", { ascending: false }),
     supabase
-      .from("causal_chains")
+      .from("cd_causal_chains")
       .select("*")
       .eq("org_id", orgId)
       .eq("asset_id", assetId)
       .order("updated_at", { ascending: false }),
     supabase
-      .from("asset_timeline_events")
+      .from("cd_asset_timeline_events")
       .select("*")
       .eq("org_id", orgId)
       .eq("asset_id", assetId)
@@ -205,7 +205,7 @@ export async function findRelatedAssets(
   if (!orgId || !assetId || !relationshipTypes.length) return [];
 
   const { data: rels, error } = await supabase
-    .from("asset_relationships")
+    .from("cd_asset_relationships")
     .select("source_asset_id,target_asset_id,relationship_type")
     .eq("org_id", orgId)
     .in("relationship_type", relationshipTypes)
@@ -230,7 +230,7 @@ export async function findAssetsSharingMechanism(
   if (!orgId || !mechanismKey) return [];
 
   const { data: anomalies, error: anomErr } = await supabase
-    .from("asset_anomalies")
+    .from("cd_asset_anomalies")
     .select("asset_id")
     .eq("org_id", orgId)
     .eq("mechanism_key", mechanismKey);
@@ -254,7 +254,7 @@ export async function findAssetsInSameEnvironment(
   if (!orgId || !assetId) return [];
 
   const { data: asset, error: assetErr } = await supabase
-    .from("asset_nodes")
+    .from("cd_asset_nodes")
     .select("service_environment")
     .eq("org_id", orgId)
     .eq("id", assetId)
@@ -267,7 +267,7 @@ export async function findAssetsInSameEnvironment(
   if (!env) return fromRels;
 
   const { data: byEnv, error: byEnvErr } = await supabase
-    .from("asset_nodes")
+    .from("cd_asset_nodes")
     .select(ASSET_COLUMNS)
     .eq("org_id", orgId)
     .eq("service_environment", env)

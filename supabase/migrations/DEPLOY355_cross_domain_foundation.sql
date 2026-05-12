@@ -34,9 +34,9 @@ CREATE POLICY "org_feature_flags_tenant_write" ON org_feature_flags
   WITH CHECK (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);
 
 -- ============================================================
--- 1. asset_nodes
+-- 1. cd_asset_nodes
 -- ============================================================
-CREATE TABLE IF NOT EXISTS asset_nodes (
+CREATE TABLE IF NOT EXISTS cd_asset_nodes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL,
   asset_key text,
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS asset_nodes (
   )),
   asset_type text NOT NULL,
   asset_subtype text,
-  parent_asset_id uuid REFERENCES asset_nodes(id) ON DELETE SET NULL,
+  parent_asset_id uuid REFERENCES cd_asset_nodes(id) ON DELETE SET NULL,
   location_description text,
   gps_lat numeric,
   gps_lon numeric,
@@ -75,27 +75,27 @@ CREATE TABLE IF NOT EXISTS asset_nodes (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_asset_nodes_org ON asset_nodes(org_id);
-CREATE INDEX IF NOT EXISTS idx_asset_nodes_domain ON asset_nodes(domain);
-CREATE INDEX IF NOT EXISTS idx_asset_nodes_asset_type ON asset_nodes(asset_type);
-CREATE INDEX IF NOT EXISTS idx_asset_nodes_parent ON asset_nodes(parent_asset_id);
-CREATE INDEX IF NOT EXISTS idx_asset_nodes_criticality ON asset_nodes(criticality);
-CREATE INDEX IF NOT EXISTS idx_asset_nodes_status ON asset_nodes(status);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_nodes_org ON cd_asset_nodes(org_id);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_nodes_domain ON cd_asset_nodes(domain);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_nodes_asset_type ON cd_asset_nodes(asset_type);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_nodes_parent ON cd_asset_nodes(parent_asset_id);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_nodes_criticality ON cd_asset_nodes(criticality);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_nodes_status ON cd_asset_nodes(status);
 
-ALTER TABLE asset_nodes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE asset_nodes FORCE ROW LEVEL SECURITY;
-CREATE POLICY "asset_nodes_tenant_isolation" ON asset_nodes
+ALTER TABLE cd_asset_nodes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_asset_nodes FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_asset_nodes_tenant_isolation" ON cd_asset_nodes
   FOR ALL USING (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid)
   WITH CHECK (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);
 
 -- ============================================================
--- 2. asset_relationships
+-- 2. cd_asset_relationships
 -- ============================================================
-CREATE TABLE IF NOT EXISTS asset_relationships (
+CREATE TABLE IF NOT EXISTS cd_asset_relationships (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL,
-  source_asset_id uuid NOT NULL REFERENCES asset_nodes(id) ON DELETE CASCADE,
-  target_asset_id uuid NOT NULL REFERENCES asset_nodes(id) ON DELETE CASCADE,
+  source_asset_id uuid NOT NULL REFERENCES cd_asset_nodes(id) ON DELETE CASCADE,
+  target_asset_id uuid NOT NULL REFERENCES cd_asset_nodes(id) ON DELETE CASCADE,
   relationship_type text NOT NULL CHECK (relationship_type IN (
     'parent_child','connected_to','supports','protected_by','coated_by',
     'welded_to','feeds','drains_to','adjacent_to','same_cp_zone',
@@ -109,21 +109,21 @@ CREATE TABLE IF NOT EXISTS asset_relationships (
   UNIQUE (org_id, source_asset_id, target_asset_id, relationship_type)
 );
 
-CREATE INDEX IF NOT EXISTS idx_asset_rel_org ON asset_relationships(org_id);
-CREATE INDEX IF NOT EXISTS idx_asset_rel_source ON asset_relationships(source_asset_id);
-CREATE INDEX IF NOT EXISTS idx_asset_rel_target ON asset_relationships(target_asset_id);
-CREATE INDEX IF NOT EXISTS idx_asset_rel_type ON asset_relationships(relationship_type);
+CREATE INDEX IF NOT EXISTS idx_asset_rel_org ON cd_asset_relationships(org_id);
+CREATE INDEX IF NOT EXISTS idx_asset_rel_source ON cd_asset_relationships(source_asset_id);
+CREATE INDEX IF NOT EXISTS idx_asset_rel_target ON cd_asset_relationships(target_asset_id);
+CREATE INDEX IF NOT EXISTS idx_asset_rel_type ON cd_asset_relationships(relationship_type);
 
-ALTER TABLE asset_relationships ENABLE ROW LEVEL SECURITY;
-ALTER TABLE asset_relationships FORCE ROW LEVEL SECURITY;
-CREATE POLICY "asset_relationships_tenant_isolation" ON asset_relationships
+ALTER TABLE cd_asset_relationships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_asset_relationships FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_asset_relationships_tenant_isolation" ON cd_asset_relationships
   FOR ALL USING (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid)
   WITH CHECK (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);
 
 -- ============================================================
--- 3. degradation_mechanisms — GLOBAL (no org_id)
+-- 3. cd_degradation_mechanisms — GLOBAL (no org_id)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS degradation_mechanisms (
+CREATE TABLE IF NOT EXISTS cd_degradation_mechanisms (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   mechanism_key text UNIQUE NOT NULL,
   display_name text NOT NULL,
@@ -146,20 +146,20 @@ CREATE TABLE IF NOT EXISTS degradation_mechanisms (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE degradation_mechanisms ENABLE ROW LEVEL SECURITY;
-ALTER TABLE degradation_mechanisms FORCE ROW LEVEL SECURITY;
-CREATE POLICY "degradation_mechanisms_authenticated_read" ON degradation_mechanisms
+ALTER TABLE cd_degradation_mechanisms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_degradation_mechanisms FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_degradation_mechanisms_authenticated_read" ON cd_degradation_mechanisms
   FOR SELECT TO authenticated USING (true);
-CREATE POLICY "degradation_mechanisms_service_write" ON degradation_mechanisms
+CREATE POLICY "cd_degradation_mechanisms_service_write" ON cd_degradation_mechanisms
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ============================================================
--- 4. inspection_events
+-- 4. cd_inspection_events
 -- ============================================================
-CREATE TABLE IF NOT EXISTS inspection_events (
+CREATE TABLE IF NOT EXISTS cd_inspection_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL,
-  asset_id uuid NOT NULL REFERENCES asset_nodes(id) ON DELETE CASCADE,
+  asset_id uuid NOT NULL REFERENCES cd_asset_nodes(id) ON DELETE CASCADE,
   domain text,
   inspection_type text,
   inspection_date date NOT NULL,
@@ -186,26 +186,26 @@ CREATE TABLE IF NOT EXISTS inspection_events (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_inspection_events_org_asset ON inspection_events(org_id, asset_id);
-CREATE INDEX IF NOT EXISTS idx_inspection_events_date ON inspection_events(inspection_date DESC);
+CREATE INDEX IF NOT EXISTS idx_cd_inspection_events_org_asset ON cd_inspection_events(org_id, asset_id);
+CREATE INDEX IF NOT EXISTS idx_cd_inspection_events_date ON cd_inspection_events(inspection_date DESC);
 
-ALTER TABLE inspection_events ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inspection_events FORCE ROW LEVEL SECURITY;
-CREATE POLICY "inspection_events_tenant_isolation" ON inspection_events
+ALTER TABLE cd_inspection_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_inspection_events FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_inspection_events_tenant_isolation" ON cd_inspection_events
   FOR ALL USING (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid)
   WITH CHECK (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);
 
 -- ============================================================
--- 5. asset_anomalies
+-- 5. cd_asset_anomalies
 -- ============================================================
-CREATE TABLE IF NOT EXISTS asset_anomalies (
+CREATE TABLE IF NOT EXISTS cd_asset_anomalies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL,
-  asset_id uuid NOT NULL REFERENCES asset_nodes(id) ON DELETE CASCADE,
-  inspection_event_id uuid REFERENCES inspection_events(id) ON DELETE SET NULL,
+  asset_id uuid NOT NULL REFERENCES cd_asset_nodes(id) ON DELETE CASCADE,
+  inspection_event_id uuid REFERENCES cd_inspection_events(id) ON DELETE SET NULL,
   domain text,
   anomaly_type text,
-  mechanism_key text REFERENCES degradation_mechanisms(mechanism_key) ON DELETE SET NULL,
+  mechanism_key text REFERENCES cd_degradation_mechanisms(mechanism_key) ON DELETE SET NULL,
   severity text NOT NULL DEFAULT 'cat_1_minor' CHECK (severity IN (
     'cat_1_minor','cat_2_moderate','cat_3_major','cat_4_critical'
   )),
@@ -221,7 +221,7 @@ CREATE TABLE IF NOT EXISTS asset_anomalies (
     'acceptable','acceptable_with_monitoring','hold_for_review',
     'repair_required','block_use','insufficient_information'
   )),
-  prior_anomaly_id uuid REFERENCES asset_anomalies(id) ON DELETE SET NULL,
+  prior_anomaly_id uuid REFERENCES cd_asset_anomalies(id) ON DELETE SET NULL,
   forecast_jsonb jsonb NOT NULL DEFAULT '{}'::jsonb,
   consequence_jsonb jsonb NOT NULL DEFAULT '{}'::jsonb,
   causal_chain_jsonb jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -232,24 +232,24 @@ CREATE TABLE IF NOT EXISTS asset_anomalies (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_asset_anomalies_org ON asset_anomalies(org_id);
-CREATE INDEX IF NOT EXISTS idx_asset_anomalies_asset ON asset_anomalies(asset_id);
-CREATE INDEX IF NOT EXISTS idx_asset_anomalies_domain ON asset_anomalies(domain);
-CREATE INDEX IF NOT EXISTS idx_asset_anomalies_severity ON asset_anomalies(severity);
-CREATE INDEX IF NOT EXISTS idx_asset_anomalies_mechanism ON asset_anomalies(mechanism_key);
-CREATE INDEX IF NOT EXISTS idx_asset_anomalies_status ON asset_anomalies(status);
-CREATE INDEX IF NOT EXISTS idx_asset_anomalies_prior ON asset_anomalies(prior_anomaly_id);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_anomalies_org ON cd_asset_anomalies(org_id);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_anomalies_asset ON cd_asset_anomalies(asset_id);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_anomalies_domain ON cd_asset_anomalies(domain);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_anomalies_severity ON cd_asset_anomalies(severity);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_anomalies_mechanism ON cd_asset_anomalies(mechanism_key);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_anomalies_status ON cd_asset_anomalies(status);
+CREATE INDEX IF NOT EXISTS idx_cd_asset_anomalies_prior ON cd_asset_anomalies(prior_anomaly_id);
 
-ALTER TABLE asset_anomalies ENABLE ROW LEVEL SECURITY;
-ALTER TABLE asset_anomalies FORCE ROW LEVEL SECURITY;
-CREATE POLICY "asset_anomalies_tenant_isolation" ON asset_anomalies
+ALTER TABLE cd_asset_anomalies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_asset_anomalies FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_asset_anomalies_tenant_isolation" ON cd_asset_anomalies
   FOR ALL USING (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid)
   WITH CHECK (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);
 
 -- ============================================================
--- 6. evidence_items (polymorphic)
+-- 6. cd_evidence_items (polymorphic)
 -- ============================================================
-CREATE TABLE IF NOT EXISTS evidence_items (
+CREATE TABLE IF NOT EXISTS cd_evidence_items (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL,
   linked_entity_type text NOT NULL,
@@ -276,22 +276,22 @@ CREATE TABLE IF NOT EXISTS evidence_items (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_evidence_items_lookup
-  ON evidence_items(org_id, linked_entity_type, linked_entity_id);
+CREATE INDEX IF NOT EXISTS idx_cd_evidence_items_lookup
+  ON cd_evidence_items(org_id, linked_entity_type, linked_entity_id);
 
-ALTER TABLE evidence_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE evidence_items FORCE ROW LEVEL SECURITY;
-CREATE POLICY "evidence_items_tenant_isolation" ON evidence_items
+ALTER TABLE cd_evidence_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_evidence_items FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_evidence_items_tenant_isolation" ON cd_evidence_items
   FOR ALL USING (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid)
   WITH CHECK (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);
 
 -- ============================================================
--- 7. causal_chains
+-- 7. cd_causal_chains
 -- ============================================================
-CREATE TABLE IF NOT EXISTS causal_chains (
+CREATE TABLE IF NOT EXISTS cd_causal_chains (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL,
-  asset_id uuid REFERENCES asset_nodes(id) ON DELETE SET NULL,
+  asset_id uuid REFERENCES cd_asset_nodes(id) ON DELETE SET NULL,
   title text NOT NULL,
   summary text,
   chain_type text NOT NULL DEFAULT 'degradation' CHECK (chain_type IN (
@@ -311,21 +311,21 @@ CREATE TABLE IF NOT EXISTS causal_chains (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_causal_chains_org_asset ON causal_chains(org_id, asset_id);
+CREATE INDEX IF NOT EXISTS idx_cd_causal_chains_org_asset ON cd_causal_chains(org_id, asset_id);
 
-ALTER TABLE causal_chains ENABLE ROW LEVEL SECURITY;
-ALTER TABLE causal_chains FORCE ROW LEVEL SECURITY;
-CREATE POLICY "causal_chains_tenant_isolation" ON causal_chains
+ALTER TABLE cd_causal_chains ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_causal_chains FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_causal_chains_tenant_isolation" ON cd_causal_chains
   FOR ALL USING (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid)
   WITH CHECK (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);
 
 -- ============================================================
--- 8. asset_timeline_events
+-- 8. cd_asset_timeline_events
 -- ============================================================
-CREATE TABLE IF NOT EXISTS asset_timeline_events (
+CREATE TABLE IF NOT EXISTS cd_asset_timeline_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL,
-  asset_id uuid NOT NULL REFERENCES asset_nodes(id) ON DELETE CASCADE,
+  asset_id uuid NOT NULL REFERENCES cd_asset_nodes(id) ON DELETE CASCADE,
   event_type text NOT NULL CHECK (event_type IN (
     'installation','inspection','anomaly_detected','repair',
     'coating_applied','coating_failure','cp_reading','impact_event',
@@ -343,21 +343,21 @@ CREATE TABLE IF NOT EXISTS asset_timeline_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_asset_timeline_lookup
-  ON asset_timeline_events(org_id, asset_id, event_date DESC);
+  ON cd_asset_timeline_events(org_id, asset_id, event_date DESC);
 
-ALTER TABLE asset_timeline_events ENABLE ROW LEVEL SECURITY;
-ALTER TABLE asset_timeline_events FORCE ROW LEVEL SECURITY;
-CREATE POLICY "asset_timeline_events_tenant_isolation" ON asset_timeline_events
+ALTER TABLE cd_asset_timeline_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_asset_timeline_events FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_asset_timeline_events_tenant_isolation" ON cd_asset_timeline_events
   FOR ALL USING (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid)
   WITH CHECK (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);
 
 -- ============================================================
--- 9. asset_consequence_profiles
+-- 9. cd_asset_consequence_profiles
 -- ============================================================
-CREATE TABLE IF NOT EXISTS asset_consequence_profiles (
+CREATE TABLE IF NOT EXISTS cd_asset_consequence_profiles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL,
-  asset_id uuid NOT NULL REFERENCES asset_nodes(id) ON DELETE CASCADE,
+  asset_id uuid NOT NULL REFERENCES cd_asset_nodes(id) ON DELETE CASCADE,
   safety_consequence integer NOT NULL DEFAULT 3 CHECK (safety_consequence BETWEEN 1 AND 5),
   environmental_consequence integer NOT NULL DEFAULT 3 CHECK (environmental_consequence BETWEEN 1 AND 5),
   operational_consequence integer NOT NULL DEFAULT 3 CHECK (operational_consequence BETWEEN 1 AND 5),
@@ -373,16 +373,16 @@ CREATE TABLE IF NOT EXISTS asset_consequence_profiles (
   UNIQUE (org_id, asset_id)
 );
 
-ALTER TABLE asset_consequence_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE asset_consequence_profiles FORCE ROW LEVEL SECURITY;
-CREATE POLICY "asset_consequence_profiles_tenant_isolation" ON asset_consequence_profiles
+ALTER TABLE cd_asset_consequence_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_asset_consequence_profiles FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_asset_consequence_profiles_tenant_isolation" ON cd_asset_consequence_profiles
   FOR ALL USING (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid)
   WITH CHECK (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);
 
 -- ============================================================
--- 10. concept_graph — GLOBAL
+-- 10. cd_concept_graph — GLOBAL
 -- ============================================================
-CREATE TABLE IF NOT EXISTS concept_graph (
+CREATE TABLE IF NOT EXISTS cd_concept_graph (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   concept_key text UNIQUE NOT NULL,
   display_name text NOT NULL,
@@ -397,28 +397,28 @@ CREATE TABLE IF NOT EXISTS concept_graph (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_concept_graph_embedding
-  ON concept_graph USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+CREATE INDEX IF NOT EXISTS idx_cd_concept_graph_embedding
+  ON cd_concept_graph USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
-ALTER TABLE concept_graph ENABLE ROW LEVEL SECURITY;
-ALTER TABLE concept_graph FORCE ROW LEVEL SECURITY;
-CREATE POLICY "concept_graph_authenticated_read" ON concept_graph
+ALTER TABLE cd_concept_graph ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_concept_graph FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_concept_graph_authenticated_read" ON cd_concept_graph
   FOR SELECT TO authenticated USING (true);
-CREATE POLICY "concept_graph_service_write" ON concept_graph
+CREATE POLICY "cd_concept_graph_service_write" ON cd_concept_graph
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ============================================================
--- 11. tenant_memory_index
+-- 11. cd_tenant_memory_index
 -- ============================================================
-CREATE TABLE IF NOT EXISTS tenant_memory_index (
+CREATE TABLE IF NOT EXISTS cd_tenant_memory_index (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL,
   memory_type text NOT NULL CHECK (memory_type IN (
     'recurring_mechanism','analogous_case','pattern_observation','calibration_outcome'
   )),
-  asset_id uuid REFERENCES asset_nodes(id) ON DELETE SET NULL,
-  anomaly_id uuid REFERENCES asset_anomalies(id) ON DELETE SET NULL,
-  concept_key text REFERENCES concept_graph(concept_key) ON DELETE SET NULL,
+  asset_id uuid REFERENCES cd_asset_nodes(id) ON DELETE SET NULL,
+  anomaly_id uuid REFERENCES cd_asset_anomalies(id) ON DELETE SET NULL,
+  concept_key text REFERENCES cd_concept_graph(concept_key) ON DELETE SET NULL,
   summary text NOT NULL,
   context_jsonb jsonb NOT NULL DEFAULT '{}'::jsonb,
   embedding vector(1536),
@@ -427,23 +427,23 @@ CREATE TABLE IF NOT EXISTS tenant_memory_index (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_tenant_memory_org ON tenant_memory_index(org_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_memory_org ON cd_tenant_memory_index(org_id);
 CREATE INDEX IF NOT EXISTS idx_tenant_memory_embedding
-  ON tenant_memory_index USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+  ON cd_tenant_memory_index USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 
-ALTER TABLE tenant_memory_index ENABLE ROW LEVEL SECURITY;
-ALTER TABLE tenant_memory_index FORCE ROW LEVEL SECURITY;
-CREATE POLICY "tenant_memory_index_tenant_isolation" ON tenant_memory_index
+ALTER TABLE cd_tenant_memory_index ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_tenant_memory_index FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_tenant_memory_index_tenant_isolation" ON cd_tenant_memory_index
   FOR ALL USING (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid)
   WITH CHECK (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);
 
 -- ============================================================
--- 12. prediction_outcomes
+-- 12. cd_prediction_outcomes
 -- ============================================================
-CREATE TABLE IF NOT EXISTS prediction_outcomes (
+CREATE TABLE IF NOT EXISTS cd_prediction_outcomes (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL,
-  anomaly_id uuid REFERENCES asset_anomalies(id) ON DELETE CASCADE,
+  anomaly_id uuid REFERENCES cd_asset_anomalies(id) ON DELETE CASCADE,
   prediction_type text NOT NULL CHECK (prediction_type IN (
     'forecast_critical_date','severity_classification',
     'mechanism_attribution','consequence_score'
@@ -459,16 +459,16 @@ CREATE TABLE IF NOT EXISTS prediction_outcomes (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-ALTER TABLE prediction_outcomes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE prediction_outcomes FORCE ROW LEVEL SECURITY;
-CREATE POLICY "prediction_outcomes_tenant_isolation" ON prediction_outcomes
+ALTER TABLE cd_prediction_outcomes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_prediction_outcomes FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_prediction_outcomes_tenant_isolation" ON cd_prediction_outcomes
   FOR ALL USING (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid)
   WITH CHECK (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);
 
 -- ============================================================
--- 13. deliberation_log
+-- 13. cd_deliberation_log
 -- ============================================================
-CREATE TABLE IF NOT EXISTS deliberation_log (
+CREATE TABLE IF NOT EXISTS cd_deliberation_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   org_id uuid NOT NULL,
   finding_id uuid,
@@ -486,11 +486,11 @@ CREATE TABLE IF NOT EXISTS deliberation_log (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_deliberation_log_lookup ON deliberation_log(org_id, finding_id);
+CREATE INDEX IF NOT EXISTS idx_cd_deliberation_log_lookup ON cd_deliberation_log(org_id, finding_id);
 
-ALTER TABLE deliberation_log ENABLE ROW LEVEL SECURITY;
-ALTER TABLE deliberation_log FORCE ROW LEVEL SECURITY;
-CREATE POLICY "deliberation_log_tenant_isolation" ON deliberation_log
+ALTER TABLE cd_deliberation_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cd_deliberation_log FORCE ROW LEVEL SECURITY;
+CREATE POLICY "cd_deliberation_log_tenant_isolation" ON cd_deliberation_log
   FOR ALL USING (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid)
   WITH CHECK (org_id = (auth.jwt() -> 'app_metadata' ->> 'org_id')::uuid);
 
@@ -522,9 +522,9 @@ CREATE POLICY "ai_cost_log_service_write" ON ai_cost_log
   FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- ============================================================
--- SEED: 34 degradation_mechanisms
+-- SEED: 34 cd_degradation_mechanisms
 -- ============================================================
-INSERT INTO degradation_mechanisms (mechanism_key, display_name, category, default_consequence_bias) VALUES
+INSERT INTO cd_degradation_mechanisms (mechanism_key, display_name, category, default_consequence_bias) VALUES
   ('general_corrosion','General Corrosion','corrosion','moderate'),
   ('pitting_corrosion','Pitting Corrosion','corrosion','high'),
   ('crevice_corrosion','Crevice Corrosion','corrosion','high'),
