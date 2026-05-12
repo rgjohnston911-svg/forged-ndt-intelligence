@@ -105,6 +105,15 @@ class Query {
     return this;
   }
 
+  is(col: string, val: null | boolean) {
+    this.filters.push((r) => {
+      const v = r[col];
+      if (val === null) return v === null || v === undefined;
+      return v === val;
+    });
+    return this;
+  }
+
   like(col: string, pattern: string) {
     // Translate Postgres LIKE pattern to regex: % → .*, _ → .
     const regex = new RegExp(

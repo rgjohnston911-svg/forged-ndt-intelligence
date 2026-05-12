@@ -439,7 +439,9 @@ describe("runDeliberation — happy path", () => {
     assert.equal(log.length, 1);
     const row = log[0] as Record<string, unknown>;
     assert.equal((row.specialist_outputs as unknown[]).length, 6);
-    assert.equal(row.consensus_level, "unanimous");
+    // Sprint 3: consensus_level is the ArbitrationDecision.status verbatim.
+    assert.equal(row.consensus_level, "accepted");
+    assert.equal(row.escalated_to_human, false);
     assert.ok(row.deliberation_completed_at);
     assert.ok(row.synthesizer_decision);
 
@@ -569,9 +571,10 @@ describe("runDeliberation — arbitration scenarios via orchestrator", () => {
     assert.equal(r.ok, true);
     assert.equal(r.arbitration.status, "flagged_dissent");
     assert.equal(r.arbitration.devils_advocate_objections_unresolved, 3);
-    // Final log row's consensus_level reflects the dissent
+    // Final log row's consensus_level reflects the dissent (Sprint 3 vocab)
     const row = supabase.__store.cd_deliberation_log[0] as Record<string, unknown>;
-    assert.equal(row.consensus_level, "majority_with_dissent");
+    assert.equal(row.consensus_level, "flagged_dissent");
+    assert.equal(row.escalated_to_human, true);
   });
 });
 
