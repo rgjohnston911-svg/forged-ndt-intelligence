@@ -31,6 +31,8 @@ class Query {
   private mode: "list" | "maybeSingle" = "list";
   private inserted: Record<string, unknown>[] = [];
   private isInsert = false;
+  private isUpdate = false;
+  private updatePayload: Record<string, unknown> | null = null;
   private store: MockTables;
 
   constructor(store: MockTables, table: string) {
@@ -58,6 +60,12 @@ class Query {
     return this;
   }
 
+  update(payload: Record<string, unknown>) {
+    this.isUpdate = true;
+    this.updatePayload = deepClone(payload);
+    return this;
+  }
+
   eq(col: string, val: unknown) {
     this.filters.push((r) => r[col] === val);
     return this;
@@ -79,6 +87,41 @@ class Query {
     return this;
   }
 
+  gte(col: string, val: unknown) {
+    this.filters.push((r) => {
+      const v = r[col];
+      if (v == null) return false;
+      return (v as number | string) >= (val as number | string);
+    });
+    return this;
+  }
+
+  lt(col: string, val: unknown) {
+    this.filters.push((r) => {
+      const v = r[col];
+      if (v == null) return false;
+      return (v as number | string) < (val as number | string);
+    });
+    return this;
+  }
+
+  like(col: string, pattern: string) {
+    // Translate Postgres LIKE pattern to regex: % → .*, _ → .
+    const regex = new RegExp(
+      "^" +
+        pattern
+          .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+          .replace(/%/g, ".*")
+          .replace(/_/g, ".") +
+        "$"
+    );
+    this.filters.push((r) => {
+      const v = r[col];
+      return typeof v === "string" && regex.test(v);
+    });
+    return this;
+  }
+
   order(col: string, opts?: { ascending?: boolean }) {
     this.orderBy = { col, asc: opts?.ascending !== false };
     return this;
@@ -89,8 +132,21 @@ class Query {
     return this;
   }
 
+  private applyUpdate(): void {
+    const target = this.store[this.table] ?? [];
+    for (const row of target) {
+      if (this.filters.every((f) => f(row))) {
+        Object.assign(row, this.updatePayload ?? {});
+      }
+    }
+  }
+
   private resolved<T = unknown>(): ListRes<T> | MaybeSingleRes<T> {
     if (this.isInsert) {
+      return { data: [] as T[], error: null };
+    }
+    if (this.isUpdate) {
+      this.applyUpdate();
       return { data: [] as T[], error: null };
     }
     let result = this.rows.filter((r) => this.filters.every((f) => f(r)));

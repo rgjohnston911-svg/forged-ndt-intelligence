@@ -9,6 +9,15 @@
 [functions]
   node_bundler = "esbuild"
 
+# Cross-domain deliberation orchestrator runs all 6 specialists
+# serially (~50s worst case at full thinking budgets). 26s is the
+# Pro-plan sync timeout ceiling — partial results are persisted to
+# cd_deliberation_log as each specialist completes, so a timeout
+# does not lose progress. Sprint 3 will chunked-async this so each
+# specialist runs in its own function.
+[functions."cross-domain-deliberate"]
+  timeout = 26
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"

@@ -174,3 +174,131 @@ export type SpecialistRole =
 export interface SpecialistCallContext {
   cost?: AICostInfo;
 }
+
+// ============================================================
+// Sprint 2 — Deliberation contracts
+// ============================================================
+
+export interface AnomalyContext {
+  id: string;
+  asset_id: string;
+  description: string;
+  severity: AssetAnomaly["severity"];
+  observed_at: string;
+  mechanism_key?: string | null;
+}
+
+export interface AssetContext {
+  id: string;
+  asset_name: string;
+  asset_type: string;
+  domain: AssetDomain;
+  material: string | null;
+  service_environment: string | null;
+  criticality: AssetCriticality;
+  age_years: number | null;
+}
+
+export interface EvidenceItem {
+  id: string;
+  evidence_type: string;
+  source: string;
+  reliability_weight: number | null;
+  captured_at: string | null;
+  raw_text: string | null;
+  structured_jsonb: Record<string, unknown> | null;
+  confidence: number | null;
+}
+
+export interface DegradationMechanismRef {
+  mechanism_key: string;
+  display_name: string;
+  category: string;
+}
+
+export interface Claim {
+  text: string;
+  confidence: number; // 0..1
+  supporting_evidence_ids: string[];
+  cited_mechanism_codes: string[];
+}
+
+export interface SpecialistAnalysis {
+  role: SpecialistRole;
+  model: string;
+  summary: string;
+  claims: Claim[];
+  open_questions: string[];
+  cited_mechanisms: string[];
+  cited_evidence: string[];
+  cost_usd: number;
+  latency_ms: number;
+  attempts: number;
+  raw_response: string;
+}
+
+export interface AnalogousCase {
+  inspection_event_id: string;
+  asset_id: string;
+  asset_type: string | null;
+  inspection_date: string;
+  summary: string | null;
+  cited_mechanisms: string[];
+}
+
+export interface DeliberationInput {
+  anomaly: AnomalyContext;
+  asset: AssetContext;
+  evidence: EvidenceItem[];
+  priorAnalyses: SpecialistAnalysis[];
+  mechanismVocabulary: DegradationMechanismRef[];
+  analogousCases?: AnalogousCase[]; // Sprint 2 placeholder for historian; Sprint 4 → vector retrieval
+  causalChain?: CausalChainResult; // injected after Engineer for downstream specialists
+}
+
+export interface ArbitrationDecision {
+  status: "accepted" | "flagged_dissent" | "rejected_low_confidence";
+  reason: string;
+  devils_advocate_objections_addressed: number;
+  devils_advocate_objections_unresolved: number;
+}
+
+export interface CausalChainStateNode {
+  state: string;
+  estimated_days_to_state: number | null;
+}
+
+export interface CausalChainResult {
+  ok: boolean;
+  reason?: string;
+  causal_chain_id: string | null;
+  primary_mechanism: {
+    code: string;
+    name: string;
+    fit_score: number;
+    reasoning: string;
+  } | null;
+  ranked_alternatives: Array<{
+    code: string;
+    name: string;
+    fit_score: number;
+  }>;
+  failure_path: CausalChainStateNode[];
+  confidence: number;
+}
+
+export interface DeliberationResult {
+  deliberation_id: string;
+  ok: boolean;
+  arbitration: ArbitrationDecision;
+  synthesizer_output: SpecialistAnalysis | null;
+  causal_chain: CausalChainResult | null;
+  total_cost_usd: number;
+  total_latency_ms: number;
+  per_specialist: SpecialistAnalysis[];
+  aborted_reason?:
+    | "engineer_failed"
+    | "synthesizer_failed"
+    | "per_deliberation_cap_exceeded"
+    | "org_daily_cap_exceeded";
+}
