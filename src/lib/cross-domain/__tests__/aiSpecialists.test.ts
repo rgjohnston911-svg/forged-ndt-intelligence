@@ -17,7 +17,7 @@ const ROLES = [
   ["inspector", callInspector, "claude-sonnet-4-6", "cross_domain:inspector"],
   ["engineer", callEngineer, "claude-opus-4-6", "cross_domain:engineer"],
   ["researcher", callResearcher, "claude-sonnet-4-6", "cross_domain:researcher"],
-  ["devils_advocate", callDevilsAdvocate, "gpt-5", "cross_domain:devils_advocate"],
+  ["devils_advocate", callDevilsAdvocate, "gpt-4o", "cross_domain:devils_advocate"],
   ["historian", callHistorian, "claude-sonnet-4-6", "cross_domain:historian"],
   ["synthesizer", callSynthesizer, "claude-opus-4-6", "cross_domain:synthesizer"],
 ] as const;
@@ -33,6 +33,7 @@ interface FetchCall {
 const ORIGINAL_FETCH = globalThis.fetch;
 const ORIGINAL_ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 const ORIGINAL_OPENAI_KEY = process.env.OPENAI_API_KEY;
+const ORIGINAL_RETRY_BASE = process.env.CROSS_DOMAIN_RETRY_BASE_MS;
 
 let fetchCalls: FetchCall[] = [];
 
@@ -40,6 +41,8 @@ function installFetchMock() {
   fetchCalls = [];
   process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
   process.env.OPENAI_API_KEY = "test-openai-key";
+  // Collapse 1s/2s/4s schedule to ~1/2/4ms for fast tests.
+  process.env.CROSS_DOMAIN_RETRY_BASE_MS = "1";
   globalThis.fetch = (async (input: FetchInput, init?: FetchInit) => {
     const url = typeof input === "string" ? input : (input as URL | Request).toString();
     fetchCalls.push({ url, init });
@@ -79,6 +82,8 @@ function restoreFetch() {
   else process.env.ANTHROPIC_API_KEY = ORIGINAL_ANTHROPIC_KEY;
   if (ORIGINAL_OPENAI_KEY === undefined) delete process.env.OPENAI_API_KEY;
   else process.env.OPENAI_API_KEY = ORIGINAL_OPENAI_KEY;
+  if (ORIGINAL_RETRY_BASE === undefined) delete process.env.CROSS_DOMAIN_RETRY_BASE_MS;
+  else process.env.CROSS_DOMAIN_RETRY_BASE_MS = ORIGINAL_RETRY_BASE;
 }
 
 describe("AI specialist wrappers — happy path", () => {
@@ -95,6 +100,7 @@ describe("AI specialist wrappers — happy path", () => {
       assert.equal(out.cost.smoke_test, true);
       assert.equal(out.response, "OK");
       assert.equal(typeof out.latency_ms, "number");
+      assert.equal(out.attempts, 1);
       assert.ok(out.cost.cost_usd >= 0);
     });
   }
@@ -141,7 +147,7 @@ describe("AI specialist wrappers — happy path", () => {
     assert.equal(body.tools, undefined);
   });
 
-  it("devils_advocate hits OpenAI /v1/responses with reasoning.effort=low", async () => {
+  it("devils_advocate hits OpenAI /v1/responses with gpt-4o and no reasoning param", async () => {
     await callDevilsAdvocate("hi");
     const call = fetchCalls.find((c) => c.url.includes("openai.com"));
     assert.ok(call);
@@ -149,8 +155,11 @@ describe("AI specialist wrappers — happy path", () => {
     const headers = (call!.init?.headers ?? {}) as Record<string, string>;
     assert.equal(headers["Authorization"], "Bearer test-openai-key");
     const body = JSON.parse(String(call!.init?.body ?? "{}"));
-    assert.equal(body.model, "gpt-5");
-    assert.deepEqual(body.reasoning, { effort: "low" });
+    assert.equal(body.model, "gpt-4o");
+    // gpt-4o is non-reasoning — the reasoning param must be absent.
+    assert.equal(body.reasoning, undefined);
+    // Without reasoning, max_output_tokens is the bare visible-allowance.
+    assert.equal(body.max_output_tokens, 10);
   });
 });
 
@@ -207,23 +216,118 @@ describe("AI specialist wrappers — cost log writes", () => {
   });
 });
 
-describe("AI specialist wrappers — error handling", () => {
+describe("AI specialist wrappers — error handling + retry", () => {
   beforeEach(() => {
     fetchCalls = [];
     process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
     process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.CROSS_DOMAIN_RETRY_BASE_MS = "1";
   });
   afterEach(restoreFetch);
 
   it("returns ok:false with error message on provider 4xx, does not throw", async () => {
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ error: "invalid_model" }), { status: 400 })) as typeof fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response(JSON.stringify({ error: "invalid_model" }), { status: 400 });
+    }) as typeof fetch;
 
     const out = await callInspector("hi");
     assert.equal(out.ok, false);
     assert.equal(out.response, null);
     assert.ok(out.error && out.error.includes("400"));
+    assert.equal(out.attempts, 1);
+    assert.equal(calls, 1, "4xx must not retry");
     assert.equal(typeof out.latency_ms, "number");
+  });
+
+  it("does NOT retry on 401 (auth error) — surfaces immediately", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response(JSON.stringify({ error: "invalid_api_key" }), { status: 401 });
+    }) as typeof fetch;
+
+    const out = await callInspector("hi");
+    assert.equal(out.ok, false);
+    assert.equal(out.response, null);
+    assert.equal(out.attempts, 1);
+    assert.equal(calls, 1, "401 must not retry");
+    assert.ok(out.error && out.error.includes("401"));
+  });
+
+  it("retries on Anthropic 529 with exponential backoff — 529 twice then 200 = attempts:3", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls <= 2) {
+        return new Response(JSON.stringify({ error: "overloaded" }), { status: 529 });
+      }
+      return new Response(
+        JSON.stringify({
+          id: "msg_after_retry",
+          content: [{ type: "text", text: "OK" }],
+          usage: { input_tokens: 12, output_tokens: 1 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const out = await callInspector("hi");
+    assert.equal(out.ok, true, out.error ?? "");
+    assert.equal(out.response, "OK");
+    assert.equal(out.attempts, 3);
+    assert.equal(calls, 3);
+  });
+
+  it("exhausts retries on persistent 529 — 4 attempts then ok:false", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response(JSON.stringify({ error: "overloaded" }), { status: 529 });
+    }) as typeof fetch;
+
+    const out = await callInspector("hi");
+    assert.equal(out.ok, false);
+    assert.equal(out.attempts, 4);
+    assert.equal(calls, 4);
+    assert.ok(out.error && out.error.includes("529"));
+  });
+
+  it("retries on OpenAI 503 — 503 once then 200 = attempts:2", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls === 1) {
+        return new Response(JSON.stringify({ error: "service_unavailable" }), { status: 503 });
+      }
+      return new Response(
+        JSON.stringify({
+          id: "resp_after_retry",
+          output_text: "OK",
+          usage: { input_tokens: 8, output_tokens: 1 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const out = await callDevilsAdvocate("hi");
+    assert.equal(out.ok, true, out.error ?? "");
+    assert.equal(out.attempts, 2);
+    assert.equal(calls, 2);
+  });
+
+  it("does NOT retry on client-side network errors (TypeError)", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      throw new TypeError("fetch failed: network");
+    }) as typeof fetch;
+
+    const out = await callInspector("hi");
+    assert.equal(out.ok, false);
+    assert.equal(out.attempts, 1);
+    assert.equal(calls, 1, "client-side network errors must not retry");
   });
 
   it("returns ok:false when ANTHROPIC_API_KEY is missing", async () => {
@@ -235,6 +339,7 @@ describe("AI specialist wrappers — error handling", () => {
     const out = await callInspector("hi");
     assert.equal(out.ok, false);
     assert.equal(out.response, null);
+    assert.equal(out.attempts, 1);
     assert.ok(out.error && out.error.includes("ANTHROPIC_API_KEY"));
   });
 });
