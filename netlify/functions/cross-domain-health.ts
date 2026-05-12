@@ -10,9 +10,8 @@
 //       app_metadata.org_id fallback. Org must have
 //       cross_domain_intelligence enabled in org_feature_flags.
 //
-// Sprint 1 note: the wrappers are skeleton pings — `response`
-// is the skeleton ack string, not literal "OK", until Sprint 2
-// wires in real Anthropic/OpenAI calls.
+// Path B note: wrappers now make real minimal-token provider
+// calls. `response` is the literal model reply (typically "OK").
 // ============================================================
 
 import type { Handler, HandlerEvent } from "@netlify/functions";
@@ -26,7 +25,11 @@ import {
   callSynthesizer,
 } from "../../src/lib/cross-domain/aiSpecialists";
 import { isCrossDomainEnabled } from "../../src/lib/cross-domain/featureFlags";
-import type { SpecialistCallContext, SpecialistRole } from "../../src/lib/cross-domain/types";
+import type {
+  SpecialistCallContext,
+  SpecialistOutput,
+  SpecialistRole,
+} from "../../src/lib/cross-domain/types";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -40,13 +43,7 @@ const HEALTH_PROMPT = "Respond with the single word OK.";
 type SpecialistFn = (
   prompt: string,
   ctx?: SpecialistCallContext
-) => Promise<{
-  role: SpecialistRole;
-  model: string;
-  ok: boolean;
-  result: { ack: string; prompt_preview: string };
-  error?: string;
-}>;
+) => Promise<SpecialistOutput>;
 
 const SPECIALISTS: Array<{ role: SpecialistRole; fn: SpecialistFn }> = [
   { role: "inspector", fn: callInspector },
@@ -84,7 +81,7 @@ function json(statusCode: number, body: unknown) {
 
 interface RoleResult {
   ok: boolean;
-  response: string;
+  response: string | null;
   latency_ms: number;
   error?: string;
 }
@@ -134,27 +131,7 @@ export const handler: Handler = async (event) => {
   };
 
   const settled = await Promise.allSettled(
-    SPECIALISTS.map(async ({ role, fn }) => {
-      const t0 = Date.now();
-      try {
-        const out = await fn(HEALTH_PROMPT, ctx);
-        return {
-          role,
-          ok: out.ok,
-          response: out.result?.ack ?? "",
-          latency_ms: Date.now() - t0,
-          error: out.error,
-        };
-      } catch (err) {
-        return {
-          role,
-          ok: false,
-          response: "",
-          latency_ms: Date.now() - t0,
-          error: err instanceof Error ? err.message : String(err),
-        };
-      }
-    })
+    SPECIALISTS.map(({ fn }) => fn(HEALTH_PROMPT, ctx))
   );
 
   const results: Record<string, RoleResult> = {};
@@ -173,7 +150,7 @@ export const handler: Handler = async (event) => {
     } else {
       results[role] = {
         ok: false,
-        response: "",
+        response: null,
         latency_ms: 0,
         error: String(s.reason),
       };
