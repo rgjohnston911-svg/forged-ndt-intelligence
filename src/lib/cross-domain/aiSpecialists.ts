@@ -2,12 +2,17 @@
 // DEPLOY355 — Six AI specialist client wrappers
 //
 // Path B smoke test: each wrapper makes a real minimal-token
-// provider call to verify API keys, model names, GPT-5 access,
-// and extended-thinking config before Sprint 2 builds the
+// provider call to verify API keys, model names, and
+// extended-thinking config before Sprint 2 builds the
 // deliberation orchestrator on top.
 //
 // Wrappers never throw — failures return { ok: false, ... } so
 // Promise.allSettled in the health endpoint resolves cleanly.
+//
+// Resilience: every provider call is wrapped in exponential-
+// backoff retry (max 3 retries, 1s/2s/4s with ±20% jitter) for
+// transient overload responses (Anthropic 529, OpenAI 5xx/529).
+// 4xx and client-side network errors surface immediately.
 // ============================================================
 
 import type {
@@ -33,7 +38,9 @@ const SMOKE_TEST_PRICING: Record<
 > = {
   "claude-sonnet-4-6": { input_per_mtok: 3, output_per_mtok: 15 },
   "claude-opus-4-6": { input_per_mtok: 15, output_per_mtok: 75 },
-  "gpt-5": { input_per_mtok: 1.25, output_per_mtok: 10 },
+  "gpt-4o": { input_per_mtok: 2.5, output_per_mtok: 10 },
+  // Reactivate when OpenAI org verification completes:
+  // "gpt-5": { input_per_mtok: 1.25, output_per_mtok: 10 },
 };
 
 interface SpecialistSpec {
@@ -74,11 +81,13 @@ const SPECS: Record<SpecialistRole, SpecialistSpec> = {
   devils_advocate: {
     role: "devils_advocate",
     provider: "openai",
-    model: "gpt-5",
+    model: "gpt-4o",
     code_name: "cross_domain:devils_advocate",
-    // Sprint 2 sets effort:"high".
-    notes: "OpenAI gpt-5 Responses API — reasoning.effort=low (smoke test)",
-    reasoning_effort: "low",
+    // Sprint 2 may upgrade to a reasoning-tier model (o1, o3, or
+    // gpt-5 if org verification completes) with reasoning.effort:"high".
+    // For now, gpt-4o without the reasoning param — gpt-4o is not a
+    // reasoning-tier model and doesn't need org verification.
+    notes: "OpenAI gpt-4o Responses API — no reasoning (smoke test)",
   },
   historian: {
     role: "historian",
@@ -111,28 +120,90 @@ function computeCostUsd(
   );
 }
 
-async function logCost(
-  ctx: SpecialistCallContext | undefined,
-  spec: SpecialistSpec,
-  inputTokens: number,
-  outputTokens: number,
-  costUsd: number,
-  requestId: string | null,
-  extra: Record<string, unknown> = {}
-): Promise<void> {
-  if (!ctx?.cost?.supabaseAdmin) return;
-  const { orgId, supabaseAdmin } = ctx.cost;
-  await supabaseAdmin.from("ai_cost_log").insert({
-    org_id: orgId,
-    code_name: spec.code_name,
-    model: spec.model,
-    input_tokens: inputTokens,
-    output_tokens: outputTokens,
-    cost_usd: costUsd,
-    request_id: requestId,
-    metadata: { smoke_test: true, role: spec.role, ...extra },
-  });
+// ------------------------------------------------------------
+// Retry plumbing
+// ------------------------------------------------------------
+
+class ProviderHttpError extends Error {
+  readonly status: number;
+  readonly provider: "anthropic" | "openai";
+  constructor(provider: "anthropic" | "openai", status: number, body: string) {
+    super(`${provider} ${status}: ${body.slice(0, 300)}`);
+    this.name = "ProviderHttpError";
+    this.provider = provider;
+    this.status = status;
+  }
 }
+
+class RetryExhaustedError extends Error {
+  readonly attempts: number;
+  readonly cause: Error;
+  constructor(attempts: number, cause: Error) {
+    super(cause.message);
+    this.name = "RetryExhaustedError";
+    this.attempts = attempts;
+    this.cause = cause;
+  }
+}
+
+const OPENAI_RETRYABLE_STATUSES = new Set([500, 502, 503, 504, 529]);
+
+function isRetryable(err: unknown): boolean {
+  if (!(err instanceof ProviderHttpError)) return false;
+  if (err.provider === "anthropic") return err.status === 529;
+  return OPENAI_RETRYABLE_STATUSES.has(err.status);
+}
+
+interface RetryOptions {
+  maxRetries: number;
+  baseDelayMs: number;
+  jitterPct: number;
+}
+
+function defaultRetryOptions(): RetryOptions {
+  // CROSS_DOMAIN_RETRY_BASE_MS exists so tests can shrink the
+  // 1s/2s/4s schedule to single digits without changing call sites.
+  const envBase = Number(process.env.CROSS_DOMAIN_RETRY_BASE_MS);
+  const baseDelayMs = Number.isFinite(envBase) && envBase >= 0 ? envBase : 1000;
+  return { maxRetries: 3, baseDelayMs, jitterPct: 0.2 };
+}
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function callWithRetry<T>(
+  fn: () => Promise<T>,
+  opts: RetryOptions = defaultRetryOptions()
+): Promise<{ value: T; attempts: number }> {
+  let lastError: Error | undefined;
+  for (let attempt = 1; attempt <= opts.maxRetries + 1; attempt++) {
+    try {
+      const value = await fn();
+      return { value, attempts: attempt };
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      lastError = e;
+      const retryable = isRetryable(err);
+      if (!retryable || attempt > opts.maxRetries) {
+        throw new RetryExhaustedError(attempt, e);
+      }
+      const status =
+        err instanceof ProviderHttpError ? err.status : "client-error";
+      console.warn(
+        `[cross-domain retry] attempt ${attempt}/${opts.maxRetries + 1} failed with ${status}; backing off`
+      );
+      const baseDelay = opts.baseDelayMs * Math.pow(2, attempt - 1);
+      const jitter = baseDelay * opts.jitterPct * (Math.random() * 2 - 1);
+      await sleep(Math.max(0, baseDelay + jitter));
+    }
+  }
+  // Unreachable; loop either returns or throws.
+  throw new RetryExhaustedError(opts.maxRetries + 1, lastError ?? new Error("retry loop exited unexpectedly"));
+}
+
+// ------------------------------------------------------------
+// Provider calls
+// ------------------------------------------------------------
 
 interface ProviderCallResult {
   response: string | null;
@@ -170,7 +241,7 @@ async function callAnthropic(spec: SpecialistSpec): Promise<ProviderCallResult> 
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Anthropic ${res.status}: ${text.slice(0, 300)}`);
+    throw new ProviderHttpError("anthropic", res.status, text);
   }
   const data = (await res.json()) as {
     id?: string;
@@ -217,7 +288,7 @@ async function callOpenAI(spec: SpecialistSpec): Promise<ProviderCallResult> {
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`OpenAI ${res.status}: ${text.slice(0, 300)}`);
+    throw new ProviderHttpError("openai", res.status, text);
   }
   const data = (await res.json()) as {
     id?: string;
@@ -253,6 +324,29 @@ async function callOpenAI(spec: SpecialistSpec): Promise<ProviderCallResult> {
   };
 }
 
+async function logCost(
+  ctx: SpecialistCallContext | undefined,
+  spec: SpecialistSpec,
+  inputTokens: number,
+  outputTokens: number,
+  costUsd: number,
+  requestId: string | null,
+  extra: Record<string, unknown> = {}
+): Promise<void> {
+  if (!ctx?.cost?.supabaseAdmin) return;
+  const { orgId, supabaseAdmin } = ctx.cost;
+  await supabaseAdmin.from("ai_cost_log").insert({
+    org_id: orgId,
+    code_name: spec.code_name,
+    model: spec.model,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    cost_usd: costUsd,
+    request_id: requestId,
+    metadata: { smoke_test: true, role: spec.role, ...extra },
+  });
+}
+
 async function callSpecialist(
   role: SpecialistRole,
   ctx?: SpecialistCallContext
@@ -260,10 +354,9 @@ async function callSpecialist(
   const spec = SPECS[role];
   const t0 = Date.now();
   try {
-    const r =
-      spec.provider === "anthropic"
-        ? await callAnthropic(spec)
-        : await callOpenAI(spec);
+    const { value: r, attempts } = await callWithRetry(() =>
+      spec.provider === "anthropic" ? callAnthropic(spec) : callOpenAI(spec)
+    );
     const latency_ms = Date.now() - t0;
     const cost_usd = computeCostUsd(spec.model, r.input_tokens, r.output_tokens);
 
@@ -274,7 +367,7 @@ async function callSpecialist(
       r.output_tokens,
       cost_usd,
       r.request_id,
-      { latency_ms }
+      { latency_ms, attempts }
     );
 
     return {
@@ -283,6 +376,7 @@ async function callSpecialist(
       ok: true,
       response: r.response,
       latency_ms,
+      attempts,
       cost: {
         input_tokens: r.input_tokens,
         output_tokens: r.output_tokens,
@@ -294,13 +388,21 @@ async function callSpecialist(
     };
   } catch (err) {
     const latency_ms = Date.now() - t0;
-    const message = err instanceof Error ? err.message : String(err);
+    let attempts = 1;
+    let underlying: Error;
+    if (err instanceof RetryExhaustedError) {
+      attempts = err.attempts;
+      underlying = err.cause;
+    } else {
+      underlying = err instanceof Error ? err : new Error(String(err));
+    }
     return {
       role,
       model: spec.model,
       ok: false,
       response: null,
       latency_ms,
+      attempts,
       cost: {
         input_tokens: 0,
         output_tokens: 0,
@@ -309,7 +411,7 @@ async function callSpecialist(
         code_name: spec.code_name,
         smoke_test: true,
       },
-      error: message,
+      error: underlying.message,
     };
   }
 }

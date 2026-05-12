@@ -83,6 +83,7 @@ interface RoleResult {
   ok: boolean;
   response: string | null;
   latency_ms: number;
+  attempts: number;
   error?: string;
 }
 
@@ -144,6 +145,7 @@ export const handler: Handler = async (event) => {
         ok: v.ok,
         response: v.response,
         latency_ms: v.latency_ms,
+        attempts: v.attempts,
       };
       if (v.error) r.error = v.error;
       results[role] = r;
@@ -152,6 +154,7 @@ export const handler: Handler = async (event) => {
         ok: false,
         response: null,
         latency_ms: 0,
+        attempts: 0,
         error: String(s.reason),
       };
     }

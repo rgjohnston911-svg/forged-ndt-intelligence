@@ -151,6 +151,7 @@ export interface SpecialistOutput {
   ok: boolean;
   response: string | null;
   latency_ms: number;
+  attempts: number;
   cost: {
     input_tokens: number;
     output_tokens: number;
