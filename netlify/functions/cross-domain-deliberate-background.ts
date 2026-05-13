@@ -23,6 +23,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { runDeliberation } from "../../src/lib/cross-domain/orchestrator";
 import { checkOrgBudget } from "../../src/lib/cross-domain/budgetGuard";
 import { finalizeDeliberation } from "../../src/lib/cross-domain/deliberationFinalizer";
+import { retrieveAnalogousCases } from "../../src/lib/cross-domain/memoryRetrieval";
 import type {
   AnomalyContext,
   AssetContext,
@@ -143,66 +144,51 @@ async function loadMechanismVocabulary(
   }));
 }
 
+// Sprint 4A: the Sprint 2 cd_inspection_events SELECT is replaced by
+// vector retrieval over cd_tenant_memory_index. retrieveAnalogousCases
+// embeds the anomaly+asset+mechanisms description and pulls the top-K
+// most semantically similar reasoning artifacts from prior deliberations.
 async function loadAnalogousCases(
   supabase: SupabaseClient,
   org_id: string,
   asset: AssetContext,
-  anomaly: AnomalyContext
+  anomaly: AnomalyContext,
+  excludeDeliberationId?: string
 ): Promise<AnalogousCase[]> {
-  if (!anomaly.mechanism_key) return [];
-  const sinceISO = new Date(
-    Date.now() - 90 * 24 * 60 * 60 * 1000
-  ).toISOString();
+  const assetContext = [
+    asset.asset_name,
+    `type=${asset.asset_type}`,
+    `domain=${asset.domain}`,
+    asset.material ? `material=${asset.material}` : "",
+    asset.service_environment
+      ? `service_env=${asset.service_environment}`
+      : "",
+    `criticality=${asset.criticality}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const citedMechanisms = anomaly.mechanism_key ? [anomaly.mechanism_key] : [];
 
-  const { data: peerAssetsData } = await supabase
-    .from("cd_asset_nodes")
-    .select("id")
-    .eq("org_id", org_id)
-    .eq("asset_type", asset.asset_type);
-  const peerAssetIds = ((peerAssetsData ?? []) as Array<{ id: string }>)
-    .map((r) => r.id)
-    .filter((id) => id !== asset.id);
-  if (peerAssetIds.length === 0) return [];
-
-  const { data: eventsData } = await supabase
-    .from("cd_inspection_events")
-    .select("id, asset_id, inspection_date, summary")
-    .eq("org_id", org_id)
-    .in("asset_id", peerAssetIds)
-    .gte("inspection_date", sinceISO)
-    .order("inspection_date", { ascending: false });
-  const events = (eventsData ?? []) as Array<{
-    id: string;
-    asset_id: string;
-    inspection_date: string;
-    summary: string | null;
-  }>;
-  if (events.length === 0) return [];
-
-  const eventIds = events.map((e) => e.id);
-  const { data: peerAnomaliesData } = await supabase
-    .from("cd_asset_anomalies")
-    .select("inspection_event_id, mechanism_key")
-    .eq("org_id", org_id)
-    .in("inspection_event_id", eventIds)
-    .eq("mechanism_key", anomaly.mechanism_key);
-  const matchingEventIds = new Set(
-    ((peerAnomaliesData ?? []) as Array<{ inspection_event_id: string }>).map(
-      (r) => r.inspection_event_id
-    )
+  const result = await retrieveAnalogousCases(
+    {
+      anomalyDescription: anomaly.description,
+      assetContext,
+      citedMechanisms,
+      org_id,
+      excludeDeliberationId,
+    },
+    supabase
   );
 
-  return events
-    .filter((e) => matchingEventIds.has(e.id))
-    .slice(0, 5)
-    .map((e) => ({
-      inspection_event_id: e.id,
-      asset_id: e.asset_id,
-      asset_type: asset.asset_type,
-      inspection_date: e.inspection_date,
-      summary: e.summary,
-      cited_mechanisms: [anomaly.mechanism_key ?? ""],
-    }));
+  if (!result.ok) {
+    console.warn(
+      `[cross-domain analogous-cases] retrieval failed err="${
+        result.error ?? "unknown"
+      }" — historian will run cold-start`
+    );
+    return [];
+  }
+  return result.cases;
 }
 
 async function markRowFailed(
@@ -295,7 +281,7 @@ export const handler: Handler = async (event) => {
       const [evidence, mechanismVocabulary, analogousCases] = await Promise.all([
         loadEvidence(supabase, org_id, anomaly.id),
         loadMechanismVocabulary(supabase),
-        loadAnalogousCases(supabase, org_id, asset, anomaly),
+        loadAnalogousCases(supabase, org_id, asset, anomaly, deliberation_id),
       ]);
 
       const input: DeliberationInput = {

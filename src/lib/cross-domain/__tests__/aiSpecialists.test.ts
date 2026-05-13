@@ -362,8 +362,8 @@ describe("SPECIALIST_SPECS", () => {
 // failure, parse_error is populated, and retry behavior is bounded.
 // ============================================================
 
-import type { DeliberationInput } from "../types";
-import { deliberateAsInspector } from "../aiSpecialists";
+import type { DeliberationInput, AnalogousCase } from "../types";
+import { deliberateAsInspector, deliberateAsHistorian, buildUserPrompt } from "../aiSpecialists";
 
 const DELIB_INPUT: DeliberationInput = {
   anomaly: {
@@ -530,5 +530,151 @@ describe("deliberate() — valid JSON happy path still works (Sprint 3.2 regress
     assert.equal(result.analysis.parse_error, undefined);
     assert.equal(result.analysis.raw_response, validJson);
     assert.equal(fetchCount, 1, "single fetch on parse success");
+  });
+});
+
+// ============================================================
+// Sprint 4A — Historian receives memory-backed analogous cases
+//
+// The buildUserPrompt path is exercised directly to verify the new
+// vector-retrieval AnalogousCase shape (source_deliberation_id,
+// text_content, similarity, …) is serialized into the prompt for
+// Historian, and to verify cold-start tenants see the explicit
+// "(none — cold-start tenant …)" line.
+// ============================================================
+
+function makeAnalogousCase(overrides: Partial<AnalogousCase> = {}): AnalogousCase {
+  return {
+    source_deliberation_id: "prior-deliberation-1",
+    source_anomaly_id: "prior-anomaly-1",
+    record_type: "synthesis_summary",
+    text_content:
+      "Pitting consistent with chloride exposure on a similarly aged riser.",
+    similarity: 0.87,
+    metadata: {
+      prior_consensus_level: "unanimous",
+      prior_synthesizer_summary: "Prior unanimous outcome.",
+      cited_mechanisms: ["pitting_corrosion"],
+      cited_evidence_ids: ["ev-prior-1"],
+    },
+    cited_mechanisms: ["pitting_corrosion"],
+    created_at: new Date("2026-04-10").toISOString(),
+    ...overrides,
+  };
+}
+
+describe("Historian prompt — Sprint 4A memory-backed cases", () => {
+  it("includes ANALOGOUS PRIOR CASES section with new shape when cases present", () => {
+    const cases = [
+      makeAnalogousCase({ similarity: 0.91 }),
+      makeAnalogousCase({
+        source_deliberation_id: "prior-deliberation-2",
+        record_type: "specialist_claim",
+        text_content: "Wall loss > 20% nominal.",
+        similarity: 0.78,
+      }),
+    ];
+    const inputWithCases: DeliberationInput = {
+      ...DELIB_INPUT,
+      analogousCases: cases,
+    };
+    const prompt = buildUserPrompt("historian", inputWithCases, null);
+    assert.ok(
+      prompt.includes("ANALOGOUS PRIOR CASES (vector retrieval"),
+      "prompt must reference vector retrieval"
+    );
+    assert.ok(
+      prompt.includes("prior-deliberation-1"),
+      "prompt must include first prior deliberation id"
+    );
+    assert.ok(
+      prompt.includes("prior-deliberation-2"),
+      "prompt must include second prior deliberation id"
+    );
+    assert.ok(
+      prompt.includes('"similarity": 0.91') || prompt.includes("0.91"),
+      "prompt must surface similarity score"
+    );
+    assert.ok(
+      prompt.includes("text_content"),
+      "prompt must surface text_content field"
+    );
+  });
+
+  it("cold-start tenant: empty analogousCases → prompt shows explicit none line", () => {
+    const inputColdStart: DeliberationInput = {
+      ...DELIB_INPUT,
+      analogousCases: [],
+    };
+    const prompt = buildUserPrompt("historian", inputColdStart, null);
+    assert.ok(
+      prompt.includes("ANALOGOUS PRIOR CASES: (none"),
+      "cold-start prompt must explicitly state no prior cases"
+    );
+    assert.ok(
+      prompt.includes("cold-start"),
+      "cold-start prompt must use 'cold-start' wording"
+    );
+  });
+
+  it("undefined analogousCases also triggers the cold-start line", () => {
+    const prompt = buildUserPrompt("historian", DELIB_INPUT, null);
+    assert.ok(prompt.includes("ANALOGOUS PRIOR CASES: (none"));
+  });
+
+  it("non-historian roles do NOT receive an ANALOGOUS PRIOR CASES section", () => {
+    const cases = [makeAnalogousCase()];
+    const inputWithCases: DeliberationInput = {
+      ...DELIB_INPUT,
+      analogousCases: cases,
+    };
+    const inspectorPrompt = buildUserPrompt("inspector", inputWithCases, null);
+    assert.ok(
+      !inspectorPrompt.includes("ANALOGOUS PRIOR CASES"),
+      "only Historian gets the analogous-cases section"
+    );
+  });
+});
+
+describe("Historian deliberation — Sprint 4A integration smoke", () => {
+  beforeEach(installFetchMock);
+  afterEach(restoreFetch);
+
+  it("Historian runs to completion with non-empty analogous cases (parses valid JSON response)", async () => {
+    // Override fetch with valid Historian JSON
+    const validHistorianJson = JSON.stringify({
+      summary:
+        "Prior cases reinforce a pitting-corrosion hypothesis at similar service age.",
+      claims: [
+        {
+          text: "Two prior deliberations cite pitting_corrosion at high similarity.",
+          confidence: 0.8,
+          supporting_evidence_ids: [],
+          cited_mechanism_codes: ["pitting_corrosion"],
+        },
+      ],
+      open_questions: [],
+      cited_mechanisms: ["pitting_corrosion"],
+      cited_evidence: [],
+    });
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          id: "msg_hist",
+          content: [{ type: "text", text: validHistorianJson }],
+          usage: { input_tokens: 200, output_tokens: 80 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )) as typeof fetch;
+
+    const cases = [makeAnalogousCase()];
+    const result = await deliberateAsHistorian({
+      ...DELIB_INPUT,
+      analogousCases: cases,
+    });
+    assert.equal(result.ok, true, result.error ?? "");
+    assert.equal(result.analysis.role, "historian");
+    assert.ok(result.analysis.summary.length > 0);
+    assert.ok(result.analysis.cited_mechanisms.includes("pitting_corrosion"));
   });
 });
