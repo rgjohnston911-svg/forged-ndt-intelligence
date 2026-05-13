@@ -235,6 +235,10 @@ export interface SpecialistAnalysis {
   latency_ms: number;
   attempts: number;
   raw_response: string;
+  // Populated when the model returned content but it didn't parse
+  // against the SpecialistAnalysis schema. Empty / undefined on success.
+  // Sprint 3.2 added so we never silently discard model output again.
+  parse_error?: string;
 }
 
 export interface AnalogousCase {

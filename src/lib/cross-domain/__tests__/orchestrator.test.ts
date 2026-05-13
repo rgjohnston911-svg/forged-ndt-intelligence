@@ -586,6 +586,146 @@ describe("runDeliberation — arbitration scenarios via orchestrator", () => {
   });
 });
 
+// ============================================================
+// Sprint 3.2 — causal chain wiring behavior
+// ============================================================
+
+describe("runDeliberation — causal chain wiring (Sprint 3.2)", () => {
+  beforeEach(installFetchMock);
+  afterEach(restoreFetch);
+
+  function seedSupabase() {
+    return makeMockSupabase({
+      cd_degradation_mechanisms: SEEDED_MECH_ROWS,
+      org_feature_flags: [
+        {
+          org_id: ORG,
+          feature_flags: {
+            cross_domain: { daily_cap_usd: 100, per_deliberation_cap_usd: 50 },
+          },
+        },
+      ],
+      cd_deliberation_log: [],
+      cd_causal_chains: [],
+      ai_cost_log: [],
+    });
+  }
+
+  function queueWithEngineerMechanisms(mechanisms: string[]) {
+    responseQueue = [
+      // Inspector
+      () =>
+        anthropicOk(
+          specialistJson({
+            summary: "I",
+            claims: [{ text: "x", confidence: 0.7 }],
+          })
+        ),
+      // Engineer — cited_mechanisms is the variable under test
+      () =>
+        anthropicOk(
+          specialistJson({
+            summary: "E",
+            claims: [{ text: "e1", confidence: 0.8 }],
+            cited_mechanisms: mechanisms,
+          }),
+          { with_thinking: true }
+        ),
+      // Researcher
+      () => anthropicOk(specialistJson({ summary: "R", claims: [] })),
+      // Devil's Advocate
+      () =>
+        openaiOk(
+          specialistJson({
+            summary: "DA",
+            claims: [{ text: "No significant gaps found: ok", confidence: 0.6 }],
+          })
+        ),
+      // Historian
+      () => anthropicOk(specialistJson({ summary: "H", claims: [] })),
+      // Synthesizer
+      () =>
+        anthropicOk(
+          specialistJson({
+            summary: "S",
+            claims: [{ text: "final", confidence: 0.8 }],
+          }),
+          { with_thinking: true }
+        ),
+    ];
+  }
+
+  it("engineer cites mechanisms → buildCausalChain runs → cd_causal_chains row written", async () => {
+    const supabase = seedSupabase();
+    queueWithEngineerMechanisms(["pitting_corrosion"]);
+
+    const r = await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-cc-ok",
+      supabase: supabase as never,
+    });
+    assert.equal(r.ok, true);
+    assert.ok(r.causal_chain);
+    assert.equal(r.causal_chain!.ok, true);
+    assert.equal(supabase.__store.cd_causal_chains.length, 1);
+
+    // No causal_chain_error in the finalized row
+    const row = supabase.__store.cd_deliberation_log[0] as Record<string, unknown>;
+    const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    assert.equal(ara.causal_chain_error, undefined);
+  });
+
+  it("engineer cites ZERO mechanisms → buildCausalChain NOT invoked, deliberation still completes, causal_chain_error='engineer_cited_no_mechanisms'", async () => {
+    const supabase = seedSupabase();
+    queueWithEngineerMechanisms([]); // empty
+
+    const r = await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-cc-empty",
+      supabase: supabase as never,
+    });
+    assert.equal(r.ok, true, "deliberation must complete even without mechanisms");
+    // No causal chain row written
+    assert.equal(supabase.__store.cd_causal_chains.length, 0);
+    // Error surfaced in arbitration_rules_applied
+    const row = supabase.__store.cd_deliberation_log[0] as Record<string, unknown>;
+    const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    assert.equal(ara.causal_chain_error, "engineer_cited_no_mechanisms");
+  });
+
+  it("buildCausalChain throws → deliberation still completes, causal_chain_error captures the throw", async () => {
+    const supabase = seedSupabase();
+    queueWithEngineerMechanisms(["pitting_corrosion"]);
+    // Force the causal chain engine to throw by sabotaging the mechanism lookup.
+    // Replace cd_degradation_mechanisms entirely with a value that .filter()/.find()
+    // can't iterate over, which will cause the engine to throw.
+    (supabase.__store as Record<string, unknown>).cd_degradation_mechanisms =
+      null as unknown as Record<string, unknown>[];
+
+    const r = await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-cc-throws",
+      supabase: supabase as never,
+    });
+    // Deliberation completes regardless of causal chain failure
+    assert.equal(r.ok, true);
+    assert.equal(r.per_specialist.length, 6);
+    // No row written
+    assert.equal(
+      (supabase.__store.cd_causal_chains as unknown[] | undefined)?.length ?? 0,
+      0
+    );
+    // Error captured
+    const row = supabase.__store.cd_deliberation_log[0] as Record<string, unknown>;
+    const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    const err = String(ara.causal_chain_error ?? "");
+    assert.ok(
+      err.startsWith("causal_chain_threw:") || err.startsWith("causal_chain_engine:"),
+      `expected causal_chain_error to be threw/engine path, got: "${err}"`
+    );
+  });
+});
+
 describe("runDeliberation — failure modes", () => {
   beforeEach(installFetchMock);
   afterEach(restoreFetch);
