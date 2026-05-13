@@ -223,6 +223,28 @@ export interface Claim {
   cited_mechanism_codes: string[];
 }
 
+// Sprint 4B: a single external source cited by a specialist that has
+// web access. Only Researcher populates this today; other specialists
+// leave cited_sources undefined. Captured from the Anthropic mixed-
+// content response (web_search_tool_result blocks) so we can audit
+// what the model actually read.
+export interface ExternalSource {
+  url: string;
+  title?: string;
+  // Short excerpt the model used (Anthropic's web_search returns
+  // encrypted_content; we surface whatever readable snippet is present).
+  snippet?: string;
+  // Extracted hostname, e.g. "asme.org". Convenient for grouping in
+  // the UI without re-parsing URLs.
+  domain?: string;
+  // The query the model issued that surfaced this result. Links a
+  // result back to a server_tool_use block via tool_use_id.
+  search_query?: string;
+  // Anthropic sometimes returns a page_age string (e.g. "2024-08-15"
+  // or "3 months ago"). Pass through as-is.
+  page_age?: string;
+}
+
 export interface SpecialistAnalysis {
   role: SpecialistRole;
   model: string;
@@ -239,6 +261,16 @@ export interface SpecialistAnalysis {
   // against the SpecialistAnalysis schema. Empty / undefined on success.
   // Sprint 3.2 added so we never silently discard model output again.
   parse_error?: string;
+  // Sprint 4B: external sources the specialist cited via server-side
+  // tools (web_search). Only Researcher populates this today; other
+  // specialists leave it undefined. Empty array means the specialist
+  // had tool access but the model decided not to search — that's a
+  // valid outcome, not an error.
+  cited_sources?: ExternalSource[];
+  // Sprint 4B: count of web_search invocations observed in the response.
+  // 0 means tools were enabled but the model didn't search. Undefined
+  // means tools weren't enabled for this specialist.
+  searches_performed?: number;
 }
 
 // Sprint 4A: AnalogousCase is now sourced from vector retrieval over
