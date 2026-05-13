@@ -31,7 +31,10 @@ const SMOKE_PROMPT = "Respond with the single word OK and nothing else.";
 // max_output_tokens both count thinking/reasoning tokens too, so
 // when thinking/reasoning is enabled we add this on top of the
 // thinking budget rather than using it as the absolute cap.
-const RESPONSE_TOKEN_ALLOWANCE = 10;
+// OpenAI Responses API requires max_output_tokens >= 16 for
+// non-reasoning models (gpt-4o etc.). 20 gives us a small safety
+// margin while keeping health-check responses tight ("OK").
+const RESPONSE_TOKEN_ALLOWANCE = 20;
 
 // TODO: centralize pricing in a single source of truth alongside
 // any other AI call sites (e.g. tri-model-reasoning). Numbers

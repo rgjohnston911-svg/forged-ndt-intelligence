@@ -136,7 +136,7 @@ describe("AI specialist wrappers — happy path", () => {
     for (const c of calls) {
       const body = JSON.parse(String(c.init?.body ?? "{}"));
       assert.equal(body.thinking, undefined);
-      assert.equal(body.max_tokens, 10);
+      assert.equal(body.max_tokens, 20);
     }
   });
 
@@ -159,7 +159,8 @@ describe("AI specialist wrappers — happy path", () => {
     // gpt-4o is non-reasoning — the reasoning param must be absent.
     assert.equal(body.reasoning, undefined);
     // Without reasoning, max_output_tokens is the bare visible-allowance.
-    assert.equal(body.max_output_tokens, 10);
+    // OpenAI Responses API requires >= 16 for non-reasoning models; we use 20.
+    assert.equal(body.max_output_tokens, 20);
   });
 });
 
