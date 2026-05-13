@@ -352,3 +352,183 @@ describe("SPECIALIST_SPECS", () => {
     );
   });
 });
+
+// ============================================================
+// Sprint 3.2 — deliberate() parse-failure handling.
+//
+// Production bug: when JSON parsing failed, the wrapper returned
+// raw_response: "" and discarded the model's actual output. These
+// tests pin the fix: raw_response is preserved on every parse
+// failure, parse_error is populated, and retry behavior is bounded.
+// ============================================================
+
+import type { DeliberationInput } from "../types";
+import { deliberateAsInspector } from "../aiSpecialists";
+
+const DELIB_INPUT: DeliberationInput = {
+  anomaly: {
+    id: "anom-1",
+    asset_id: "asset-1",
+    description: "test anomaly",
+    severity: "cat_2_moderate",
+    observed_at: new Date().toISOString(),
+    mechanism_key: null,
+  },
+  asset: {
+    id: "asset-1",
+    asset_name: "Test Asset",
+    asset_type: "vessel",
+    domain: "industrial",
+    material: null,
+    service_environment: null,
+    criticality: "moderate",
+    age_years: null,
+  },
+  evidence: [],
+  priorAnalyses: [],
+  mechanismVocabulary: [],
+};
+
+function anthropicResponseWithText(text: string): Response {
+  return new Response(
+    JSON.stringify({
+      id: "msg_x",
+      content: [{ type: "text", text }],
+      usage: { input_tokens: 50, output_tokens: 30 },
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } }
+  );
+}
+
+describe("deliberate() — empty content guard (Sprint 3.2)", () => {
+  beforeEach(() => {
+    fetchCalls = [];
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.CROSS_DOMAIN_RETRY_BASE_MS = "1";
+  });
+  afterEach(restoreFetch);
+
+  it("model returns empty string → ok:false, raw_response='', parse_error='model returned empty content', does NOT retry", async () => {
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount++;
+      return anthropicResponseWithText("");
+    }) as typeof fetch;
+
+    const result = await deliberateAsInspector(DELIB_INPUT);
+    assert.equal(result.ok, false);
+    assert.equal(result.analysis.raw_response, "");
+    assert.equal(result.analysis.parse_error, "model returned empty content");
+    // Cost still recorded — model burned tokens, we have to pay.
+    assert.ok(result.analysis.cost_usd > 0);
+    assert.equal(fetchCount, 1, "must NOT retry on empty content");
+  });
+});
+
+describe("deliberate() — malformed JSON preserves raw_response (Sprint 3.2)", () => {
+  beforeEach(() => {
+    fetchCalls = [];
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.CROSS_DOMAIN_RETRY_BASE_MS = "1";
+  });
+  afterEach(restoreFetch);
+
+  it("model returns prose (no JSON braces) → ok:false, raw_response preserved, parse_error populated", async () => {
+    const prose =
+      "I cannot provide a response in JSON format as requested.";
+    globalThis.fetch = (async () =>
+      anthropicResponseWithText(prose)) as typeof fetch;
+
+    const result = await deliberateAsInspector(DELIB_INPUT);
+    assert.equal(result.ok, false);
+    // RAW RESPONSE PRESERVED — this is the core Sprint 3.2 fix.
+    assert.equal(result.analysis.raw_response, prose);
+    assert.ok(
+      result.analysis.parse_error &&
+        result.analysis.parse_error.length > 0,
+      "parse_error must be populated"
+    );
+    assert.ok(result.analysis.cost_usd > 0);
+  });
+
+  it("malformed JSON (mismatched braces) → ok:false, raw_response preserved, retried once max (2 fetches)", async () => {
+    const malformed = '{"summary": "hi", "claims": [unclosed';
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount++;
+      return anthropicResponseWithText(malformed);
+    }) as typeof fetch;
+
+    const result = await deliberateAsInspector(DELIB_INPUT);
+    assert.equal(result.ok, false);
+    assert.equal(result.analysis.raw_response, malformed);
+    assert.ok(result.analysis.parse_error);
+    // EXACTLY 2 fetches: initial + one parse-retry. NOT 3+.
+    assert.equal(
+      fetchCount,
+      2,
+      `must retry parse failure exactly once, got ${fetchCount} fetches`
+    );
+    assert.equal(result.analysis.attempts, 2);
+  });
+
+  it("valid JSON missing required field (no claims) → ok:false, raw preserved, parse_error from schema validation", async () => {
+    const missingFields = JSON.stringify({ summary: "ok", open_questions: [] });
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount++;
+      return anthropicResponseWithText(missingFields);
+    }) as typeof fetch;
+
+    const result = await deliberateAsInspector(DELIB_INPUT);
+    assert.equal(result.ok, false);
+    assert.equal(result.analysis.raw_response, missingFields);
+    assert.ok(result.analysis.parse_error);
+    // schema-validation failure looks like malformed to the retry
+    // loop (the JSON parsed but validateAnalysisShape returned null),
+    // so we do retry once.
+    assert.equal(fetchCount, 2);
+  });
+});
+
+describe("deliberate() — valid JSON happy path still works (Sprint 3.2 regression check)", () => {
+  beforeEach(() => {
+    fetchCalls = [];
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.CROSS_DOMAIN_RETRY_BASE_MS = "1";
+  });
+  afterEach(restoreFetch);
+
+  it("valid SpecialistAnalysis JSON → ok:true, parse_error undefined", async () => {
+    const validJson = JSON.stringify({
+      summary: "inspector view",
+      claims: [
+        {
+          text: "evidence shows X",
+          confidence: 0.8,
+          supporting_evidence_ids: [],
+          cited_mechanism_codes: [],
+        },
+      ],
+      open_questions: [],
+      cited_mechanisms: [],
+      cited_evidence: [],
+    });
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount++;
+      return anthropicResponseWithText(validJson);
+    }) as typeof fetch;
+
+    const result = await deliberateAsInspector(DELIB_INPUT);
+    assert.equal(result.ok, true);
+    assert.equal(result.analysis.summary, "inspector view");
+    assert.equal(result.analysis.claims.length, 1);
+    assert.equal(result.analysis.parse_error, undefined);
+    assert.equal(result.analysis.raw_response, validJson);
+    assert.equal(fetchCount, 1, "single fetch on parse success");
+  });
+});

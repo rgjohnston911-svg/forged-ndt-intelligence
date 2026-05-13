@@ -342,5 +342,49 @@ export const handler: Handler = async (event) => {
         finalizeErr instanceof Error ? finalizeErr.message : finalizeErr
       );
     }
+    // Sprint 3.2: emit one summary line so the deliberation's terminal
+    // state shows up at the bottom of Netlify function logs without
+    // requiring a database query.
+    try {
+      const { data: row } = await supabase
+        .from("cd_deliberation_log")
+        .select(
+          "consensus_level, total_cost_usd, deliberation_started_at, deliberation_completed_at, specialist_outputs"
+        )
+        .eq("id", deliberation_id)
+        .maybeSingle();
+      const { data: chainRows } = await supabase
+        .from("cd_causal_chains")
+        .select("id")
+        .eq("org_id", org_id)
+        .contains("linked_anomaly_ids", [anomaly_id]);
+      const r = (row ?? {}) as Record<string, unknown>;
+      const outputs = Array.isArray(r.specialist_outputs)
+        ? (r.specialist_outputs as unknown[])
+        : [];
+      const startedAt = r.deliberation_started_at
+        ? Date.parse(String(r.deliberation_started_at))
+        : 0;
+      const completedAt = r.deliberation_completed_at
+        ? Date.parse(String(r.deliberation_completed_at))
+        : Date.now();
+      const elapsedSec = startedAt
+        ? Math.round((completedAt - startedAt) / 1000)
+        : 0;
+      const causalWritten = Array.isArray(chainRows) && chainRows.length > 0;
+      console.log(
+        `[deliberation ${deliberation_id}] FINAL: consensus=${r.consensus_level ?? "null"} total_cost=$${
+          typeof r.total_cost_usd === "number"
+            ? r.total_cost_usd.toFixed(4)
+            : "0"
+        } elapsed=${elapsedSec}s specialists_completed=${outputs.length}/6 causal_chain_written=${causalWritten}`
+      );
+    } catch (logErr) {
+      // FINAL log is best-effort; never let logging crash the function.
+      console.error(
+        "[cross-domain finalize] FINAL log read failed:",
+        logErr instanceof Error ? logErr.message : logErr
+      );
+    }
   }
 };

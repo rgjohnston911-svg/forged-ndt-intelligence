@@ -244,7 +244,11 @@ async function finalizeLog(
   perSpecialist: SpecialistAnalysis[],
   arbitration: ArbitrationDecision,
   synthesizer: SpecialistAnalysis | null,
-  totalCost: number
+  totalCost: number,
+  // Sprint 3.2: optional extras merged into arbitration_rules_applied
+  // (e.g. causal_chain_error). Keeps the jsonb a single object instead
+  // of needing a separate UPDATE per diagnostic.
+  extras: Record<string, unknown> = {}
 ): Promise<void> {
   await supabase
     .from("cd_deliberation_log")
@@ -258,6 +262,7 @@ async function finalizeLog(
       arbitration_rules_applied: {
         arbitration_decision: arbitration,
         final_status: arbitration.status,
+        ...extras,
       },
       consensus_level: consensusLevelFor(arbitration),
       escalated_to_human: escalatedFor(arbitration),
@@ -367,6 +372,10 @@ export async function runDeliberation(
     : [];
   let runningCost = existing?.total_cost_usd ?? 0;
   let causalChain: CausalChainResult | null = null;
+  // Sprint 3.2: surface causal-chain-engine failures to the final
+  // arbitration_rules_applied payload for diagnosis. Empty string =
+  // engine succeeded (or wasn't applicable).
+  let causalChainError: string = "";
 
   // resume_from_specialist controls which steps to skip. If we're
   // resuming, the orchestrator uses the loaded prior outputs for
@@ -405,6 +414,11 @@ export async function runDeliberation(
     }
     const r = await callFn();
     await recordOutcome(r.analysis);
+    // Sprint 3.2 instrumentation: one-line per-step trace so Netlify
+    // function logs can reconstruct a chain post-hoc.
+    console.log(
+      `[deliberation ${deliberation_id}] step=${role} ok=${r.ok} attempts=${r.analysis.attempts} cost=$${r.analysis.cost_usd.toFixed(4)} latency=${r.analysis.latency_ms}ms${r.analysis.parse_error ? ` parse_error="${r.analysis.parse_error}"` : ""}`
+    );
     return { ...r, ran: true };
   }
 
@@ -484,15 +498,44 @@ export async function runDeliberation(
   }
 
   // ---- Step 3: Causal chain (rules-based; uses Engineer's output) ----
-  // Build deterministically from engineer.analysis.cited_mechanisms.
-  // Engineer may have run just now or been loaded from a prior run.
-  causalChain = await buildCausalChain({
-    anomaly: input.anomaly,
-    asset: input.asset,
-    candidateMechanismCodes: engineer.analysis.cited_mechanisms,
-    supabase,
-    org_id,
-  });
+  // Supplementary to the 6-AI chain — if it fails for any reason
+  // (engine throws, INSERT fails, no candidate mechanisms), the
+  // deliberation MUST still complete with the 6 specialists. The
+  // failure reason is propagated to finalize via causalChainError.
+  const engineerMechanisms = engineer.analysis.cited_mechanisms ?? [];
+  if (engineerMechanisms.length === 0) {
+    causalChainError = "engineer_cited_no_mechanisms";
+    console.warn(
+      `[orchestrator deliberation_id=${deliberation_id}] causal chain SKIPPED: engineer cited zero mechanisms`
+    );
+  } else {
+    try {
+      causalChain = await buildCausalChain({
+        anomaly: input.anomaly,
+        asset: input.asset,
+        candidateMechanismCodes: engineerMechanisms,
+        supabase,
+        org_id,
+      });
+      if (!causalChain.ok) {
+        causalChainError = `causal_chain_engine: ${causalChain.reason ?? "unknown"}`;
+        console.warn(
+          `[orchestrator deliberation_id=${deliberation_id}] causal chain returned ok:false reason="${causalChain.reason}"`
+        );
+      } else {
+        console.log(
+          `[orchestrator deliberation_id=${deliberation_id}] causal chain OK primary=${causalChain.primary_mechanism?.code} fit=${causalChain.confidence.toFixed(2)}`
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      causalChainError = `causal_chain_threw: ${message}`;
+      console.error(
+        `[orchestrator deliberation_id=${deliberation_id}] causal chain THREW err="${message}" — continuing deliberation`
+      );
+      causalChain = null;
+    }
+  }
 
   // ---- Step 4: Researcher ----
   const researcher = await step("researcher", () =>
@@ -591,7 +634,8 @@ export async function runDeliberation(
       perSpecialist,
       arbitration,
       synthesizer.analysis,
-      runningCost
+      runningCost,
+      causalChainError ? { causal_chain_error: causalChainError } : {}
     );
   } else {
     await finalizeLogAsFailure(

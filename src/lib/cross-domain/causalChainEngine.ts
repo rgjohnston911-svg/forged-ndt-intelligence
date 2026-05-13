@@ -346,7 +346,23 @@ export async function buildCausalChain(
     created_by: "cross_domain:causal_chain_engine",
   };
 
-  await supabase.from("cd_causal_chains").insert(insertRow);
+  // Sprint 3.2: check INSERT error explicitly. supabase-js returns
+  // `{ error }` on RLS denial / CHECK violation / missing column and
+  // does NOT throw — we'd silently drop the row otherwise (which is
+  // exactly what happened in the first production deliberation).
+  const insertRes = (await supabase
+    .from("cd_causal_chains")
+    .insert(insertRow)) as { data: unknown; error: { message?: string } | null };
+  if (insertRes && insertRes.error) {
+    const errMsg = insertRes.error.message ?? String(insertRes.error);
+    console.error(
+      `[causalChainEngine] insert FAILED chain_id=${causal_chain_id} org=${org_id} err="${errMsg}"`
+    );
+    return emptyFailureResult(`causal_chain_insert_failed: ${errMsg}`);
+  }
+  console.log(
+    `[causalChainEngine] inserted chain_id=${causal_chain_id} primary=${top.row.mechanism_key} fit=${top.fit_score.toFixed(2)} alternatives=${top3.length - 1}`
+  );
 
   return {
     ok: true,

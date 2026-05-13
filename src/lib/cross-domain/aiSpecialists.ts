@@ -691,6 +691,30 @@ async function runProviderCall(
   });
 }
 
+// Determine why a parse attempt failed, given the raw model response.
+// Returns a short, actionable diagnostic the caller can persist into
+// SpecialistAnalysis.parse_error.
+function diagnoseParseFailure(rawResponse: string | null | undefined): string {
+  if (rawResponse === null || rawResponse === undefined) {
+    return "model returned null content";
+  }
+  if (rawResponse.length === 0) {
+    return "model returned empty content";
+  }
+  const trimmed = rawResponse.trim();
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) {
+    return "no JSON object braces found in response";
+  }
+  try {
+    JSON.parse(trimmed.slice(start, end + 1));
+  } catch (e) {
+    return `JSON.parse: ${e instanceof Error ? e.message : String(e)}`;
+  }
+  return "parsed JSON did not match SpecialistAnalysis schema";
+}
+
 async function deliberate(
   role: SpecialistRole,
   input: DeliberationInput,
@@ -702,27 +726,19 @@ async function deliberate(
   const systemPrompt = buildSystemPrompt(role);
   const userPrompt = buildUserPrompt(role, input, arbitration);
 
-  const emptyAnalysis = (raw: string): SpecialistAnalysis => ({
-    role,
-    model: spec.model,
-    summary: "",
-    claims: [],
-    open_questions: [],
-    cited_mechanisms: [],
-    cited_evidence: [],
-    cost_usd: 0,
-    latency_ms: Date.now() - t0,
-    attempts: 1,
-    raw_response: raw,
-  });
-
   let totalCostUsd = 0;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let lastRequestId: string | null = null;
   let totalAttempts = 0;
+  // Sprint 3.2 — accumulate the raw text across passes so we never
+  // throw it away on parse failure. The last non-empty response wins.
+  let accumulatedRawResponse = "";
 
-  // Up to 2 LLM passes: 1 initial + 1 parse-failure retry with stricter instruction.
+  // Up to 2 LLM passes: 1 initial + 1 parse-failure retry with stricter
+  // instruction. We only do the retry pass when the model returned
+  // SOME text that failed to parse — an empty response means refusal or
+  // a malformed request, both of which won't be fixed by retrying.
   for (let pass = 1; pass <= 2; pass++) {
     let r: ProviderCallResult;
     let httpAttempts: number;
@@ -745,10 +761,18 @@ async function deliberate(
         underlying = err instanceof Error ? err : new Error(String(err));
       }
       const a: SpecialistAnalysis = {
-        ...emptyAnalysis(""),
+        role,
+        model: spec.model,
+        summary: "",
+        claims: [],
+        open_questions: [],
+        cited_mechanisms: [],
+        cited_evidence: [],
+        cost_usd: totalCostUsd,
         latency_ms,
         attempts,
-        cost_usd: totalCostUsd,
+        raw_response: accumulatedRawResponse,
+        parse_error: `http_error: ${underlying.message}`,
       };
       await logCost(
         ctx,
@@ -759,6 +783,9 @@ async function deliberate(
         lastRequestId,
         { deliberation: true, role, pass, error: underlying.message }
       );
+      console.warn(
+        `[deliberate ${role}] http_error pass=${pass} attempts=${attempts} cost=$${totalCostUsd.toFixed(4)} err=${underlying.message}`
+      );
       return { ok: false, analysis: a, error: underlying.message };
     }
 
@@ -767,8 +794,12 @@ async function deliberate(
     totalOutputTokens += r.output_tokens;
     totalCostUsd += computeCostUsd(spec.model, r.input_tokens, r.output_tokens);
     lastRequestId = r.request_id ?? lastRequestId;
+    const rawThisPass = r.response ?? "";
+    if (rawThisPass.length > 0) {
+      accumulatedRawResponse = rawThisPass;
+    }
 
-    const parsed = validateAnalysisShape(extractJsonObject(r.response ?? ""));
+    const parsed = validateAnalysisShape(extractJsonObject(rawThisPass));
     if (parsed) {
       const latency_ms = Date.now() - t0;
       const analysis: SpecialistAnalysis = {
@@ -782,7 +813,7 @@ async function deliberate(
         cost_usd: totalCostUsd,
         latency_ms,
         attempts: totalAttempts,
-        raw_response: r.response ?? "",
+        raw_response: rawThisPass,
       };
       await logCost(
         ctx,
@@ -795,17 +826,62 @@ async function deliberate(
       );
       return { ok: true, analysis };
     }
-    // Parse failed; loop once more with stricter instruction (pass 2),
-    // then give up.
+
+    // Parse failed. Empty content is a hard stop — retrying won't
+    // change refusal/policy/malformed-request outcomes.
+    if (rawThisPass.length === 0) {
+      const latency_ms = Date.now() - t0;
+      const parseError = "model returned empty content";
+      const analysis: SpecialistAnalysis = {
+        role,
+        model: spec.model,
+        summary: "",
+        claims: [],
+        open_questions: [],
+        cited_mechanisms: [],
+        cited_evidence: [],
+        cost_usd: totalCostUsd,
+        latency_ms,
+        attempts: totalAttempts,
+        raw_response: "",
+        parse_error: parseError,
+      };
+      await logCost(
+        ctx,
+        spec,
+        totalInputTokens,
+        totalOutputTokens,
+        totalCostUsd,
+        lastRequestId,
+        { deliberation: true, role, empty_content: true }
+      );
+      console.warn(
+        `[deliberate ${role}] empty_content pass=${pass} attempts=${totalAttempts} cost=$${totalCostUsd.toFixed(4)} model=${spec.model}`
+      );
+      return { ok: false, analysis, error: parseError };
+    }
+    // Model produced text but it didn't parse — loop once more with
+    // the stricter instruction. Second failure falls through below.
   }
 
-  // Both passes failed to produce valid JSON.
+  // Both passes failed to parse despite non-empty content. Preserve
+  // the model's actual output for diagnosis (Sprint 3.2: this used
+  // to be silently discarded as `raw_response: ""`).
   const latency_ms = Date.now() - t0;
+  const parseError = diagnoseParseFailure(accumulatedRawResponse);
   const analysis: SpecialistAnalysis = {
-    ...emptyAnalysis(""),
+    role,
+    model: spec.model,
+    summary: "",
+    claims: [],
+    open_questions: [],
+    cited_mechanisms: [],
+    cited_evidence: [],
+    cost_usd: totalCostUsd,
     latency_ms,
     attempts: totalAttempts,
-    cost_usd: totalCostUsd,
+    raw_response: accumulatedRawResponse,
+    parse_error: parseError,
   };
   await logCost(
     ctx,
@@ -814,12 +890,15 @@ async function deliberate(
     totalOutputTokens,
     totalCostUsd,
     lastRequestId,
-    { deliberation: true, role, parse_failed: true }
+    { deliberation: true, role, parse_failed: true, parse_error: parseError }
+  );
+  console.warn(
+    `[deliberate ${role}] parse_failed attempts=${totalAttempts} cost=$${totalCostUsd.toFixed(4)} parse_error="${parseError}" raw_len=${accumulatedRawResponse.length}`
   );
   return {
     ok: false,
     analysis,
-    error: "specialist returned invalid JSON after retry",
+    error: `specialist returned invalid JSON after retry: ${parseError}`,
   };
 }
 
