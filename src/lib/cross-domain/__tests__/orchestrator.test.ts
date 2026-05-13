@@ -439,8 +439,12 @@ describe("runDeliberation — happy path", () => {
     assert.equal(log.length, 1);
     const row = log[0] as Record<string, unknown>;
     assert.equal((row.specialist_outputs as unknown[]).length, 6);
-    // Sprint 3: consensus_level is the ArbitrationDecision.status verbatim.
-    assert.equal(row.consensus_level, "accepted");
+    // Sprint 3.1: consensus_level conforms to the CHECK enum
+    // (unanimous|majority_with_dissent|split|unresolved). Fine-grained
+    // status lives in arbitration_rules_applied.final_status.
+    assert.equal(row.consensus_level, "unanimous");
+    const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    assert.equal(ara.final_status, "accepted");
     assert.equal(row.escalated_to_human, false);
     assert.ok(row.deliberation_completed_at);
     assert.ok(row.synthesizer_decision);
@@ -571,9 +575,13 @@ describe("runDeliberation — arbitration scenarios via orchestrator", () => {
     assert.equal(r.ok, true);
     assert.equal(r.arbitration.status, "flagged_dissent");
     assert.equal(r.arbitration.devils_advocate_objections_unresolved, 3);
-    // Final log row's consensus_level reflects the dissent (Sprint 3 vocab)
+    // Sprint 3.1: consensus_level conforms to CHECK enum;
+    // flagged_dissent → majority_with_dissent. Fine-grained outcome
+    // is in arbitration_rules_applied.final_status.
     const row = supabase.__store.cd_deliberation_log[0] as Record<string, unknown>;
-    assert.equal(row.consensus_level, "flagged_dissent");
+    assert.equal(row.consensus_level, "majority_with_dissent");
+    const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    assert.equal(ara.final_status, "flagged_dissent");
     assert.equal(row.escalated_to_human, true);
   });
 });

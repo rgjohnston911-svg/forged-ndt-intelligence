@@ -103,14 +103,31 @@ describe("deliberationState — deriveStatus", () => {
       "running"
     );
   });
-  it("returns 'failed' when consensus_level='failed'", () => {
+  it("returns 'failed' when arbitration_rules_applied.error is set (Sprint 3.1)", () => {
     assert.equal(
       deriveStatus({
         id: "x",
         org_id: ORG,
         deliberation_started_at: new Date().toISOString(),
         deliberation_completed_at: new Date().toISOString(),
-        consensus_level: "failed",
+        consensus_level: "unresolved",
+        arbitration_rules_applied: {
+          error: "engineer_failed: 529",
+          final_status: "failed",
+        },
+      }),
+      "failed"
+    );
+  });
+  it("returns 'failed' when arbitration_rules_applied.final_status='failed' (Sprint 3.1)", () => {
+    assert.equal(
+      deriveStatus({
+        id: "x",
+        org_id: ORG,
+        deliberation_started_at: new Date().toISOString(),
+        deliberation_completed_at: new Date().toISOString(),
+        consensus_level: "unresolved",
+        arbitration_rules_applied: { final_status: "failed" },
       }),
       "failed"
     );
@@ -122,9 +139,25 @@ describe("deliberationState — deriveStatus", () => {
         org_id: ORG,
         deliberation_started_at: new Date().toISOString(),
         deliberation_completed_at: new Date().toISOString(),
-        consensus_level: "accepted",
+        consensus_level: "unanimous",
+        arbitration_rules_applied: { final_status: "accepted" },
       }),
       "completed"
+    );
+  });
+  it("returns 'running' even if consensus_level was prematurely set", () => {
+    // Pending/running take priority over the failure marker — a row
+    // mid-flight that has an in-progress error should still report
+    // running until completed_at is stamped.
+    assert.equal(
+      deriveStatus({
+        id: "x",
+        org_id: ORG,
+        deliberation_started_at: new Date().toISOString(),
+        deliberation_completed_at: null,
+        arbitration_rules_applied: { error: "transient" },
+      }),
+      "running"
     );
   });
 });
@@ -327,9 +360,12 @@ describe("trigger endpoint — failure to invoke background", () => {
     const body = JSON.parse(res.body);
     assert.equal(body.error, "background_trigger_failed");
     const row = supabase.__store.cd_deliberation_log[0] as Record<string, unknown>;
-    assert.equal(row.consensus_level, "failed");
+    // Sprint 3.1: consensus_level conforms to CHECK enum; failure
+    // signal is in arbitration_rules_applied.
+    assert.equal(row.consensus_level, "unresolved");
     const era = row.arbitration_rules_applied as Record<string, unknown>;
     assert.ok(String(era.error).includes("background_trigger_failed"));
+    assert.equal(era.final_status, "failed");
   });
 });
 
@@ -469,7 +505,7 @@ describe("status endpoint — completed", () => {
   beforeEach(() => installFetchMock());
   afterEach(restoreFetch);
 
-  it("returns completed, 100%, surfaces synthesizer_decision + consensus_level", async () => {
+  it("returns completed, 100%, surfaces synthesizer_decision + consensus_level (CHECK-conforming)", async () => {
     const synth = mkSpecialist("synthesizer");
     const supabase = makeMockSupabase({
       cd_deliberation_log: [
@@ -480,7 +516,11 @@ describe("status endpoint — completed", () => {
           deliberation_completed_at: new Date().toISOString(),
           specialist_outputs: SPECIALIST_ORDER.map(mkSpecialist),
           synthesizer_decision: synth,
-          consensus_level: "accepted",
+          // Sprint 3.1: consensus_level is one of the CHECK-allowed
+          // values; fine-grained arbitration outcome is in
+          // arbitration_rules_applied.final_status.
+          consensus_level: "unanimous",
+          arbitration_rules_applied: { final_status: "accepted" },
           escalated_to_human: false,
           total_cost_usd: 2.45,
         },
@@ -493,7 +533,7 @@ describe("status endpoint — completed", () => {
     const body = JSON.parse(res.body);
     assert.equal(body.status, "completed");
     assert.equal(body.progress_pct, 100);
-    assert.equal(body.consensus_level, "accepted");
+    assert.equal(body.consensus_level, "unanimous");
     assert.equal(body.escalated_to_human, false);
     assert.ok(body.synthesizer_decision);
     assert.equal(body.failure_reason, null);
@@ -513,9 +553,14 @@ describe("status endpoint — failed", () => {
           deliberation_started_at: new Date(Date.now() - 30000).toISOString(),
           deliberation_completed_at: new Date().toISOString(),
           specialist_outputs: [mkSpecialist("inspector")],
-          consensus_level: "failed",
+          // Sprint 3.1: consensus_level=unresolved (CHECK-conforming);
+          // failure marker lives in arbitration_rules_applied.
+          consensus_level: "unresolved",
           escalated_to_human: true,
-          arbitration_rules_applied: { error: "engineer_failed: anthropic 529" },
+          arbitration_rules_applied: {
+            error: "engineer_failed: anthropic 529",
+            final_status: "failed",
+          },
         },
       ],
     });
