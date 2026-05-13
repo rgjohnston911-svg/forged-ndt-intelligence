@@ -241,13 +241,52 @@ export interface SpecialistAnalysis {
   parse_error?: string;
 }
 
+// Sprint 4A: AnalogousCase is now sourced from vector retrieval over
+// cd_tenant_memory_index. The previous shape (inspection_event_id,
+// inspection_date, …) was a Sprint 2 placeholder that read raw
+// cd_inspection_events rows. The new shape exposes the originating
+// deliberation + anomaly so the Historian can reason about prior
+// reasoning, not just prior inspection records.
+//
+// SCHEMA NOTE: cd_tenant_memory_index has no source_deliberation_id
+// column — the deliberation id is stored inside context_jsonb. The
+// retrieval module projects it back out so callers see a flat shape.
 export interface AnalogousCase {
-  inspection_event_id: string;
-  asset_id: string;
-  asset_type: string | null;
-  inspection_date: string;
-  summary: string | null;
+  source_deliberation_id: string;
+  source_anomaly_id: string | null;
+  record_type: "synthesis_summary" | "specialist_claim" | string;
+  text_content: string;
+  similarity: number;
+  metadata: Record<string, unknown>;
   cited_mechanisms: string[];
+  created_at: string;
+}
+
+// Sprint 4A: a single row in cd_tenant_memory_index as written by
+// memoryIngest. The schema's `memory_type` is a CHECK-enum
+// ('recurring_mechanism'|'analogous_case'|'pattern_observation'|
+// 'calibration_outcome'); the finer-grained record_type ('synthesis_summary'
+// | 'specialist_claim') lives in context_jsonb because no dedicated
+// column exists.
+export type EmbeddingProvider = "openai";
+
+export interface MemoryRecord {
+  id?: string;
+  org_id: string;
+  memory_type:
+    | "recurring_mechanism"
+    | "analogous_case"
+    | "pattern_observation"
+    | "calibration_outcome";
+  asset_id: string | null;
+  anomaly_id: string | null;
+  concept_key: string | null;
+  summary: string;
+  context_jsonb: Record<string, unknown>;
+  embedding: number[];
+  reinforcement_count?: number;
+  last_retrieved_at?: string | null;
+  created_at?: string;
 }
 
 export interface DeliberationInput {

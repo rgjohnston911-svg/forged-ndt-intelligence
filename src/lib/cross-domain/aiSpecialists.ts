@@ -537,7 +537,7 @@ const ROLE_INSTRUCTIONS: Record<SpecialistRole, string> = {
   devils_advocate:
     "You are the ADVERSARIAL REVIEWER. Identify AT LEAST 3 specific objections to the prior analyses. Each objection should target a specific claim from a prior specialist and explain WHY that claim is weak (insufficient evidence, alternate mechanism unconsidered, scoping assumption, etc.). State each objection as a claim with confidence reflecting your confidence IN the objection itself (typically 0.6+). If you genuinely find no significant gaps, return a single claim with text starting with 'No significant gaps found:' and explain why the analysis is robust.",
   historian:
-    "You are the HISTORICAL CASES specialist. The PRIOR ANALYSES section includes any analogous past cases pre-filtered by org+asset_type+mechanism overlap (Sprint 2 placeholder; Sprint 4 replaces with vector retrieval over tenant_memory_index). Compare/contrast the current anomaly with those cases and surface lessons.",
+    "You are the HISTORICAL CASES specialist. The ANALOGOUS PRIOR CASES section contains tenant-memory reasoning artifacts (synthesizer summaries and high-confidence specialist claims from past deliberations) retrieved by semantic similarity over the cd_tenant_memory_index. Each case includes text_content, the originating deliberation's consensus outcome, cited mechanisms, and similarity score. Your tasks: (1) summarize what these prior cases suggest about the current anomaly, (2) note mechanism patterns that recur across cases, (3) compare/contrast each case with the current anomaly. If the ANALOGOUS PRIOR CASES section is empty or absent, this is a cold-start tenant — produce a useful output that explicitly states 'No analogous prior cases in tenant memory; reasoning from current evidence and the degradation mechanism database only.' Do NOT fabricate prior cases.",
   synthesizer:
     "You are the SYNTHESIZER. You produce the final authoritative analysis. Consider ALL prior outputs plus the ARBITRATION decision in the prompt. If arbitration.status is 'flagged_dissent', LEAD your summary with the dissent and explicitly defend or concede each unresolved objection. If 'rejected_low_confidence', LABEL your summary 'LOW-CONFIDENCE ADVISORY' and produce best-guess output without overstating certainty.",
 };
@@ -576,9 +576,20 @@ function buildUserPrompt(
     parts.push("\nCAUSAL CHAIN RESULT (rules-based, deterministic):");
     parts.push(JSON.stringify(input.causalChain, null, 2));
   }
-  if (role === "historian" && input.analogousCases && input.analogousCases.length > 0) {
-    parts.push("\nANALOGOUS PRIOR CASES (pre-filtered by org+asset_type+mechanism overlap, last 90 days):");
-    parts.push(JSON.stringify(input.analogousCases, null, 2));
+  if (role === "historian") {
+    if (input.analogousCases && input.analogousCases.length > 0) {
+      // Sprint 4A: cases come from vector retrieval over cd_tenant_memory_index.
+      // Each item is a MemoryRecord projection — text_content is the actual
+      // embedded reasoning artifact (synth summary or specialist claim).
+      parts.push(
+        "\nANALOGOUS PRIOR CASES (vector retrieval over tenant memory, top-K by cosine similarity):"
+      );
+      parts.push(JSON.stringify(input.analogousCases, null, 2));
+    } else {
+      parts.push(
+        "\nANALOGOUS PRIOR CASES: (none — cold-start tenant or no semantically similar prior reasoning in cd_tenant_memory_index)"
+      );
+    }
   }
   if (role === "synthesizer" && arbitration) {
     parts.push("\nARBITRATION DECISION:");

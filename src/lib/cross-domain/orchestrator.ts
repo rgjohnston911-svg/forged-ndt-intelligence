@@ -41,6 +41,7 @@ import {
 import { buildCausalChain } from "./causalChainEngine";
 import { checkOrgBudget, recordSpend } from "./budgetGuard";
 import { SPECIALIST_ORDER } from "./deliberationState";
+import { ingestDeliberationMemory } from "./memoryIngest";
 
 export interface RunDeliberationOptions {
   org_id: string;
@@ -270,6 +271,81 @@ async function finalizeLog(
       deliberation_completed_at: new Date().toISOString(),
     })
     .eq("id", opts.deliberation_id);
+}
+
+// Sprint 4A: memory ingest is supplementary to the deliberation
+// outcome. We fire it AFTER finalizeLog succeeds, gated on a non-
+// 'unresolved' consensus_level. Any failure is logged and written
+// to arbitration_rules_applied.memory_ingest_error — it must NEVER
+// mark the deliberation failed. The error is MERGED into the existing
+// arbitration_rules_applied so we don't clobber causal_chain_error
+// or arbitration_decision fields finalizeLog already wrote.
+async function mergeMemoryIngestError(
+  supabase: SupabaseClient,
+  deliberation_id: string,
+  message: string
+): Promise<void> {
+  try {
+    const { data } = await supabase
+      .from("cd_deliberation_log")
+      .select("arbitration_rules_applied")
+      .eq("id", deliberation_id)
+      .maybeSingle();
+    const row = (data ?? {}) as Record<string, unknown>;
+    const existing =
+      (row.arbitration_rules_applied as Record<string, unknown> | null) ?? {};
+    await supabase
+      .from("cd_deliberation_log")
+      .update({
+        arbitration_rules_applied: {
+          ...existing,
+          memory_ingest_error: message,
+        },
+      })
+      .eq("id", deliberation_id);
+  } catch {
+    // Best-effort — if even this fails, the deliberation outcome
+    // already stands; nothing else to do.
+  }
+}
+
+async function triggerMemoryIngest(
+  supabase: SupabaseClient,
+  opts: RunDeliberationOptions,
+  arbitration: ArbitrationDecision
+): Promise<void> {
+  const consensus = consensusLevelFor(arbitration);
+  if (consensus === "unresolved") return;
+  try {
+    const result = await ingestDeliberationMemory(
+      opts.deliberation_id,
+      opts.org_id,
+      supabase
+    );
+    if (result.ok) {
+      console.log(
+        `[memory ingest ${opts.deliberation_id}] OK rows=${result.rows_inserted} cost=$${result.total_cost_usd.toFixed(4)} latency=${result.total_latency_ms}ms`
+      );
+    } else {
+      const note = result.note ?? result.error ?? "no_rows_inserted";
+      console.warn(
+        `[memory ingest ${opts.deliberation_id}] not_ok note="${note}" errors=${result.errors.length}`
+      );
+      if (result.error || result.errors.length > 0) {
+        await mergeMemoryIngestError(
+          supabase,
+          opts.deliberation_id,
+          result.error ?? result.errors.join("; ")
+        );
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[memory ingest ${opts.deliberation_id}] threw err="${message}"`
+    );
+    await mergeMemoryIngestError(supabase, opts.deliberation_id, message);
+  }
 }
 
 // System-failure finalization (engineer crash, cap exceeded, etc.).
@@ -637,6 +713,9 @@ export async function runDeliberation(
       runningCost,
       causalChainError ? { causal_chain_error: causalChainError } : {}
     );
+    // Sprint 4A: ingest reasoning artifacts into tenant memory. Supplementary
+    // — never blocks the deliberation outcome. See triggerMemoryIngest.
+    await triggerMemoryIngest(supabase, opts, arbitration);
   } else {
     await finalizeLogAsFailure(
       supabase,
