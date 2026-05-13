@@ -6,19 +6,24 @@
 // engine ranks them by fit and builds a forward failure path
 // for the top mechanism. Persisted to cd_causal_chains.
 //
-// SCHEMA NOTES (called out in the PR body; no migration here):
-// - cd_degradation_mechanisms has `mechanism_key` (not `code`)
-//   and LACKS `applicable_materials`, `typical_severity_range`,
-//   `typical_progression_rate`. Scoring uses the columns we
-//   do have: category, default_consequence_bias, related_domains.
-//   The brief's material-fit, age-fit, and progression-rate
-//   components are stubbed: they contribute 0 to fit score when
-//   the column is absent. When the columns land in a follow-up
-//   migration, the scorers below begin contributing without
-//   code changes.
+// SCHEMA NOTES:
+// - cd_degradation_mechanisms columns (live schema, the source of truth):
+//     id, mechanism_key, display_name, category, description,
+//     physics_explanation, related_domains, typical_evidence,
+//     accelerators, inhibitors, related_codes,
+//     default_consequence_bias, active, created_at
+//   Sprint 2 speculatively added `applicable_materials`,
+//   `typical_severity_range`, and `typical_progression_rate` to this
+//   engine's SELECT, anticipating a follow-up migration that never
+//   shipped. PostgREST rejected the SELECT (`42703 column ... does
+//   not exist`) and the engine returned `ok:false` with
+//   `mechanism_lookup_failed`. Sprint 3.3 fix: SELECT only requests
+//   columns that exist. The material/severity/progression-rate
+//   scoring components are deleted, not stubbed — re-add them under
+//   a future migration alongside their backing columns.
 // - cd_causal_chains stores `linked_mechanisms` + `chain_steps`
-//   (jsonb arrays) — we map the brief's primary_mechanism_code /
-//   ranked_mechanisms / failure_path into those columns.
+//   (jsonb arrays) — the brief's primary_mechanism_code /
+//   ranked_mechanisms / failure_path map into those columns.
 // ============================================================
 
 import { randomUUID } from "node:crypto";
@@ -42,10 +47,6 @@ interface MechanismRow {
   default_consequence_bias: "low" | "moderate" | "high" | "critical";
   related_domains: unknown;
   active: boolean;
-  // Columns provisioned for a future migration; scorers tolerate absence.
-  applicable_materials?: unknown;
-  typical_severity_range?: unknown;
-  typical_progression_rate?: unknown;
 }
 
 export interface BuildCausalChainInput {
@@ -180,22 +181,6 @@ function scoreMechanismAlreadyCited(
   return candidate_key === anomaly_mechanism_key ? 1 : 0;
 }
 
-function scoreMaterialMatch(
-  applicable_materials: unknown,
-  asset_material: string | null
-): { score: number; contributed: boolean } {
-  if (!Array.isArray(applicable_materials) || !asset_material) {
-    return { score: 0, contributed: false };
-  }
-  const arr = applicable_materials as unknown[];
-  const hit = arr.some(
-    (m) =>
-      typeof m === "string" &&
-      m.toLowerCase() === asset_material.toLowerCase()
-  );
-  return { score: hit ? 1 : 0, contributed: true };
-}
-
 interface ScoredMechanism {
   row: MechanismRow;
   fit_score: number;
@@ -205,37 +190,33 @@ interface ScoredMechanism {
 function scoreMechanism(
   m: MechanismRow,
   anomaly: AnomalyContext,
-  asset: AssetContext
+  _asset: AssetContext
 ): ScoredMechanism {
-  const components: Array<{ name: string; weight: number; score: number }> = [];
+  // Scoring uses ONLY columns that exist in cd_degradation_mechanisms:
+  // related_domains, default_consequence_bias, mechanism_key. Material /
+  // severity-range / progression-rate components were removed in Sprint
+  // 3.3 — re-add under a future migration alongside their backing columns.
+  const components: Array<{ name: string; weight: number; score: number }> = [
+    {
+      name: "domain_match",
+      weight: 0.5,
+      score: scoreDomainMatch(m.related_domains, _asset.domain),
+    },
+    {
+      name: "severity_envelope",
+      weight: 0.3,
+      score: scoreSeverityEnvelope(
+        m.default_consequence_bias,
+        anomaly.severity
+      ),
+    },
+    {
+      name: "mechanism_already_cited",
+      weight: 0.2,
+      score: scoreMechanismAlreadyCited(m.mechanism_key, anomaly.mechanism_key),
+    },
+  ];
 
-  components.push({
-    name: "domain_match",
-    weight: 0.4,
-    score: scoreDomainMatch(m.related_domains, asset.domain),
-  });
-  components.push({
-    name: "severity_envelope",
-    weight: 0.3,
-    score: scoreSeverityEnvelope(
-      m.default_consequence_bias,
-      anomaly.severity
-    ),
-  });
-  components.push({
-    name: "mechanism_already_cited",
-    weight: 0.2,
-    score: scoreMechanismAlreadyCited(m.mechanism_key, anomaly.mechanism_key),
-  });
-
-  // Material match is a tolerant component — contributes only when
-  // applicable_materials column is populated AND asset.material set.
-  const mat = scoreMaterialMatch(m.applicable_materials, asset.material);
-  if (mat.contributed) {
-    components.push({ name: "material_match", weight: 0.1, score: mat.score });
-  }
-
-  // Renormalize weights over components that actually contributed.
   const totalWeight = components.reduce((s, c) => s + c.weight, 0);
   const fit_score =
     totalWeight > 0
@@ -280,10 +261,15 @@ export async function buildCausalChain(
     return emptyFailureResult("no_candidates");
   }
 
+  // Project ONLY columns that exist in cd_degradation_mechanisms (see
+  // SCHEMA NOTES). Naming a nonexistent column here causes PostgREST
+  // to reject the entire SELECT with `42703 column ... does not exist`
+  // and the engine returns mechanism_lookup_failed — which is exactly
+  // what masked the cd_causal_chains write path in production.
   const { data, error } = await supabase
     .from("cd_degradation_mechanisms")
     .select(
-      "mechanism_key,display_name,category,default_consequence_bias,related_domains,active,applicable_materials,typical_severity_range,typical_progression_rate"
+      "mechanism_key,display_name,category,default_consequence_bias,related_domains,active"
     )
     .in("mechanism_key", candidateMechanismCodes);
 
