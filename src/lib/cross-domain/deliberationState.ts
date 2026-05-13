@@ -37,10 +37,37 @@ export interface DeliberationLogRow {
   total_cost_usd?: number | null;
 }
 
+// Detects the Sprint 3.1 failure marker embedded in
+// arbitration_rules_applied. consensus_level itself is constrained to
+// the existing CHECK enum (unanimous|majority_with_dissent|split|
+// unresolved), so 'failed' lives in arbitration_rules_applied.error or
+// .final_status === 'failed'.
+function isFailureMarker(row: DeliberationLogRow): boolean {
+  const a = row.arbitration_rules_applied;
+  if (!a) return false;
+  const check = (obj: Record<string, unknown>): boolean => {
+    if (typeof obj.error === "string" && obj.error.length > 0) return true;
+    if (obj.final_status === "failed") return true;
+    return false;
+  };
+  if (Array.isArray(a)) {
+    for (const entry of a) {
+      if (entry && typeof entry === "object" && check(entry as Record<string, unknown>)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (typeof a === "object") return check(a as Record<string, unknown>);
+  return false;
+}
+
 export function deriveStatus(row: DeliberationLogRow): DeliberationStatus {
-  if (row.consensus_level === "failed") return "failed";
   if (!row.deliberation_started_at) return "pending";
   if (!row.deliberation_completed_at) return "running";
+  // completed_at is set — terminal state. Distinguish failed from completed
+  // via the failure marker (CHECK enum can't carry the signal directly).
+  if (isFailureMarker(row)) return "failed";
   return "completed";
 }
 

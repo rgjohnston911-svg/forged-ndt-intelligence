@@ -116,11 +116,15 @@ async function markTriggerFailed(
   reason: string
 ): Promise<void> {
   try {
+    // Sprint 3.1: consensus_level conforms to the CHECK constraint
+    // (unanimous|majority_with_dissent|split|unresolved). The failure
+    // signal lives in arbitration_rules_applied; the status endpoint
+    // surfaces it via deriveStatus.
     await supabase
       .from("cd_deliberation_log")
       .update({
-        arbitration_rules_applied: { error: reason },
-        consensus_level: "failed",
+        arbitration_rules_applied: { error: reason, final_status: "failed" },
+        consensus_level: "unresolved",
         escalated_to_human: true,
         deliberation_completed_at: new Date().toISOString(),
       })

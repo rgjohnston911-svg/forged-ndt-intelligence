@@ -146,14 +146,26 @@ export function arbitrate(analyses: SpecialistAnalysis[]): ArbitrationDecision {
 // Persistence
 // ------------------------------------------------------------
 
-// Sprint 3 vocabulary — matches ArbitrationDecision.status verbatim so the
-// polling endpoint can route status === 'failed' to the failed UI state.
-// SCHEMA NOTE (PR body): the existing cd_deliberation_log.consensus_level
-// enum is unanimous|majority_with_dissent|split|unresolved — these new
-// values require an enum migration. Sprint 3 writes them anyway; migration
-// ships separately.
+// Sprint 3.1 fix: conform to the existing CHECK constraint on
+// cd_deliberation_log.consensus_level (unanimous | majority_with_dissent
+// | split | unresolved). Sprint 3 originally wrote the arbitration
+// vocabulary verbatim ('accepted'/'failed'/etc.) which silently failed
+// the CHECK in production, rolling back the entire finalize UPDATE and
+// leaving rows in 'running' state forever. The fine-grained arbitration
+// status now lives in arbitration_rules_applied.final_status; the
+// status endpoint reads from there.
 function consensusLevelFor(arbitration: ArbitrationDecision): string {
-  return arbitration.status;
+  switch (arbitration.status) {
+    case "accepted":
+      return arbitration.devils_advocate_objections_unresolved === 0
+        ? "unanimous"
+        : "majority_with_dissent";
+    case "flagged_dissent":
+      return "majority_with_dissent";
+    case "rejected_low_confidence":
+    default:
+      return "unresolved";
+  }
 }
 
 function escalatedFor(arbitration: ArbitrationDecision): boolean {
@@ -239,7 +251,14 @@ async function finalizeLog(
     .update({
       specialist_outputs: perSpecialist,
       synthesizer_decision: synthesizer,
-      arbitration_rules_applied: [arbitration],
+      // Store both the conformed consensus_level AND the fine-grained
+      // arbitration outcome so the polling endpoint can distinguish
+      // accepted vs flagged_dissent (both map to majority_with_dissent
+      // in the enum).
+      arbitration_rules_applied: {
+        arbitration_decision: arbitration,
+        final_status: arbitration.status,
+      },
       consensus_level: consensusLevelFor(arbitration),
       escalated_to_human: escalatedFor(arbitration),
       total_cost_usd: totalCost,
@@ -249,8 +268,10 @@ async function finalizeLog(
 }
 
 // System-failure finalization (engineer crash, cap exceeded, etc.).
-// Writes consensus_level='failed' and records the error in
-// arbitration_rules_applied.error for the polling endpoint to surface.
+// consensus_level conforms to the CHECK constraint ('unresolved').
+// The actual failure marker lives in arbitration_rules_applied.error;
+// the status endpoint derives status='failed' from that, not from
+// consensus_level.
 async function finalizeLogAsFailure(
   supabase: SupabaseClient,
   opts: RunDeliberationOptions,
@@ -263,8 +284,11 @@ async function finalizeLogAsFailure(
     .update({
       specialist_outputs: perSpecialist,
       synthesizer_decision: null,
-      arbitration_rules_applied: { error: errorMessage },
-      consensus_level: "failed",
+      arbitration_rules_applied: {
+        error: errorMessage,
+        final_status: "failed",
+      },
+      consensus_level: "unresolved",
       escalated_to_human: true,
       total_cost_usd: totalCost,
       deliberation_completed_at: new Date().toISOString(),
