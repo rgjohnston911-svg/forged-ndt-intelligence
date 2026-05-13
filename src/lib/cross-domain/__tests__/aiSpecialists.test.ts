@@ -136,7 +136,7 @@ describe("AI specialist wrappers — happy path", () => {
     for (const c of calls) {
       const body = JSON.parse(String(c.init?.body ?? "{}"));
       assert.equal(body.thinking, undefined);
-      assert.equal(body.max_tokens, 10);
+      assert.equal(body.max_tokens, 20);
     }
   });
 
@@ -159,7 +159,8 @@ describe("AI specialist wrappers — happy path", () => {
     // gpt-4o is non-reasoning — the reasoning param must be absent.
     assert.equal(body.reasoning, undefined);
     // Without reasoning, max_output_tokens is the bare visible-allowance.
-    assert.equal(body.max_output_tokens, 10);
+    // OpenAI Responses API requires >= 16 for non-reasoning models; we use 20.
+    assert.equal(body.max_output_tokens, 20);
   });
 });
 
@@ -362,8 +363,21 @@ describe("SPECIALIST_SPECS", () => {
 // failure, parse_error is populated, and retry behavior is bounded.
 // ============================================================
 
-import type { DeliberationInput, AnalogousCase } from "../types";
-import { deliberateAsInspector, deliberateAsHistorian, buildUserPrompt } from "../aiSpecialists";
+import type {
+  DeliberationInput,
+  AnalogousCase,
+  SpecialistAnalysis,
+} from "../types";
+import {
+  deliberateAsInspector,
+  deliberateAsHistorian,
+  deliberateAsResearcher,
+  buildUserPrompt,
+  parseAnthropicMixedContent,
+  getWebSearchToolsForRole,
+  WEB_SEARCH_COST_PER_CALL_USD,
+  WEB_SEARCH_MAX_USES,
+} from "../aiSpecialists";
 
 const DELIB_INPUT: DeliberationInput = {
   anomaly: {
@@ -676,5 +690,374 @@ describe("Historian deliberation — Sprint 4A integration smoke", () => {
     assert.equal(result.analysis.role, "historian");
     assert.ok(result.analysis.summary.length > 0);
     assert.ok(result.analysis.cited_mechanisms.includes("pitting_corrosion"));
+  });
+});
+
+// ============================================================
+// Sprint 4B — Researcher web_search wiring
+//
+// Coverage:
+//   1. happy path: text + 2 server_tool_use + 2 web_search_tool_result
+//      → cited_sources populated, search cost added, JSON still parses
+//   2. model doesn't search: only text blocks → cited_sources: []
+//   3. tool error: web_search_tool_result with is_error: true → wrapper
+//      proceeds with whatever else parsed
+//   4. backward compat: pure-text response shape still parses (existing
+//      121 tests cover this via other specialists)
+//   5. type-level: getWebSearchToolsForRole gates to researcher only
+// ============================================================
+
+function researcherValidJsonText(extras: { withCitations?: boolean } = {}): string {
+  const inlineCite = extras.withCitations
+    ? "Per ASME PVP-2024-89234, similar wall loss patterns at riser TDPs were documented."
+    : "Wall loss patterns at riser TDPs are documented in industry literature.";
+  return JSON.stringify({
+    summary:
+      "Researcher synthesis grounded in current industry literature.",
+    claims: [
+      {
+        text: inlineCite,
+        confidence: 0.75,
+        supporting_evidence_ids: [],
+        cited_mechanism_codes: ["pitting_corrosion"],
+      },
+    ],
+    open_questions: [],
+    cited_mechanisms: ["pitting_corrosion"],
+    cited_evidence: [],
+  });
+}
+
+function anthropicResponseWithBlocks(
+  blocks: unknown[],
+  usage: { input_tokens: number; output_tokens: number } = {
+    input_tokens: 1500,
+    output_tokens: 600,
+  }
+): Response {
+  return new Response(
+    JSON.stringify({
+      id: "msg_researcher_x",
+      content: blocks,
+      usage,
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } }
+  );
+}
+
+describe("parseAnthropicMixedContent — direct unit", () => {
+  it("text + 2 server_tool_use + 2 web_search_tool_result → 2 sources, query linked, search_query populated", () => {
+    const blocks = [
+      { type: "text", text: "Let me search for that." },
+      {
+        type: "server_tool_use",
+        id: "srvtu_1",
+        name: "web_search",
+        input: { query: "ASME PVP coating disbondment 2024" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_1",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.asme.org/codes-standards/find-codes-standards/pvp",
+            title: "ASME PVP Conference Proceedings",
+            page_age: "2024-08-15",
+          },
+        ],
+      },
+      { type: "text", text: "Now let me look at NACE." },
+      {
+        type: "server_tool_use",
+        id: "srvtu_2",
+        name: "web_search",
+        input: { query: "NACE SP0169 CP shielding riser" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_2",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.nace.org/store/sp0169",
+            title: "NACE SP0169 Cathodic Protection Standard",
+          },
+        ],
+      },
+      { type: "text", text: '{"summary":"x","claims":[],"open_questions":[],"cited_mechanisms":[],"cited_evidence":[]}' },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.searches_performed, 2);
+    assert.equal(parsed.search_errors, 0);
+    assert.equal(parsed.cited_sources.length, 2);
+    assert.equal(
+      parsed.cited_sources[0].url,
+      "https://www.asme.org/codes-standards/find-codes-standards/pvp"
+    );
+    assert.equal(parsed.cited_sources[0].domain, "www.asme.org");
+    assert.equal(
+      parsed.cited_sources[0].search_query,
+      "ASME PVP coating disbondment 2024"
+    );
+    assert.equal(parsed.cited_sources[0].page_age, "2024-08-15");
+    assert.equal(parsed.cited_sources[1].domain, "www.nace.org");
+    // Text blocks concatenated in source order — the final JSON block is at the end
+    assert.ok(parsed.text.includes("Let me search"));
+    assert.ok(parsed.text.includes("{\"summary\""));
+  });
+
+  it("tool error block → counted in search_errors, skipped from sources", () => {
+    const blocks = [
+      { type: "text", text: "Searching..." },
+      {
+        type: "server_tool_use",
+        id: "srvtu_1",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_1",
+        is_error: true,
+        content: [],
+      },
+      { type: "text", text: "{\"summary\":\"\",\"claims\":[],\"open_questions\":[],\"cited_mechanisms\":[],\"cited_evidence\":[]}" },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.searches_performed, 1);
+    assert.equal(parsed.search_errors, 1);
+    assert.equal(parsed.cited_sources.length, 0);
+  });
+
+  it("no tool blocks → empty sources, zero searches", () => {
+    const blocks = [{ type: "text", text: "hello" }];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.searches_performed, 0);
+    assert.equal(parsed.search_errors, 0);
+    assert.equal(parsed.cited_sources.length, 0);
+    assert.equal(parsed.text, "hello");
+  });
+});
+
+describe("getWebSearchToolsForRole", () => {
+  it("returns config only for researcher", () => {
+    assert.equal(getWebSearchToolsForRole("inspector"), undefined);
+    assert.equal(getWebSearchToolsForRole("engineer"), undefined);
+    assert.equal(getWebSearchToolsForRole("devils_advocate"), undefined);
+    assert.equal(getWebSearchToolsForRole("historian"), undefined);
+    assert.equal(getWebSearchToolsForRole("synthesizer"), undefined);
+    const r = getWebSearchToolsForRole("researcher");
+    assert.ok(r);
+    assert.equal(r!.length, 1);
+    assert.equal(r![0].type, "web_search_20250305");
+    assert.equal(r![0].name, "web_search");
+    assert.equal(r![0].max_uses, WEB_SEARCH_MAX_USES);
+  });
+});
+
+describe("Researcher deliberate() — Sprint 4B web_search", () => {
+  beforeEach(installFetchMock);
+  afterEach(restoreFetch);
+
+  it("happy path: 2 searches surface 2 sources, JSON still parses, cost includes search fee", async () => {
+    const jsonText = researcherValidJsonText({ withCitations: true });
+    const blocks = [
+      { type: "text", text: "Searching ASME first." },
+      {
+        type: "server_tool_use",
+        id: "srvtu_1",
+        name: "web_search",
+        input: { query: "ASME PVP riser disbondment" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_1",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://asme.org/pvp/abc",
+            title: "ASME PVP-2024-89234",
+          },
+        ],
+      },
+      { type: "text", text: "Now NACE." },
+      {
+        type: "server_tool_use",
+        id: "srvtu_2",
+        name: "web_search",
+        input: { query: "NACE SP0169 CP" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_2",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://nace.org/sp0169",
+            title: "NACE SP0169-2013",
+          },
+        ],
+      },
+      { type: "text", text: jsonText },
+    ];
+    globalThis.fetch = (async () =>
+      anthropicResponseWithBlocks(blocks, {
+        input_tokens: 4000,
+        output_tokens: 800,
+      })) as typeof fetch;
+
+    const result = await deliberateAsResearcher(DELIB_INPUT);
+    assert.equal(result.ok, true, result.error ?? "");
+    assert.equal(result.analysis.role, "researcher");
+    assert.equal(result.analysis.searches_performed, 2);
+    assert.ok(result.analysis.cited_sources);
+    assert.equal(result.analysis.cited_sources!.length, 2);
+    assert.equal(result.analysis.cited_sources![0].url, "https://asme.org/pvp/abc");
+    assert.equal(
+      result.analysis.cited_sources![0].search_query,
+      "ASME PVP riser disbondment"
+    );
+    // Cost = token cost + 2 * search_cost
+    const expectedTokenCost = (4000 / 1_000_000) * 3 + (800 / 1_000_000) * 15;
+    const expectedSearchCost = 2 * WEB_SEARCH_COST_PER_CALL_USD;
+    const expectedTotal = expectedTokenCost + expectedSearchCost;
+    assert.ok(
+      Math.abs(result.analysis.cost_usd - expectedTotal) < 1e-9,
+      `cost_usd ${result.analysis.cost_usd} expected ${expectedTotal}`
+    );
+    // Claims preserved from concatenated text JSON
+    assert.equal(result.analysis.claims.length, 1);
+    assert.ok(result.analysis.claims[0].text.includes("ASME"));
+  });
+
+  it("model doesn't search → cited_sources: [], searches_performed: 0, JSON still parses, no search cost", async () => {
+    const jsonText = researcherValidJsonText();
+    globalThis.fetch = (async () =>
+      anthropicResponseWithBlocks(
+        [{ type: "text", text: jsonText }],
+        { input_tokens: 200, output_tokens: 100 }
+      )) as typeof fetch;
+
+    const result = await deliberateAsResearcher(DELIB_INPUT);
+    assert.equal(result.ok, true, result.error ?? "");
+    assert.equal(result.analysis.searches_performed, 0);
+    assert.deepEqual(result.analysis.cited_sources, []);
+    // Cost should be token-only (no $0.01 search fees)
+    const expectedTokenCost = (200 / 1_000_000) * 3 + (100 / 1_000_000) * 15;
+    assert.ok(
+      Math.abs(result.analysis.cost_usd - expectedTokenCost) < 1e-9,
+      `cost_usd ${result.analysis.cost_usd} expected ${expectedTokenCost}`
+    );
+  });
+
+  it("tool error in result → wrapper proceeds, search_errors logged via metadata, JSON still parses", async () => {
+    const jsonText = researcherValidJsonText();
+    const blocks = [
+      { type: "text", text: "Trying a search." },
+      {
+        type: "server_tool_use",
+        id: "srvtu_1",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_1",
+        is_error: true,
+        content: [],
+      },
+      { type: "text", text: jsonText },
+    ];
+    globalThis.fetch = (async () =>
+      anthropicResponseWithBlocks(blocks)) as typeof fetch;
+
+    const result = await deliberateAsResearcher(DELIB_INPUT);
+    assert.equal(result.ok, true, result.error ?? "");
+    assert.equal(result.analysis.searches_performed, 1);
+    // Errored result yields no source row
+    assert.deepEqual(result.analysis.cited_sources, []);
+    // Claims still produced from the trailing JSON text block
+    assert.equal(result.analysis.claims.length, 1);
+  });
+
+  it("non-researcher specialists do NOT receive cited_sources / searches_performed", async () => {
+    const validJson = JSON.stringify({
+      summary: "inspector synthesis",
+      claims: [
+        {
+          text: "evidence x",
+          confidence: 0.7,
+          supporting_evidence_ids: [],
+          cited_mechanism_codes: [],
+        },
+      ],
+      open_questions: [],
+      cited_mechanisms: [],
+      cited_evidence: [],
+    });
+    globalThis.fetch = (async () =>
+      anthropicResponseWithText(validJson)) as typeof fetch;
+    const result = await deliberateAsInspector(DELIB_INPUT);
+    assert.equal(result.ok, true);
+    assert.equal(result.analysis.cited_sources, undefined);
+    assert.equal(result.analysis.searches_performed, undefined);
+  });
+
+  it("Anthropic request body includes tools when researcher runs (smoke from outside-in)", async () => {
+    let capturedBody = "";
+    globalThis.fetch = (async (_url: FetchInput, init?: FetchInit) => {
+      capturedBody = String(init?.body ?? "");
+      return anthropicResponseWithBlocks([
+        { type: "text", text: researcherValidJsonText() },
+      ]);
+    }) as typeof fetch;
+    const result = await deliberateAsResearcher(DELIB_INPUT);
+    assert.equal(result.ok, true);
+    const body = JSON.parse(capturedBody);
+    assert.ok(Array.isArray(body.tools), "tools must be in request body");
+    assert.equal(body.tools.length, 1);
+    assert.equal(body.tools[0].type, "web_search_20250305");
+    assert.equal(body.tools[0].max_uses, WEB_SEARCH_MAX_USES);
+  });
+});
+
+describe("SpecialistAnalysis — Sprint 4B optional cited_sources", () => {
+  it("type allows cited_sources to be omitted (back-compat)", () => {
+    const a: SpecialistAnalysis = {
+      role: "inspector",
+      model: "claude-sonnet-4-6",
+      summary: "",
+      claims: [],
+      open_questions: [],
+      cited_mechanisms: [],
+      cited_evidence: [],
+      cost_usd: 0,
+      latency_ms: 0,
+      attempts: 1,
+      raw_response: "",
+    };
+    assert.equal(a.cited_sources, undefined);
+  });
+  it("type allows cited_sources as ExternalSource[]", () => {
+    const a: SpecialistAnalysis = {
+      role: "researcher",
+      model: "claude-sonnet-4-6",
+      summary: "",
+      claims: [],
+      open_questions: [],
+      cited_mechanisms: [],
+      cited_evidence: [],
+      cost_usd: 0,
+      latency_ms: 0,
+      attempts: 1,
+      raw_response: "",
+      cited_sources: [
+        { url: "https://asme.org/x", title: "t", domain: "asme.org" },
+      ],
+      searches_performed: 1,
+    };
+    assert.equal(a.cited_sources!.length, 1);
+    assert.equal(a.searches_performed, 1);
   });
 });

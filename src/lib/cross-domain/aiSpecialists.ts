@@ -22,6 +22,7 @@ import type {
   DeliberationInput,
   SpecialistAnalysis,
   Claim,
+  ExternalSource,
 } from "./types";
 
 const SMOKE_PROMPT = "Respond with the single word OK and nothing else.";
@@ -30,7 +31,10 @@ const SMOKE_PROMPT = "Respond with the single word OK and nothing else.";
 // max_output_tokens both count thinking/reasoning tokens too, so
 // when thinking/reasoning is enabled we add this on top of the
 // thinking budget rather than using it as the absolute cap.
-const RESPONSE_TOKEN_ALLOWANCE = 10;
+// OpenAI Responses API requires max_output_tokens >= 16 for
+// non-reasoning models (gpt-4o etc.). 20 gives us a small safety
+// margin while keeping health-check responses tight ("OK").
+const RESPONSE_TOKEN_ALLOWANCE = 20;
 
 // TODO: centralize pricing in a single source of truth alongside
 // any other AI call sites (e.g. tri-model-reasoning). Numbers
@@ -213,6 +217,20 @@ interface ProviderCallResult {
   input_tokens: number;
   output_tokens: number;
   request_id: string | null;
+  // Sprint 4B: populated when the response includes server_tool_use
+  // / web_search_tool_result blocks. Undefined when tools weren't
+  // enabled or the response didn't include any tool blocks.
+  cited_sources?: ExternalSource[];
+  searches_performed?: number;
+  search_errors?: number;
+}
+
+// Sprint 4B: Anthropic server-side web_search tool spec. The brief
+// uses max_uses: 3 to cap search cost at ~$0.03 per Researcher call.
+export interface WebSearchToolConfig {
+  type: "web_search_20250305";
+  name: "web_search";
+  max_uses: number;
 }
 
 interface AnthropicCallOpts {
@@ -220,6 +238,104 @@ interface AnthropicCallOpts {
   systemPrompt?: string;
   maxTokens: number;
   thinking?: { type: "enabled"; budget_tokens: number };
+  tools?: WebSearchToolConfig[];
+}
+
+// Sprint 4B: parse the mixed-content array Anthropic returns when
+// server-side tools are enabled. Concatenates text blocks (the
+// model's natural-language output) and extracts citation metadata
+// from server_tool_use / web_search_tool_result block pairs.
+interface AnthropicContentBlock {
+  type: string;
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: { query?: string };
+  tool_use_id?: string;
+  is_error?: boolean;
+  content?: Array<Record<string, unknown>>;
+}
+
+function parseAnthropicMixedContent(
+  blocks: AnthropicContentBlock[]
+): {
+  text: string;
+  cited_sources: ExternalSource[];
+  searches_performed: number;
+  search_errors: number;
+} {
+  let combinedText = "";
+  // tool_use_id -> the search query that produced the result
+  const queryByToolUseId = new Map<string, string>();
+  let searches = 0;
+  let errors = 0;
+
+  for (const block of blocks) {
+    if (block.type === "text" && typeof block.text === "string") {
+      // Multiple text blocks get joined in source order; the model
+      // narrates between tool calls and we want all of it for JSON
+      // extraction.
+      combinedText += (combinedText ? "\n" : "") + block.text;
+    } else if (
+      block.type === "server_tool_use" &&
+      (block.name === "web_search" || block.name === undefined)
+    ) {
+      searches++;
+      const id = block.id ?? "";
+      const query = block.input?.query ?? "";
+      if (id) queryByToolUseId.set(id, query);
+    }
+  }
+
+  const sources: ExternalSource[] = [];
+  for (const block of blocks) {
+    if (block.type !== "web_search_tool_result") continue;
+    if (block.is_error) {
+      errors++;
+      continue;
+    }
+    const searchQuery = block.tool_use_id
+      ? queryByToolUseId.get(block.tool_use_id)
+      : undefined;
+    const results = Array.isArray(block.content) ? block.content : [];
+    for (const r of results) {
+      const recordType = String(r.type ?? "");
+      if (recordType !== "web_search_result") continue;
+      const url = typeof r.url === "string" ? r.url : "";
+      if (!url) continue;
+      let domain: string | undefined;
+      try {
+        domain = new URL(url).hostname;
+      } catch {
+        domain = undefined;
+      }
+      // Anthropic's web_search returns encrypted_content (opaque to
+      // humans). A readable snippet is rarely present — we capture
+      // any plain `text` / `cited_text` field if Anthropic ever
+      // includes one, otherwise leave snippet undefined.
+      let snippet: string | undefined;
+      if (typeof r.cited_text === "string" && r.cited_text.length > 0) {
+        snippet = r.cited_text;
+      } else if (typeof r.text === "string" && r.text.length > 0) {
+        snippet = r.text;
+      }
+      sources.push({
+        url,
+        title: typeof r.title === "string" ? r.title : undefined,
+        snippet: snippet ? snippet.slice(0, 500) : undefined,
+        domain,
+        search_query: searchQuery,
+        page_age: typeof r.page_age === "string" ? r.page_age : undefined,
+      });
+    }
+  }
+
+  return {
+    text: combinedText.trim(),
+    cited_sources: sources,
+    searches_performed: searches,
+    search_errors: errors,
+  };
 }
 
 async function callAnthropic(
@@ -236,6 +352,7 @@ async function callAnthropic(
   };
   if (opts.systemPrompt) body.system = opts.systemPrompt;
   if (opts.thinking) body.thinking = opts.thinking;
+  if (opts.tools && opts.tools.length > 0) body.tools = opts.tools;
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -253,10 +370,28 @@ async function callAnthropic(
   }
   const data = (await res.json()) as {
     id?: string;
-    content?: Array<{ type: string; text?: string }>;
+    content?: AnthropicContentBlock[];
     usage?: { input_tokens?: number; output_tokens?: number };
   };
-  const textBlock = (data.content ?? []).find((b) => b.type === "text");
+  const blocks = data.content ?? [];
+
+  // Sprint 4B: when tools are enabled we must walk the full content
+  // array (text blocks interleaved with server_tool_use /
+  // web_search_tool_result). The pure-text path is preserved as a
+  // fast path for specialists without tools.
+  if (opts.tools && opts.tools.length > 0) {
+    const parsed = parseAnthropicMixedContent(blocks);
+    return {
+      response: parsed.text.length > 0 ? parsed.text : null,
+      input_tokens: data.usage?.input_tokens ?? 0,
+      output_tokens: data.usage?.output_tokens ?? 0,
+      request_id: data.id ?? null,
+      cited_sources: parsed.cited_sources,
+      searches_performed: parsed.searches_performed,
+      search_errors: parsed.search_errors,
+    };
+  }
+  const textBlock = blocks.find((b) => b.type === "text");
   return {
     response: textBlock?.text?.trim() ?? null,
     input_tokens: data.usage?.input_tokens ?? 0,
@@ -482,6 +617,31 @@ export { SMOKE_TEST_PRICING, SMOKE_PROMPT };
 
 const DELIBERATION_MAX_OUTPUT_TOKENS = 2000;
 
+// Sprint 4B: Anthropic web_search server-side tool. $0.01 per search,
+// independent of token cost. Researcher gets max_uses: 3 → ≤$0.03 of
+// search cost per call. Token cost increases too because tool results
+// inflate input tokens.
+const WEB_SEARCH_COST_PER_CALL_USD = 0.01;
+const WEB_SEARCH_MAX_USES = 3;
+// Larger output budget for Researcher when tools are enabled — the
+// model interleaves narration with tool calls before producing the
+// final JSON, so 2000 (the regular DELIBERATION_MAX_OUTPUT_TOKENS) is
+// tight. Brief Part 3a calls for 4096.
+const RESEARCHER_WEB_SEARCH_MAX_TOKENS = 4096;
+
+function getWebSearchToolsForRole(
+  role: SpecialistRole
+): WebSearchToolConfig[] | undefined {
+  if (role !== "researcher") return undefined;
+  return [
+    {
+      type: "web_search_20250305",
+      name: "web_search",
+      max_uses: WEB_SEARCH_MAX_USES,
+    },
+  ];
+}
+
 // Engineer + Synthesizer use production thinking budgets in
 // deliberation mode. Sprint 3 will allow per-request override
 // (e.g., to drop engineer to 8k under budget pressure).
@@ -533,7 +693,7 @@ const ROLE_INSTRUCTIONS: Record<SpecialistRole, string> = {
   engineer:
     "You are the SENIOR ENGINEERING specialist. Use extended thinking to rigorously map the observed anomaly to candidate degradation mechanisms. Cite high-confidence mechanisms where evidence is strong; explicitly mark uncertainty where evidence is thin. Your cited_mechanisms drive the downstream causal chain engine.",
   researcher:
-    "You are the RESEARCH specialist. Add industry-context reasoning grounded in your training knowledge — do NOT assume external resources are available (Sprint 3 adds web_search_20250305). Compare candidate mechanisms against accepted industry knowledge or analogous published cases.",
+    "You are the RESEARCH specialist. You have access to a web_search tool. Use it 1-3 times to find: (a) current industry standards, recommended practices, or code clauses relevant to the candidate mechanisms (ASME, API, NACE, ASNT, ISO, IMCA, ABS, DNV, etc.); (b) recent (2023-2026) technical papers, vendor bulletins, or industry case studies; (c) regulatory advisories or incident reports. Prefer authoritative sources over generic blog posts. Reference each source inline in your claim text using natural citations (e.g., 'per ASME PVP-2024-89234' or 'per NACE SP0169-2013 §6.4') so readers can match the citation to the structured source list. For each source you cite, the wrapper auto-captures the URL and search query. If web_search returns no useful results, say so explicitly in your output rather than fabricating sources. Do not invent URLs.",
   devils_advocate:
     "You are the ADVERSARIAL REVIEWER. Identify AT LEAST 3 specific objections to the prior analyses. Each objection should target a specific claim from a prior specialist and explain WHY that claim is weak (insufficient evidence, alternate mechanism unconsidered, scoping assumption, etc.). State each objection as a claim with confidence reflecting your confidence IN the objection itself (typically 0.6+). If you genuinely find no significant gaps, return a single claim with text starting with 'No significant gaps found:' and explain why the analysis is robust.",
   historian:
@@ -675,18 +835,24 @@ export interface SpecialistDeliberationResult {
 async function runProviderCall(
   spec: SpecialistSpec,
   userPrompt: string,
-  systemPrompt: string
+  systemPrompt: string,
+  tools?: WebSearchToolConfig[]
 ): Promise<{ value: ProviderCallResult; attempts: number }> {
   return callWithRetry(() => {
     if (spec.provider === "anthropic") {
+      const baseOutputBudget =
+        tools && tools.length > 0
+          ? RESEARCHER_WEB_SEARCH_MAX_TOKENS
+          : DELIBERATION_MAX_OUTPUT_TOKENS;
       const maxTokens = spec.thinking
-        ? spec.thinking.budget_tokens + DELIBERATION_MAX_OUTPUT_TOKENS
-        : DELIBERATION_MAX_OUTPUT_TOKENS;
+        ? spec.thinking.budget_tokens + baseOutputBudget
+        : baseOutputBudget;
       return callAnthropic(spec, {
         userPrompt,
         systemPrompt,
         maxTokens,
         thinking: spec.thinking,
+        tools,
       });
     }
     const maxOutputTokens = spec.reasoning_effort
@@ -733,6 +899,7 @@ async function deliberate(
   ctx?: SpecialistCallContext
 ): Promise<SpecialistDeliberationResult> {
   const spec = specForDeliberation(role);
+  const tools = getWebSearchToolsForRole(role);
   const t0 = Date.now();
   const systemPrompt = buildSystemPrompt(role);
   const userPrompt = buildUserPrompt(role, input, arbitration);
@@ -745,6 +912,12 @@ async function deliberate(
   // Sprint 3.2 — accumulate the raw text across passes so we never
   // throw it away on parse failure. The last non-empty response wins.
   let accumulatedRawResponse = "";
+  // Sprint 4B — accumulate citations + search counts across passes.
+  // Search cost is added to totalCostUsd as searches occur so an
+  // early http_error path still surfaces it.
+  const accumulatedSources: ExternalSource[] = [];
+  let totalSearchesPerformed = 0;
+  let totalSearchErrors = 0;
 
   // Up to 2 LLM passes: 1 initial + 1 parse-failure retry with stricter
   // instruction. We only do the retry pass when the model returned
@@ -758,7 +931,12 @@ async function deliberate(
         pass === 1
           ? userPrompt
           : `${userPrompt}\n\nIMPORTANT: Your previous response was not valid JSON. Respond with VALID JSON ONLY matching the schema. No prose, no markdown.`;
-      const result = await runProviderCall(spec, passUserPrompt, systemPrompt);
+      const result = await runProviderCall(
+        spec,
+        passUserPrompt,
+        systemPrompt,
+        tools
+      );
       r = result.value;
       httpAttempts = result.attempts;
     } catch (err) {
@@ -784,6 +962,12 @@ async function deliberate(
         attempts,
         raw_response: accumulatedRawResponse,
         parse_error: `http_error: ${underlying.message}`,
+        ...(tools
+          ? {
+              cited_sources: accumulatedSources,
+              searches_performed: totalSearchesPerformed,
+            }
+          : {}),
       };
       await logCost(
         ctx,
@@ -792,7 +976,18 @@ async function deliberate(
         totalOutputTokens,
         totalCostUsd,
         lastRequestId,
-        { deliberation: true, role, pass, error: underlying.message }
+        {
+          deliberation: true,
+          role,
+          pass,
+          error: underlying.message,
+          ...(tools
+            ? {
+                searches_performed: totalSearchesPerformed,
+                search_errors: totalSearchErrors,
+              }
+            : {}),
+        }
       );
       console.warn(
         `[deliberate ${role}] http_error pass=${pass} attempts=${attempts} cost=$${totalCostUsd.toFixed(4)} err=${underlying.message}`
@@ -804,6 +999,22 @@ async function deliberate(
     totalInputTokens += r.input_tokens;
     totalOutputTokens += r.output_tokens;
     totalCostUsd += computeCostUsd(spec.model, r.input_tokens, r.output_tokens);
+    // Sprint 4B: web_search results are billed per search ($0.01).
+    // r.searches_performed is undefined when tools weren't enabled,
+    // 0 when tools were enabled but the model didn't search.
+    if (typeof r.searches_performed === "number" && r.searches_performed > 0) {
+      totalCostUsd += r.searches_performed * WEB_SEARCH_COST_PER_CALL_USD;
+      totalSearchesPerformed += r.searches_performed;
+    }
+    if (typeof r.search_errors === "number" && r.search_errors > 0) {
+      totalSearchErrors += r.search_errors;
+      console.warn(
+        `[deliberate ${role}] web_search returned ${r.search_errors} tool error(s) — proceeding with whatever results parsed`
+      );
+    }
+    if (r.cited_sources && r.cited_sources.length > 0) {
+      accumulatedSources.push(...r.cited_sources);
+    }
     lastRequestId = r.request_id ?? lastRequestId;
     const rawThisPass = r.response ?? "";
     if (rawThisPass.length > 0) {
@@ -825,6 +1036,12 @@ async function deliberate(
         latency_ms,
         attempts: totalAttempts,
         raw_response: rawThisPass,
+        ...(tools
+          ? {
+              cited_sources: accumulatedSources,
+              searches_performed: totalSearchesPerformed,
+            }
+          : {}),
       };
       await logCost(
         ctx,
@@ -833,7 +1050,18 @@ async function deliberate(
         totalOutputTokens,
         totalCostUsd,
         lastRequestId,
-        { deliberation: true, role, passes: pass, latency_ms }
+        {
+          deliberation: true,
+          role,
+          passes: pass,
+          latency_ms,
+          ...(tools
+            ? {
+                searches_performed: totalSearchesPerformed,
+                search_errors: totalSearchErrors,
+              }
+            : {}),
+        }
       );
       return { ok: true, analysis };
     }
@@ -856,6 +1084,12 @@ async function deliberate(
         attempts: totalAttempts,
         raw_response: "",
         parse_error: parseError,
+        ...(tools
+          ? {
+              cited_sources: accumulatedSources,
+              searches_performed: totalSearchesPerformed,
+            }
+          : {}),
       };
       await logCost(
         ctx,
@@ -864,7 +1098,17 @@ async function deliberate(
         totalOutputTokens,
         totalCostUsd,
         lastRequestId,
-        { deliberation: true, role, empty_content: true }
+        {
+          deliberation: true,
+          role,
+          empty_content: true,
+          ...(tools
+            ? {
+                searches_performed: totalSearchesPerformed,
+                search_errors: totalSearchErrors,
+              }
+            : {}),
+        }
       );
       console.warn(
         `[deliberate ${role}] empty_content pass=${pass} attempts=${totalAttempts} cost=$${totalCostUsd.toFixed(4)} model=${spec.model}`
@@ -893,6 +1137,12 @@ async function deliberate(
     attempts: totalAttempts,
     raw_response: accumulatedRawResponse,
     parse_error: parseError,
+    ...(tools
+      ? {
+          cited_sources: accumulatedSources,
+          searches_performed: totalSearchesPerformed,
+        }
+      : {}),
   };
   await logCost(
     ctx,
@@ -901,7 +1151,18 @@ async function deliberate(
     totalOutputTokens,
     totalCostUsd,
     lastRequestId,
-    { deliberation: true, role, parse_failed: true, parse_error: parseError }
+    {
+      deliberation: true,
+      role,
+      parse_failed: true,
+      parse_error: parseError,
+      ...(tools
+        ? {
+            searches_performed: totalSearchesPerformed,
+            search_errors: totalSearchErrors,
+          }
+        : {}),
+    }
   );
   console.warn(
     `[deliberate ${role}] parse_failed attempts=${totalAttempts} cost=$${totalCostUsd.toFixed(4)} parse_error="${parseError}" raw_len=${accumulatedRawResponse.length}`
@@ -959,4 +1220,8 @@ export {
   extractJsonObject,
   validateAnalysisShape,
   computeCostUsd,
+  parseAnthropicMixedContent,
+  getWebSearchToolsForRole,
+  WEB_SEARCH_COST_PER_CALL_USD,
+  WEB_SEARCH_MAX_USES,
 };
