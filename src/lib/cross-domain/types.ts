@@ -456,3 +456,106 @@ export interface ConsequenceProfile {
   recommended_action_tier: RecommendedActionTier;
   total_confidence: number; // 0..1
 }
+
+// ============================================================
+// Sprint 4D — Prediction Outcomes contracts
+//
+// One PredictionRecord per deliberation, persisted to
+// cd_deliberation_predictions (DEPLOY358). Captured automatically
+// at finalize-time when consensus != 'unresolved'. Operator-reported
+// actual outcome + calibration_delta arrive later via the
+// cross-domain-record-outcome endpoint.
+// ============================================================
+
+// The 4-value enum the cd_deliberation_log.consensus_level CHECK
+// constraint allows. Matches the existing schema vocabulary; reused
+// by PredictionRecord so capture stays a straight copy.
+export type ConsensusLevel =
+  | "unanimous"
+  | "majority_with_dissent"
+  | "split"
+  | "unresolved";
+
+export interface PredictionRecord {
+  id: string;
+  org_id: string;
+  deliberation_id: string;
+  anomaly_id: string;
+  asset_id: string;
+  predicted_at: string;
+
+  // What the platform predicted at deliberation finalize-time.
+  // Sources: primary_mechanism ← cd_causal_chains; consensus_level ←
+  // cd_deliberation_log; consequence + action + time ← latest
+  // cd_anomaly_consequence_assessments row.
+  primary_mechanism: string | null;
+  consensus_level: ConsensusLevel;
+  consequence_overall_tier: ConsequenceTier | null;
+  recommended_action_tier: RecommendedActionTier | null;
+  time_to_consequence_days: number | null;
+  total_confidence: number | null;
+
+  // Operator-reported actual outcome. Null until the outcome
+  // endpoint is invoked for this prediction.
+  reported_at: string | null;
+  actual_outcome: ActualOutcome | null;
+
+  // Calibration delta computed at outcome-report time.
+  calibration_delta: CalibrationDelta | null;
+}
+
+export interface ActualOutcome {
+  // Action operator actually took. May be a tier value matching the
+  // prediction's RecommendedActionTier vocabulary, or one of the two
+  // out-of-band literals.
+  action_taken: RecommendedActionTier | "no_action_taken" | "other_action";
+  action_date: string | null;
+  // Did the predicted primary_mechanism turn out to be the real
+  // primary mechanism? null when the operator can't determine.
+  mechanism_confirmed: boolean | null;
+  // What consequence tier actually materialized, if any.
+  actual_consequence_tier: ConsequenceTier | null;
+  // Days from prediction to materialized consequence (null when
+  // nothing has materialized yet or the operator can't say).
+  days_to_actual_consequence: number | null;
+  reported_by: string;
+  free_text_notes: string;
+}
+
+export interface CalibrationDelta {
+  mechanism_match: "correct" | "incorrect" | "unknown";
+  // Index distance along TIER_ORDER. 0 = exact, positive = platform
+  // over-predicted severity, negative = under-predicted.
+  consequence_tier_delta: number;
+  // Predicted − actual, in days. Positive = platform over-estimated
+  // time-to-consequence (i.e. things went bad faster than predicted).
+  // null when either side is missing.
+  time_to_consequence_error_days: number | null;
+  action_tier_alignment:
+    | "matched"
+    | "over_predicted"
+    | "under_predicted"
+    | "unknown";
+  computed_at: string;
+}
+
+export interface CalibrationStats {
+  org_id: string;
+  filter_description: string;
+  total_predictions: number;
+  predictions_with_outcomes: number;
+  // Rates are 0..1 and computed only over predictions_with_outcomes;
+  // they return 0 when predictions_with_outcomes is 0 (callers should
+  // treat them as undefined unless predictions_with_outcomes > 0).
+  mechanism_match_rate: number;
+  consequence_tier_match_rate: number;
+  consequence_tier_within_1_rate: number;
+  action_tier_alignment_distribution: {
+    matched: number;
+    over_predicted: number;
+    under_predicted: number;
+    unknown: number;
+  };
+  time_to_consequence_mean_error_days: number | null;
+  computed_at: string;
+}
