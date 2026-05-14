@@ -1567,6 +1567,93 @@ describe("Fix 1 — parser verified against the REAL captured web_search respons
   });
 });
 
+// ============================================================
+// Sprint 4 Polish 3 — Fix 2: domain field is ALWAYS a bare hostname.
+// Audit confirmed parseAnthropicMixedContent sets domain in exactly
+// one place — extractHostname(unwrapUrl(rawUrl)) — which cannot emit
+// bracket/paren chars. These tests pin that, plus the defense-in-depth
+// post-construction guard.
+// ============================================================
+
+describe("Fix 2 — Researcher source.domain is always a bare hostname", () => {
+  it("markdown-wrapped web_search_result url → domain is bare hostname, url unwrapped", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_md",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_md",
+        content: [
+          {
+            type: "web_search_result",
+            title: "LinkedIn article",
+            // Production-observed leak shape.
+            url: "[www.linkedin.com](https://www.linkedin.com/pulse/cathodic-protection-basics)",
+            encrypted_content: "OPAQUE",
+            page_age: null,
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.equal(parsed.cited_sources[0].domain, "www.linkedin.com");
+    assert.ok(
+      !/[[\]()]/.test(parsed.cited_sources[0].domain ?? ""),
+      `domain must contain no markup chars: ${parsed.cited_sources[0].domain}`
+    );
+    // url is stored unwrapped too.
+    assert.equal(
+      parsed.cited_sources[0].url,
+      "https://www.linkedin.com/pulse/cathodic-protection-basics"
+    );
+  });
+
+  it("angle-bracket + trailing-punctuation wrapped url → still a bare hostname", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_ab",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_ab",
+        content: [
+          {
+            type: "web_search_result",
+            title: "ASME",
+            url: "<https://files.asme.org/psdocc/17653.pdf>,",
+            encrypted_content: "OPAQUE",
+            page_age: null,
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].domain, "files.asme.org");
+  });
+
+  it("every domain across a multi-source response is bracket-free", () => {
+    const blocks = realShapeBlocks();
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.ok(parsed.cited_sources.length >= 3);
+    for (const s of parsed.cited_sources) {
+      if (s.domain !== undefined) {
+        assert.ok(
+          !/[[\]()]/.test(s.domain),
+          `domain "${s.domain}" must be a bare hostname with no markup`
+        );
+      }
+    }
+  });
+});
+
 describe("getWebSearchToolsForRole", () => {
   it("returns config only for researcher", () => {
     assert.equal(getWebSearchToolsForRole("inspector"), undefined);

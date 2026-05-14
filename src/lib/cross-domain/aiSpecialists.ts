@@ -487,14 +487,30 @@ function parseAnthropicMixedContent(
         r.excerpt,
         r.description
       );
-      sources.push({
+      const source: ExternalSource = {
         url,
         title: typeof r.title === "string" ? r.title : undefined,
         snippet,
         domain,
         search_query: searchQuery,
         page_age: typeof r.page_age === "string" ? r.page_age : undefined,
-      });
+      };
+      // Sprint 4 Polish 3 (Fix 2): defense-in-depth guard. `domain` is
+      // ALWAYS derived above via extractHostname(unwrapUrl(...)), which
+      // cannot itself emit bracket/paren chars (URL.hostname never
+      // contains them, and a parse failure yields undefined). The audit
+      // confirmed this is the sole domain-assignment path. But the
+      // production smoke test reported a markdown-wrapped domain, so —
+      // belt and suspenders — if `domain` ever contains [, ], ( or ),
+      // log it and re-derive from the (already-unwrapped) url. Cheap
+      // insurance against a future code path or API-shape change.
+      if (source.domain && /[[\]()]/.test(source.domain)) {
+        console.warn(
+          `[web_search] domain field contained markup ("${source.domain}") — re-deriving from url`
+        );
+        source.domain = extractHostname(unwrapUrl(source.url));
+      }
+      sources.push(source);
     }
   }
 
