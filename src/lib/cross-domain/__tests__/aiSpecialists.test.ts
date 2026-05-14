@@ -372,7 +372,9 @@ import {
   deliberateAsInspector,
   deliberateAsHistorian,
   deliberateAsResearcher,
+  deliberateAsSynthesizer,
   buildUserPrompt,
+  buildSystemPrompt,
   parseAnthropicMixedContent,
   getWebSearchToolsForRole,
   WEB_SEARCH_COST_PER_CALL_USD,
@@ -838,6 +840,233 @@ describe("parseAnthropicMixedContent — direct unit", () => {
     assert.equal(parsed.cited_sources.length, 0);
     assert.equal(parsed.text, "hello");
   });
+
+  // Sprint 4 Polish (Fix C) — snippet capture from text-block citations
+  it("text-block citations carry cited_text → snippet lifted onto the matching ExternalSource", () => {
+    const blocks = [
+      {
+        type: "text",
+        text: "Per NACE SP0169-2013, CP shielding under disbonded coatings is documented.",
+        citations: [
+          {
+            type: "web_search_result_location",
+            url: "https://www.nace.org/store/sp0169",
+            title: "NACE SP0169-2013",
+            cited_text:
+              "Under-coating cathodic shielding is a known integrity threat where disbondment prevents CP current from reaching the substrate.",
+          },
+        ],
+      },
+      {
+        type: "server_tool_use",
+        id: "srvtu_1",
+        name: "web_search",
+        input: { query: "NACE SP0169 CP shielding" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_1",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.nace.org/store/sp0169",
+            title: "NACE SP0169-2013",
+            encrypted_content: "BASE64_OPAQUE_BYTES",
+          },
+        ],
+      },
+      { type: "text", text: '{"summary":"","claims":[],"open_questions":[],"cited_mechanisms":[],"cited_evidence":[]}' },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    const source = parsed.cited_sources[0];
+    assert.ok(
+      source.snippet && source.snippet.length > 0,
+      `snippet should be lifted from citation cited_text. got snippet="${source.snippet}"`
+    );
+    assert.ok(
+      source.snippet!.includes("cathodic shielding"),
+      "snippet should preserve the citation's substantive text"
+    );
+  });
+
+  it("snippet capped at 500 chars", () => {
+    const longSnippet = "x".repeat(750);
+    const blocks = [
+      {
+        type: "text",
+        text: "x",
+        citations: [
+          {
+            url: "https://example.com/long",
+            cited_text: longSnippet,
+          },
+        ],
+      },
+      {
+        type: "server_tool_use",
+        id: "srvtu_long",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_long",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://example.com/long",
+            title: "long",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.equal(parsed.cited_sources[0].snippet?.length, 500);
+  });
+
+  it("snippet falls back to result-level text fields when no citation present", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_b",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_b",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://example.com/r",
+            title: "fallback case",
+            // No citation block above pointed at this URL. Look at
+            // result-level fields the engine accepts.
+            description: "A useful description that should land as snippet.",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(
+      parsed.cited_sources[0].snippet,
+      "A useful description that should land as snippet."
+    );
+  });
+
+  it("encrypted_content alone (no plain text anywhere) → snippet stays undefined", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_e",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_e",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://example.com/opaque",
+            title: "opaque case",
+            encrypted_content: "OPAQUE",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].snippet, undefined);
+  });
+
+  // Sprint 4 Polish (Fix D) — bare hostname for domain field
+  it("plain URL → domain is bare hostname", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_h",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_h",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.energy.gov/oe/articles/coatings-best-practices",
+            title: "DOE Coatings Best Practices",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].domain, "www.energy.gov");
+    assert.equal(
+      parsed.cited_sources[0].url,
+      "https://www.energy.gov/oe/articles/coatings-best-practices"
+    );
+  });
+
+  it("markdown-wrapped URL → unwrapped before hostname extraction; domain is bare", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_md",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_md",
+        content: [
+          {
+            type: "web_search_result",
+            // Production-observed bug: URL field arrives as markdown link.
+            url: "[www.energy.gov](https://www.energy.gov/oe/articles/coatings-best-practices)",
+            title: "DOE Coatings Best Practices (md-wrapped)",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(
+      parsed.cited_sources[0].domain,
+      "www.energy.gov",
+      "domain must be bare hostname, NOT '[www.energy.gov](...)'"
+    );
+    // url field also unwrapped so downstream callers don't have to.
+    assert.equal(
+      parsed.cited_sources[0].url,
+      "https://www.energy.gov/oe/articles/coatings-best-practices"
+    );
+  });
+
+  it("angle-bracket URL → unwrapped to bare hostname", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_ab",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_ab",
+        content: [
+          {
+            type: "web_search_result",
+            url: "<https://files.asme.org/pvp/2024/89234.pdf>",
+            title: "ASME PVP 2024",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].domain, "files.asme.org");
+  });
 });
 
 describe("getWebSearchToolsForRole", () => {
@@ -1059,5 +1288,104 @@ describe("SpecialistAnalysis — Sprint 4B optional cited_sources", () => {
     };
     assert.equal(a.cited_sources!.length, 1);
     assert.equal(a.searches_performed, 1);
+  });
+});
+
+// ============================================================
+// Sprint 4 Polish — Fix A: Synthesizer code-first / why / how
+//
+// Two-part test: (1) the system prompt now contains the directive
+// language so the model is actually asked to structure summaries
+// that way; (2) when the model returns a summary that opens with
+// an authoritative-standard citation, the wrapper parses and
+// surfaces it unchanged. The regex pin is the brief's acceptance
+// criterion: the summary must match (API|ASME|NACE|DNV|PHMSA|BSEE|CFR|ISO|ASNT)[\s-][0-9A-Z-]+.
+// ============================================================
+
+const STANDARD_CITATION_REGEX =
+  /\b(API|ASME|NACE|DNV|PHMSA|BSEE|CFR|ISO|ASNT)[\s\-]?[0-9A-Z][0-9A-Z\-.\/ ]*/;
+
+describe("Fix A — Synthesizer system prompt contains code-first/why/how directive", () => {
+  it("buildSystemPrompt('synthesizer') includes CODE-FIRST, WHY, and HOW language", () => {
+    const sysPrompt = buildSystemPrompt("synthesizer");
+    assert.ok(
+      sysPrompt.includes("CODE-FIRST"),
+      "synthesizer prompt must mention CODE-FIRST anchor"
+    );
+    assert.ok(
+      sysPrompt.includes("WHY:") || sysPrompt.includes("(2) WHY"),
+      "synthesizer prompt must mention WHY (reasoning)"
+    );
+    assert.ok(
+      sysPrompt.includes("HOW:") || sysPrompt.includes("(3) HOW"),
+      "synthesizer prompt must mention HOW (action)"
+    );
+    // Mentions authoritative bodies the operator might recognize
+    assert.ok(
+      /API|ASME|NACE|ASNT/.test(sysPrompt),
+      "synthesizer prompt must name authoritative bodies"
+    );
+  });
+
+  it("non-synthesizer roles do NOT receive the code-first directive", () => {
+    for (const role of [
+      "inspector",
+      "engineer",
+      "researcher",
+      "devils_advocate",
+      "historian",
+    ] as const) {
+      const p = buildSystemPrompt(role);
+      assert.ok(
+        !p.includes("CODE-FIRST"),
+        `role ${role} should not receive the synthesizer code-first directive`
+      );
+    }
+  });
+});
+
+describe("Fix A — Synthesizer summary parses cleanly when model leads with a code citation", () => {
+  beforeEach(installFetchMock);
+  afterEach(restoreFetch);
+
+  it("model returns code-first/why/how summary → parses, summary regex-matches an authoritative standard", async () => {
+    const codeFirstSummary =
+      "Per API 579-1/ASME FFS-1 Part 5, the documented localized wall loss requires a Level 2 fitness-for-service assessment. The pitting morphology and CP shielding signature is consistent with under-coating localized corrosion because cathodic protection current cannot reach the disbonded substrate. Operator action: conduct Level 2 FFS assessment, regrid UT at 25 mm spacing, retrofit sacrificial anodes given the > 70% depletion at the riser TDP.";
+    const validJson = JSON.stringify({
+      summary: codeFirstSummary,
+      claims: [
+        {
+          text: "Per API 579-1 Part 5, Level 2 FFS is required at the observed RSF.",
+          confidence: 0.85,
+          supporting_evidence_ids: [],
+          cited_mechanism_codes: ["pitting_corrosion"],
+        },
+      ],
+      open_questions: [],
+      cited_mechanisms: ["pitting_corrosion"],
+      cited_evidence: [],
+    });
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          id: "msg_synth_codefirst",
+          content: [{ type: "text", text: validJson }],
+          usage: { input_tokens: 800, output_tokens: 220 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )) as typeof fetch;
+
+    const result = await deliberateAsSynthesizer(DELIB_INPUT, {
+      status: "accepted",
+      reason: "no objections",
+    });
+    assert.equal(result.ok, true, result.error ?? "");
+    assert.ok(
+      STANDARD_CITATION_REGEX.test(result.analysis.summary),
+      `summary should cite an authoritative standard. summary="${result.analysis.summary}"`
+    );
+    // Existing structural assertions still hold
+    assert.equal(result.analysis.role, "synthesizer");
+    assert.equal(result.analysis.claims.length, 1);
   });
 });

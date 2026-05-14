@@ -55,7 +55,9 @@ interface ConsequenceRow {
 
 interface CausalChainRow {
   id: string;
+  title: string | null;
   linked_mechanisms: unknown;
+  linked_anomaly_ids: unknown;
 }
 
 const VALID_CONSEQUENCE_TIERS: ConsequenceTier[] = [
@@ -195,42 +197,122 @@ async function loadLatestConsequence(
 async function loadLatestCausalChain(
   supabase: SupabaseClient,
   org_id: string,
-  anomaly_id: string
+  anomaly_id: string,
+  asset_id_hint: string | null
 ): Promise<CausalChainRow | null> {
-  // cd_causal_chains.linked_anomaly_ids is a jsonb array; supabase-js
-  // exposes a `contains` filter for jsonb. Order by created_at to take
-  // the most recent chain for this anomaly.
-  const { data } = await supabase
+  // Sprint 4 Polish (Fix B): the prior implementation used
+  // .contains("linked_anomaly_ids", [anomaly_id]) which, in production,
+  // returned no rows even when chains existed — leaving primary_mechanism
+  // null in the captured prediction. Switch to a more robust pattern:
+  // filter by asset_id when we have it (a real column, no jsonb
+  // gymnastics), then narrow down in JS to the chain that actually lists
+  // this anomaly_id. Falls back to org-wide scan when asset_id is unknown.
+  let query = supabase
     .from("cd_causal_chains")
-    .select("id, linked_mechanisms")
+    .select("id, title, linked_mechanisms, linked_anomaly_ids")
     .eq("org_id", org_id)
-    .contains("linked_anomaly_ids", [anomaly_id])
     .order("created_at", { ascending: false })
-    .limit(1);
+    .limit(20);
+  if (asset_id_hint) {
+    query = query.eq("asset_id", asset_id_hint);
+  }
+  const { data } = await query;
   const rows = (data ?? []) as Record<string, unknown>[];
   if (rows.length === 0) return null;
+  // Filter for rows whose linked_anomaly_ids contains this anomaly_id.
+  // (Defensive against the jsonb-contains corner case we hit before.)
+  const match =
+    rows.find((r) => {
+      const ids = r.linked_anomaly_ids;
+      return Array.isArray(ids) && (ids as unknown[]).includes(anomaly_id);
+    }) ??
+    // If none of the asset's chains explicitly list this anomaly_id,
+    // fall back to the most recent chain for the asset — defensible
+    // because the engine writes one chain per anomaly and the most
+    // recent is the most likely match.
+    rows[0];
   return {
-    id: String(rows[0].id),
-    linked_mechanisms: rows[0].linked_mechanisms,
+    id: String(match.id),
+    title: (match.title as string | null) ?? null,
+    linked_mechanisms: match.linked_mechanisms,
+    linked_anomaly_ids: match.linked_anomaly_ids,
   };
 }
 
-function extractPrimaryMechanism(chain: CausalChainRow | null): string | null {
+// Sprint 4 Polish (Fix B): primary_mechanism extraction now (1) defensively
+// re-sorts linked_mechanisms by fit_score DESC so the canonical
+// machine-readable identifier wins even if the engine wrote out-of-order
+// rows, (2) prefers .mechanism_key (the canonical key per the
+// cd_causal_chains schema) but accepts .code for backward compat, and
+// (3) falls back to parsing the title's after-colon display name into
+// snake_case when the linked_mechanisms array is empty/missing. Logs a
+// console.warn before returning null so we know in production logs which
+// row had the gap.
+function displayNameToMechanismKey(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[\s/]+/g, "_")
+    .replace(/[^a-z0-9_]+/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
+function extractPrimaryMechanism(
+  chain: CausalChainRow | null
+): string | null {
   if (!chain) return null;
   const lm = chain.linked_mechanisms;
-  if (!Array.isArray(lm) || lm.length === 0) return null;
-  // linked_mechanisms is jsonb; entries may be plain strings or
-  // structured objects depending on how the engine wrote them.
-  // Sprint 2 causalChainEngine writes objects with .code; older code
-  // may have written strings. Handle both.
-  const first = lm[0] as unknown;
-  if (typeof first === "string") return first;
-  if (first && typeof first === "object") {
-    const code = (first as Record<string, unknown>).code;
-    if (typeof code === "string") return code;
-    const key = (first as Record<string, unknown>).mechanism_key;
-    if (typeof key === "string") return key;
+  if (Array.isArray(lm) && lm.length > 0) {
+    const items = lm.filter(
+      (x): x is Record<string, unknown> | string =>
+        x !== null && (typeof x === "object" || typeof x === "string")
+    );
+    // Stable-sort by fit_score DESC when present; entries without a
+    // fit_score fall to the back. Entries that are plain strings have
+    // no fit_score so they sort last.
+    const indexed = items.map((x, idx) => ({ x, idx }));
+    indexed.sort((a, b) => {
+      const af =
+        typeof a.x === "object" &&
+        typeof (a.x as Record<string, unknown>).fit_score === "number"
+          ? ((a.x as Record<string, unknown>).fit_score as number)
+          : -Infinity;
+      const bf =
+        typeof b.x === "object" &&
+        typeof (b.x as Record<string, unknown>).fit_score === "number"
+          ? ((b.x as Record<string, unknown>).fit_score as number)
+          : -Infinity;
+      if (af !== bf) return bf - af;
+      return a.idx - b.idx;
+    });
+    for (const { x } of indexed) {
+      if (typeof x === "string") return x;
+      const key = (x as Record<string, unknown>).mechanism_key;
+      if (typeof key === "string" && key.length > 0) return key;
+      const code = (x as Record<string, unknown>).code;
+      if (typeof code === "string" && code.length > 0) return code;
+    }
   }
+  // Title fallback. cd_causal_chains.title is written by
+  // causalChainEngine.ts as: `Causal chain for ${anomaly.id}: ${display_name}`
+  // — extract the after-colon segment and snake_case it.
+  const title = chain.title ?? "";
+  const colonIdx = title.lastIndexOf(":");
+  if (colonIdx >= 0 && colonIdx < title.length - 1) {
+    const displayName = title.slice(colonIdx + 1).trim();
+    if (displayName.length > 0) {
+      const key = displayNameToMechanismKey(displayName);
+      if (key.length > 0) {
+        return key;
+      }
+    }
+  }
+  console.warn(
+    `[predictionCapture] could not extract primary_mechanism from causal chain id=${chain.id} (linked_mechanisms shape=${
+      Array.isArray(lm) ? `array[${lm.length}]` : typeof lm
+    }, title="${title}")`
+  );
   return null;
 }
 
@@ -288,12 +370,6 @@ export async function captureDeliberationPrediction(
       deliberation_id,
       delib.finding_id
     );
-    const causalChain = await loadLatestCausalChain(
-      supabase,
-      org_id,
-      delib.finding_id
-    );
-    const primary_mechanism = extractPrimaryMechanism(causalChain);
 
     let asset_id = consequence?.asset_id ?? null;
     if (!asset_id) {
@@ -311,6 +387,16 @@ export async function captureDeliberationPrediction(
         error: "could_not_resolve_asset_id",
       };
     }
+
+    // Sprint 4 Polish (Fix B): pass asset_id as a hint so the causal
+    // chain lookup can filter by a real column instead of jsonb-contains.
+    const causalChain = await loadLatestCausalChain(
+      supabase,
+      org_id,
+      delib.finding_id,
+      asset_id
+    );
+    const primary_mechanism = extractPrimaryMechanism(causalChain);
 
     const payload = {
       org_id,

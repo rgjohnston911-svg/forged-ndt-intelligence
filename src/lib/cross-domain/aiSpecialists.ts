@@ -254,6 +254,51 @@ interface AnthropicContentBlock {
   tool_use_id?: string;
   is_error?: boolean;
   content?: Array<Record<string, unknown>>;
+  // Sprint 4 Polish (Fix C): text blocks carry citations[] arrays
+  // pointing back to web_search results with cited_text — that's
+  // where the human-readable snippet actually lives.
+  citations?: Array<Record<string, unknown>>;
+}
+
+// Sprint 4 Polish (Fix C): centralized snippet picker. Anthropic's
+// web_search_result items expose encrypted_content (opaque) and
+// occasionally other text fields; the readable snippet usually lives
+// on text-block citations (cited_text). This helper picks the first
+// non-empty plausible field, with truncation to 500 chars for storage.
+function pickSnippet(
+  ...candidates: Array<unknown>
+): string | undefined {
+  for (const c of candidates) {
+    if (typeof c === "string") {
+      const trimmed = c.trim();
+      if (trimmed.length > 0) {
+        return trimmed.length > 500 ? trimmed.slice(0, 500) : trimmed;
+      }
+    }
+  }
+  return undefined;
+}
+
+// Sprint 4 Polish (Fix D): defensive against markdown-wrapped URLs.
+// Production observed `domain: "[www.energy.gov](https://www.energy.gov)"`
+// where some URL field arrived in markdown-link form rather than as a
+// plain URL. Stripping `[text](url)` and `<url>` wrappings before
+// parsing ensures the bare hostname always reaches the ExternalSource.
+function unwrapUrl(raw: string): string {
+  let s = raw.trim();
+  const mdLink = s.match(/^\[[^\]]*\]\(([^)\s]+)\)$/);
+  if (mdLink) s = mdLink[1].trim();
+  const angle = s.match(/^<(.+)>$/);
+  if (angle) s = angle[1].trim();
+  return s;
+}
+
+function extractHostname(url: string): string | undefined {
+  try {
+    return new URL(unwrapUrl(url)).hostname;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseAnthropicMixedContent(
@@ -267,8 +312,21 @@ function parseAnthropicMixedContent(
   let combinedText = "";
   // tool_use_id -> the search query that produced the result
   const queryByToolUseId = new Map<string, string>();
+  // Sprint 4 Polish (Fix C): URL -> cited_text snippet, harvested from
+  // text-block citations[]. Keyed by canonical bare hostname + path so
+  // minor URL variations (trailing slash, fragments) still merge.
+  const snippetByUrl = new Map<string, string>();
   let searches = 0;
   let errors = 0;
+
+  const canonicalUrlKey = (url: string): string => {
+    try {
+      const u = new URL(unwrapUrl(url));
+      return `${u.hostname}${u.pathname}`.replace(/\/$/, "");
+    } catch {
+      return url.trim();
+    }
+  };
 
   for (const block of blocks) {
     if (block.type === "text" && typeof block.text === "string") {
@@ -276,6 +334,24 @@ function parseAnthropicMixedContent(
       // narrates between tool calls and we want all of it for JSON
       // extraction.
       combinedText += (combinedText ? "\n" : "") + block.text;
+      // Sprint 4 Polish (Fix C): harvest snippet citations from this
+      // text block. The Anthropic citation object includes url +
+      // cited_text (and sometimes title / encrypted_content). We
+      // index by canonical URL key so the web_search_tool_result
+      // pass can lift the snippet onto the matching ExternalSource.
+      if (Array.isArray(block.citations)) {
+        for (const c of block.citations) {
+          const url =
+            typeof c.url === "string" ? unwrapUrl(c.url) : "";
+          if (!url) continue;
+          const snippet = pickSnippet(c.cited_text, c.text, c.excerpt);
+          if (!snippet) continue;
+          const key = canonicalUrlKey(url);
+          if (!snippetByUrl.has(key)) {
+            snippetByUrl.set(key, snippet);
+          }
+        }
+      }
     } else if (
       block.type === "server_tool_use" &&
       (block.name === "web_search" || block.name === undefined)
@@ -301,28 +377,31 @@ function parseAnthropicMixedContent(
     for (const r of results) {
       const recordType = String(r.type ?? "");
       if (recordType !== "web_search_result") continue;
-      const url = typeof r.url === "string" ? r.url : "";
-      if (!url) continue;
-      let domain: string | undefined;
-      try {
-        domain = new URL(url).hostname;
-      } catch {
-        domain = undefined;
-      }
-      // Anthropic's web_search returns encrypted_content (opaque to
-      // humans). A readable snippet is rarely present — we capture
-      // any plain `text` / `cited_text` field if Anthropic ever
-      // includes one, otherwise leave snippet undefined.
-      let snippet: string | undefined;
-      if (typeof r.cited_text === "string" && r.cited_text.length > 0) {
-        snippet = r.cited_text;
-      } else if (typeof r.text === "string" && r.text.length > 0) {
-        snippet = r.text;
-      }
+      const rawUrl = typeof r.url === "string" ? r.url : "";
+      if (!rawUrl) continue;
+      // Sprint 4 Polish (Fix D): unwrap markdown-link / angle-bracket
+      // wrappings before parsing so domain extraction always yields
+      // a bare hostname even if upstream emits markdown-styled URLs.
+      const url = unwrapUrl(rawUrl);
+      const domain = extractHostname(url);
+      // Sprint 4 Polish (Fix C): look in multiple plausible locations
+      // for a readable snippet. encrypted_content stays excluded — it
+      // is opaque base64 the model reads but humans cannot. Prefer the
+      // text-block citation map (real cited_text) over the search
+      // result's own text-like fields.
+      const fromCitations = snippetByUrl.get(canonicalUrlKey(url));
+      const snippet = pickSnippet(
+        fromCitations,
+        r.cited_text,
+        r.text,
+        r.snippet,
+        r.excerpt,
+        r.description
+      );
       sources.push({
         url,
         title: typeof r.title === "string" ? r.title : undefined,
-        snippet: snippet ? snippet.slice(0, 500) : undefined,
+        snippet,
         domain,
         search_query: searchQuery,
         page_age: typeof r.page_age === "string" ? r.page_age : undefined,
@@ -700,7 +779,11 @@ const ROLE_INSTRUCTIONS: Record<SpecialistRole, string> = {
     "You are the HISTORICAL CASES specialist. The ANALOGOUS PRIOR CASES section contains tenant-memory reasoning artifacts (synthesizer summaries and high-confidence specialist claims from past deliberations) retrieved by semantic similarity over the cd_tenant_memory_index. Each case includes text_content, the originating deliberation's consensus outcome, cited mechanisms, and similarity score. Your tasks: (1) summarize what these prior cases suggest about the current anomaly, (2) note mechanism patterns that recur across cases, (3) compare/contrast each case with the current anomaly. If the ANALOGOUS PRIOR CASES section is empty or absent, this is a cold-start tenant — produce a useful output that explicitly states 'No analogous prior cases in tenant memory; reasoning from current evidence and the degradation mechanism database only.' Do NOT fabricate prior cases.",
   synthesizer:
     "You are the SYNTHESIZER. You produce the final authoritative analysis. Consider ALL prior outputs plus the ARBITRATION decision in the prompt. If arbitration.status is 'flagged_dissent', LEAD your summary with the dissent and explicitly defend or concede each unresolved objection. If 'rejected_low_confidence', LABEL your summary 'LOW-CONFIDENCE ADVISORY' and produce best-guess output without overstating certainty. " +
-    "SPRINT 4C CONSEQUENCE PROFILE: If the prompt contains a CONSEQUENCE PROFILE section, it is the deterministic, rules-based risk quantification produced by the consequence engine. Treat its numbers (tiers, dollar ranges, hours-of-downtime, time-to-consequence days, recommended_action_tier) as AUTHORITATIVE. Your job is to (a) state the recommended_action_tier explicitly in your summary, (b) state the overall_tier with the worst-case category, (c) provide narrative context explaining WHY each consequence tier applies — cite evidence from prior specialists and the cited_mechanisms — and (d) if any category had estimated_value: null, explain in your open_questions what additional data would unlock that category. Do NOT override, contradict, or re-estimate any numerical value the consequence engine produced. If no CONSEQUENCE PROFILE section is present, the engine failed or wasn't run — proceed with diagnostic-only output and note the gap in open_questions.",
+    "SPRINT 4C CONSEQUENCE PROFILE: If the prompt contains a CONSEQUENCE PROFILE section, it is the deterministic, rules-based risk quantification produced by the consequence engine. Treat its numbers (tiers, dollar ranges, hours-of-downtime, time-to-consequence days, recommended_action_tier) as AUTHORITATIVE. Your job is to (a) state the recommended_action_tier explicitly in your summary, (b) state the overall_tier with the worst-case category, (c) provide narrative context explaining WHY each consequence tier applies — cite evidence from prior specialists and the cited_mechanisms — and (d) if any category had estimated_value: null, explain in your open_questions what additional data would unlock that category. Do NOT override, contradict, or re-estimate any numerical value the consequence engine produced. If no CONSEQUENCE PROFILE section is present, the engine failed or wasn't run — proceed with diagnostic-only output and note the gap in open_questions. " +
+    // Structures the summary per the code-first/why/how pedagogical
+    // pattern from FORGED Weld Academy curriculum — anchors authority,
+    // explains reasoning, prescribes action.
+    "SPRINT 4 POLISH (Fix A): Structure your `summary` prose using the CODE-FIRST / WHY / HOW pattern. (1) CODE-FIRST: open the summary with the authoritative standard(s) the analysis anchors to (e.g., 'Per API 579-1/ASME FFS-1 Part 5, …' or 'Per NACE SP0169-2013 §6.4, …'). The standard goes first because authority is the anchor — pick from API, ASME, NACE, ASNT, DNV, PHMSA, BSEE, CFR, ISO, or similar authoritative bodies as appropriate. (2) WHY: explain the underlying engineering/physical reasoning that connects the cited evidence to the cited standard (e.g., 'because cathodic shielding under disbonded coatings prevents CP current from reaching the steel surface, sustaining localized corrosion despite an otherwise functional CP system'). (3) HOW: state the practical action and what the operator should do next (e.g., 'Conduct a Level 2 FFS assessment, regrid UT at 25 mm spacing, retrofit anodes given the > 70% depletion at KP 2.45'). Apply this three-part pattern to the HEADLINE conclusions only — do not repeat it for every minor point. The `claims` array stays structured / machine-readable; only the `summary` text changes shape.",
 };
 
 function buildUserPrompt(

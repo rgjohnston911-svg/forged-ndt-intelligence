@@ -152,13 +152,88 @@ const CATEGORY_FAILURE_PATHS: Record<string, string[]> = {
   unknown: ["progression_unknown"],
 };
 
+// Sprint 4 Polish (Fix F): widen domain_match against multiple
+// asset-side signals. The old scorer matched only asset.domain
+// (e.g., 'pipeline') against mechanism.related_domains (often
+// 'subsea' or 'marine' for corrosion mechanisms). Disjoint
+// vocabularies drove domain_match=0.00 for the production subsea
+// pipeline anomaly, dragging every fit_score down by ~50%.
+//
+// Now we union the asset-side tokens from:
+//   - asset.domain (the constraint enum)
+//   - asset.asset_type
+//   - asset.asset_subtype (when present)
+//   - tokens extracted from asset.service_environment
+//   - tokens extracted from asset.location_description (when present)
+//
+// Token extraction looks only for obvious environment words
+// (marine, subsea, offshore, underwater, onshore, buried,
+// atmospheric, splash, immersed). False positives are cheap
+// (slightly over-rank a mechanism); false negatives are
+// expensive (drag down ALL fit scores). Sprint 5+ can introduce
+// a proper domain ontology if needed.
+const ENVIRONMENT_TOKENS = [
+  "marine",
+  "subsea",
+  "offshore",
+  "underwater",
+  "onshore",
+  "buried",
+  "atmospheric",
+  "splash",
+  "immersed",
+  "subterranean",
+  "industrial",
+  "pipeline",
+];
+
+function extractEnvironmentTokens(s: string | null | undefined): string[] {
+  if (!s) return [];
+  const lower = s.toLowerCase();
+  const found: string[] = [];
+  for (const t of ENVIRONMENT_TOKENS) {
+    // Whole-word-ish match using word-boundary lookalikes (some env
+    // strings use underscores). Accept hits anywhere in the token list.
+    const re = new RegExp(`(^|[^a-z])${t}([^a-z]|$)`);
+    if (re.test(lower)) found.push(t);
+  }
+  return found;
+}
+
+interface AssetDomainSignals {
+  domain: string;
+  asset_type: string;
+  asset_subtype: string;
+  service_environment: string;
+  location_description: string;
+}
+
+function collectAssetDomainTokens(signals: AssetDomainSignals): Set<string> {
+  const tokens = new Set<string>();
+  if (signals.domain) tokens.add(signals.domain.toLowerCase());
+  if (signals.asset_type) tokens.add(signals.asset_type.toLowerCase());
+  if (signals.asset_subtype) tokens.add(signals.asset_subtype.toLowerCase());
+  for (const t of extractEnvironmentTokens(signals.service_environment)) {
+    tokens.add(t);
+  }
+  for (const t of extractEnvironmentTokens(signals.location_description)) {
+    tokens.add(t);
+  }
+  return tokens;
+}
+
 function scoreDomainMatch(
   related_domains: unknown,
-  asset_domain: string
+  asset_tokens: Set<string>
 ): number {
   if (!Array.isArray(related_domains) || related_domains.length === 0) return 0;
+  if (asset_tokens.size === 0) return 0;
   const arr = related_domains as unknown[];
-  return arr.some((d) => typeof d === "string" && d === asset_domain) ? 1 : 0;
+  return arr.some(
+    (d) => typeof d === "string" && asset_tokens.has(d.toLowerCase())
+  )
+    ? 1
+    : 0;
 }
 
 function scoreSeverityEnvelope(
@@ -173,12 +248,45 @@ function scoreSeverityEnvelope(
   return Math.max(0, 1 - diff / 3);
 }
 
+// Sprint 4 Polish (Fix E): normalize both sides before comparison.
+// Engineer's cited_mechanisms list may contain display names like
+// "Pitting Corrosion" while the candidate's mechanism_key is the
+// snake_case form "pitting_corrosion". The prior scorer compared the
+// candidate against anomaly.mechanism_key — a single mechanism on the
+// anomaly row — and missed Engineer's full list entirely, so the
+// scorer returned 0.00 for all candidates in production. Now we
+// normalize each entry in the cited list and check membership.
+function normalizeMechanismToken(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/[\s/]+/g, "_")
+    .replace(/[^a-z0-9_]+/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
 function scoreMechanismAlreadyCited(
   candidate_key: string,
+  cited_by_engineer: string[],
   anomaly_mechanism_key: string | null | undefined
 ): number {
-  if (!anomaly_mechanism_key) return 0;
-  return candidate_key === anomaly_mechanism_key ? 1 : 0;
+  const candidate = normalizeMechanismToken(candidate_key);
+  if (candidate.length === 0) return 0;
+  // Primary signal: Engineer's cited_mechanisms list. Normalize each
+  // entry and check whether the candidate's normalized key is present.
+  for (const cited of cited_by_engineer) {
+    if (typeof cited !== "string") continue;
+    if (normalizeMechanismToken(cited) === candidate) return 1;
+  }
+  // Fallback signal (backward compat): anomaly row's stored mechanism_key.
+  if (
+    anomaly_mechanism_key &&
+    normalizeMechanismToken(anomaly_mechanism_key) === candidate
+  ) {
+    return 1;
+  }
+  return 0;
 }
 
 interface ScoredMechanism {
@@ -190,7 +298,9 @@ interface ScoredMechanism {
 function scoreMechanism(
   m: MechanismRow,
   anomaly: AnomalyContext,
-  _asset: AssetContext
+  _asset: AssetContext,
+  engineer_cited_mechanisms: string[],
+  asset_tokens: Set<string>
 ): ScoredMechanism {
   // Scoring uses ONLY columns that exist in cd_degradation_mechanisms:
   // related_domains, default_consequence_bias, mechanism_key. Material /
@@ -200,7 +310,7 @@ function scoreMechanism(
     {
       name: "domain_match",
       weight: 0.5,
-      score: scoreDomainMatch(m.related_domains, _asset.domain),
+      score: scoreDomainMatch(m.related_domains, asset_tokens),
     },
     {
       name: "severity_envelope",
@@ -213,7 +323,11 @@ function scoreMechanism(
     {
       name: "mechanism_already_cited",
       weight: 0.2,
-      score: scoreMechanismAlreadyCited(m.mechanism_key, anomaly.mechanism_key),
+      score: scoreMechanismAlreadyCited(
+        m.mechanism_key,
+        engineer_cited_mechanisms,
+        anomaly.mechanism_key
+      ),
     },
   ];
 
@@ -261,6 +375,20 @@ export async function buildCausalChain(
     return emptyFailureResult("no_candidates");
   }
 
+  // Sprint 4 Polish (Fix E): Engineer may cite mechanisms by display
+  // name ("Pitting Corrosion") OR by mechanism_key ("pitting_corrosion").
+  // Normalize each candidate for the IN filter so display-name-cited
+  // mechanisms still resolve. We also keep the raw list for the
+  // mechanism_already_cited scorer to credit.
+  const normalizedCandidates = Array.from(
+    new Set(
+      candidateMechanismCodes
+        .filter((s): s is string => typeof s === "string" && s.length > 0)
+        .map((s) => normalizeMechanismToken(s))
+        .filter((s) => s.length > 0)
+    )
+  );
+
   // Project ONLY columns that exist in cd_degradation_mechanisms (see
   // SCHEMA NOTES). Naming a nonexistent column here causes PostgREST
   // to reject the entire SELECT with `42703 column ... does not exist`
@@ -271,7 +399,7 @@ export async function buildCausalChain(
     .select(
       "mechanism_key,display_name,category,default_consequence_bias,related_domains,active"
     )
-    .in("mechanism_key", candidateMechanismCodes);
+    .in("mechanism_key", normalizedCandidates);
 
   if (error) {
     return emptyFailureResult(
@@ -283,9 +411,25 @@ export async function buildCausalChain(
     return emptyFailureResult("no_mechanism_records_for_candidates");
   }
 
+  // Sprint 4 Polish (Fix F): pre-compute the widened set of asset-side
+  // tokens once per call. asset_subtype and location_description are
+  // optional on AssetContext today; safe-coerce when absent.
+  const assetTokens = collectAssetDomainTokens({
+    domain: asset.domain ?? "",
+    asset_type: asset.asset_type ?? "",
+    asset_subtype:
+      (asset as unknown as { asset_subtype?: string }).asset_subtype ?? "",
+    service_environment: asset.service_environment ?? "",
+    location_description:
+      (asset as unknown as { location_description?: string })
+        .location_description ?? "",
+  });
+
   const scored = rows
     .filter((r) => r.active !== false)
-    .map((r) => scoreMechanism(r, anomaly, asset))
+    .map((r) =>
+      scoreMechanism(r, anomaly, asset, candidateMechanismCodes, assetTokens)
+    )
     .sort((a, b) => b.fit_score - a.fit_score);
 
   if (scored.length === 0) {

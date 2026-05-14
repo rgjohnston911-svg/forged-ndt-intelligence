@@ -228,10 +228,23 @@ function freshState(over: Partial<MockState> = {}): MockState {
     consequenceByAnomaly: [],
     causalChains: [
       {
+        // Sprint 4 Polish (Fix B): production shape — asset_id present,
+        // linked_mechanisms entries match what causalChainEngine writes
+        // ({mechanism_key, display_name, fit_score, reasoning}), title
+        // present for fallback parsing.
         id: "cc-1",
         org_id: ORG,
+        asset_id: ASSET,
+        title: "Causal chain for anomaly: Pitting Corrosion",
         linked_anomaly_ids: [ANOMALY],
-        linked_mechanisms: [{ code: "pitting_corrosion" }],
+        linked_mechanisms: [
+          {
+            mechanism_key: "pitting_corrosion",
+            display_name: "Pitting Corrosion",
+            fit_score: 0.85,
+            reasoning: "primary",
+          },
+        ],
         created_at: new Date().toISOString(),
       },
     ],
@@ -356,5 +369,111 @@ describe("captureDeliberationPrediction — INSERT error", () => {
       r.error && r.error.includes("simulated insert failure"),
       `error=${r.error}`
     );
+  });
+});
+
+// ============================================================
+// Sprint 4 Polish — Fix B: primary_mechanism extraction
+// ============================================================
+
+describe("Fix B — primary_mechanism extraction from production shape", () => {
+  it("extracts mechanism_key from linked_mechanisms (production shape)", async () => {
+    const state = freshState();
+    const supabase = makeSupabase(state);
+    const r = await captureDeliberationPrediction(
+      DELIB,
+      ORG,
+      supabase as never
+    );
+    assert.equal(r.ok, true);
+    assert.equal(
+      state.predictions[0].primary_mechanism,
+      "pitting_corrosion"
+    );
+  });
+
+  it("picks highest fit_score when linked_mechanisms is unsorted", async () => {
+    const state = freshState();
+    state.causalChains = [
+      {
+        id: "cc-multi",
+        org_id: ORG,
+        asset_id: ASSET,
+        title: "Causal chain for anomaly: Underfilm Corrosion",
+        linked_anomaly_ids: [ANOMALY],
+        // Sort defensively: alternative first by array order, primary
+        // second — extractor should pick the higher fit_score.
+        linked_mechanisms: [
+          {
+            mechanism_key: "general_corrosion",
+            display_name: "General Corrosion",
+            fit_score: 0.4,
+          },
+          {
+            mechanism_key: "pitting_corrosion",
+            display_name: "Pitting Corrosion",
+            fit_score: 0.85,
+          },
+          {
+            mechanism_key: "underfilm_corrosion",
+            display_name: "Underfilm Corrosion",
+            fit_score: 0.6,
+          },
+        ],
+        created_at: new Date().toISOString(),
+      },
+    ];
+    const supabase = makeSupabase(state);
+    const r = await captureDeliberationPrediction(
+      DELIB,
+      ORG,
+      supabase as never
+    );
+    assert.equal(r.ok, true);
+    assert.equal(
+      state.predictions[0].primary_mechanism,
+      "pitting_corrosion",
+      "highest fit_score (0.85) should win"
+    );
+  });
+
+  it("title fallback: empty linked_mechanisms → parse display name from title", async () => {
+    const state = freshState();
+    state.causalChains = [
+      {
+        id: "cc-empty",
+        org_id: ORG,
+        asset_id: ASSET,
+        title: "Causal chain for anomaly: Pitting Corrosion",
+        linked_anomaly_ids: [ANOMALY],
+        linked_mechanisms: [],
+        created_at: new Date().toISOString(),
+      },
+    ];
+    const supabase = makeSupabase(state);
+    const r = await captureDeliberationPrediction(
+      DELIB,
+      ORG,
+      supabase as never
+    );
+    assert.equal(r.ok, true);
+    assert.equal(
+      state.predictions[0].primary_mechanism,
+      "pitting_corrosion",
+      "title 'Pitting Corrosion' should snake_case to pitting_corrosion"
+    );
+  });
+
+  it("no chain at all → primary_mechanism null, capture still succeeds", async () => {
+    const state = freshState();
+    state.causalChains = [];
+    const supabase = makeSupabase(state);
+    const r = await captureDeliberationPrediction(
+      DELIB,
+      ORG,
+      supabase as never
+    );
+    assert.equal(r.ok, true);
+    assert.equal(state.predictions[0].primary_mechanism, null);
   });
 });
