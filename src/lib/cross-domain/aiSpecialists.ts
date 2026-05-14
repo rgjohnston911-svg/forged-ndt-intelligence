@@ -885,6 +885,22 @@ const WEB_SEARCH_MAX_USES = 3;
 // tight. Brief Part 3a calls for 4096.
 const RESEARCHER_WEB_SEARCH_MAX_TOKENS = 4096;
 
+// Sprint 4 Polish 4 Phase 1 (Lever 1): Historian-specific output
+// budget. Historian runs near the end of the chain — its prompt
+// carries Inspector + Engineer + Researcher + Devil's Advocate
+// outputs plus the retrieved analogous-case memory artifacts
+// (~38k input tokens in production). At the regular 2000-token
+// DELIBERATION_MAX_OUTPUT_TOKENS budget its JSON response truncated
+// mid-structure on BOTH passes (the 4000 seen in ai_cost_log.metadata
+// was the 2-pass sum), yielding parse_failed: true and empty
+// claims/cited_evidence. 8000 gives generous headroom; the prompt-side
+// constraints (Levers 2+3 below) attack the verbosity cause so the
+// model should land well under this ceiling. Scoped to Historian
+// ONLY — the global DELIBERATION_MAX_OUTPUT_TOKENS is deliberately
+// left untouched (changing it would also affect Inspector and the
+// Researcher/DA base budget — out of scope for this one-fix PR).
+const HISTORIAN_MAX_OUTPUT_TOKENS = 8000;
+
 function getWebSearchToolsForRole(
   role: SpecialistRole
 ): WebSearchToolConfig[] | undefined {
@@ -953,7 +969,19 @@ const ROLE_INSTRUCTIONS: Record<SpecialistRole, string> = {
   devils_advocate:
     "You are the ADVERSARIAL REVIEWER. Identify AT LEAST 3 specific objections to the prior analyses. Each objection should target a specific claim from a prior specialist and explain WHY that claim is weak (insufficient evidence, alternate mechanism unconsidered, scoping assumption, etc.). State each objection as a claim with confidence reflecting your confidence IN the objection itself (typically 0.6+). If you genuinely find no significant gaps, return a single claim with text starting with 'No significant gaps found:' and explain why the analysis is robust.",
   historian:
-    "You are the HISTORICAL CASES specialist. The ANALOGOUS PRIOR CASES section contains tenant-memory reasoning artifacts (synthesizer summaries and high-confidence specialist claims from past deliberations) retrieved by semantic similarity over the cd_tenant_memory_index. Each case includes text_content, the originating deliberation's consensus outcome, cited mechanisms, and similarity score. Your tasks: (1) summarize what these prior cases suggest about the current anomaly, (2) note mechanism patterns that recur across cases, (3) compare/contrast each case with the current anomaly. If the ANALOGOUS PRIOR CASES section is empty or absent, this is a cold-start tenant — produce a useful output that explicitly states 'No analogous prior cases in tenant memory; reasoning from current evidence and the degradation mechanism database only.' Do NOT fabricate prior cases.",
+    "You are the HISTORICAL CASES specialist. The ANALOGOUS PRIOR CASES section contains tenant-memory reasoning artifacts (synthesizer summaries and high-confidence specialist claims from past deliberations) retrieved by semantic similarity over the cd_tenant_memory_index. Each case includes text_content, the originating deliberation's consensus outcome, cited mechanisms, and similarity score. Your tasks: (1) summarize what these prior cases suggest about the current anomaly, (2) note mechanism patterns that recur across cases, (3) compare/contrast each case with the current anomaly. If the ANALOGOUS PRIOR CASES section is empty or absent, this is a cold-start tenant — produce a useful output that explicitly states 'No analogous prior cases in tenant memory; reasoning from current evidence and the degradation mechanism database only.' Do NOT fabricate prior cases. " +
+    // Sprint 4 Polish 4 Phase 1 (Lever 2): tighten output to attack the
+    // verbosity CAUSE of the JSON truncation, not just the symptom.
+    "OUTPUT CONSTRAINTS: " +
+    "- Reference AT MOST 5 analogous cases from memory retrieval. " +
+    "- For each case, keep the summary to AT MOST 100 words. " +
+    "- Cite a recurring mechanism pattern ONCE, not once per case. " +
+    "- Do NOT repeat content from prior specialists' outputs — assume the reader already has them. " +
+    "- Do NOT enumerate every cited mechanism — focus on the 3 most relevant. " +
+    "- Keep your total output under 3000 tokens. " +
+    // Sprint 4 Polish 4 Phase 1 (Lever 3): make the model budget its
+    // output and prioritize JSON validity over additional content.
+    "CRITICAL: Your response MUST be valid JSON that parses cleanly. If you approach the output limit, prioritize completing the JSON structure over including additional content. Better to return fewer claims with valid JSON than more claims with truncated JSON.",
   synthesizer:
     "You are the SYNTHESIZER. You produce the final authoritative analysis. Consider ALL prior outputs plus the ARBITRATION decision in the prompt. If arbitration.status is 'rejected_low_confidence', LABEL your summary 'LOW-CONFIDENCE ADVISORY' and produce best-guess output without overstating certainty. " +
     "SPRINT 4C CONSEQUENCE PROFILE: If the prompt contains a CONSEQUENCE PROFILE section, it is the deterministic, rules-based risk quantification produced by the consequence engine. Treat its numbers (tiers, dollar ranges, hours-of-downtime, time-to-consequence days, recommended_action_tier) as AUTHORITATIVE. Your job is to (a) state the recommended_action_tier explicitly in your summary, (b) state the overall_tier with the worst-case category, (c) provide narrative context explaining WHY each consequence tier applies — cite evidence from prior specialists and the cited_mechanisms — and (d) if any category had estimated_value: null, explain in your open_questions what additional data would unlock that category. Do NOT override, contradict, or re-estimate any numerical value the consequence engine produced. If no CONSEQUENCE PROFILE section is present, the engine failed or wasn't run — proceed with diagnostic-only output and note the gap in open_questions. " +
@@ -1123,10 +1151,18 @@ async function runProviderCall(
 ): Promise<{ value: ProviderCallResult; attempts: number }> {
   return callWithRetry(() => {
     if (spec.provider === "anthropic") {
-      const baseOutputBudget =
-        tools && tools.length > 0
-          ? RESEARCHER_WEB_SEARCH_MAX_TOKENS
-          : DELIBERATION_MAX_OUTPUT_TOKENS;
+      // Sprint 4 Polish 4 Phase 1 (Lever 1): per-role output budget.
+      // Researcher-with-tools and Historian each get a wider budget
+      // than the regular DELIBERATION_MAX_OUTPUT_TOKENS; every other
+      // Anthropic specialist keeps the default.
+      let baseOutputBudget: number;
+      if (tools && tools.length > 0) {
+        baseOutputBudget = RESEARCHER_WEB_SEARCH_MAX_TOKENS;
+      } else if (spec.role === "historian") {
+        baseOutputBudget = HISTORIAN_MAX_OUTPUT_TOKENS;
+      } else {
+        baseOutputBudget = DELIBERATION_MAX_OUTPUT_TOKENS;
+      }
       const maxTokens = spec.thinking
         ? spec.thinking.budget_tokens + baseOutputBudget
         : baseOutputBudget;
@@ -1528,4 +1564,5 @@ export {
   getWebSearchToolsForRole,
   WEB_SEARCH_COST_PER_CALL_USD,
   WEB_SEARCH_MAX_USES,
+  HISTORIAN_MAX_OUTPUT_TOKENS,
 };

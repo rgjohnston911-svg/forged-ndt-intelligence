@@ -381,6 +381,7 @@ import {
   computeCostUsd,
   WEB_SEARCH_COST_PER_CALL_USD,
   WEB_SEARCH_MAX_USES,
+  HISTORIAN_MAX_OUTPUT_TOKENS,
 } from "../aiSpecialists";
 
 const DELIB_INPUT: DeliberationInput = {
@@ -2329,5 +2330,190 @@ describe("Fix 3 — cache token counts flow into cost + ai_cost_log on a cache h
     >;
     assert.equal(meta.cache_read_input_tokens, 3000);
     assert.equal(meta.cache_creation_input_tokens, 0);
+  });
+});
+
+// ============================================================
+// Sprint 4 Polish 4 Phase 1 — Historian max_tokens truncation.
+// Production: Historian's JSON output truncated mid-structure because
+// the per-pass max_tokens budget was the regular 2000-token
+// DELIBERATION_MAX_OUTPUT_TOKENS (the 4000 in ai_cost_log.metadata was
+// the 2-pass sum). Lever 1: Historian-specific 8000-token budget.
+// Levers 2+3: system-prompt output constraints + JSON-validity-priority
+// instruction. These tests pin the new budget and confirm the
+// Sprint 4 Polish 2 truncation invariant still holds.
+// ============================================================
+
+describe("Polish 4 Phase 1 — Historian max_tokens budget", () => {
+  beforeEach(installFetchMock);
+  afterEach(restoreFetch);
+
+  it("Historian deliberation request body sets max_tokens to HISTORIAN_MAX_OUTPUT_TOKENS (8000)", async () => {
+    // Sanity-check the exported constant first.
+    assert.equal(HISTORIAN_MAX_OUTPUT_TOKENS, 8000);
+
+    let capturedBody = "";
+    globalThis.fetch = (async (_url: FetchInput, init?: FetchInit) => {
+      capturedBody = String(init?.body ?? "");
+      return new Response(
+        JSON.stringify({
+          id: "msg_hist_budget",
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                summary: "Historian summary",
+                claims: [],
+                open_questions: [],
+                cited_mechanisms: [],
+                cited_evidence: [],
+              }),
+            },
+          ],
+          usage: { input_tokens: 38000, output_tokens: 1200 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const result = await deliberateAsHistorian(DELIB_INPUT);
+    assert.equal(result.ok, true, result.error ?? "");
+    const body = JSON.parse(capturedBody);
+    // Historian has no thinking budget, so max_tokens === the base
+    // output budget === HISTORIAN_MAX_OUTPUT_TOKENS.
+    assert.equal(
+      body.max_tokens,
+      8000,
+      `Historian max_tokens must be 8000, got ${body.max_tokens}`
+    );
+  });
+
+  it("non-Historian Anthropic specialists keep the regular 2000-token budget (Lever 1 is Historian-scoped)", async () => {
+    let capturedBody = "";
+    globalThis.fetch = (async (_url: FetchInput, init?: FetchInit) => {
+      capturedBody = String(init?.body ?? "");
+      return new Response(
+        JSON.stringify({
+          id: "msg_inspector_budget",
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                summary: "Inspector summary",
+                claims: [],
+                open_questions: [],
+                cited_mechanisms: [],
+                cited_evidence: [],
+              }),
+            },
+          ],
+          usage: { input_tokens: 500, output_tokens: 200 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const result = await deliberateAsInspector(DELIB_INPUT);
+    assert.equal(result.ok, true, result.error ?? "");
+    const body = JSON.parse(capturedBody);
+    assert.equal(
+      body.max_tokens,
+      2000,
+      `Inspector max_tokens must stay at the global 2000, got ${body.max_tokens} — Lever 1 must not leak beyond Historian`
+    );
+  });
+
+  it("Historian system prompt carries the Lever 2 output constraints and the Lever 3 JSON-validity directive", () => {
+    const sysPrompt = buildSystemPrompt("historian");
+    assert.ok(
+      sysPrompt.includes("OUTPUT CONSTRAINTS"),
+      "Historian prompt must include the Lever 2 OUTPUT CONSTRAINTS block"
+    );
+    assert.ok(
+      sysPrompt.includes("AT MOST 5 analogous cases"),
+      "Historian prompt must cap analogous cases at 5"
+    );
+    assert.ok(
+      sysPrompt.includes("under 3000 tokens"),
+      "Historian prompt must include the total-output token ceiling"
+    );
+    assert.ok(
+      sysPrompt.includes("MUST be valid JSON that parses cleanly"),
+      "Historian prompt must include the Lever 3 JSON-validity directive"
+    );
+    // Non-Historian roles must NOT receive these Historian-only constraints.
+    assert.ok(
+      !buildSystemPrompt("inspector").includes("OUTPUT CONSTRAINTS"),
+      "Lever 2 constraints must not leak into other roles"
+    );
+  });
+
+  it("Historian response near the cap parses cleanly when the JSON is complete", async () => {
+    // A large-but-valid JSON body — simulates Historian using most of
+    // its budget but still closing the structure (the post-Lever-1
+    // expected behaviour).
+    const bigButValidClaims = Array.from({ length: 5 }, (_, i) => ({
+      text: `Analogous case ${i + 1}: recurring pitting pattern on similar riser asset.`,
+      confidence: 0.7,
+      supporting_evidence_ids: [`prior-delib-${i + 1}`],
+      cited_mechanism_codes: ["pitting_corrosion"],
+    }));
+    const validJson = JSON.stringify({
+      summary:
+        "Three prior deliberations show recurring pitting corrosion at riser touchdown points.",
+      claims: bigButValidClaims,
+      open_questions: [],
+      cited_mechanisms: ["pitting_corrosion"],
+      cited_evidence: ["prior-delib-1", "prior-delib-2", "prior-delib-3"],
+    });
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount++;
+      return new Response(
+        JSON.stringify({
+          id: "msg_hist_nearcap",
+          content: [{ type: "text", text: validJson }],
+          // output_tokens well below the 8000 ceiling — model didn't truncate.
+          usage: { input_tokens: 38000, output_tokens: 2600 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const result = await deliberateAsHistorian(DELIB_INPUT);
+    assert.equal(result.ok, true, result.error ?? "");
+    assert.equal(result.analysis.claims.length, 5);
+    assert.equal(result.analysis.parse_error, undefined);
+    assert.ok(result.analysis.cited_evidence.includes("prior-delib-1"));
+    assert.equal(fetchCount, 1, "valid JSON parses on the first pass");
+  });
+
+  it("Historian truncated JSON still preserves raw_response + populates parse_error (Sprint 4 Polish 2 invariant holds)", async () => {
+    // Simulate the model hitting the ceiling: JSON cut off mid-structure.
+    const truncated =
+      '{"summary":"Prior cases show recurring pitting","claims":[{"text":"Case 1 analog';
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount++;
+      return new Response(
+        JSON.stringify({
+          id: "msg_hist_trunc",
+          content: [{ type: "text", text: truncated }],
+          usage: { input_tokens: 38000, output_tokens: 8000 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const result = await deliberateAsHistorian(DELIB_INPUT);
+    assert.equal(result.ok, false);
+    // Invariant: raw_response preserved, parse_error populated.
+    assert.equal(result.analysis.raw_response, truncated);
+    assert.ok(
+      result.analysis.parse_error && result.analysis.parse_error.length > 0,
+      "parse_error must be populated on truncated JSON"
+    );
+    // Truncated-but-non-empty content triggers exactly one parse-retry.
+    assert.equal(fetchCount, 2);
   });
 });
