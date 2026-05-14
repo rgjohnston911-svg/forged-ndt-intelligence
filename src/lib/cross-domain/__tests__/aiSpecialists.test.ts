@@ -1591,20 +1591,25 @@ describe("SpecialistAnalysis — Sprint 4B optional cited_sources", () => {
 const STANDARD_CITATION_REGEX =
   /\b(API|ASME|NACE|DNV|PHMSA|BSEE|CFR|ISO|ASNT)[\s\-]?[0-9A-Z][0-9A-Z\-.\/ ]*/;
 
-describe("Fix A — Synthesizer system prompt contains code-first/why/how directive", () => {
-  it("buildSystemPrompt('synthesizer') includes CODE-FIRST, WHY, and HOW language", () => {
+describe("Fix A (updated by Polish 2 Fix 5) — Synthesizer system prompt contains code-first/why/how directive", () => {
+  it("buildSystemPrompt('synthesizer') instructs first-sentence code citation, WHY paragraph, HOW paragraph", () => {
     const sysPrompt = buildSystemPrompt("synthesizer");
+    // Polish 2 renamed the labels: CODE-FIRST → "FIRST SENTENCE",
+    // WHY: → "THIRD PARAGRAPH (WHY)", HOW: → "FOURTH PARAGRAPH (HOW)".
+    // The pedagogical structure intent is preserved; only the
+    // language is sharper to resolve the conflict with the older
+    // "lead with dissent" directive.
     assert.ok(
-      sysPrompt.includes("CODE-FIRST"),
-      "synthesizer prompt must mention CODE-FIRST anchor"
+      sysPrompt.includes("FIRST SENTENCE"),
+      "synthesizer prompt must instruct on FIRST SENTENCE structure"
     );
     assert.ok(
-      sysPrompt.includes("WHY:") || sysPrompt.includes("(2) WHY"),
-      "synthesizer prompt must mention WHY (reasoning)"
+      sysPrompt.includes("(WHY)") || sysPrompt.includes("WHY:"),
+      "synthesizer prompt must mention WHY (reasoning) paragraph"
     );
     assert.ok(
-      sysPrompt.includes("HOW:") || sysPrompt.includes("(3) HOW"),
-      "synthesizer prompt must mention HOW (action)"
+      sysPrompt.includes("(HOW)") || sysPrompt.includes("HOW:"),
+      "synthesizer prompt must mention HOW (action) paragraph"
     );
     // Mentions authoritative bodies the operator might recognize
     assert.ok(
@@ -1613,7 +1618,7 @@ describe("Fix A — Synthesizer system prompt contains code-first/why/how direct
     );
   });
 
-  it("non-synthesizer roles do NOT receive the code-first directive", () => {
+  it("non-synthesizer roles do NOT receive the synthesizer structure directive", () => {
     for (const role of [
       "inspector",
       "engineer",
@@ -1623,8 +1628,8 @@ describe("Fix A — Synthesizer system prompt contains code-first/why/how direct
     ] as const) {
       const p = buildSystemPrompt(role);
       assert.ok(
-        !p.includes("CODE-FIRST"),
-        `role ${role} should not receive the synthesizer code-first directive`
+        !p.includes("FIRST SENTENCE"),
+        `role ${role} should not receive the synthesizer structure directive`
       );
     }
   });
@@ -1673,5 +1678,159 @@ describe("Fix A — Synthesizer summary parses cleanly when model leads with a c
     // Existing structural assertions still hold
     assert.equal(result.analysis.role, "synthesizer");
     assert.equal(result.analysis.claims.length, 1);
+  });
+});
+
+// ============================================================
+// Sprint 4 Polish 2 — Fix 5: code citation always leads the summary,
+// even with dissent. Prior Polish 1 (Fix A) and the older
+// "LEAD with dissent on flagged_dissent" directive conflicted —
+// production showed dissent winning. Fix 5 makes the priority order
+// explicit: FIRST SENTENCE is the code citation, dissent moves to a
+// labeled second paragraph if present.
+// ============================================================
+
+function firstSentence(s: string): string {
+  // Crude sentence split — first period/exclamation/question that's
+  // followed by whitespace or end of string. Good enough for the
+  // assertion: "does the citation appear before the first sentence
+  // boundary?"
+  const m = s.match(/^([^.!?]*[.!?])(\s|$)/);
+  return m ? m[1].trim() : s.trim();
+}
+
+describe("Fix 5 — Synthesizer system prompt enforces strict priority order", () => {
+  it("buildSystemPrompt('synthesizer') contains FIRST SENTENCE + DISSENT ADDRESSED + 'Never lead with the dissent' language", () => {
+    const p = buildSystemPrompt("synthesizer");
+    assert.ok(
+      p.includes("FIRST SENTENCE"),
+      "must instruct on FIRST SENTENCE structure"
+    );
+    assert.ok(
+      p.includes("DISSENT ADDRESSED:"),
+      "must specify the DISSENT ADDRESSED: prefix"
+    );
+    assert.ok(
+      /never lead with the dissent/i.test(p),
+      "must explicitly say to not lead with dissent"
+    );
+    assert.ok(
+      p.includes("priority order"),
+      "must frame the structure as a priority order"
+    );
+  });
+
+  it("removed the old 'LEAD your summary with the dissent' directive", () => {
+    const p = buildSystemPrompt("synthesizer");
+    assert.ok(
+      !/lead your summary with the dissent/i.test(p),
+      "the conflicting directive that pushed dissent into the first sentence must be gone"
+    );
+  });
+});
+
+describe("Fix 5 — synthesizer summary FIRST SENTENCE matches the standard-citation regex", () => {
+  beforeEach(installFetchMock);
+  afterEach(restoreFetch);
+
+  it("flagged_dissent + code-first summary → FIRST sentence is the code citation, dissent appears as second paragraph", async () => {
+    // Summary models what the new directive should produce: code
+    // citation leads, dissent acknowledgment as labeled second
+    // paragraph, then WHY then HOW.
+    const summary =
+      "Per API 579-1/ASME FFS-1 Part 5 and DNV-RP-F101, this anomaly requires a Level 2 fitness-for-service assessment. " +
+      "DISSENT ADDRESSED: the devil's advocate flagged uncertainty in the wall-loss measurement reliability; we concede a follow-up UT regrid is warranted but the cited standard still governs. " +
+      "Cathodic shielding under the disbonded coating prevents CP current from reaching the substrate, sustaining localized corrosion. " +
+      "Recommended action: urgent_assessment. Conduct Level 2 FFS per API 579-1, regrid UT at 25 mm spacing.";
+    const validJson = JSON.stringify({
+      summary,
+      claims: [
+        {
+          text: "Per API 579-1 Part 5, Level 2 FFS required.",
+          confidence: 0.85,
+          supporting_evidence_ids: [],
+          cited_mechanism_codes: ["pitting_corrosion"],
+        },
+      ],
+      open_questions: [],
+      cited_mechanisms: ["pitting_corrosion"],
+      cited_evidence: [],
+    });
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          id: "msg_synth_fix5",
+          content: [{ type: "text", text: validJson }],
+          usage: { input_tokens: 900, output_tokens: 240 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )) as typeof fetch;
+
+    const result = await deliberateAsSynthesizer(DELIB_INPUT, {
+      status: "flagged_dissent",
+      reason: "3 unresolved objections",
+    });
+    assert.equal(result.ok, true, result.error ?? "");
+    // CRITICAL: the citation must appear in the FIRST sentence, not
+    // somewhere later. This is the Polish 2 acceptance criterion.
+    const first = firstSentence(result.analysis.summary);
+    assert.ok(
+      STANDARD_CITATION_REGEX.test(first),
+      `FIRST sentence must cite an authoritative standard. first="${first}"`
+    );
+    // First sentence does NOT start with DISSENT — that's the
+    // production regression we're fixing.
+    assert.ok(
+      !/^dissent\b/i.test(first),
+      `FIRST sentence must not lead with 'DISSENT'. first="${first}"`
+    );
+    // Dissent acknowledgment still present elsewhere in the summary.
+    assert.ok(
+      result.analysis.summary.includes("DISSENT ADDRESSED:"),
+      "dissent should still be acknowledged in a later paragraph"
+    );
+  });
+
+  it("unanimous consensus → no DISSENT ADDRESSED paragraph, FIRST sentence still cites a standard", async () => {
+    const summary =
+      "Per NACE SP0169-2013 §6.4, the observed cathodic protection performance meets acceptance criteria at the current CP-on potential. " +
+      "Pitting morphology indicates underfilm initiation under disbonded coating, consistent with the cited NACE practice. " +
+      "Recommended action: monitor. Schedule annual CP survey and visual inspection at the affected riser TDP.";
+    const validJson = JSON.stringify({
+      summary,
+      claims: [
+        {
+          text: "Per NACE SP0169-2013 §6.4, CP performance meets criteria.",
+          confidence: 0.9,
+          supporting_evidence_ids: [],
+          cited_mechanism_codes: ["underfilm_corrosion"],
+        },
+      ],
+      open_questions: [],
+      cited_mechanisms: ["underfilm_corrosion"],
+      cited_evidence: [],
+    });
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          id: "msg_synth_unanim",
+          content: [{ type: "text", text: validJson }],
+          usage: { input_tokens: 800, output_tokens: 200 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )) as typeof fetch;
+
+    const result = await deliberateAsSynthesizer(DELIB_INPUT, {
+      status: "accepted",
+      reason: "no objections",
+    });
+    assert.equal(result.ok, true, result.error ?? "");
+    const first = firstSentence(result.analysis.summary);
+    assert.ok(STANDARD_CITATION_REGEX.test(first));
+    // Unanimous case correctly omits the DISSENT ADDRESSED paragraph.
+    assert.ok(
+      !result.analysis.summary.includes("DISSENT ADDRESSED:"),
+      "DISSENT ADDRESSED: must be omitted on unanimous consensus"
+    );
   });
 });
