@@ -389,7 +389,17 @@ async function triggerPredictionCapture(
   arbitration: ArbitrationDecision
 ): Promise<void> {
   const consensus = consensusLevelFor(arbitration);
-  if (consensus === "unresolved") return;
+  if (consensus === "unresolved") {
+    // Sprint 4 Polish 2 (Fix 1): even the intentional skip path leaves
+    // a breadcrumb so we can confirm in production whether capture was
+    // even invoked. Pre-Polish-2 this returned silently — production
+    // showed no error AND no row, indistinguishable from "function was
+    // never called".
+    console.log(
+      `[prediction capture ${opts.deliberation_id}] skipped (consensus=unresolved)`
+    );
+    return;
+  }
   try {
     const result = await captureDeliberationPrediction(
       opts.deliberation_id,
@@ -401,17 +411,22 @@ async function triggerPredictionCapture(
         `[prediction capture ${opts.deliberation_id}] OK prediction_id=${result.prediction_id}${result.note ? ` note=${result.note}` : ""}`
       );
     } else {
+      // Sprint 4 Polish 2 (Fix 1): EVERY ok:false return writes to the
+      // deliberation log now, not just error-bearing ones. Pre-Polish-2
+      // the orchestrator gated this DB write on result.error, meaning
+      // note-only returns ("deliberation_not_completed",
+      // "consensus_unresolved_skipped", etc.) were silently dropped —
+      // making it impossible to tell post-hoc whether the capture
+      // function even ran.
       const detail = result.error ?? result.note ?? "unknown";
       console.warn(
         `[prediction capture ${opts.deliberation_id}] not_ok detail="${detail}"`
       );
-      if (result.error) {
-        await mergePredictionCaptureError(
-          supabase,
-          opts.deliberation_id,
-          result.error
-        );
-      }
+      await mergePredictionCaptureError(
+        supabase,
+        opts.deliberation_id,
+        detail
+      );
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
