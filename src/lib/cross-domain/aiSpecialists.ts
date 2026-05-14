@@ -279,17 +279,32 @@ function pickSnippet(
   return undefined;
 }
 
-// Sprint 4 Polish (Fix D): defensive against markdown-wrapped URLs.
-// Production observed `domain: "[www.energy.gov](https://www.energy.gov)"`
-// where some URL field arrived in markdown-link form rather than as a
-// plain URL. Stripping `[text](url)` and `<url>` wrappings before
-// parsing ensures the bare hostname always reaches the ExternalSource.
+// Sprint 4 Polish (Fix D) + Polish 2 (Fix 4): defensive against
+// markdown-wrapped URLs. Production smoke-test still showed
+// `[www.researchgate.net](https://www.researchgate.net)` in some
+// domain fields after Polish 1's Fix D — meaning a URL ingress path
+// was missed. Fix 4 makes the unwrap chain comprehensive: markdown
+// link, angle brackets, AND trailing punctuation (the model
+// sometimes emits URLs followed by `,` / `.` / `;` in prose, and
+// citation URLs can inherit that). Loop runs to fixpoint so chained
+// wrappings (e.g., `<[host](url)>.`) collapse correctly.
 function unwrapUrl(raw: string): string {
   let s = raw.trim();
-  const mdLink = s.match(/^\[[^\]]*\]\(([^)\s]+)\)$/);
-  if (mdLink) s = mdLink[1].trim();
-  const angle = s.match(/^<(.+)>$/);
-  if (angle) s = angle[1].trim();
+  for (let i = 0; i < 6; i++) {
+    const before = s;
+    // Strip prose-trailing punctuation FIRST so the markdown/angle
+    // unwrap can match the inner form. ) and ] are intentionally
+    // EXCLUDED — they belong to markdown link / angle bracket
+    // delimiters that the next two rules consume.
+    const trailing = s.match(/^(.+?)[.,;:]$/);
+    if (trailing) s = trailing[1];
+    const mdLink = s.match(/^\[[^\]]*\]\(([^)\s]+)\)$/);
+    if (mdLink) s = mdLink[1];
+    const angle = s.match(/^<(.+)>$/);
+    if (angle) s = angle[1];
+    s = s.trim();
+    if (s === before) break;
+  }
   return s;
 }
 

@@ -1203,6 +1203,119 @@ describe("parseAnthropicMixedContent — direct unit", () => {
     );
   });
 
+  // ----- Sprint 4 Polish 2 (Fix 4) — domain unwrap: trailing
+  // punctuation + chained wrappings collapse correctly -----
+
+  it("Fix 4: URL with trailing comma → unwrapped to bare host", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_tp1",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_tp1",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.researchgate.net/publication/abc,",
+            title: "ResearchGate paper",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].domain, "www.researchgate.net");
+    // url is unwrapped (no trailing comma in the canonical form)
+    assert.ok(
+      !parsed.cited_sources[0].url.endsWith(","),
+      `url should not retain trailing comma: ${parsed.cited_sources[0].url}`
+    );
+  });
+
+  it("Fix 4: URL with trailing period → unwrapped to bare host", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_tp2",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_tp2",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.energy.gov/oe/articles/x.",
+            title: "DOE article",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].domain, "www.energy.gov");
+    assert.ok(!parsed.cited_sources[0].url.endsWith("."));
+  });
+
+  it("Fix 4: chained wrappings — markdown link inside angle brackets with trailing semicolon", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_chain",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_chain",
+        content: [
+          {
+            type: "web_search_result",
+            url: "<[asme.org](https://files.asme.org/pvp/2024/89234.pdf)>;",
+            title: "chained wrap",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(
+      parsed.cited_sources[0].domain,
+      "files.asme.org",
+      `chained wrappings must collapse; got domain=${parsed.cited_sources[0].domain}`
+    );
+  });
+
+  it("Fix 4: production-shape regression — researchgate markdown link → bare host", () => {
+    // Production-observed shape from Sprint 4 Polish smoke test:
+    // domain ended up as "[www.researchgate.net](https://www.researchgate.net)"
+    // because the URL field arrived in markdown-link form. After Fix 4
+    // the unwrap chain handles both ingress paths.
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_rg",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_rg",
+        content: [
+          {
+            type: "web_search_result",
+            url: "[www.researchgate.net](https://www.researchgate.net/publication/abc)",
+            title: "rg",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].domain, "www.researchgate.net");
+  });
+
   it("Fix 3: harvester does NOT descend into encrypted_content (opaque base64)", () => {
     // Encrypted_content is base64 the model reads but humans cannot.
     // Walking into it wastes work and could surface garbled bytes
