@@ -1129,3 +1129,252 @@ describe("runDeliberation — Fix 4 parallel Researcher + Devil's Advocate", () 
     }
   });
 });
+
+// ============================================================
+// Sprint 4 Polish 3 — Fix 5: deliberation-completed webhook fires at
+// the end of a successful deliberation. Uses a role-aware mock that
+// ALSO handles the webhook POST URL.
+// ============================================================
+
+import { signWebhookBody } from "../webhookDelivery";
+
+describe("runDeliberation — Fix 5 webhook delivery", () => {
+  const ORIGINAL = globalThis.fetch;
+  const WEBHOOK_URL = "https://webhook-receiver.test/forged-hook";
+  const WEBHOOK_SECRET = "fix5-shared-secret";
+  let webhookPosts: Array<{ headers: Record<string, string>; body: string }>;
+  let webhookResponder: () => Response;
+
+  function systemTextOf(body: Record<string, unknown>): string {
+    if (Array.isArray(body.system)) {
+      return (body.system as Array<Record<string, unknown>>)
+        .map((b) => String(b.text ?? ""))
+        .join("");
+    }
+    if (typeof body.system === "string") return body.system;
+    if (typeof body.input === "string") return body.input;
+    return "";
+  }
+  function roleOf(body: Record<string, unknown>): string {
+    const s = systemTextOf(body);
+    if (s.includes("INSPECTION specialist")) return "inspector";
+    if (s.includes("SENIOR ENGINEERING specialist")) return "engineer";
+    if (s.includes("RESEARCH specialist")) return "researcher";
+    if (s.includes("ADVERSARIAL REVIEWER")) return "devils_advocate";
+    if (s.includes("HISTORICAL CASES specialist")) return "historian";
+    if (s.includes("SYNTHESIZER")) return "synthesizer";
+    return "unknown";
+  }
+  const RESPONSE_BY_ROLE: Record<string, () => Response> = {
+    inspector: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Inspector",
+          claims: [
+            {
+              text: "pitting",
+              confidence: 0.7,
+              cited_mechanism_codes: ["pitting_corrosion"],
+            },
+          ],
+          cited_mechanisms: ["pitting_corrosion"],
+        })
+      ),
+    engineer: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Engineer",
+          claims: [
+            {
+              text: "pitting fits",
+              confidence: 0.85,
+              cited_mechanism_codes: ["pitting_corrosion"],
+            },
+          ],
+          cited_mechanisms: ["pitting_corrosion"],
+        }),
+        { with_thinking: true }
+      ),
+    researcher: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Researcher",
+          claims: [{ text: "literature supports", confidence: 0.65 }],
+        })
+      ),
+    devils_advocate: () =>
+      openaiOk(
+        specialistJson({
+          summary: "No significant gaps found: direct evidence",
+          claims: [
+            {
+              text: "No significant gaps found: solid",
+              confidence: 0.7,
+            },
+          ],
+        })
+      ),
+    historian: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Historian",
+          claims: [{ text: "analogous case", confidence: 0.7 }],
+        })
+      ),
+    synthesizer: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Per API 579-1, pitting confirmed",
+          claims: [
+            {
+              text: "primary is pitting",
+              confidence: 0.88,
+              cited_mechanism_codes: ["pitting_corrosion"],
+            },
+          ],
+          cited_mechanisms: ["pitting_corrosion"],
+        }),
+        { with_thinking: true }
+      ),
+  };
+
+  beforeEach(() => {
+    webhookPosts = [];
+    webhookResponder = () => new Response("ok", { status: 200 });
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.CROSS_DOMAIN_RETRY_BASE_MS = "1";
+    process.env.CROSS_DOMAIN_WEBHOOK_RETRY_MS = "1";
+    globalThis.fetch = (async (urlInput: FetchInput, init?: FetchInit) => {
+      const url = String(urlInput);
+      if (url.includes("webhook-receiver.test")) {
+        webhookPosts.push({
+          headers: (init?.headers ?? {}) as Record<string, string>,
+          body: String(init?.body ?? ""),
+        });
+        return webhookResponder();
+      }
+      let body: Record<string, unknown> = {};
+      try {
+        body = JSON.parse(String(init?.body ?? "{}"));
+      } catch {
+        body = {};
+      }
+      const factory = RESPONSE_BY_ROLE[roleOf(body)];
+      if (factory) return factory();
+      return new Response(JSON.stringify({ error: "unknown_role" }), {
+        status: 500,
+      });
+    }) as typeof fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = ORIGINAL;
+    if (ORIGINAL_ANTHROPIC === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = ORIGINAL_ANTHROPIC;
+    if (ORIGINAL_OPENAI === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = ORIGINAL_OPENAI;
+    if (ORIGINAL_RETRY_BASE === undefined)
+      delete process.env.CROSS_DOMAIN_RETRY_BASE_MS;
+    else process.env.CROSS_DOMAIN_RETRY_BASE_MS = ORIGINAL_RETRY_BASE;
+    delete process.env.CROSS_DOMAIN_WEBHOOK_RETRY_MS;
+  });
+
+  function supabaseWith(webhookEnabled: boolean) {
+    return makeMockSupabase({
+      cd_degradation_mechanisms: SEEDED_MECH_ROWS,
+      org_feature_flags: [
+        {
+          org_id: ORG,
+          feature_flags: {
+            cross_domain: { daily_cap_usd: 100, per_deliberation_cap_usd: 50 },
+            webhooks: {
+              deliberation_completed: {
+                url: WEBHOOK_URL,
+                secret: WEBHOOK_SECRET,
+                enabled: webhookEnabled,
+              },
+            },
+          },
+        },
+      ],
+      cd_deliberation_log: [],
+      cd_causal_chains: [],
+      ai_cost_log: [],
+    });
+  }
+
+  it("org has a webhook configured → POST fired with signed payload after the deliberation finalizes", async () => {
+    const supabase = supabaseWith(true);
+    const result = await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-fix5-fires",
+      supabase: supabase as never,
+    });
+    assert.equal(result.ok, true, result.aborted_reason ?? "");
+    assert.equal(webhookPosts.length, 1, "exactly one webhook POST");
+    const post = webhookPosts[0];
+    // Signature header present + correct for the exact body sent.
+    assert.equal(
+      post.headers["X-Forged-Signature"],
+      signWebhookBody(post.body, WEBHOOK_SECRET)
+    );
+    assert.equal(post.headers["X-Forged-Event"], "deliberation.completed");
+    const payload = JSON.parse(post.body);
+    assert.equal(payload.event, "deliberation.completed");
+    assert.equal(payload.deliberation_id, "delib-fix5-fires");
+    assert.equal(payload.org_id, ORG);
+    assert.equal(payload.anomaly_id, ANOMALY.id);
+    assert.equal(payload.asset_id, ASSET.id);
+    assert.ok(
+      typeof payload.consensus_level === "string" &&
+        payload.consensus_level.length > 0
+    );
+    assert.equal(typeof payload.total_cost_usd, "number");
+    assert.ok(String(payload.poll_url).includes("delib-fix5-fires"));
+  });
+
+  it("webhook returns 500 (twice) → deliberation still completes ok, webhook_error logged to arbitration_rules_applied", async () => {
+    webhookResponder = () => new Response("server error", { status: 500 });
+    const supabase = supabaseWith(true);
+    const result = await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-fix5-500",
+      supabase: supabase as never,
+    });
+    // Deliberation itself is unaffected.
+    assert.equal(result.ok, true, result.aborted_reason ?? "");
+    assert.equal(result.per_specialist.length, 6);
+    // initial + one retry on 5xx.
+    assert.equal(webhookPosts.length, 2);
+    // webhook_error recorded, deliberation NOT failed.
+    const row = supabase.__store.cd_deliberation_log[0] as Record<
+      string,
+      unknown
+    >;
+    const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    assert.ok(
+      typeof ara.webhook_error === "string" &&
+        (ara.webhook_error as string).includes("500"),
+      `webhook_error must be logged; got: ${JSON.stringify(ara.webhook_error)}`
+    );
+    // final_status still reflects the real arbitration outcome.
+    assert.notEqual(ara.final_status, "failed");
+  });
+
+  it("webhook disabled (enabled:false) → no POST fired, deliberation completes normally", async () => {
+    const supabase = supabaseWith(false);
+    const result = await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-fix5-disabled",
+      supabase: supabase as never,
+    });
+    assert.equal(result.ok, true, result.aborted_reason ?? "");
+    assert.equal(webhookPosts.length, 0, "disabled webhook must not fire");
+    const row = supabase.__store.cd_deliberation_log[0] as Record<
+      string,
+      unknown
+    >;
+    const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    assert.equal(ara.webhook_error, undefined);
+  });
+});

@@ -45,6 +45,10 @@ import { checkOrgBudget, recordSpend } from "./budgetGuard";
 import { SPECIALIST_ORDER } from "./deliberationState";
 import { ingestDeliberationMemory } from "./memoryIngest";
 import { captureDeliberationPrediction } from "./predictionCapture";
+import {
+  deliverDeliberationWebhook,
+  type DeliberationWebhookPayload,
+} from "./webhookDelivery";
 
 export interface RunDeliberationOptions {
   org_id: string;
@@ -434,6 +438,99 @@ async function triggerPredictionCapture(
       `[prediction capture ${opts.deliberation_id}] threw err="${message}"`
     );
     await mergePredictionCaptureError(supabase, opts.deliberation_id, message);
+  }
+}
+
+// Sprint 4 Polish 3 (Fix 5): webhook delivery. Same merge-into-
+// arbitration_rules_applied pattern as the other supplementary hooks
+// — a webhook failure is recorded but NEVER fails the deliberation.
+async function mergeWebhookError(
+  supabase: SupabaseClient,
+  deliberation_id: string,
+  message: string
+): Promise<void> {
+  try {
+    const { data } = await supabase
+      .from("cd_deliberation_log")
+      .select("arbitration_rules_applied")
+      .eq("id", deliberation_id)
+      .maybeSingle();
+    const row = (data ?? {}) as Record<string, unknown>;
+    const existing =
+      (row.arbitration_rules_applied as Record<string, unknown> | null) ?? {};
+    await supabase
+      .from("cd_deliberation_log")
+      .update({
+        arbitration_rules_applied: {
+          ...existing,
+          webhook_error: message,
+        },
+      })
+      .eq("id", deliberation_id);
+  } catch {
+    // Best-effort — outcome already stands; nothing else to do.
+  }
+}
+
+interface WebhookTriggerContext {
+  anomaly_id: string;
+  asset_id: string;
+  consequenceProfile: ConsequenceProfile | null;
+  total_cost_usd: number;
+}
+
+async function triggerWebhookDelivery(
+  supabase: SupabaseClient,
+  opts: RunDeliberationOptions,
+  arbitration: ArbitrationDecision,
+  ctx: WebhookTriggerContext
+): Promise<void> {
+  try {
+    // poll_url points the receiver at the status endpoint for the full
+    // payload. CROSS_DOMAIN_PUBLIC_BASE_URL is preferred; Netlify also
+    // injects URL at runtime. Falls back to a relative path.
+    const base =
+      process.env.CROSS_DOMAIN_PUBLIC_BASE_URL || process.env.URL || "";
+    const statusPath = `/.netlify/functions/cross-domain-deliberation-status?deliberation_id=${opts.deliberation_id}`;
+    const poll_url = base ? `${base.replace(/\/$/, "")}${statusPath}` : statusPath;
+
+    const payload: DeliberationWebhookPayload = {
+      event: "deliberation.completed",
+      delivered_at: new Date().toISOString(),
+      deliberation_id: opts.deliberation_id,
+      org_id: opts.org_id,
+      anomaly_id: ctx.anomaly_id,
+      asset_id: ctx.asset_id,
+      consensus_level: consensusLevelFor(arbitration),
+      escalated_to_human: escalatedFor(arbitration),
+      recommended_action_tier:
+        ctx.consequenceProfile?.recommended_action_tier ?? null,
+      overall_consequence_tier: ctx.consequenceProfile?.overall_tier ?? null,
+      total_cost_usd: ctx.total_cost_usd,
+      poll_url,
+    };
+
+    const result = await deliverDeliberationWebhook(payload, supabase);
+    if (result.ok) {
+      if (result.attempted) {
+        console.log(
+          `[webhook ${opts.deliberation_id}] delivered status=${result.status}`
+        );
+      }
+      // result.attempted === false → no webhook configured / disabled;
+      // intentional silent no-op.
+    } else {
+      const detail =
+        result.error ?? `status_${result.status ?? "unknown"}`;
+      console.warn(
+        `[webhook ${opts.deliberation_id}] delivery failed: ${detail}`
+      );
+      await mergeWebhookError(supabase, opts.deliberation_id, detail);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[webhook ${opts.deliberation_id}] threw err="${message}"`);
+    await mergeWebhookError(supabase, opts.deliberation_id, message);
   }
 }
 
@@ -879,6 +976,17 @@ export async function runDeliberation(
     // memory ingest so consequence + causal chain sibling rows are
     // already in place; the capture function pulls from them.
     await triggerPredictionCapture(supabase, opts, arbitration);
+    // Sprint 4 Polish 3 (Fix 5): fire the deliberation-completed
+    // webhook LAST — after every subsystem hook — so a registered
+    // receiver gets a payload reflecting the fully finalized state.
+    // Failure is recorded to arbitration_rules_applied.webhook_error
+    // but never fails the deliberation.
+    await triggerWebhookDelivery(supabase, opts, arbitration, {
+      anomaly_id: input.anomaly.id,
+      asset_id: input.asset.id,
+      consequenceProfile,
+      total_cost_usd: runningCost,
+    });
   } else {
     await finalizeLogAsFailure(
       supabase,
