@@ -29,6 +29,7 @@ import type {
   AnomalyContext,
   AssetContext,
   SpecialistRole,
+  ConsequenceProfile,
 } from "./types";
 import {
   deliberateAsInspector,
@@ -39,6 +40,7 @@ import {
   deliberateAsSynthesizer,
 } from "./aiSpecialists";
 import { buildCausalChain } from "./causalChainEngine";
+import { buildConsequenceProfile } from "./consequenceEngine";
 import { checkOrgBudget, recordSpend } from "./budgetGuard";
 import { SPECIALIST_ORDER } from "./deliberationState";
 import { ingestDeliberationMemory } from "./memoryIngest";
@@ -452,6 +454,11 @@ export async function runDeliberation(
   // arbitration_rules_applied payload for diagnosis. Empty string =
   // engine succeeded (or wasn't applicable).
   let causalChainError: string = "";
+  // Sprint 4C: same pattern for the deterministic consequence engine.
+  // Runs after causal chain, before Researcher. Failure does NOT block
+  // the deliberation — the error surfaces via arbitration_rules_applied.
+  let consequenceProfile: ConsequenceProfile | null = null;
+  let consequenceEngineError: string = "";
 
   // resume_from_specialist controls which steps to skip. If we're
   // resuming, the orchestrator uses the loaded prior outputs for
@@ -502,6 +509,7 @@ export async function runDeliberation(
     ...input,
     priorAnalyses: [...perSpecialist],
     causalChain: causalChain ?? undefined,
+    consequenceProfile: consequenceProfile ?? undefined,
   });
 
   // ---- Step 1: Inspector ----
@@ -613,6 +621,41 @@ export async function runDeliberation(
     }
   }
 
+  // ---- Step 3b: Consequence engine (rules-based; runs between
+  // causal chain and Researcher so downstream specialists can
+  // reference the deterministic risk quantification). Supplementary
+  // to the 6-AI chain. Failure logged + surfaced via
+  // arbitration_rules_applied.consequence_engine_error.
+  try {
+    const consResult = await buildConsequenceProfile({
+      anomaly: input.anomaly,
+      asset: input.asset,
+      causalChain,
+      supabase,
+      org_id,
+      deliberation_id,
+    });
+    if (consResult.ok && consResult.profile) {
+      consequenceProfile = consResult.profile;
+      console.log(
+        `[orchestrator deliberation_id=${deliberation_id}] consequence engine OK overall_tier=${consequenceProfile.overall_tier} action=${consequenceProfile.recommended_action_tier} confidence=${consequenceProfile.total_confidence.toFixed(2)}`
+      );
+    } else {
+      consequenceProfile = consResult.profile ?? null;
+      consequenceEngineError = consResult.error ?? "unknown";
+      console.warn(
+        `[orchestrator deliberation_id=${deliberation_id}] consequence engine ok:false err="${consequenceEngineError}"`
+      );
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    consequenceEngineError = `consequence_engine_threw: ${message}`;
+    console.error(
+      `[orchestrator deliberation_id=${deliberation_id}] consequence engine THREW err="${message}" — continuing deliberation`
+    );
+    consequenceProfile = null;
+  }
+
   // ---- Step 4: Researcher ----
   const researcher = await step("researcher", () =>
     deliberateAsResearcher(inputWithChain(), ctx)
@@ -704,6 +747,10 @@ export async function runDeliberation(
   );
 
   if (synthesizer.ok) {
+    const extras: Record<string, unknown> = {};
+    if (causalChainError) extras.causal_chain_error = causalChainError;
+    if (consequenceEngineError)
+      extras.consequence_engine_error = consequenceEngineError;
     await finalizeLog(
       supabase,
       opts,
@@ -711,7 +758,7 @@ export async function runDeliberation(
       arbitration,
       synthesizer.analysis,
       runningCost,
-      causalChainError ? { causal_chain_error: causalChainError } : {}
+      extras
     );
     // Sprint 4A: ingest reasoning artifacts into tenant memory. Supplementary
     // — never blocks the deliberation outcome. See triggerMemoryIngest.
@@ -745,6 +792,7 @@ export async function runDeliberation(
     arbitration,
     synthesizer_output: synthesizer.analysis,
     causal_chain: causalChain,
+    consequence_profile: consequenceProfile,
     total_cost_usd: runningCost,
     total_latency_ms: Date.now() - t0,
     per_specialist: perSpecialist,

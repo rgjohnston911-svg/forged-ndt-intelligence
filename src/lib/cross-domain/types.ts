@@ -186,6 +186,11 @@ export interface AnomalyContext {
   severity: AssetAnomaly["severity"];
   observed_at: string;
   mechanism_key?: string | null;
+  // Sprint 4C: optional engineering measurements passed through from
+  // cd_asset_anomalies.measurement_jsonb. Used by the consequence
+  // engine's time-to-consequence calculation (remaining_wall_mm /
+  // progression_rate → days-to-50%-wall).
+  measurement_jsonb?: Record<string, unknown> | null;
 }
 
 export interface AssetContext {
@@ -197,6 +202,12 @@ export interface AssetContext {
   service_environment: string | null;
   criticality: AssetCriticality;
   age_years: number | null;
+  // Sprint 4C: optional cost hints used by the consequence engine.
+  // Sourced from cd_asset_nodes.operating_conditions / metadata_jsonb
+  // when available. Engine returns null cost estimate when neither is
+  // populated rather than fabricating.
+  operating_conditions?: Record<string, unknown> | null;
+  metadata_jsonb?: Record<string, unknown> | null;
 }
 
 export interface EvidenceItem {
@@ -329,6 +340,10 @@ export interface DeliberationInput {
   mechanismVocabulary: DegradationMechanismRef[];
   analogousCases?: AnalogousCase[]; // Sprint 2 placeholder for historian; Sprint 4 → vector retrieval
   causalChain?: CausalChainResult; // injected after Engineer for downstream specialists
+  // Sprint 4C: injected after the consequence engine runs (between
+  // causal chain and Researcher) so Researcher/DA/Historian/Synthesizer
+  // can reference the deterministic risk quantification.
+  consequenceProfile?: ConsequenceProfile;
 }
 
 export interface ArbitrationDecision {
@@ -368,6 +383,9 @@ export interface DeliberationResult {
   arbitration: ArbitrationDecision;
   synthesizer_output: SpecialistAnalysis | null;
   causal_chain: CausalChainResult | null;
+  // Sprint 4C: deterministic risk quantification, undefined when the
+  // engine threw or hadn't been invoked (e.g., engineer failed early).
+  consequence_profile?: ConsequenceProfile | null;
   total_cost_usd: number;
   total_latency_ms: number;
   per_specialist: SpecialistAnalysis[];
@@ -376,4 +394,65 @@ export interface DeliberationResult {
     | "synthesizer_failed"
     | "per_deliberation_cap_exceeded"
     | "org_daily_cap_exceeded";
+}
+
+// ============================================================
+// Sprint 4C — Consequence Engine contracts
+//
+// Deterministic, rules-based per-anomaly risk quantification. Built
+// after the causal chain engine, before Researcher. Pure functions:
+// no AI calls, every estimate traceable to documented inputs and
+// scoring rules. Persisted to cd_anomaly_consequence_assessments
+// (DEPLOY357).
+// ============================================================
+
+export type ConsequenceCategory =
+  | "safety"
+  | "cost"
+  | "downtime"
+  | "environmental"
+  | "regulatory";
+
+export type ConsequenceTier =
+  | "negligible"
+  | "low"
+  | "moderate"
+  | "high"
+  | "severe"
+  | "catastrophic";
+
+export type RecommendedActionTier =
+  | "monitor"
+  | "engineering_review"
+  | "urgent_assessment"
+  | "immediate_remediation"
+  | "cease_operation";
+
+export interface CategoryAssessment {
+  category: ConsequenceCategory;
+  tier: ConsequenceTier;
+  estimated_value: {
+    low: number;
+    expected: number;
+    high: number;
+    unit: string; // 'USD', 'hours', 'count', etc.
+  } | null;
+  reasoning: string;
+  contributing_factors: string[];
+  citation_codes?: string[];
+}
+
+export interface ConsequenceProfile {
+  consequence_profile_id: string;
+  anomaly_id: string;
+  asset_id: string;
+  overall_tier: ConsequenceTier;
+  categories: CategoryAssessment[];
+  time_to_consequence: {
+    estimated_days: number | null;
+    confidence: "low" | "medium" | "high";
+    reasoning: string;
+  };
+  recommended_action_tier: RecommendedActionTier;
+  total_confidence: number; // 0..1
 }
