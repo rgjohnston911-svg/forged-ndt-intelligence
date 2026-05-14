@@ -1067,6 +1067,179 @@ describe("parseAnthropicMixedContent — direct unit", () => {
     const parsed = parseAnthropicMixedContent(blocks);
     assert.equal(parsed.cited_sources[0].domain, "files.asme.org");
   });
+
+  // Sprint 4 Polish 2 (Fix 3) — broaden snippet harvest across all
+  // citation nesting levels. Production smoke-test showed 0/30 sources
+  // with snippets even when the parser found citations on text blocks;
+  // root hypothesis is that Anthropic embeds citation objects at
+  // varying nesting levels. These tests pin the new defensive walker.
+
+  it("Fix 3: citation as a sibling of url on the search result itself (cited_text on result item)", () => {
+    // Some response shapes attach cited_text directly to the
+    // web_search_result item rather than emitting a separate citation
+    // object on the text block.
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_sib",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_sib",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.nace.org/sp0169",
+            title: "NACE SP0169-2013",
+            cited_text:
+              "Cathodic shielding under disbonded coatings is documented at NACE SP0169 §6.4.",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.ok(parsed.cited_sources[0].snippet);
+    assert.ok(
+      parsed.cited_sources[0].snippet!.includes("Cathodic shielding"),
+      `snippet not lifted from cited_text sibling; got: ${parsed.cited_sources[0].snippet}`
+    );
+  });
+
+  it("Fix 3: citation nested inside a sub-content array of a text block", () => {
+    // Some response shapes nest citations under content[] within a
+    // text block (rather than directly under block.citations[]). The
+    // recursive walker should still find them.
+    const blocks = [
+      {
+        type: "text",
+        text: "Per NACE SP0169-2013, CP shielding is documented.",
+        content: [
+          {
+            type: "citation_group",
+            citations: [
+              {
+                type: "web_search_result_location",
+                url: "https://www.nace.org/sp0169",
+                title: "NACE SP0169-2013",
+                cited_text:
+                  "CP shielding under disbonded coatings is a known threat per §6.4.",
+              },
+            ],
+          },
+        ],
+      },
+      {
+        type: "server_tool_use",
+        id: "srvtu_nest",
+        name: "web_search",
+        input: { query: "NACE" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_nest",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.nace.org/sp0169",
+            title: "NACE SP0169-2013",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.ok(
+      parsed.cited_sources[0].snippet &&
+        parsed.cited_sources[0].snippet.includes("CP shielding"),
+      `snippet not lifted from nested citation; got: ${parsed.cited_sources[0].snippet}`
+    );
+  });
+
+  it("Fix 3: hostname-only fallback — citation URL has different path than search result URL", () => {
+    // Production seen: text-block citation URL points at an article
+    // path, web_search_tool_result URL points at the journal root.
+    // canonicalUrlKey wouldn't match (different pathnames); hostname
+    // fallback rescues the snippet.
+    const blocks = [
+      {
+        type: "text",
+        text: "Per ASME PVP 2024-89234, …",
+        citations: [
+          {
+            url: "https://www.asme.org/codes-standards/find-codes-standards/pvp",
+            cited_text:
+              "ASME PVP coating disbondment proceedings discuss CP shielding under FBE.",
+          },
+        ],
+      },
+      {
+        type: "server_tool_use",
+        id: "srvtu_host",
+        name: "web_search",
+        input: { query: "ASME PVP" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_host",
+        content: [
+          {
+            type: "web_search_result",
+            // Different path — but same host.
+            url: "https://www.asme.org/codes-standards/find-codes-standards/pvp/proceedings",
+            title: "ASME PVP",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.ok(
+      parsed.cited_sources[0].snippet &&
+        parsed.cited_sources[0].snippet.includes("ASME PVP"),
+      `hostname-only fallback should have lifted the snippet; got: ${parsed.cited_sources[0].snippet}`
+    );
+  });
+
+  it("Fix 3: harvester does NOT descend into encrypted_content (opaque base64)", () => {
+    // Encrypted_content is base64 the model reads but humans cannot.
+    // Walking into it wastes work and could surface garbled bytes
+    // if the harvester wasn't careful. The walker explicitly skips it.
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_enc",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_enc",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://example.com/opaque",
+            title: "opaque",
+            // Malicious-looking nested object pretending to be a
+            // citation. Harvester must not pick this up.
+            encrypted_content: {
+              url: "https://example.com/opaque",
+              cited_text: "this should not surface as a snippet",
+            },
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.equal(
+      parsed.cited_sources[0].snippet,
+      undefined,
+      "harvester must not walk into encrypted_content"
+    );
+  });
 });
 
 describe("getWebSearchToolsForRole", () => {

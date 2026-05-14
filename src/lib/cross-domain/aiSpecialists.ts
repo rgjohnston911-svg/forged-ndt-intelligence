@@ -312,10 +312,23 @@ function parseAnthropicMixedContent(
   let combinedText = "";
   // tool_use_id -> the search query that produced the result
   const queryByToolUseId = new Map<string, string>();
-  // Sprint 4 Polish (Fix C): URL -> cited_text snippet, harvested from
-  // text-block citations[]. Keyed by canonical bare hostname + path so
-  // minor URL variations (trailing slash, fragments) still merge.
-  const snippetByUrl = new Map<string, string>();
+  // Sprint 4 Polish 2 (Fix 3): production smoke-test had 0/30 sources
+  // with snippets even though my Sprint 4 Polish (Fix C) parser
+  // harvested text-block citations. Hypothesis: Anthropic's actual
+  // response embeds snippet-bearing citations at MULTIPLE nesting
+  // levels (text blocks' citations[]; web_search_tool_result content
+  // items themselves carrying cited_text; or under nested content[]
+  // sub-arrays). The previous parser only handled one location.
+  //
+  // New approach: harvest defensively in two passes.
+  //   Pass 1: walk EVERY block recursively, collect URL→snippet pairs
+  //           from any object that has a `url` AND any text-like field.
+  //           Index by canonical (hostname+path) URL key AND by
+  //           hostname-only as a fallback so near-match URLs still hit.
+  //   Pass 2: walk web_search_tool_result blocks to emit sources,
+  //           pulling snippets from the harvested maps.
+  const snippetByUrlKey = new Map<string, string>();
+  const snippetByHostname = new Map<string, string>();
   let searches = 0;
   let errors = 0;
 
@@ -328,30 +341,56 @@ function parseAnthropicMixedContent(
     }
   };
 
-  for (const block of blocks) {
-    if (block.type === "text" && typeof block.text === "string") {
-      // Multiple text blocks get joined in source order; the model
-      // narrates between tool calls and we want all of it for JSON
-      // extraction.
-      combinedText += (combinedText ? "\n" : "") + block.text;
-      // Sprint 4 Polish (Fix C): harvest snippet citations from this
-      // text block. The Anthropic citation object includes url +
-      // cited_text (and sometimes title / encrypted_content). We
-      // index by canonical URL key so the web_search_tool_result
-      // pass can lift the snippet onto the matching ExternalSource.
-      if (Array.isArray(block.citations)) {
-        for (const c of block.citations) {
-          const url =
-            typeof c.url === "string" ? unwrapUrl(c.url) : "";
-          if (!url) continue;
-          const snippet = pickSnippet(c.cited_text, c.text, c.excerpt);
-          if (!snippet) continue;
-          const key = canonicalUrlKey(url);
-          if (!snippetByUrl.has(key)) {
-            snippetByUrl.set(key, snippet);
-          }
+  // Pass 1a: collect anything that looks like a citation object.
+  // Recursive walker — Anthropic's response is deeply nested in
+  // ways that may evolve (citations on text blocks, on result items,
+  // on nested content arrays). Walking generically protects against
+  // shape drift between API versions.
+  const SNIPPET_FIELDS = [
+    "cited_text",
+    "text",
+    "snippet",
+    "excerpt",
+    "description",
+    "summary",
+  ];
+  const harvestFrom = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const item of node) harvestFrom(item);
+      return;
+    }
+    const obj = node as Record<string, unknown>;
+    // If this object has a URL, see if any text-like sibling field is
+    // populated, and harvest the snippet.
+    const rawUrl = typeof obj.url === "string" ? obj.url : "";
+    if (rawUrl) {
+      const url = unwrapUrl(rawUrl);
+      const snippetCandidates = SNIPPET_FIELDS.map((k) => obj[k]);
+      const snippet = pickSnippet(...snippetCandidates);
+      if (snippet) {
+        const key = canonicalUrlKey(url);
+        if (!snippetByUrlKey.has(key)) snippetByUrlKey.set(key, snippet);
+        const host = extractHostname(url);
+        if (host && !snippetByHostname.has(host)) {
+          snippetByHostname.set(host, snippet);
         }
       }
+    }
+    // Recurse into nested arrays / objects under known sub-keys.
+    // Don't recurse into encrypted_content — it's opaque base64 the
+    // model reads but humans cannot, and walking it wastes work.
+    for (const [k, v] of Object.entries(obj)) {
+      if (k === "encrypted_content") continue;
+      if (v && typeof v === "object") harvestFrom(v);
+    }
+  };
+
+  // Pass 1b: walk top-level blocks, gather text + search counts,
+  // and harvest citations along the way.
+  for (const block of blocks) {
+    if (block.type === "text" && typeof block.text === "string") {
+      combinedText += (combinedText ? "\n" : "") + block.text;
     } else if (
       block.type === "server_tool_use" &&
       (block.name === "web_search" || block.name === undefined)
@@ -361,8 +400,11 @@ function parseAnthropicMixedContent(
       const query = block.input?.query ?? "";
       if (id) queryByToolUseId.set(id, query);
     }
+    harvestFrom(block);
   }
 
+  // Pass 2: emit sources from web_search_tool_result blocks, pulling
+  // snippets from the harvested maps.
   const sources: ExternalSource[] = [];
   for (const block of blocks) {
     if (block.type !== "web_search_tool_result") continue;
@@ -379,19 +421,19 @@ function parseAnthropicMixedContent(
       if (recordType !== "web_search_result") continue;
       const rawUrl = typeof r.url === "string" ? r.url : "";
       if (!rawUrl) continue;
-      // Sprint 4 Polish (Fix D): unwrap markdown-link / angle-bracket
-      // wrappings before parsing so domain extraction always yields
-      // a bare hostname even if upstream emits markdown-styled URLs.
       const url = unwrapUrl(rawUrl);
       const domain = extractHostname(url);
-      // Sprint 4 Polish (Fix C): look in multiple plausible locations
-      // for a readable snippet. encrypted_content stays excluded — it
-      // is opaque base64 the model reads but humans cannot. Prefer the
-      // text-block citation map (real cited_text) over the search
-      // result's own text-like fields.
-      const fromCitations = snippetByUrl.get(canonicalUrlKey(url));
+      // Try in order: canonical URL key (most precise), hostname-only
+      // (catches paths that differ slightly), then this result's own
+      // text-like fields. encrypted_content is intentionally excluded —
+      // see harvestFrom().
+      const fromUrlKey = snippetByUrlKey.get(canonicalUrlKey(url));
+      const fromHostname = domain
+        ? snippetByHostname.get(domain)
+        : undefined;
       const snippet = pickSnippet(
-        fromCitations,
+        fromUrlKey,
+        fromHostname,
         r.cited_text,
         r.text,
         r.snippet,
