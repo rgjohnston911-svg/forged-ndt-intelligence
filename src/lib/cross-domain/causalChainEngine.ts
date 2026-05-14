@@ -173,12 +173,45 @@ function scoreSeverityEnvelope(
   return Math.max(0, 1 - diff / 3);
 }
 
+// Sprint 4 Polish (Fix E): normalize both sides before comparison.
+// Engineer's cited_mechanisms list may contain display names like
+// "Pitting Corrosion" while the candidate's mechanism_key is the
+// snake_case form "pitting_corrosion". The prior scorer compared the
+// candidate against anomaly.mechanism_key — a single mechanism on the
+// anomaly row — and missed Engineer's full list entirely, so the
+// scorer returned 0.00 for all candidates in production. Now we
+// normalize each entry in the cited list and check membership.
+function normalizeMechanismToken(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/[\s/]+/g, "_")
+    .replace(/[^a-z0-9_]+/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
 function scoreMechanismAlreadyCited(
   candidate_key: string,
+  cited_by_engineer: string[],
   anomaly_mechanism_key: string | null | undefined
 ): number {
-  if (!anomaly_mechanism_key) return 0;
-  return candidate_key === anomaly_mechanism_key ? 1 : 0;
+  const candidate = normalizeMechanismToken(candidate_key);
+  if (candidate.length === 0) return 0;
+  // Primary signal: Engineer's cited_mechanisms list. Normalize each
+  // entry and check whether the candidate's normalized key is present.
+  for (const cited of cited_by_engineer) {
+    if (typeof cited !== "string") continue;
+    if (normalizeMechanismToken(cited) === candidate) return 1;
+  }
+  // Fallback signal (backward compat): anomaly row's stored mechanism_key.
+  if (
+    anomaly_mechanism_key &&
+    normalizeMechanismToken(anomaly_mechanism_key) === candidate
+  ) {
+    return 1;
+  }
+  return 0;
 }
 
 interface ScoredMechanism {
@@ -190,7 +223,8 @@ interface ScoredMechanism {
 function scoreMechanism(
   m: MechanismRow,
   anomaly: AnomalyContext,
-  _asset: AssetContext
+  _asset: AssetContext,
+  engineer_cited_mechanisms: string[]
 ): ScoredMechanism {
   // Scoring uses ONLY columns that exist in cd_degradation_mechanisms:
   // related_domains, default_consequence_bias, mechanism_key. Material /
@@ -213,7 +247,11 @@ function scoreMechanism(
     {
       name: "mechanism_already_cited",
       weight: 0.2,
-      score: scoreMechanismAlreadyCited(m.mechanism_key, anomaly.mechanism_key),
+      score: scoreMechanismAlreadyCited(
+        m.mechanism_key,
+        engineer_cited_mechanisms,
+        anomaly.mechanism_key
+      ),
     },
   ];
 
@@ -261,6 +299,20 @@ export async function buildCausalChain(
     return emptyFailureResult("no_candidates");
   }
 
+  // Sprint 4 Polish (Fix E): Engineer may cite mechanisms by display
+  // name ("Pitting Corrosion") OR by mechanism_key ("pitting_corrosion").
+  // Normalize each candidate for the IN filter so display-name-cited
+  // mechanisms still resolve. We also keep the raw list for the
+  // mechanism_already_cited scorer to credit.
+  const normalizedCandidates = Array.from(
+    new Set(
+      candidateMechanismCodes
+        .filter((s): s is string => typeof s === "string" && s.length > 0)
+        .map((s) => normalizeMechanismToken(s))
+        .filter((s) => s.length > 0)
+    )
+  );
+
   // Project ONLY columns that exist in cd_degradation_mechanisms (see
   // SCHEMA NOTES). Naming a nonexistent column here causes PostgREST
   // to reject the entire SELECT with `42703 column ... does not exist`
@@ -271,7 +323,7 @@ export async function buildCausalChain(
     .select(
       "mechanism_key,display_name,category,default_consequence_bias,related_domains,active"
     )
-    .in("mechanism_key", candidateMechanismCodes);
+    .in("mechanism_key", normalizedCandidates);
 
   if (error) {
     return emptyFailureResult(
@@ -285,7 +337,7 @@ export async function buildCausalChain(
 
   const scored = rows
     .filter((r) => r.active !== false)
-    .map((r) => scoreMechanism(r, anomaly, asset))
+    .map((r) => scoreMechanism(r, anomaly, asset, candidateMechanismCodes))
     .sort((a, b) => b.fit_score - a.fit_score);
 
   if (scored.length === 0) {
