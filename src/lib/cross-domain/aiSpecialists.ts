@@ -253,10 +253,18 @@ interface AnthropicContentBlock {
   input?: { query?: string };
   tool_use_id?: string;
   is_error?: boolean;
-  content?: Array<Record<string, unknown>>;
+  // Sprint 4 Polish 3 (Fix 1): `content` is an ARRAY of web_search_result
+  // items on success, but an OBJECT
+  // {type:"web_search_tool_result_error", error_code:"..."} on error.
+  // Confirmed against a real captured web_search response — see the
+  // Fix 1 diagnosis in the PR body. The prior `Array<...>`-only type
+  // hid the error shape and the parser silently swallowed search errors.
+  content?: Array<Record<string, unknown>> | Record<string, unknown>;
   // Sprint 4 Polish (Fix C): text blocks carry citations[] arrays
   // pointing back to web_search results with cited_text — that's
-  // where the human-readable snippet actually lives.
+  // where the human-readable snippet actually lives. Confirmed shape:
+  // each entry is {type:"web_search_result_location", cited_text, url,
+  // title, encrypted_index}; cited_text holds the human-readable excerpt.
   citations?: Array<Record<string, unknown>>;
 }
 
@@ -423,14 +431,38 @@ function parseAnthropicMixedContent(
   const sources: ExternalSource[] = [];
   for (const block of blocks) {
     if (block.type !== "web_search_tool_result") continue;
-    if (block.is_error) {
+    // Sprint 4 Polish 3 (Fix 1): errored web_search_tool_result blocks
+    // carry `content` as an OBJECT
+    // {type:"web_search_tool_result_error", error_code:"..."} — NOT a
+    // block-level is_error flag and NOT an array. Confirmed against a
+    // real captured response. The prior code only checked block.is_error
+    // (never set by the API) and treated a non-array content as []
+    // — so genuine search errors (max_uses_exceeded, unavailable, etc.)
+    // were silently swallowed as 0 sources / 0 errors. We now detect
+    // both: the legacy is_error flag AND the real error-content shape.
+    const content = block.content;
+    const isErrorContent =
+      !!content &&
+      !Array.isArray(content) &&
+      typeof content === "object" &&
+      (content as Record<string, unknown>).type ===
+        "web_search_tool_result_error";
+    if (block.is_error || isErrorContent) {
       errors++;
+      if (isErrorContent) {
+        const code = (content as Record<string, unknown>).error_code;
+        console.warn(
+          `[web_search] tool_result_error code=${
+            typeof code === "string" ? code : "unknown"
+          } — proceeding with whatever other results parsed`
+        );
+      }
       continue;
     }
     const searchQuery = block.tool_use_id
       ? queryByToolUseId.get(block.tool_use_id)
       : undefined;
-    const results = Array.isArray(block.content) ? block.content : [];
+    const results = Array.isArray(content) ? content : [];
     for (const r of results) {
       const recordType = String(r.type ?? "");
       if (recordType !== "web_search_result") continue;

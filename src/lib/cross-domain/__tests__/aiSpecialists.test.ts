@@ -1355,6 +1355,218 @@ describe("parseAnthropicMixedContent — direct unit", () => {
   });
 });
 
+// ============================================================
+// Sprint 4 Polish 3 — Fix 1: parser verified against a REAL captured
+// Anthropic web_search response. Diagnosis (full findings in PR body):
+//   - content[] order: server_tool_use × N, web_search_tool_result × N,
+//     then many text blocks.
+//   - web_search_result items: {type,title,url,encrypted_content,
+//     page_age} — NO human-readable snippet field. encrypted_content
+//     is opaque base64.
+//   - text blocks carry citations[]; each is
+//     {type:"web_search_result_location", cited_text, url, title,
+//     encrypted_index}. cited_text IS the human-readable excerpt.
+//   - citation URLs exactly match web_search_result URLs.
+//   - errored results: content is an OBJECT
+//     {type:"web_search_tool_result_error", error_code:"..."}.
+// The current harvestFrom parser was confirmed correct on the real
+// response (13/20 sources got snippets — the 7 without are results
+// the model didn't cite, which is honest, not a bug). The production
+// "0/30" was a stale-deploy artifact. This fixture pins the real
+// shape so regressions are caught, and the error-shape handling is
+// the genuine latent bug fixed here.
+// ============================================================
+
+// A trimmed but structurally-faithful slice of the real response.
+function realShapeBlocks() {
+  return [
+    {
+      type: "server_tool_use",
+      id: "srvtoolu_real_1",
+      name: "web_search",
+      input: { query: "NACE SP0169 cathodic protection standard" },
+    },
+    {
+      type: "web_search_tool_result",
+      tool_use_id: "srvtoolu_real_1",
+      // Real shape: content is an ARRAY of web_search_result items,
+      // each with encrypted_content (opaque) — NO snippet field.
+      content: [
+        {
+          type: "web_search_result",
+          title: "NACE Standard SP0169-2007",
+          url: "http://zinoglobal.com/wp-content/uploads/2019/12/NACE-SP0169-2007.pdf",
+          encrypted_content: "EuceCioIDxgCIiQzMDU4YTA1ZC0…OPAQUE_BASE64",
+          page_age: null,
+        },
+        {
+          type: "web_search_result",
+          title: "NACE SP0169 - Control of External Corrosion",
+          url: "https://inspectioneering.com/tag/nace+sp0169",
+          encrypted_content: "EpcPCioIDxgCIiQzMDU4YTA1ZC0…OPAQUE_BASE64",
+          page_age: null,
+        },
+        {
+          type: "web_search_result",
+          title: "Uncited result — model never quoted this one",
+          url: "https://webstore.ansi.org/standards/nace/nacestandardsp01692007",
+          encrypted_content: "EoOPAQUE",
+          page_age: null,
+        },
+      ],
+    },
+    // Text blocks: some plain, some carrying a real-shape citation.
+    {
+      type: "text",
+      text: "Here is a detailed overview of both standards.",
+    },
+    {
+      citations: [
+        {
+          type: "web_search_result_location",
+          cited_text:
+            "NACE SP0169, Control of External Corrosion on Underground or Submerged Metallic Piping Systems, is a standard published by the National Association of Corrosion Engineers.",
+          url: "https://inspectioneering.com/tag/nace+sp0169",
+          title: "NACE SP0169 - Control of External Corrosion",
+          encrypted_index: "Eo8BCioIDxgCOPAQUE_INDEX",
+        },
+      ],
+      type: "text",
+      text: "NACE SP0169, *Control of External Corrosion on Underground or Submerged Metallic Piping Systems*, is a standard published by NACE.",
+    },
+    {
+      citations: [
+        {
+          type: "web_search_result_location",
+          cited_text:
+            "This standard presents methods and practices for achieving effective control of external corrosion on underground or submerged metallic piping systems.",
+          url: "http://zinoglobal.com/wp-content/uploads/2019/12/NACE-SP0169-2007.pdf",
+          title: "NACE Standard SP0169-2007",
+          encrypted_index: "EpEBCioIDxgCOPAQUE_INDEX",
+        },
+      ],
+      type: "text",
+      text: "This standard presents methods and practices for achieving effective control of external corrosion.",
+    },
+  ];
+}
+
+describe("Fix 1 — parser verified against the REAL captured web_search response shape", () => {
+  it("real-shape response → cited results get snippets from text-block citations[].cited_text, uncited result gets none", () => {
+    const parsed = parseAnthropicMixedContent(realShapeBlocks());
+    assert.equal(parsed.searches_performed, 1);
+    assert.equal(parsed.search_errors, 0);
+    assert.equal(parsed.cited_sources.length, 3);
+
+    // The two results whose URLs were cited get the model's cited_text
+    // as their snippet.
+    const inspectioneering = parsed.cited_sources.find(
+      (s) => s.domain === "inspectioneering.com"
+    );
+    const zino = parsed.cited_sources.find(
+      (s) => s.domain === "zinoglobal.com"
+    );
+    const ansi = parsed.cited_sources.find(
+      (s) => s.domain === "webstore.ansi.org"
+    );
+    assert.ok(inspectioneering?.snippet?.includes("NACE SP0169, Control"));
+    assert.ok(zino?.snippet?.includes("methods and practices"));
+    // The uncited result legitimately has no snippet — we do NOT
+    // fabricate one from the opaque encrypted_content.
+    assert.equal(ansi?.snippet, undefined);
+  });
+
+  it("real-shape: encrypted_content is never surfaced as a snippet", () => {
+    const parsed = parseAnthropicMixedContent(realShapeBlocks());
+    for (const s of parsed.cited_sources) {
+      if (s.snippet) {
+        assert.ok(
+          !s.snippet.includes("OPAQUE"),
+          `snippet must not contain opaque encrypted_content bytes: ${s.snippet}`
+        );
+      }
+    }
+  });
+
+  it("Fix 1 latent bug: errored web_search_tool_result (content is an error OBJECT) is counted, not silently swallowed", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_err",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_err",
+        // Real error shape: content is an OBJECT, not an array, and
+        // there is NO block-level is_error flag.
+        content: {
+          type: "web_search_tool_result_error",
+          error_code: "max_uses_exceeded",
+        },
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(
+      parsed.search_errors,
+      1,
+      "error-shaped content must increment search_errors (was silently swallowed pre-Fix-1)"
+    );
+    assert.equal(parsed.cited_sources.length, 0);
+  });
+
+  it("Fix 1: legacy is_error flag still counted (backward compat)", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_legacy",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_legacy",
+        is_error: true,
+        content: [],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.search_errors, 1);
+  });
+
+  it("Fix 1: empty citations everywhere → cited_sources from results still emitted, snippets just undefined, no throw", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_nocit",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_nocit",
+        content: [
+          {
+            type: "web_search_result",
+            title: "result with no citation",
+            url: "https://example.com/page",
+            encrypted_content: "OPAQUE",
+            page_age: null,
+          },
+        ],
+      },
+      // Text block with NO citations field at all.
+      { type: "text", text: "Model produced prose but cited nothing." },
+    ];
+    // Must not throw.
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.equal(parsed.cited_sources[0].snippet, undefined);
+    assert.equal(parsed.cited_sources[0].domain, "example.com");
+  });
+});
+
 describe("getWebSearchToolsForRole", () => {
   it("returns config only for researcher", () => {
     assert.equal(getWebSearchToolsForRole("inspector"), undefined);
