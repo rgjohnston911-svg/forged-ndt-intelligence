@@ -699,7 +699,8 @@ const ROLE_INSTRUCTIONS: Record<SpecialistRole, string> = {
   historian:
     "You are the HISTORICAL CASES specialist. The ANALOGOUS PRIOR CASES section contains tenant-memory reasoning artifacts (synthesizer summaries and high-confidence specialist claims from past deliberations) retrieved by semantic similarity over the cd_tenant_memory_index. Each case includes text_content, the originating deliberation's consensus outcome, cited mechanisms, and similarity score. Your tasks: (1) summarize what these prior cases suggest about the current anomaly, (2) note mechanism patterns that recur across cases, (3) compare/contrast each case with the current anomaly. If the ANALOGOUS PRIOR CASES section is empty or absent, this is a cold-start tenant — produce a useful output that explicitly states 'No analogous prior cases in tenant memory; reasoning from current evidence and the degradation mechanism database only.' Do NOT fabricate prior cases.",
   synthesizer:
-    "You are the SYNTHESIZER. You produce the final authoritative analysis. Consider ALL prior outputs plus the ARBITRATION decision in the prompt. If arbitration.status is 'flagged_dissent', LEAD your summary with the dissent and explicitly defend or concede each unresolved objection. If 'rejected_low_confidence', LABEL your summary 'LOW-CONFIDENCE ADVISORY' and produce best-guess output without overstating certainty.",
+    "You are the SYNTHESIZER. You produce the final authoritative analysis. Consider ALL prior outputs plus the ARBITRATION decision in the prompt. If arbitration.status is 'flagged_dissent', LEAD your summary with the dissent and explicitly defend or concede each unresolved objection. If 'rejected_low_confidence', LABEL your summary 'LOW-CONFIDENCE ADVISORY' and produce best-guess output without overstating certainty. " +
+    "SPRINT 4C CONSEQUENCE PROFILE: If the prompt contains a CONSEQUENCE PROFILE section, it is the deterministic, rules-based risk quantification produced by the consequence engine. Treat its numbers (tiers, dollar ranges, hours-of-downtime, time-to-consequence days, recommended_action_tier) as AUTHORITATIVE. Your job is to (a) state the recommended_action_tier explicitly in your summary, (b) state the overall_tier with the worst-case category, (c) provide narrative context explaining WHY each consequence tier applies — cite evidence from prior specialists and the cited_mechanisms — and (d) if any category had estimated_value: null, explain in your open_questions what additional data would unlock that category. Do NOT override, contradict, or re-estimate any numerical value the consequence engine produced. If no CONSEQUENCE PROFILE section is present, the engine failed or wasn't run — proceed with diagnostic-only output and note the gap in open_questions.",
 };
 
 function buildUserPrompt(
@@ -735,6 +736,20 @@ function buildUserPrompt(
   if (input.causalChain) {
     parts.push("\nCAUSAL CHAIN RESULT (rules-based, deterministic):");
     parts.push(JSON.stringify(input.causalChain, null, 2));
+  }
+  // Sprint 4C: downstream specialists (Researcher, DA, Historian,
+  // Synthesizer) all see the deterministic consequence profile when
+  // the engine succeeded. Inspector and Engineer ran before the
+  // engine fired so they don't get it.
+  if (
+    input.consequenceProfile &&
+    role !== "inspector" &&
+    role !== "engineer"
+  ) {
+    parts.push(
+      "\nCONSEQUENCE PROFILE (rules-based, deterministic — DO NOT override or re-estimate the numerical values):"
+    );
+    parts.push(JSON.stringify(input.consequenceProfile, null, 2));
   }
   if (role === "historian") {
     if (input.analogousCases && input.analogousCases.length > 0) {
