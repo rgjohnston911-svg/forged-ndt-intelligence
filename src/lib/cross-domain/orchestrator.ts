@@ -44,6 +44,7 @@ import { buildConsequenceProfile } from "./consequenceEngine";
 import { checkOrgBudget, recordSpend } from "./budgetGuard";
 import { SPECIALIST_ORDER } from "./deliberationState";
 import { ingestDeliberationMemory } from "./memoryIngest";
+import { captureDeliberationPrediction } from "./predictionCapture";
 
 export interface RunDeliberationOptions {
   org_id: string;
@@ -347,6 +348,77 @@ async function triggerMemoryIngest(
       `[memory ingest ${opts.deliberation_id}] threw err="${message}"`
     );
     await mergeMemoryIngestError(supabase, opts.deliberation_id, message);
+  }
+}
+
+// Sprint 4D: prediction capture. Same try/catch + merge-into-
+// arbitration_rules_applied pattern as memory ingest. Fires AFTER
+// memory ingest in the finalize sequence so the consequence assessment
+// and causal chain rows are already present for the capture to read.
+async function mergePredictionCaptureError(
+  supabase: SupabaseClient,
+  deliberation_id: string,
+  message: string
+): Promise<void> {
+  try {
+    const { data } = await supabase
+      .from("cd_deliberation_log")
+      .select("arbitration_rules_applied")
+      .eq("id", deliberation_id)
+      .maybeSingle();
+    const row = (data ?? {}) as Record<string, unknown>;
+    const existing =
+      (row.arbitration_rules_applied as Record<string, unknown> | null) ?? {};
+    await supabase
+      .from("cd_deliberation_log")
+      .update({
+        arbitration_rules_applied: {
+          ...existing,
+          prediction_capture_error: message,
+        },
+      })
+      .eq("id", deliberation_id);
+  } catch {
+    // Best-effort — outcome already stands; nothing else to do.
+  }
+}
+
+async function triggerPredictionCapture(
+  supabase: SupabaseClient,
+  opts: RunDeliberationOptions,
+  arbitration: ArbitrationDecision
+): Promise<void> {
+  const consensus = consensusLevelFor(arbitration);
+  if (consensus === "unresolved") return;
+  try {
+    const result = await captureDeliberationPrediction(
+      opts.deliberation_id,
+      opts.org_id,
+      supabase
+    );
+    if (result.ok) {
+      console.log(
+        `[prediction capture ${opts.deliberation_id}] OK prediction_id=${result.prediction_id}${result.note ? ` note=${result.note}` : ""}`
+      );
+    } else {
+      const detail = result.error ?? result.note ?? "unknown";
+      console.warn(
+        `[prediction capture ${opts.deliberation_id}] not_ok detail="${detail}"`
+      );
+      if (result.error) {
+        await mergePredictionCaptureError(
+          supabase,
+          opts.deliberation_id,
+          result.error
+        );
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[prediction capture ${opts.deliberation_id}] threw err="${message}"`
+    );
+    await mergePredictionCaptureError(supabase, opts.deliberation_id, message);
   }
 }
 
@@ -763,6 +835,10 @@ export async function runDeliberation(
     // Sprint 4A: ingest reasoning artifacts into tenant memory. Supplementary
     // — never blocks the deliberation outcome. See triggerMemoryIngest.
     await triggerMemoryIngest(supabase, opts, arbitration);
+    // Sprint 4D: capture the structured prediction. Must run AFTER
+    // memory ingest so consequence + causal chain sibling rows are
+    // already in place; the capture function pulls from them.
+    await triggerPredictionCapture(supabase, opts, arbitration);
   } else {
     await finalizeLogAsFailure(
       supabase,
