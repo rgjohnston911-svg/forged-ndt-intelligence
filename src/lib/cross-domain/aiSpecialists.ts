@@ -279,6 +279,28 @@ function pickSnippet(
   return undefined;
 }
 
+// Sprint 4 Polish (Fix D): defensive against markdown-wrapped URLs.
+// Production observed `domain: "[www.energy.gov](https://www.energy.gov)"`
+// where some URL field arrived in markdown-link form rather than as a
+// plain URL. Stripping `[text](url)` and `<url>` wrappings before
+// parsing ensures the bare hostname always reaches the ExternalSource.
+function unwrapUrl(raw: string): string {
+  let s = raw.trim();
+  const mdLink = s.match(/^\[[^\]]*\]\(([^)\s]+)\)$/);
+  if (mdLink) s = mdLink[1].trim();
+  const angle = s.match(/^<(.+)>$/);
+  if (angle) s = angle[1].trim();
+  return s;
+}
+
+function extractHostname(url: string): string | undefined {
+  try {
+    return new URL(unwrapUrl(url)).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseAnthropicMixedContent(
   blocks: AnthropicContentBlock[]
 ): {
@@ -299,7 +321,7 @@ function parseAnthropicMixedContent(
 
   const canonicalUrlKey = (url: string): string => {
     try {
-      const u = new URL(url);
+      const u = new URL(unwrapUrl(url));
       return `${u.hostname}${u.pathname}`.replace(/\/$/, "");
     } catch {
       return url.trim();
@@ -319,7 +341,8 @@ function parseAnthropicMixedContent(
       // pass can lift the snippet onto the matching ExternalSource.
       if (Array.isArray(block.citations)) {
         for (const c of block.citations) {
-          const url = typeof c.url === "string" ? c.url : "";
+          const url =
+            typeof c.url === "string" ? unwrapUrl(c.url) : "";
           if (!url) continue;
           const snippet = pickSnippet(c.cited_text, c.text, c.excerpt);
           if (!snippet) continue;
@@ -354,14 +377,13 @@ function parseAnthropicMixedContent(
     for (const r of results) {
       const recordType = String(r.type ?? "");
       if (recordType !== "web_search_result") continue;
-      const url = typeof r.url === "string" ? r.url : "";
-      if (!url) continue;
-      let domain: string | undefined;
-      try {
-        domain = new URL(url).hostname;
-      } catch {
-        domain = undefined;
-      }
+      const rawUrl = typeof r.url === "string" ? r.url : "";
+      if (!rawUrl) continue;
+      // Sprint 4 Polish (Fix D): unwrap markdown-link / angle-bracket
+      // wrappings before parsing so domain extraction always yields
+      // a bare hostname even if upstream emits markdown-styled URLs.
+      const url = unwrapUrl(rawUrl);
+      const domain = extractHostname(url);
       // Sprint 4 Polish (Fix C): look in multiple plausible locations
       // for a readable snippet. encrypted_content stays excluded — it
       // is opaque base64 the model reads but humans cannot. Prefer the

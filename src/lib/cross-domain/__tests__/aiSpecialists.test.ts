@@ -980,6 +980,93 @@ describe("parseAnthropicMixedContent — direct unit", () => {
     const parsed = parseAnthropicMixedContent(blocks);
     assert.equal(parsed.cited_sources[0].snippet, undefined);
   });
+
+  // Sprint 4 Polish (Fix D) — bare hostname for domain field
+  it("plain URL → domain is bare hostname", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_h",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_h",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.energy.gov/oe/articles/coatings-best-practices",
+            title: "DOE Coatings Best Practices",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].domain, "www.energy.gov");
+    assert.equal(
+      parsed.cited_sources[0].url,
+      "https://www.energy.gov/oe/articles/coatings-best-practices"
+    );
+  });
+
+  it("markdown-wrapped URL → unwrapped before hostname extraction; domain is bare", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_md",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_md",
+        content: [
+          {
+            type: "web_search_result",
+            // Production-observed bug: URL field arrives as markdown link.
+            url: "[www.energy.gov](https://www.energy.gov/oe/articles/coatings-best-practices)",
+            title: "DOE Coatings Best Practices (md-wrapped)",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(
+      parsed.cited_sources[0].domain,
+      "www.energy.gov",
+      "domain must be bare hostname, NOT '[www.energy.gov](...)'"
+    );
+    // url field also unwrapped so downstream callers don't have to.
+    assert.equal(
+      parsed.cited_sources[0].url,
+      "https://www.energy.gov/oe/articles/coatings-best-practices"
+    );
+  });
+
+  it("angle-bracket URL → unwrapped to bare hostname", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_ab",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_ab",
+        content: [
+          {
+            type: "web_search_result",
+            url: "<https://files.asme.org/pvp/2024/89234.pdf>",
+            title: "ASME PVP 2024",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].domain, "files.asme.org");
+  });
 });
 
 describe("getWebSearchToolsForRole", () => {
