@@ -866,3 +866,515 @@ describe("runDeliberation — failure modes", () => {
     assert.equal(supabase.__store.cd_deliberation_log?.length ?? 0, 0);
   });
 });
+
+// ============================================================
+// Sprint 4 Polish 3 — Fix 4: Researcher + Devil's Advocate run in
+// parallel. These tests use a ROLE-AWARE fetch mock (responses keyed
+// off the system prompt's role-identifying text, not a positional
+// queue) so they are robust to the concurrent firing order, and they
+// capture every request body so we can assert what Historian and
+// Synthesizer actually see in their priorAnalyses.
+// ============================================================
+
+describe("runDeliberation — Fix 4 parallel Researcher + Devil's Advocate", () => {
+  const ORIGINAL = globalThis.fetch;
+  let capturedBodies: Array<Record<string, unknown>>;
+
+  function systemTextOf(body: Record<string, unknown>): string {
+    // Anthropic (Fix 3): system is a content-block array.
+    if (Array.isArray(body.system)) {
+      return (body.system as Array<Record<string, unknown>>)
+        .map((b) => String(b.text ?? ""))
+        .join("");
+    }
+    if (typeof body.system === "string") return body.system;
+    // OpenAI (Devil's Advocate): callOpenAI concatenates system + user
+    // into `input`.
+    if (typeof body.input === "string") return body.input;
+    return "";
+  }
+
+  function roleOf(body: Record<string, unknown>): string {
+    const s = systemTextOf(body);
+    if (s.includes("INSPECTION specialist")) return "inspector";
+    if (s.includes("SENIOR ENGINEERING specialist")) return "engineer";
+    if (s.includes("RESEARCH specialist")) return "researcher";
+    if (s.includes("ADVERSARIAL REVIEWER")) return "devils_advocate";
+    if (s.includes("HISTORICAL CASES specialist")) return "historian";
+    if (s.includes("SYNTHESIZER")) return "synthesizer";
+    return "unknown";
+  }
+
+  function userTextOf(body: Record<string, unknown>): string {
+    const messages = body.messages as
+      | Array<Record<string, unknown>>
+      | undefined;
+    if (messages && typeof messages[0]?.content === "string") {
+      return messages[0].content as string;
+    }
+    if (typeof body.input === "string") return body.input;
+    return "";
+  }
+
+  const RESPONSE_BY_ROLE: Record<string, () => Response> = {
+    inspector: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Inspector — visible pitting",
+          claims: [
+            {
+              text: "Photo shows pitting",
+              confidence: 0.7,
+              cited_mechanism_codes: ["pitting_corrosion"],
+            },
+          ],
+          cited_mechanisms: ["pitting_corrosion"],
+        })
+      ),
+    engineer: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Engineer — pitting most likely",
+          claims: [
+            {
+              text: "Pitting fits environment",
+              confidence: 0.85,
+              cited_mechanism_codes: ["pitting_corrosion"],
+            },
+          ],
+          cited_mechanisms: ["pitting_corrosion"],
+        }),
+        { with_thinking: true }
+      ),
+    researcher: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Researcher — common in subsea CS",
+          claims: [
+            { text: "Literature supports pitting", confidence: 0.65 },
+          ],
+        })
+      ),
+    devils_advocate: () =>
+      openaiOk(
+        specialistJson({
+          summary: "No significant gaps found: evidence is direct",
+          claims: [
+            {
+              text: "No significant gaps found: well-supported",
+              confidence: 0.7,
+            },
+          ],
+        })
+      ),
+    historian: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Historian — similar 2024 case",
+          claims: [{ text: "Analogous riser case", confidence: 0.7 }],
+        })
+      ),
+    synthesizer: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Per API 579-1, pitting corrosion confirmed",
+          claims: [
+            {
+              text: "Primary mechanism is pitting corrosion",
+              confidence: 0.88,
+              cited_mechanism_codes: ["pitting_corrosion"],
+            },
+          ],
+          cited_mechanisms: ["pitting_corrosion"],
+        }),
+        { with_thinking: true }
+      ),
+  };
+
+  beforeEach(() => {
+    capturedBodies = [];
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.CROSS_DOMAIN_RETRY_BASE_MS = "1";
+    globalThis.fetch = (async (_input: FetchInput, init?: FetchInit) => {
+      let body: Record<string, unknown> = {};
+      try {
+        body = JSON.parse(String(init?.body ?? "{}"));
+      } catch {
+        body = {};
+      }
+      capturedBodies.push(body);
+      const role = roleOf(body);
+      const factory = RESPONSE_BY_ROLE[role];
+      if (factory) return factory();
+      return new Response(JSON.stringify({ error: "unknown_role" }), {
+        status: 500,
+      });
+    }) as typeof fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = ORIGINAL;
+    if (ORIGINAL_ANTHROPIC === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = ORIGINAL_ANTHROPIC;
+    if (ORIGINAL_OPENAI === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = ORIGINAL_OPENAI;
+    if (ORIGINAL_RETRY_BASE === undefined)
+      delete process.env.CROSS_DOMAIN_RETRY_BASE_MS;
+    else process.env.CROSS_DOMAIN_RETRY_BASE_MS = ORIGINAL_RETRY_BASE;
+  });
+
+  function freshSupabase() {
+    return makeMockSupabase({
+      cd_degradation_mechanisms: SEEDED_MECH_ROWS,
+      org_feature_flags: [
+        {
+          org_id: ORG,
+          feature_flags: {
+            cross_domain: { daily_cap_usd: 100, per_deliberation_cap_usd: 50 },
+          },
+        },
+      ],
+      cd_deliberation_log: [],
+      cd_causal_chains: [],
+      ai_cost_log: [],
+    });
+  }
+
+  it("both Researcher and Devil's Advocate land in per_specialist, in researcher-then-DA order", async () => {
+    const supabase = freshSupabase();
+    const result = await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-fix4-order",
+      supabase: supabase as never,
+    });
+    assert.equal(result.ok, true, result.aborted_reason ?? "");
+    assert.equal(result.per_specialist.length, 6);
+    const roles = result.per_specialist.map((s) => s.role);
+    assert.deepEqual(roles, [
+      "inspector",
+      "engineer",
+      "researcher",
+      "devils_advocate",
+      "historian",
+      "synthesizer",
+    ]);
+  });
+
+  it("Researcher and Devil's Advocate are dispatched concurrently — neither request body contains the other's output", async () => {
+    const supabase = freshSupabase();
+    await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-fix4-concurrent",
+      supabase: supabase as never,
+    });
+    const researcherBody = capturedBodies.find(
+      (b) => roleOf(b) === "researcher"
+    );
+    const daBody = capturedBodies.find((b) => roleOf(b) === "devils_advocate");
+    assert.ok(researcherBody, "researcher request must have been captured");
+    assert.ok(daBody, "devils_advocate request must have been captured");
+    assert.ok(
+      !userTextOf(researcherBody!).includes('"role": "devils_advocate"'),
+      "Researcher must NOT see Devil's Advocate output (parallel dispatch)"
+    );
+    assert.ok(
+      !userTextOf(daBody!).includes('"role": "researcher"'),
+      "Devil's Advocate must NOT see Researcher output (parallel dispatch)"
+    );
+  });
+
+  it("Historian priorAnalyses includes BOTH researcher and devils_advocate", async () => {
+    const supabase = freshSupabase();
+    await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-fix4-historian",
+      supabase: supabase as never,
+    });
+    const historianBody = capturedBodies.find(
+      (b) => roleOf(b) === "historian"
+    );
+    assert.ok(historianBody, "historian request must have been captured");
+    const u = userTextOf(historianBody!);
+    assert.ok(
+      u.includes('"role": "researcher"'),
+      "Historian must see Researcher output"
+    );
+    assert.ok(
+      u.includes('"role": "devils_advocate"'),
+      "Historian must see Devil's Advocate output"
+    );
+  });
+
+  it("Synthesizer priorAnalyses includes all 5 prior specialists", async () => {
+    const supabase = freshSupabase();
+    await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-fix4-synth",
+      supabase: supabase as never,
+    });
+    const synthBody = capturedBodies.find((b) => roleOf(b) === "synthesizer");
+    assert.ok(synthBody, "synthesizer request must have been captured");
+    const u = userTextOf(synthBody!);
+    for (const role of [
+      "inspector",
+      "engineer",
+      "researcher",
+      "devils_advocate",
+      "historian",
+    ]) {
+      assert.ok(
+        u.includes(`"role": "${role}"`),
+        `Synthesizer must see ${role} output`
+      );
+    }
+  });
+});
+
+// ============================================================
+// Sprint 4 Polish 3 — Fix 5: deliberation-completed webhook fires at
+// the end of a successful deliberation. Uses a role-aware mock that
+// ALSO handles the webhook POST URL.
+// ============================================================
+
+import { signWebhookBody } from "../webhookDelivery";
+
+describe("runDeliberation — Fix 5 webhook delivery", () => {
+  const ORIGINAL = globalThis.fetch;
+  const WEBHOOK_URL = "https://webhook-receiver.test/forged-hook";
+  const WEBHOOK_SECRET = "fix5-shared-secret";
+  let webhookPosts: Array<{ headers: Record<string, string>; body: string }>;
+  let webhookResponder: () => Response;
+
+  function systemTextOf(body: Record<string, unknown>): string {
+    if (Array.isArray(body.system)) {
+      return (body.system as Array<Record<string, unknown>>)
+        .map((b) => String(b.text ?? ""))
+        .join("");
+    }
+    if (typeof body.system === "string") return body.system;
+    if (typeof body.input === "string") return body.input;
+    return "";
+  }
+  function roleOf(body: Record<string, unknown>): string {
+    const s = systemTextOf(body);
+    if (s.includes("INSPECTION specialist")) return "inspector";
+    if (s.includes("SENIOR ENGINEERING specialist")) return "engineer";
+    if (s.includes("RESEARCH specialist")) return "researcher";
+    if (s.includes("ADVERSARIAL REVIEWER")) return "devils_advocate";
+    if (s.includes("HISTORICAL CASES specialist")) return "historian";
+    if (s.includes("SYNTHESIZER")) return "synthesizer";
+    return "unknown";
+  }
+  const RESPONSE_BY_ROLE: Record<string, () => Response> = {
+    inspector: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Inspector",
+          claims: [
+            {
+              text: "pitting",
+              confidence: 0.7,
+              cited_mechanism_codes: ["pitting_corrosion"],
+            },
+          ],
+          cited_mechanisms: ["pitting_corrosion"],
+        })
+      ),
+    engineer: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Engineer",
+          claims: [
+            {
+              text: "pitting fits",
+              confidence: 0.85,
+              cited_mechanism_codes: ["pitting_corrosion"],
+            },
+          ],
+          cited_mechanisms: ["pitting_corrosion"],
+        }),
+        { with_thinking: true }
+      ),
+    researcher: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Researcher",
+          claims: [{ text: "literature supports", confidence: 0.65 }],
+        })
+      ),
+    devils_advocate: () =>
+      openaiOk(
+        specialistJson({
+          summary: "No significant gaps found: direct evidence",
+          claims: [
+            {
+              text: "No significant gaps found: solid",
+              confidence: 0.7,
+            },
+          ],
+        })
+      ),
+    historian: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Historian",
+          claims: [{ text: "analogous case", confidence: 0.7 }],
+        })
+      ),
+    synthesizer: () =>
+      anthropicOk(
+        specialistJson({
+          summary: "Per API 579-1, pitting confirmed",
+          claims: [
+            {
+              text: "primary is pitting",
+              confidence: 0.88,
+              cited_mechanism_codes: ["pitting_corrosion"],
+            },
+          ],
+          cited_mechanisms: ["pitting_corrosion"],
+        }),
+        { with_thinking: true }
+      ),
+  };
+
+  beforeEach(() => {
+    webhookPosts = [];
+    webhookResponder = () => new Response("ok", { status: 200 });
+    process.env.ANTHROPIC_API_KEY = "test-anthropic-key";
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.CROSS_DOMAIN_RETRY_BASE_MS = "1";
+    process.env.CROSS_DOMAIN_WEBHOOK_RETRY_MS = "1";
+    globalThis.fetch = (async (urlInput: FetchInput, init?: FetchInit) => {
+      const url = String(urlInput);
+      if (url.includes("webhook-receiver.test")) {
+        webhookPosts.push({
+          headers: (init?.headers ?? {}) as Record<string, string>,
+          body: String(init?.body ?? ""),
+        });
+        return webhookResponder();
+      }
+      let body: Record<string, unknown> = {};
+      try {
+        body = JSON.parse(String(init?.body ?? "{}"));
+      } catch {
+        body = {};
+      }
+      const factory = RESPONSE_BY_ROLE[roleOf(body)];
+      if (factory) return factory();
+      return new Response(JSON.stringify({ error: "unknown_role" }), {
+        status: 500,
+      });
+    }) as typeof fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = ORIGINAL;
+    if (ORIGINAL_ANTHROPIC === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = ORIGINAL_ANTHROPIC;
+    if (ORIGINAL_OPENAI === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = ORIGINAL_OPENAI;
+    if (ORIGINAL_RETRY_BASE === undefined)
+      delete process.env.CROSS_DOMAIN_RETRY_BASE_MS;
+    else process.env.CROSS_DOMAIN_RETRY_BASE_MS = ORIGINAL_RETRY_BASE;
+    delete process.env.CROSS_DOMAIN_WEBHOOK_RETRY_MS;
+  });
+
+  function supabaseWith(webhookEnabled: boolean) {
+    return makeMockSupabase({
+      cd_degradation_mechanisms: SEEDED_MECH_ROWS,
+      org_feature_flags: [
+        {
+          org_id: ORG,
+          feature_flags: {
+            cross_domain: { daily_cap_usd: 100, per_deliberation_cap_usd: 50 },
+            webhooks: {
+              deliberation_completed: {
+                url: WEBHOOK_URL,
+                secret: WEBHOOK_SECRET,
+                enabled: webhookEnabled,
+              },
+            },
+          },
+        },
+      ],
+      cd_deliberation_log: [],
+      cd_causal_chains: [],
+      ai_cost_log: [],
+    });
+  }
+
+  it("org has a webhook configured → POST fired with signed payload after the deliberation finalizes", async () => {
+    const supabase = supabaseWith(true);
+    const result = await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-fix5-fires",
+      supabase: supabase as never,
+    });
+    assert.equal(result.ok, true, result.aborted_reason ?? "");
+    assert.equal(webhookPosts.length, 1, "exactly one webhook POST");
+    const post = webhookPosts[0];
+    // Signature header present + correct for the exact body sent.
+    assert.equal(
+      post.headers["X-Forged-Signature"],
+      signWebhookBody(post.body, WEBHOOK_SECRET)
+    );
+    assert.equal(post.headers["X-Forged-Event"], "deliberation.completed");
+    const payload = JSON.parse(post.body);
+    assert.equal(payload.event, "deliberation.completed");
+    assert.equal(payload.deliberation_id, "delib-fix5-fires");
+    assert.equal(payload.org_id, ORG);
+    assert.equal(payload.anomaly_id, ANOMALY.id);
+    assert.equal(payload.asset_id, ASSET.id);
+    assert.ok(
+      typeof payload.consensus_level === "string" &&
+        payload.consensus_level.length > 0
+    );
+    assert.equal(typeof payload.total_cost_usd, "number");
+    assert.ok(String(payload.poll_url).includes("delib-fix5-fires"));
+  });
+
+  it("webhook returns 500 (twice) → deliberation still completes ok, webhook_error logged to arbitration_rules_applied", async () => {
+    webhookResponder = () => new Response("server error", { status: 500 });
+    const supabase = supabaseWith(true);
+    const result = await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-fix5-500",
+      supabase: supabase as never,
+    });
+    // Deliberation itself is unaffected.
+    assert.equal(result.ok, true, result.aborted_reason ?? "");
+    assert.equal(result.per_specialist.length, 6);
+    // initial + one retry on 5xx.
+    assert.equal(webhookPosts.length, 2);
+    // webhook_error recorded, deliberation NOT failed.
+    const row = supabase.__store.cd_deliberation_log[0] as Record<
+      string,
+      unknown
+    >;
+    const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    assert.ok(
+      typeof ara.webhook_error === "string" &&
+        (ara.webhook_error as string).includes("500"),
+      `webhook_error must be logged; got: ${JSON.stringify(ara.webhook_error)}`
+    );
+    // final_status still reflects the real arbitration outcome.
+    assert.notEqual(ara.final_status, "failed");
+  });
+
+  it("webhook disabled (enabled:false) → no POST fired, deliberation completes normally", async () => {
+    const supabase = supabaseWith(false);
+    const result = await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-fix5-disabled",
+      supabase: supabase as never,
+    });
+    assert.equal(result.ok, true, result.aborted_reason ?? "");
+    assert.equal(webhookPosts.length, 0, "disabled webhook must not fire");
+    const row = supabase.__store.cd_deliberation_log[0] as Record<
+      string,
+      unknown
+    >;
+    const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    assert.equal(ara.webhook_error, undefined);
+  });
+});

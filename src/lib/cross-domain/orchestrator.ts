@@ -45,6 +45,10 @@ import { checkOrgBudget, recordSpend } from "./budgetGuard";
 import { SPECIALIST_ORDER } from "./deliberationState";
 import { ingestDeliberationMemory } from "./memoryIngest";
 import { captureDeliberationPrediction } from "./predictionCapture";
+import {
+  deliverDeliberationWebhook,
+  type DeliberationWebhookPayload,
+} from "./webhookDelivery";
 
 export interface RunDeliberationOptions {
   org_id: string;
@@ -437,6 +441,99 @@ async function triggerPredictionCapture(
   }
 }
 
+// Sprint 4 Polish 3 (Fix 5): webhook delivery. Same merge-into-
+// arbitration_rules_applied pattern as the other supplementary hooks
+// — a webhook failure is recorded but NEVER fails the deliberation.
+async function mergeWebhookError(
+  supabase: SupabaseClient,
+  deliberation_id: string,
+  message: string
+): Promise<void> {
+  try {
+    const { data } = await supabase
+      .from("cd_deliberation_log")
+      .select("arbitration_rules_applied")
+      .eq("id", deliberation_id)
+      .maybeSingle();
+    const row = (data ?? {}) as Record<string, unknown>;
+    const existing =
+      (row.arbitration_rules_applied as Record<string, unknown> | null) ?? {};
+    await supabase
+      .from("cd_deliberation_log")
+      .update({
+        arbitration_rules_applied: {
+          ...existing,
+          webhook_error: message,
+        },
+      })
+      .eq("id", deliberation_id);
+  } catch {
+    // Best-effort — outcome already stands; nothing else to do.
+  }
+}
+
+interface WebhookTriggerContext {
+  anomaly_id: string;
+  asset_id: string;
+  consequenceProfile: ConsequenceProfile | null;
+  total_cost_usd: number;
+}
+
+async function triggerWebhookDelivery(
+  supabase: SupabaseClient,
+  opts: RunDeliberationOptions,
+  arbitration: ArbitrationDecision,
+  ctx: WebhookTriggerContext
+): Promise<void> {
+  try {
+    // poll_url points the receiver at the status endpoint for the full
+    // payload. CROSS_DOMAIN_PUBLIC_BASE_URL is preferred; Netlify also
+    // injects URL at runtime. Falls back to a relative path.
+    const base =
+      process.env.CROSS_DOMAIN_PUBLIC_BASE_URL || process.env.URL || "";
+    const statusPath = `/.netlify/functions/cross-domain-deliberation-status?deliberation_id=${opts.deliberation_id}`;
+    const poll_url = base ? `${base.replace(/\/$/, "")}${statusPath}` : statusPath;
+
+    const payload: DeliberationWebhookPayload = {
+      event: "deliberation.completed",
+      delivered_at: new Date().toISOString(),
+      deliberation_id: opts.deliberation_id,
+      org_id: opts.org_id,
+      anomaly_id: ctx.anomaly_id,
+      asset_id: ctx.asset_id,
+      consensus_level: consensusLevelFor(arbitration),
+      escalated_to_human: escalatedFor(arbitration),
+      recommended_action_tier:
+        ctx.consequenceProfile?.recommended_action_tier ?? null,
+      overall_consequence_tier: ctx.consequenceProfile?.overall_tier ?? null,
+      total_cost_usd: ctx.total_cost_usd,
+      poll_url,
+    };
+
+    const result = await deliverDeliberationWebhook(payload, supabase);
+    if (result.ok) {
+      if (result.attempted) {
+        console.log(
+          `[webhook ${opts.deliberation_id}] delivered status=${result.status}`
+        );
+      }
+      // result.attempted === false → no webhook configured / disabled;
+      // intentional silent no-op.
+    } else {
+      const detail =
+        result.error ?? `status_${result.status ?? "unknown"}`;
+      console.warn(
+        `[webhook ${opts.deliberation_id}] delivery failed: ${detail}`
+      );
+      await mergeWebhookError(supabase, opts.deliberation_id, detail);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[webhook ${opts.deliberation_id}] threw err="${message}"`);
+    await mergeWebhookError(supabase, opts.deliberation_id, message);
+  }
+}
+
 // System-failure finalization (engineer crash, cap exceeded, etc.).
 // consensus_level conforms to the CHECK constraint ('unresolved').
 // The actual failure marker lives in arbitration_rules_applied.error;
@@ -743,36 +840,61 @@ export async function runDeliberation(
     consequenceProfile = null;
   }
 
-  // ---- Step 4: Researcher ----
-  const researcher = await step("researcher", () =>
-    deliberateAsResearcher(inputWithChain(), ctx)
-  );
-  if (researcher.ran && runningCost > perDelibCap) {
-    const arb = emptyArbitration("per_deliberation_cap_exceeded");
-    await finalizeLogAsFailure(
-      supabase,
-      opts,
-      perSpecialist,
-      "per_deliberation_cap_exceeded",
-      runningCost
+  // ---- Steps 4 + 5: Researcher + Devil's Advocate (PARALLEL) ----
+  // Sprint 4 Polish 3 (Fix 4): Researcher (~70s) and Devil's Advocate
+  // (~5-7s) both consume ONLY the upstream context (Inspector +
+  // Engineer outputs, causal chain, consequence profile) — neither
+  // consumes the other's output. Running them with Promise.all removes
+  // ~70s from the critical path (Researcher dominates DA latency).
+  //
+  // Trade-off (intentional, per the brief): after parallelization
+  // Devil's Advocate no longer sees Researcher's output and vice
+  // versa. DA still adversarially reviews Inspector + Engineer. The
+  // DOWNSTREAM chain — Historian and Synthesizer — still sees BOTH
+  // (they snapshot perSpecialist after both are recorded), so the
+  // adversarial-validation behavior of the deliberation is preserved.
+  //
+  // Both are recorded researcher-then-DA so arbitrate()'s
+  // position-based "downstream" slice (everything after devils_advocate)
+  // is byte-identical to the pre-parallel ordering.
+  let researcher: { ok: boolean; analysis: SpecialistAnalysis; error?: string; ran: boolean };
+  let da: { ok: boolean; analysis: SpecialistAnalysis; error?: string; ran: boolean };
+  if (shouldRun("researcher") && shouldRun("devils_advocate")) {
+    // Snapshot the input ONCE so both specialists see the identical
+    // upstream context. recordOutcome is then applied sequentially
+    // (researcher first) to keep the perSpecialist array order
+    // deterministic and avoid racing the incremental persist.
+    const sharedInput = inputWithChain();
+    const [rRes, dRes] = await Promise.all([
+      deliberateAsResearcher(sharedInput, ctx),
+      deliberateAsDevilsAdvocate(sharedInput, ctx),
+    ]);
+    await recordOutcome(rRes.analysis);
+    await recordOutcome(dRes.analysis);
+    for (const [role, r] of [
+      ["researcher", rRes],
+      ["devils_advocate", dRes],
+    ] as const) {
+      console.log(
+        `[deliberation ${deliberation_id}] step=${role} (parallel) ok=${r.ok} attempts=${r.analysis.attempts} cost=$${r.analysis.cost_usd.toFixed(4)} latency=${r.analysis.latency_ms}ms${r.analysis.parse_error ? ` parse_error="${r.analysis.parse_error}"` : ""}`
+      );
+    }
+    researcher = { ...rRes, ran: true };
+    da = { ...dRes, ran: true };
+  } else {
+    // Resume edge case (e.g. resuming exactly at devils_advocate):
+    // shouldRun is monotonic by SPECIALIST_ORDER index, so this branch
+    // only hits mid-chain resumes. Fall back to sequential step()
+    // calls so prior-output reuse works correctly.
+    researcher = await step("researcher", () =>
+      deliberateAsResearcher(inputWithChain(), ctx)
     );
-    await recordSpend(supabase, org_id, deliberation_id, runningCost);
-    return emptyResult(
-      opts,
-      perSpecialist,
-      causalChain,
-      arb,
-      "per_deliberation_cap_exceeded",
-      runningCost,
-      Date.now() - t0
+    da = await step("devils_advocate", () =>
+      deliberateAsDevilsAdvocate(inputWithChain(), ctx)
     );
   }
-
-  // ---- Step 5: Devil's Advocate ----
-  const da = await step("devils_advocate", () =>
-    deliberateAsDevilsAdvocate(inputWithChain(), ctx)
-  );
-  if (da.ran && runningCost > perDelibCap) {
+  // Single combined cap check — both specialists have run by here.
+  if ((researcher.ran || da.ran) && runningCost > perDelibCap) {
     const arb = emptyArbitration("per_deliberation_cap_exceeded");
     await finalizeLogAsFailure(
       supabase,
@@ -854,6 +976,17 @@ export async function runDeliberation(
     // memory ingest so consequence + causal chain sibling rows are
     // already in place; the capture function pulls from them.
     await triggerPredictionCapture(supabase, opts, arbitration);
+    // Sprint 4 Polish 3 (Fix 5): fire the deliberation-completed
+    // webhook LAST — after every subsystem hook — so a registered
+    // receiver gets a payload reflecting the fully finalized state.
+    // Failure is recorded to arbitration_rules_applied.webhook_error
+    // but never fails the deliberation.
+    await triggerWebhookDelivery(supabase, opts, arbitration, {
+      anomaly_id: input.anomaly.id,
+      asset_id: input.asset.id,
+      consequenceProfile,
+      total_cost_usd: runningCost,
+    });
   } else {
     await finalizeLogAsFailure(
       supabase,

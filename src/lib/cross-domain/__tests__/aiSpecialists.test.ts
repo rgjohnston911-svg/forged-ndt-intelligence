@@ -370,6 +370,7 @@ import type {
 } from "../types";
 import {
   deliberateAsInspector,
+  deliberateAsEngineer,
   deliberateAsHistorian,
   deliberateAsResearcher,
   deliberateAsSynthesizer,
@@ -377,6 +378,7 @@ import {
   buildSystemPrompt,
   parseAnthropicMixedContent,
   getWebSearchToolsForRole,
+  computeCostUsd,
   WEB_SEARCH_COST_PER_CALL_USD,
   WEB_SEARCH_MAX_USES,
 } from "../aiSpecialists";
@@ -1355,6 +1357,305 @@ describe("parseAnthropicMixedContent — direct unit", () => {
   });
 });
 
+// ============================================================
+// Sprint 4 Polish 3 — Fix 1: parser verified against a REAL captured
+// Anthropic web_search response. Diagnosis (full findings in PR body):
+//   - content[] order: server_tool_use × N, web_search_tool_result × N,
+//     then many text blocks.
+//   - web_search_result items: {type,title,url,encrypted_content,
+//     page_age} — NO human-readable snippet field. encrypted_content
+//     is opaque base64.
+//   - text blocks carry citations[]; each is
+//     {type:"web_search_result_location", cited_text, url, title,
+//     encrypted_index}. cited_text IS the human-readable excerpt.
+//   - citation URLs exactly match web_search_result URLs.
+//   - errored results: content is an OBJECT
+//     {type:"web_search_tool_result_error", error_code:"..."}.
+// The current harvestFrom parser was confirmed correct on the real
+// response (13/20 sources got snippets — the 7 without are results
+// the model didn't cite, which is honest, not a bug). The production
+// "0/30" was a stale-deploy artifact. This fixture pins the real
+// shape so regressions are caught, and the error-shape handling is
+// the genuine latent bug fixed here.
+// ============================================================
+
+// A trimmed but structurally-faithful slice of the real response.
+function realShapeBlocks() {
+  return [
+    {
+      type: "server_tool_use",
+      id: "srvtoolu_real_1",
+      name: "web_search",
+      input: { query: "NACE SP0169 cathodic protection standard" },
+    },
+    {
+      type: "web_search_tool_result",
+      tool_use_id: "srvtoolu_real_1",
+      // Real shape: content is an ARRAY of web_search_result items,
+      // each with encrypted_content (opaque) — NO snippet field.
+      content: [
+        {
+          type: "web_search_result",
+          title: "NACE Standard SP0169-2007",
+          url: "http://zinoglobal.com/wp-content/uploads/2019/12/NACE-SP0169-2007.pdf",
+          encrypted_content: "EuceCioIDxgCIiQzMDU4YTA1ZC0…OPAQUE_BASE64",
+          page_age: null,
+        },
+        {
+          type: "web_search_result",
+          title: "NACE SP0169 - Control of External Corrosion",
+          url: "https://inspectioneering.com/tag/nace+sp0169",
+          encrypted_content: "EpcPCioIDxgCIiQzMDU4YTA1ZC0…OPAQUE_BASE64",
+          page_age: null,
+        },
+        {
+          type: "web_search_result",
+          title: "Uncited result — model never quoted this one",
+          url: "https://webstore.ansi.org/standards/nace/nacestandardsp01692007",
+          encrypted_content: "EoOPAQUE",
+          page_age: null,
+        },
+      ],
+    },
+    // Text blocks: some plain, some carrying a real-shape citation.
+    {
+      type: "text",
+      text: "Here is a detailed overview of both standards.",
+    },
+    {
+      citations: [
+        {
+          type: "web_search_result_location",
+          cited_text:
+            "NACE SP0169, Control of External Corrosion on Underground or Submerged Metallic Piping Systems, is a standard published by the National Association of Corrosion Engineers.",
+          url: "https://inspectioneering.com/tag/nace+sp0169",
+          title: "NACE SP0169 - Control of External Corrosion",
+          encrypted_index: "Eo8BCioIDxgCOPAQUE_INDEX",
+        },
+      ],
+      type: "text",
+      text: "NACE SP0169, *Control of External Corrosion on Underground or Submerged Metallic Piping Systems*, is a standard published by NACE.",
+    },
+    {
+      citations: [
+        {
+          type: "web_search_result_location",
+          cited_text:
+            "This standard presents methods and practices for achieving effective control of external corrosion on underground or submerged metallic piping systems.",
+          url: "http://zinoglobal.com/wp-content/uploads/2019/12/NACE-SP0169-2007.pdf",
+          title: "NACE Standard SP0169-2007",
+          encrypted_index: "EpEBCioIDxgCOPAQUE_INDEX",
+        },
+      ],
+      type: "text",
+      text: "This standard presents methods and practices for achieving effective control of external corrosion.",
+    },
+  ];
+}
+
+describe("Fix 1 — parser verified against the REAL captured web_search response shape", () => {
+  it("real-shape response → cited results get snippets from text-block citations[].cited_text, uncited result gets none", () => {
+    const parsed = parseAnthropicMixedContent(realShapeBlocks());
+    assert.equal(parsed.searches_performed, 1);
+    assert.equal(parsed.search_errors, 0);
+    assert.equal(parsed.cited_sources.length, 3);
+
+    // The two results whose URLs were cited get the model's cited_text
+    // as their snippet.
+    const inspectioneering = parsed.cited_sources.find(
+      (s) => s.domain === "inspectioneering.com"
+    );
+    const zino = parsed.cited_sources.find(
+      (s) => s.domain === "zinoglobal.com"
+    );
+    const ansi = parsed.cited_sources.find(
+      (s) => s.domain === "webstore.ansi.org"
+    );
+    assert.ok(inspectioneering?.snippet?.includes("NACE SP0169, Control"));
+    assert.ok(zino?.snippet?.includes("methods and practices"));
+    // The uncited result legitimately has no snippet — we do NOT
+    // fabricate one from the opaque encrypted_content.
+    assert.equal(ansi?.snippet, undefined);
+  });
+
+  it("real-shape: encrypted_content is never surfaced as a snippet", () => {
+    const parsed = parseAnthropicMixedContent(realShapeBlocks());
+    for (const s of parsed.cited_sources) {
+      if (s.snippet) {
+        assert.ok(
+          !s.snippet.includes("OPAQUE"),
+          `snippet must not contain opaque encrypted_content bytes: ${s.snippet}`
+        );
+      }
+    }
+  });
+
+  it("Fix 1 latent bug: errored web_search_tool_result (content is an error OBJECT) is counted, not silently swallowed", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_err",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_err",
+        // Real error shape: content is an OBJECT, not an array, and
+        // there is NO block-level is_error flag.
+        content: {
+          type: "web_search_tool_result_error",
+          error_code: "max_uses_exceeded",
+        },
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(
+      parsed.search_errors,
+      1,
+      "error-shaped content must increment search_errors (was silently swallowed pre-Fix-1)"
+    );
+    assert.equal(parsed.cited_sources.length, 0);
+  });
+
+  it("Fix 1: legacy is_error flag still counted (backward compat)", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_legacy",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_legacy",
+        is_error: true,
+        content: [],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.search_errors, 1);
+  });
+
+  it("Fix 1: empty citations everywhere → cited_sources from results still emitted, snippets just undefined, no throw", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_nocit",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_nocit",
+        content: [
+          {
+            type: "web_search_result",
+            title: "result with no citation",
+            url: "https://example.com/page",
+            encrypted_content: "OPAQUE",
+            page_age: null,
+          },
+        ],
+      },
+      // Text block with NO citations field at all.
+      { type: "text", text: "Model produced prose but cited nothing." },
+    ];
+    // Must not throw.
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.equal(parsed.cited_sources[0].snippet, undefined);
+    assert.equal(parsed.cited_sources[0].domain, "example.com");
+  });
+});
+
+// ============================================================
+// Sprint 4 Polish 3 — Fix 2: domain field is ALWAYS a bare hostname.
+// Audit confirmed parseAnthropicMixedContent sets domain in exactly
+// one place — extractHostname(unwrapUrl(rawUrl)) — which cannot emit
+// bracket/paren chars. These tests pin that, plus the defense-in-depth
+// post-construction guard.
+// ============================================================
+
+describe("Fix 2 — Researcher source.domain is always a bare hostname", () => {
+  it("markdown-wrapped web_search_result url → domain is bare hostname, url unwrapped", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_md",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_md",
+        content: [
+          {
+            type: "web_search_result",
+            title: "LinkedIn article",
+            // Production-observed leak shape.
+            url: "[www.linkedin.com](https://www.linkedin.com/pulse/cathodic-protection-basics)",
+            encrypted_content: "OPAQUE",
+            page_age: null,
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.equal(parsed.cited_sources[0].domain, "www.linkedin.com");
+    assert.ok(
+      !/[[\]()]/.test(parsed.cited_sources[0].domain ?? ""),
+      `domain must contain no markup chars: ${parsed.cited_sources[0].domain}`
+    );
+    // url is stored unwrapped too.
+    assert.equal(
+      parsed.cited_sources[0].url,
+      "https://www.linkedin.com/pulse/cathodic-protection-basics"
+    );
+  });
+
+  it("angle-bracket + trailing-punctuation wrapped url → still a bare hostname", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtoolu_ab",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtoolu_ab",
+        content: [
+          {
+            type: "web_search_result",
+            title: "ASME",
+            url: "<https://files.asme.org/psdocc/17653.pdf>,",
+            encrypted_content: "OPAQUE",
+            page_age: null,
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].domain, "files.asme.org");
+  });
+
+  it("every domain across a multi-source response is bracket-free", () => {
+    const blocks = realShapeBlocks();
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.ok(parsed.cited_sources.length >= 3);
+    for (const s of parsed.cited_sources) {
+      if (s.domain !== undefined) {
+        assert.ok(
+          !/[[\]()]/.test(s.domain),
+          `domain "${s.domain}" must be a bare hostname with no markup`
+        );
+      }
+    }
+  });
+});
+
 describe("getWebSearchToolsForRole", () => {
   it("returns config only for researcher", () => {
     assert.equal(getWebSearchToolsForRole("inspector"), undefined);
@@ -1832,5 +2133,201 @@ describe("Fix 5 — synthesizer summary FIRST SENTENCE matches the standard-cita
       !result.analysis.summary.includes("DISSENT ADDRESSED:"),
       "DISSENT ADDRESSED: must be omitted on unanimous consensus"
     );
+  });
+});
+
+// ============================================================
+// Sprint 4 Polish 3 — Fix 3: Anthropic prompt caching on the 5
+// Anthropic specialists' system prompts. The system field is sent as
+// a content-block array with cache_control: ephemeral; cost math
+// bills cache reads at 0.1x and cache writes at 1.25x the normal
+// input rate.
+// ============================================================
+
+const ANTHROPIC_DELIBERATE_FNS = [
+  ["inspector", deliberateAsInspector],
+  ["engineer", deliberateAsEngineer],
+  ["researcher", deliberateAsResearcher],
+  ["historian", deliberateAsHistorian],
+] as const;
+
+describe("Fix 3 — Anthropic specialist system prompt sent with cache_control: ephemeral", () => {
+  beforeEach(installFetchMock);
+  afterEach(restoreFetch);
+
+  for (const [role, fn] of ANTHROPIC_DELIBERATE_FNS) {
+    it(`${role}: deliberation request body's system is a content-block array with cache_control ephemeral`, async () => {
+      let capturedBody = "";
+      globalThis.fetch = (async (_url: FetchInput, init?: FetchInit) => {
+        capturedBody = String(init?.body ?? "");
+        return new Response(
+          JSON.stringify({
+            id: "msg_cache_" + role,
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  summary: "s",
+                  claims: [],
+                  open_questions: [],
+                  cited_mechanisms: [],
+                  cited_evidence: [],
+                }),
+              },
+            ],
+            usage: { input_tokens: 100, output_tokens: 20 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }) as typeof fetch;
+
+      await fn(DELIB_INPUT);
+      const body = JSON.parse(capturedBody);
+      assert.ok(Array.isArray(body.system), `${role}: system must be an array`);
+      assert.equal(body.system.length, 1);
+      assert.equal(body.system[0].type, "text");
+      assert.ok(
+        typeof body.system[0].text === "string" &&
+          body.system[0].text.length > 0,
+        `${role}: system block must carry the prompt text`
+      );
+      assert.deepEqual(body.system[0].cache_control, { type: "ephemeral" });
+      // user message stays a plain string — not cacheable usefully
+      assert.equal(typeof body.messages[0].content, "string");
+    });
+  }
+
+  it("synthesizer: system block also carries cache_control ephemeral", async () => {
+    let capturedBody = "";
+    globalThis.fetch = (async (_url: FetchInput, init?: FetchInit) => {
+      capturedBody = String(init?.body ?? "");
+      return new Response(
+        JSON.stringify({
+          id: "msg_cache_synth",
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                summary: "Per API 579-1, s",
+                claims: [],
+                open_questions: [],
+                cited_mechanisms: [],
+                cited_evidence: [],
+              }),
+            },
+          ],
+          usage: { input_tokens: 100, output_tokens: 20 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+    await deliberateAsSynthesizer(DELIB_INPUT, {
+      status: "accepted",
+      reason: "x",
+    });
+    const body = JSON.parse(capturedBody);
+    assert.ok(Array.isArray(body.system));
+    assert.deepEqual(body.system[0].cache_control, { type: "ephemeral" });
+  });
+});
+
+describe("Fix 3 — computeCostUsd accounts for cached vs uncached input tokens", () => {
+  it("cache read tokens billed at 0.1x the normal input rate", () => {
+    // claude-sonnet-4-6: input_per_mtok = 3, output_per_mtok = 15.
+    // 1,000,000 uncached input + 0 output:
+    const uncached = computeCostUsd("claude-sonnet-4-6", 1_000_000, 0);
+    assert.equal(uncached, 3);
+    // 1,000,000 cache-READ input tokens → 3 * 0.1 = 0.3
+    const cacheRead = computeCostUsd("claude-sonnet-4-6", 0, 0, 1_000_000, 0);
+    assert.ok(
+      Math.abs(cacheRead - 0.3) < 1e-9,
+      `cache-read cost ${cacheRead} expected 0.3`
+    );
+    // 1,000,000 cache-CREATION tokens → 3 * 1.25 = 3.75
+    const cacheWrite = computeCostUsd("claude-sonnet-4-6", 0, 0, 0, 1_000_000);
+    assert.ok(
+      Math.abs(cacheWrite - 3.75) < 1e-9,
+      `cache-write cost ${cacheWrite} expected 3.75`
+    );
+  });
+
+  it("mixed: uncached + cache-read + cache-write + output are additive, never double-counted", () => {
+    // 100k uncached, 900k cache-read, 0 cache-write, 50k output
+    // input side: (100k/1M)*3 + (900k/1M)*3*0.1 = 0.3 + 0.27 = 0.57
+    // output side: (50k/1M)*15 = 0.75
+    // total = 1.32
+    const cost = computeCostUsd(
+      "claude-sonnet-4-6",
+      100_000,
+      50_000,
+      900_000,
+      0
+    );
+    assert.ok(Math.abs(cost - 1.32) < 1e-9, `mixed cost ${cost} expected 1.32`);
+  });
+
+  it("backward compat: 3-arg calls behave exactly as before (zero cache contribution)", () => {
+    const threeArg = computeCostUsd("claude-opus-4-6", 1_000_000, 1_000_000);
+    // opus: 15 input + 75 output = 90
+    assert.equal(threeArg, 90);
+  });
+});
+
+describe("Fix 3 — cache token counts flow into cost + ai_cost_log on a cache hit", () => {
+  beforeEach(installFetchMock);
+  afterEach(restoreFetch);
+
+  it("Anthropic response with cache_read_input_tokens → cost reflects the discount, ai_cost_log records the counts", async () => {
+    const supabase = makeMockSupabase({ ai_cost_log: [] });
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          id: "msg_cache_hit",
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                summary: "s",
+                claims: [],
+                open_questions: [],
+                cited_mechanisms: [],
+                cited_evidence: [],
+              }),
+            },
+          ],
+          // Cache hit: most of the input served from a warm cache.
+          usage: {
+            input_tokens: 200,
+            cache_read_input_tokens: 3000,
+            cache_creation_input_tokens: 0,
+            output_tokens: 50,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )) as typeof fetch;
+
+    const result = await deliberateAsInspector(DELIB_INPUT, {
+      cost: { orgId: ORG, supabaseAdmin: supabase as never },
+    });
+    assert.equal(result.ok, true, result.error ?? "");
+    // Expected cost (claude-sonnet-4-6: in 3, out 15):
+    //   uncached: 200/1M * 3            = 0.0006
+    //   cache-read: 3000/1M * 3 * 0.1   = 0.0009
+    //   output: 50/1M * 15             = 0.00075
+    //   total                          = 0.00225
+    const expected = 0.0006 + 0.0009 + 0.00075;
+    assert.ok(
+      Math.abs(result.analysis.cost_usd - expected) < 1e-9,
+      `cost_usd ${result.analysis.cost_usd} expected ${expected}`
+    );
+    // ai_cost_log row carries the cache counts in metadata.
+    const rows = supabase.__store.ai_cost_log;
+    assert.equal(rows.length, 1);
+    const meta = (rows[0] as Record<string, unknown>).metadata as Record<
+      string,
+      unknown
+    >;
+    assert.equal(meta.cache_read_input_tokens, 3000);
+    assert.equal(meta.cache_creation_input_tokens, 0);
   });
 });

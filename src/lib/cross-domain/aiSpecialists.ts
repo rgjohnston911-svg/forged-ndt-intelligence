@@ -114,15 +114,34 @@ const SPECS: Record<SpecialistRole, SpecialistSpec> = {
   },
 };
 
+// Sprint 4 Polish 3 (Fix 3): Anthropic prompt-caching multipliers
+// against the normal input-token rate (Anthropic public pricing):
+//   - cache WRITE (cache_creation_input_tokens): 1.25× input rate
+//   - cache READ  (cache_read_input_tokens):     0.10× input rate
+//   - regular input_tokens:                      1.00× input rate
+// When caching is active, `input_tokens` is ONLY the uncached portion;
+// the cached portion appears in cache_read/cache_creation. So all three
+// counts are additive — never double-count.
+const CACHE_WRITE_MULTIPLIER = 1.25;
+const CACHE_READ_MULTIPLIER = 0.1;
+
 function computeCostUsd(
   model: string,
   inputTokens: number,
-  outputTokens: number
+  outputTokens: number,
+  cacheReadInputTokens: number = 0,
+  cacheCreationInputTokens: number = 0
 ): number {
   const p = SMOKE_TEST_PRICING[model];
   if (!p) return 0;
   return (
     (inputTokens / 1_000_000) * p.input_per_mtok +
+    (cacheCreationInputTokens / 1_000_000) *
+      p.input_per_mtok *
+      CACHE_WRITE_MULTIPLIER +
+    (cacheReadInputTokens / 1_000_000) *
+      p.input_per_mtok *
+      CACHE_READ_MULTIPLIER +
     (outputTokens / 1_000_000) * p.output_per_mtok
   );
 }
@@ -217,6 +236,13 @@ interface ProviderCallResult {
   input_tokens: number;
   output_tokens: number;
   request_id: string | null;
+  // Sprint 4 Polish 3 (Fix 3): Anthropic prompt-caching token counts.
+  // cache_read = tokens served from a warm ephemeral cache (billed
+  // 0.1×); cache_creation = tokens written to the cache this call
+  // (billed 1.25×). Both 0 when caching wasn't used / wasn't a hit.
+  // OpenAI calls leave these 0.
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
   // Sprint 4B: populated when the response includes server_tool_use
   // / web_search_tool_result blocks. Undefined when tools weren't
   // enabled or the response didn't include any tool blocks.
@@ -253,10 +279,18 @@ interface AnthropicContentBlock {
   input?: { query?: string };
   tool_use_id?: string;
   is_error?: boolean;
-  content?: Array<Record<string, unknown>>;
+  // Sprint 4 Polish 3 (Fix 1): `content` is an ARRAY of web_search_result
+  // items on success, but an OBJECT
+  // {type:"web_search_tool_result_error", error_code:"..."} on error.
+  // Confirmed against a real captured web_search response — see the
+  // Fix 1 diagnosis in the PR body. The prior `Array<...>`-only type
+  // hid the error shape and the parser silently swallowed search errors.
+  content?: Array<Record<string, unknown>> | Record<string, unknown>;
   // Sprint 4 Polish (Fix C): text blocks carry citations[] arrays
   // pointing back to web_search results with cited_text — that's
-  // where the human-readable snippet actually lives.
+  // where the human-readable snippet actually lives. Confirmed shape:
+  // each entry is {type:"web_search_result_location", cited_text, url,
+  // title, encrypted_index}; cited_text holds the human-readable excerpt.
   citations?: Array<Record<string, unknown>>;
 }
 
@@ -423,14 +457,38 @@ function parseAnthropicMixedContent(
   const sources: ExternalSource[] = [];
   for (const block of blocks) {
     if (block.type !== "web_search_tool_result") continue;
-    if (block.is_error) {
+    // Sprint 4 Polish 3 (Fix 1): errored web_search_tool_result blocks
+    // carry `content` as an OBJECT
+    // {type:"web_search_tool_result_error", error_code:"..."} — NOT a
+    // block-level is_error flag and NOT an array. Confirmed against a
+    // real captured response. The prior code only checked block.is_error
+    // (never set by the API) and treated a non-array content as []
+    // — so genuine search errors (max_uses_exceeded, unavailable, etc.)
+    // were silently swallowed as 0 sources / 0 errors. We now detect
+    // both: the legacy is_error flag AND the real error-content shape.
+    const content = block.content;
+    const isErrorContent =
+      !!content &&
+      !Array.isArray(content) &&
+      typeof content === "object" &&
+      (content as Record<string, unknown>).type ===
+        "web_search_tool_result_error";
+    if (block.is_error || isErrorContent) {
       errors++;
+      if (isErrorContent) {
+        const code = (content as Record<string, unknown>).error_code;
+        console.warn(
+          `[web_search] tool_result_error code=${
+            typeof code === "string" ? code : "unknown"
+          } — proceeding with whatever other results parsed`
+        );
+      }
       continue;
     }
     const searchQuery = block.tool_use_id
       ? queryByToolUseId.get(block.tool_use_id)
       : undefined;
-    const results = Array.isArray(block.content) ? block.content : [];
+    const results = Array.isArray(content) ? content : [];
     for (const r of results) {
       const recordType = String(r.type ?? "");
       if (recordType !== "web_search_result") continue;
@@ -455,14 +513,30 @@ function parseAnthropicMixedContent(
         r.excerpt,
         r.description
       );
-      sources.push({
+      const source: ExternalSource = {
         url,
         title: typeof r.title === "string" ? r.title : undefined,
         snippet,
         domain,
         search_query: searchQuery,
         page_age: typeof r.page_age === "string" ? r.page_age : undefined,
-      });
+      };
+      // Sprint 4 Polish 3 (Fix 2): defense-in-depth guard. `domain` is
+      // ALWAYS derived above via extractHostname(unwrapUrl(...)), which
+      // cannot itself emit bracket/paren chars (URL.hostname never
+      // contains them, and a parse failure yields undefined). The audit
+      // confirmed this is the sole domain-assignment path. But the
+      // production smoke test reported a markdown-wrapped domain, so —
+      // belt and suspenders — if `domain` ever contains [, ], ( or ),
+      // log it and re-derive from the (already-unwrapped) url. Cheap
+      // insurance against a future code path or API-shape change.
+      if (source.domain && /[[\]()]/.test(source.domain)) {
+        console.warn(
+          `[web_search] domain field contained markup ("${source.domain}") — re-deriving from url`
+        );
+        source.domain = extractHostname(unwrapUrl(source.url));
+      }
+      sources.push(source);
     }
   }
 
@@ -486,7 +560,23 @@ async function callAnthropic(
     max_tokens: opts.maxTokens,
     messages: [{ role: "user", content: opts.userPrompt }],
   };
-  if (opts.systemPrompt) body.system = opts.systemPrompt;
+  // Sprint 4 Polish 3 (Fix 3): send the system prompt as a single
+  // content block with cache_control: ephemeral. The 5 Anthropic
+  // specialists' system prompts are static 1.5-3.5k tokens re-sent on
+  // every call; ephemeral caching bills cache HITS at ~10% of the
+  // normal input rate (and the ~5-minute TTL stays warm across the
+  // back-to-back calls of smoke tests / regression suites). User
+  // messages stay plain strings — they vary per deliberation and
+  // aren't usefully cacheable.
+  if (opts.systemPrompt) {
+    body.system = [
+      {
+        type: "text",
+        text: opts.systemPrompt,
+        cache_control: { type: "ephemeral" },
+      },
+    ];
+  }
   if (opts.thinking) body.thinking = opts.thinking;
   if (opts.tools && opts.tools.length > 0) body.tools = opts.tools;
 
@@ -507,9 +597,18 @@ async function callAnthropic(
   const data = (await res.json()) as {
     id?: string;
     content?: AnthropicContentBlock[];
-    usage?: { input_tokens?: number; output_tokens?: number };
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      // Sprint 4 Polish 3 (Fix 3): prompt-caching token counts.
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+    };
   };
   const blocks = data.content ?? [];
+  const cache_read_input_tokens = data.usage?.cache_read_input_tokens ?? 0;
+  const cache_creation_input_tokens =
+    data.usage?.cache_creation_input_tokens ?? 0;
 
   // Sprint 4B: when tools are enabled we must walk the full content
   // array (text blocks interleaved with server_tool_use /
@@ -522,6 +621,8 @@ async function callAnthropic(
       input_tokens: data.usage?.input_tokens ?? 0,
       output_tokens: data.usage?.output_tokens ?? 0,
       request_id: data.id ?? null,
+      cache_read_input_tokens,
+      cache_creation_input_tokens,
       cited_sources: parsed.cited_sources,
       searches_performed: parsed.searches_performed,
       search_errors: parsed.search_errors,
@@ -533,6 +634,8 @@ async function callAnthropic(
     input_tokens: data.usage?.input_tokens ?? 0,
     output_tokens: data.usage?.output_tokens ?? 0,
     request_id: data.id ?? null,
+    cache_read_input_tokens,
+    cache_creation_input_tokens,
   };
 }
 
@@ -632,6 +735,10 @@ async function logCost(
     output_tokens: outputTokens,
     cost_usd: costUsd,
     request_id: requestId,
+    // Sprint 4 Polish 3 (Fix 3): cache_read_input_tokens /
+    // cache_creation_input_tokens flow through `extra` from the call
+    // sites so the ai_cost_log row records prompt-cache hit/write
+    // counts — the smoke test reads these to confirm caching fired.
     metadata: { smoke_test: true, role: spec.role, ...extra },
   });
 }
@@ -661,7 +768,15 @@ async function callSpecialist(
           })
     );
     const latency_ms = Date.now() - t0;
-    const cost_usd = computeCostUsd(spec.model, r.input_tokens, r.output_tokens);
+    const cacheRead = r.cache_read_input_tokens ?? 0;
+    const cacheCreation = r.cache_creation_input_tokens ?? 0;
+    const cost_usd = computeCostUsd(
+      spec.model,
+      r.input_tokens,
+      r.output_tokens,
+      cacheRead,
+      cacheCreation
+    );
 
     await logCost(
       ctx,
@@ -670,7 +785,12 @@ async function callSpecialist(
       r.output_tokens,
       cost_usd,
       r.request_id,
-      { latency_ms, attempts }
+      {
+        latency_ms,
+        attempts,
+        cache_read_input_tokens: cacheRead,
+        cache_creation_input_tokens: cacheCreation,
+      }
     );
 
     return {
@@ -1070,6 +1190,11 @@ async function deliberate(
   let totalCostUsd = 0;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
+  // Sprint 4 Polish 3 (Fix 3): accumulate prompt-cache token counts
+  // across the (up to 2) passes so cost + ai_cost_log reflect cache
+  // hits/writes.
+  let totalCacheReadTokens = 0;
+  let totalCacheCreationTokens = 0;
   let lastRequestId: string | null = null;
   let totalAttempts = 0;
   // Sprint 3.2 — accumulate the raw text across passes so we never
@@ -1144,6 +1269,8 @@ async function deliberate(
           role,
           pass,
           error: underlying.message,
+          cache_read_input_tokens: totalCacheReadTokens,
+          cache_creation_input_tokens: totalCacheCreationTokens,
           ...(tools
             ? {
                 searches_performed: totalSearchesPerformed,
@@ -1161,7 +1288,15 @@ async function deliberate(
     totalAttempts += httpAttempts;
     totalInputTokens += r.input_tokens;
     totalOutputTokens += r.output_tokens;
-    totalCostUsd += computeCostUsd(spec.model, r.input_tokens, r.output_tokens);
+    totalCacheReadTokens += r.cache_read_input_tokens ?? 0;
+    totalCacheCreationTokens += r.cache_creation_input_tokens ?? 0;
+    totalCostUsd += computeCostUsd(
+      spec.model,
+      r.input_tokens,
+      r.output_tokens,
+      r.cache_read_input_tokens ?? 0,
+      r.cache_creation_input_tokens ?? 0
+    );
     // Sprint 4B: web_search results are billed per search ($0.01).
     // r.searches_performed is undefined when tools weren't enabled,
     // 0 when tools were enabled but the model didn't search.
@@ -1218,6 +1353,8 @@ async function deliberate(
           role,
           passes: pass,
           latency_ms,
+          cache_read_input_tokens: totalCacheReadTokens,
+          cache_creation_input_tokens: totalCacheCreationTokens,
           ...(tools
             ? {
                 searches_performed: totalSearchesPerformed,
@@ -1265,6 +1402,8 @@ async function deliberate(
           deliberation: true,
           role,
           empty_content: true,
+          cache_read_input_tokens: totalCacheReadTokens,
+          cache_creation_input_tokens: totalCacheCreationTokens,
           ...(tools
             ? {
                 searches_performed: totalSearchesPerformed,
@@ -1319,6 +1458,8 @@ async function deliberate(
       role,
       parse_failed: true,
       parse_error: parseError,
+      cache_read_input_tokens: totalCacheReadTokens,
+      cache_creation_input_tokens: totalCacheCreationTokens,
       ...(tools
         ? {
             searches_performed: totalSearchesPerformed,
