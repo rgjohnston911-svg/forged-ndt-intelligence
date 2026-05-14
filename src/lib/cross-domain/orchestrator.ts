@@ -743,36 +743,61 @@ export async function runDeliberation(
     consequenceProfile = null;
   }
 
-  // ---- Step 4: Researcher ----
-  const researcher = await step("researcher", () =>
-    deliberateAsResearcher(inputWithChain(), ctx)
-  );
-  if (researcher.ran && runningCost > perDelibCap) {
-    const arb = emptyArbitration("per_deliberation_cap_exceeded");
-    await finalizeLogAsFailure(
-      supabase,
-      opts,
-      perSpecialist,
-      "per_deliberation_cap_exceeded",
-      runningCost
+  // ---- Steps 4 + 5: Researcher + Devil's Advocate (PARALLEL) ----
+  // Sprint 4 Polish 3 (Fix 4): Researcher (~70s) and Devil's Advocate
+  // (~5-7s) both consume ONLY the upstream context (Inspector +
+  // Engineer outputs, causal chain, consequence profile) — neither
+  // consumes the other's output. Running them with Promise.all removes
+  // ~70s from the critical path (Researcher dominates DA latency).
+  //
+  // Trade-off (intentional, per the brief): after parallelization
+  // Devil's Advocate no longer sees Researcher's output and vice
+  // versa. DA still adversarially reviews Inspector + Engineer. The
+  // DOWNSTREAM chain — Historian and Synthesizer — still sees BOTH
+  // (they snapshot perSpecialist after both are recorded), so the
+  // adversarial-validation behavior of the deliberation is preserved.
+  //
+  // Both are recorded researcher-then-DA so arbitrate()'s
+  // position-based "downstream" slice (everything after devils_advocate)
+  // is byte-identical to the pre-parallel ordering.
+  let researcher: { ok: boolean; analysis: SpecialistAnalysis; error?: string; ran: boolean };
+  let da: { ok: boolean; analysis: SpecialistAnalysis; error?: string; ran: boolean };
+  if (shouldRun("researcher") && shouldRun("devils_advocate")) {
+    // Snapshot the input ONCE so both specialists see the identical
+    // upstream context. recordOutcome is then applied sequentially
+    // (researcher first) to keep the perSpecialist array order
+    // deterministic and avoid racing the incremental persist.
+    const sharedInput = inputWithChain();
+    const [rRes, dRes] = await Promise.all([
+      deliberateAsResearcher(sharedInput, ctx),
+      deliberateAsDevilsAdvocate(sharedInput, ctx),
+    ]);
+    await recordOutcome(rRes.analysis);
+    await recordOutcome(dRes.analysis);
+    for (const [role, r] of [
+      ["researcher", rRes],
+      ["devils_advocate", dRes],
+    ] as const) {
+      console.log(
+        `[deliberation ${deliberation_id}] step=${role} (parallel) ok=${r.ok} attempts=${r.analysis.attempts} cost=$${r.analysis.cost_usd.toFixed(4)} latency=${r.analysis.latency_ms}ms${r.analysis.parse_error ? ` parse_error="${r.analysis.parse_error}"` : ""}`
+      );
+    }
+    researcher = { ...rRes, ran: true };
+    da = { ...dRes, ran: true };
+  } else {
+    // Resume edge case (e.g. resuming exactly at devils_advocate):
+    // shouldRun is monotonic by SPECIALIST_ORDER index, so this branch
+    // only hits mid-chain resumes. Fall back to sequential step()
+    // calls so prior-output reuse works correctly.
+    researcher = await step("researcher", () =>
+      deliberateAsResearcher(inputWithChain(), ctx)
     );
-    await recordSpend(supabase, org_id, deliberation_id, runningCost);
-    return emptyResult(
-      opts,
-      perSpecialist,
-      causalChain,
-      arb,
-      "per_deliberation_cap_exceeded",
-      runningCost,
-      Date.now() - t0
+    da = await step("devils_advocate", () =>
+      deliberateAsDevilsAdvocate(inputWithChain(), ctx)
     );
   }
-
-  // ---- Step 5: Devil's Advocate ----
-  const da = await step("devils_advocate", () =>
-    deliberateAsDevilsAdvocate(inputWithChain(), ctx)
-  );
-  if (da.ran && runningCost > perDelibCap) {
+  // Single combined cap check — both specialists have run by here.
+  if ((researcher.ran || da.ran) && runningCost > perDelibCap) {
     const arb = emptyArbitration("per_deliberation_cap_exceeded");
     await finalizeLogAsFailure(
       supabase,
