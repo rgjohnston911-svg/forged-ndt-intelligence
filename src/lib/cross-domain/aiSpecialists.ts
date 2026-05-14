@@ -254,6 +254,29 @@ interface AnthropicContentBlock {
   tool_use_id?: string;
   is_error?: boolean;
   content?: Array<Record<string, unknown>>;
+  // Sprint 4 Polish (Fix C): text blocks carry citations[] arrays
+  // pointing back to web_search results with cited_text — that's
+  // where the human-readable snippet actually lives.
+  citations?: Array<Record<string, unknown>>;
+}
+
+// Sprint 4 Polish (Fix C): centralized snippet picker. Anthropic's
+// web_search_result items expose encrypted_content (opaque) and
+// occasionally other text fields; the readable snippet usually lives
+// on text-block citations (cited_text). This helper picks the first
+// non-empty plausible field, with truncation to 500 chars for storage.
+function pickSnippet(
+  ...candidates: Array<unknown>
+): string | undefined {
+  for (const c of candidates) {
+    if (typeof c === "string") {
+      const trimmed = c.trim();
+      if (trimmed.length > 0) {
+        return trimmed.length > 500 ? trimmed.slice(0, 500) : trimmed;
+      }
+    }
+  }
+  return undefined;
 }
 
 function parseAnthropicMixedContent(
@@ -267,8 +290,21 @@ function parseAnthropicMixedContent(
   let combinedText = "";
   // tool_use_id -> the search query that produced the result
   const queryByToolUseId = new Map<string, string>();
+  // Sprint 4 Polish (Fix C): URL -> cited_text snippet, harvested from
+  // text-block citations[]. Keyed by canonical bare hostname + path so
+  // minor URL variations (trailing slash, fragments) still merge.
+  const snippetByUrl = new Map<string, string>();
   let searches = 0;
   let errors = 0;
+
+  const canonicalUrlKey = (url: string): string => {
+    try {
+      const u = new URL(url);
+      return `${u.hostname}${u.pathname}`.replace(/\/$/, "");
+    } catch {
+      return url.trim();
+    }
+  };
 
   for (const block of blocks) {
     if (block.type === "text" && typeof block.text === "string") {
@@ -276,6 +312,23 @@ function parseAnthropicMixedContent(
       // narrates between tool calls and we want all of it for JSON
       // extraction.
       combinedText += (combinedText ? "\n" : "") + block.text;
+      // Sprint 4 Polish (Fix C): harvest snippet citations from this
+      // text block. The Anthropic citation object includes url +
+      // cited_text (and sometimes title / encrypted_content). We
+      // index by canonical URL key so the web_search_tool_result
+      // pass can lift the snippet onto the matching ExternalSource.
+      if (Array.isArray(block.citations)) {
+        for (const c of block.citations) {
+          const url = typeof c.url === "string" ? c.url : "";
+          if (!url) continue;
+          const snippet = pickSnippet(c.cited_text, c.text, c.excerpt);
+          if (!snippet) continue;
+          const key = canonicalUrlKey(url);
+          if (!snippetByUrl.has(key)) {
+            snippetByUrl.set(key, snippet);
+          }
+        }
+      }
     } else if (
       block.type === "server_tool_use" &&
       (block.name === "web_search" || block.name === undefined)
@@ -309,20 +362,24 @@ function parseAnthropicMixedContent(
       } catch {
         domain = undefined;
       }
-      // Anthropic's web_search returns encrypted_content (opaque to
-      // humans). A readable snippet is rarely present — we capture
-      // any plain `text` / `cited_text` field if Anthropic ever
-      // includes one, otherwise leave snippet undefined.
-      let snippet: string | undefined;
-      if (typeof r.cited_text === "string" && r.cited_text.length > 0) {
-        snippet = r.cited_text;
-      } else if (typeof r.text === "string" && r.text.length > 0) {
-        snippet = r.text;
-      }
+      // Sprint 4 Polish (Fix C): look in multiple plausible locations
+      // for a readable snippet. encrypted_content stays excluded — it
+      // is opaque base64 the model reads but humans cannot. Prefer the
+      // text-block citation map (real cited_text) over the search
+      // result's own text-like fields.
+      const fromCitations = snippetByUrl.get(canonicalUrlKey(url));
+      const snippet = pickSnippet(
+        fromCitations,
+        r.cited_text,
+        r.text,
+        r.snippet,
+        r.excerpt,
+        r.description
+      );
       sources.push({
         url,
         title: typeof r.title === "string" ? r.title : undefined,
-        snippet: snippet ? snippet.slice(0, 500) : undefined,
+        snippet,
         domain,
         search_query: searchQuery,
         page_age: typeof r.page_age === "string" ? r.page_age : undefined,

@@ -840,6 +840,146 @@ describe("parseAnthropicMixedContent — direct unit", () => {
     assert.equal(parsed.cited_sources.length, 0);
     assert.equal(parsed.text, "hello");
   });
+
+  // Sprint 4 Polish (Fix C) — snippet capture from text-block citations
+  it("text-block citations carry cited_text → snippet lifted onto the matching ExternalSource", () => {
+    const blocks = [
+      {
+        type: "text",
+        text: "Per NACE SP0169-2013, CP shielding under disbonded coatings is documented.",
+        citations: [
+          {
+            type: "web_search_result_location",
+            url: "https://www.nace.org/store/sp0169",
+            title: "NACE SP0169-2013",
+            cited_text:
+              "Under-coating cathodic shielding is a known integrity threat where disbondment prevents CP current from reaching the substrate.",
+          },
+        ],
+      },
+      {
+        type: "server_tool_use",
+        id: "srvtu_1",
+        name: "web_search",
+        input: { query: "NACE SP0169 CP shielding" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_1",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.nace.org/store/sp0169",
+            title: "NACE SP0169-2013",
+            encrypted_content: "BASE64_OPAQUE_BYTES",
+          },
+        ],
+      },
+      { type: "text", text: '{"summary":"","claims":[],"open_questions":[],"cited_mechanisms":[],"cited_evidence":[]}' },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    const source = parsed.cited_sources[0];
+    assert.ok(
+      source.snippet && source.snippet.length > 0,
+      `snippet should be lifted from citation cited_text. got snippet="${source.snippet}"`
+    );
+    assert.ok(
+      source.snippet!.includes("cathodic shielding"),
+      "snippet should preserve the citation's substantive text"
+    );
+  });
+
+  it("snippet capped at 500 chars", () => {
+    const longSnippet = "x".repeat(750);
+    const blocks = [
+      {
+        type: "text",
+        text: "x",
+        citations: [
+          {
+            url: "https://example.com/long",
+            cited_text: longSnippet,
+          },
+        ],
+      },
+      {
+        type: "server_tool_use",
+        id: "srvtu_long",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_long",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://example.com/long",
+            title: "long",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.equal(parsed.cited_sources[0].snippet?.length, 500);
+  });
+
+  it("snippet falls back to result-level text fields when no citation present", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_b",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_b",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://example.com/r",
+            title: "fallback case",
+            // No citation block above pointed at this URL. Look at
+            // result-level fields the engine accepts.
+            description: "A useful description that should land as snippet.",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(
+      parsed.cited_sources[0].snippet,
+      "A useful description that should land as snippet."
+    );
+  });
+
+  it("encrypted_content alone (no plain text anywhere) → snippet stays undefined", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_e",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_e",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://example.com/opaque",
+            title: "opaque case",
+            encrypted_content: "OPAQUE",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].snippet, undefined);
+  });
 });
 
 describe("getWebSearchToolsForRole", () => {
