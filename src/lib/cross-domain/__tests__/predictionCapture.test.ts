@@ -39,6 +39,12 @@ interface MockState {
   causalChains: Array<Record<string, unknown>>;
   anomaly: Record<string, unknown> | null;
   forcePredictionInsertError: boolean;
+  // Sprint 4 Polish 2 (Fix 1): simulate the production-observed
+  // "insert succeeded but RETURNING came back empty" case. When true,
+  // cd_deliberation_predictions inserts resolve with data:null /
+  // error:null (no row, no error), pushing the empty-prediction_id
+  // path in captureDeliberationPrediction.
+  forcePredictionInsertEmptyReturn?: boolean;
 }
 
 function makeSupabase(state: MockState): unknown {
@@ -113,6 +119,13 @@ function makeSupabase(state: MockState): unknown {
             const row = { id, ...payload };
             if (this._table === "cd_deliberation_predictions") {
               state.predictions.push(row);
+              // Sprint 4 Polish 2 (Fix 1): simulate the production-observed
+              // "insert succeeded but RETURNING returned no row" case.
+              if (state.forcePredictionInsertEmptyReturn) {
+                return Promise.resolve({ data: null, error: null }).then(
+                  onFulfilled
+                );
+              }
             }
             // Insert + .select().maybeSingle() returns the inserted row.
             return Promise.resolve({ data: { id }, error: null }).then(
@@ -475,5 +488,82 @@ describe("Fix B — primary_mechanism extraction from production shape", () => {
     );
     assert.equal(r.ok, true);
     assert.equal(state.predictions[0].primary_mechanism, null);
+  });
+});
+
+// ============================================================
+// Sprint 4 Polish 2 — Fix 1: regression guards for the silent-skip
+// production bug. Deliberation 4fb6cf2c-... completed with consensus
+// majority_with_dissent but produced no row in cd_deliberation_predictions
+// AND no arbitration_rules_applied.prediction_capture_error. These tests
+// pin the specific behaviors that prevent that from happening again.
+// ============================================================
+
+describe("Fix 1 — no anomaly-matching chain → null mechanism, NOT silent contamination from foreign chain", () => {
+  it("asset has a chain for a DIFFERENT anomaly → capture proceeds with primary_mechanism null, not the wrong mechanism", async () => {
+    const state = freshState();
+    state.causalChains = [
+      {
+        id: "cc-foreign",
+        org_id: ORG,
+        asset_id: ASSET,
+        title: "Causal chain for OTHER anomaly: General Corrosion",
+        linked_anomaly_ids: ["some-other-anomaly-uuid"],
+        linked_mechanisms: [
+          {
+            mechanism_key: "general_corrosion",
+            display_name: "General Corrosion",
+            fit_score: 0.7,
+          },
+        ],
+        created_at: new Date().toISOString(),
+      },
+    ];
+    const supabase = makeSupabase(state);
+    const r = await captureDeliberationPrediction(
+      DELIB,
+      ORG,
+      supabase as never
+    );
+    assert.equal(r.ok, true, r.error ?? "");
+    assert.equal(state.predictions.length, 1);
+    // CRITICAL: must be null, NOT general_corrosion from the foreign chain.
+    // Pre-Polish-2 the rows[0] fallback in loadLatestCausalChain would
+    // have returned that foreign chain and capture would have written
+    // general_corrosion as THIS deliberation's primary_mechanism.
+    assert.equal(
+      state.predictions[0].primary_mechanism,
+      null,
+      "must not silently inherit a mechanism from another anomaly's chain on the same asset"
+    );
+    // All other fields populated normally — capture didn't abort.
+    assert.equal(state.predictions[0].consensus_level, "unanimous");
+    assert.equal(state.predictions[0].consequence_overall_tier, "severe");
+  });
+});
+
+describe("Fix 1 — empty prediction_id from insert is treated as failure, not silent ok:true", () => {
+  it("insert returns success but RETURNING is empty → ok:false with explanatory error", async () => {
+    const state = freshState();
+    state.forcePredictionInsertEmptyReturn = true;
+    const supabase = makeSupabase(state);
+    const r = await captureDeliberationPrediction(
+      DELIB,
+      ORG,
+      supabase as never
+    );
+    assert.equal(
+      r.ok,
+      false,
+      "empty RETURNING must be surfaced as failure, NOT silent ok:true"
+    );
+    assert.ok(
+      r.error && r.error.includes("prediction_insert_returned_no_row"),
+      `error must explain the silent-insert case; got: ${r.error}`
+    );
+    // Confirm we did NOT short-circuit before the insert (the row was
+    // pushed to state.predictions by the mock, even though the
+    // RETURNING came back empty).
+    assert.equal(state.predictions.length, 1);
   });
 });

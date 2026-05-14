@@ -279,17 +279,32 @@ function pickSnippet(
   return undefined;
 }
 
-// Sprint 4 Polish (Fix D): defensive against markdown-wrapped URLs.
-// Production observed `domain: "[www.energy.gov](https://www.energy.gov)"`
-// where some URL field arrived in markdown-link form rather than as a
-// plain URL. Stripping `[text](url)` and `<url>` wrappings before
-// parsing ensures the bare hostname always reaches the ExternalSource.
+// Sprint 4 Polish (Fix D) + Polish 2 (Fix 4): defensive against
+// markdown-wrapped URLs. Production smoke-test still showed
+// `[www.researchgate.net](https://www.researchgate.net)` in some
+// domain fields after Polish 1's Fix D — meaning a URL ingress path
+// was missed. Fix 4 makes the unwrap chain comprehensive: markdown
+// link, angle brackets, AND trailing punctuation (the model
+// sometimes emits URLs followed by `,` / `.` / `;` in prose, and
+// citation URLs can inherit that). Loop runs to fixpoint so chained
+// wrappings (e.g., `<[host](url)>.`) collapse correctly.
 function unwrapUrl(raw: string): string {
   let s = raw.trim();
-  const mdLink = s.match(/^\[[^\]]*\]\(([^)\s]+)\)$/);
-  if (mdLink) s = mdLink[1].trim();
-  const angle = s.match(/^<(.+)>$/);
-  if (angle) s = angle[1].trim();
+  for (let i = 0; i < 6; i++) {
+    const before = s;
+    // Strip prose-trailing punctuation FIRST so the markdown/angle
+    // unwrap can match the inner form. ) and ] are intentionally
+    // EXCLUDED — they belong to markdown link / angle bracket
+    // delimiters that the next two rules consume.
+    const trailing = s.match(/^(.+?)[.,;:]$/);
+    if (trailing) s = trailing[1];
+    const mdLink = s.match(/^\[[^\]]*\]\(([^)\s]+)\)$/);
+    if (mdLink) s = mdLink[1];
+    const angle = s.match(/^<(.+)>$/);
+    if (angle) s = angle[1];
+    s = s.trim();
+    if (s === before) break;
+  }
   return s;
 }
 
@@ -312,10 +327,23 @@ function parseAnthropicMixedContent(
   let combinedText = "";
   // tool_use_id -> the search query that produced the result
   const queryByToolUseId = new Map<string, string>();
-  // Sprint 4 Polish (Fix C): URL -> cited_text snippet, harvested from
-  // text-block citations[]. Keyed by canonical bare hostname + path so
-  // minor URL variations (trailing slash, fragments) still merge.
-  const snippetByUrl = new Map<string, string>();
+  // Sprint 4 Polish 2 (Fix 3): production smoke-test had 0/30 sources
+  // with snippets even though my Sprint 4 Polish (Fix C) parser
+  // harvested text-block citations. Hypothesis: Anthropic's actual
+  // response embeds snippet-bearing citations at MULTIPLE nesting
+  // levels (text blocks' citations[]; web_search_tool_result content
+  // items themselves carrying cited_text; or under nested content[]
+  // sub-arrays). The previous parser only handled one location.
+  //
+  // New approach: harvest defensively in two passes.
+  //   Pass 1: walk EVERY block recursively, collect URL→snippet pairs
+  //           from any object that has a `url` AND any text-like field.
+  //           Index by canonical (hostname+path) URL key AND by
+  //           hostname-only as a fallback so near-match URLs still hit.
+  //   Pass 2: walk web_search_tool_result blocks to emit sources,
+  //           pulling snippets from the harvested maps.
+  const snippetByUrlKey = new Map<string, string>();
+  const snippetByHostname = new Map<string, string>();
   let searches = 0;
   let errors = 0;
 
@@ -328,30 +356,56 @@ function parseAnthropicMixedContent(
     }
   };
 
-  for (const block of blocks) {
-    if (block.type === "text" && typeof block.text === "string") {
-      // Multiple text blocks get joined in source order; the model
-      // narrates between tool calls and we want all of it for JSON
-      // extraction.
-      combinedText += (combinedText ? "\n" : "") + block.text;
-      // Sprint 4 Polish (Fix C): harvest snippet citations from this
-      // text block. The Anthropic citation object includes url +
-      // cited_text (and sometimes title / encrypted_content). We
-      // index by canonical URL key so the web_search_tool_result
-      // pass can lift the snippet onto the matching ExternalSource.
-      if (Array.isArray(block.citations)) {
-        for (const c of block.citations) {
-          const url =
-            typeof c.url === "string" ? unwrapUrl(c.url) : "";
-          if (!url) continue;
-          const snippet = pickSnippet(c.cited_text, c.text, c.excerpt);
-          if (!snippet) continue;
-          const key = canonicalUrlKey(url);
-          if (!snippetByUrl.has(key)) {
-            snippetByUrl.set(key, snippet);
-          }
+  // Pass 1a: collect anything that looks like a citation object.
+  // Recursive walker — Anthropic's response is deeply nested in
+  // ways that may evolve (citations on text blocks, on result items,
+  // on nested content arrays). Walking generically protects against
+  // shape drift between API versions.
+  const SNIPPET_FIELDS = [
+    "cited_text",
+    "text",
+    "snippet",
+    "excerpt",
+    "description",
+    "summary",
+  ];
+  const harvestFrom = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const item of node) harvestFrom(item);
+      return;
+    }
+    const obj = node as Record<string, unknown>;
+    // If this object has a URL, see if any text-like sibling field is
+    // populated, and harvest the snippet.
+    const rawUrl = typeof obj.url === "string" ? obj.url : "";
+    if (rawUrl) {
+      const url = unwrapUrl(rawUrl);
+      const snippetCandidates = SNIPPET_FIELDS.map((k) => obj[k]);
+      const snippet = pickSnippet(...snippetCandidates);
+      if (snippet) {
+        const key = canonicalUrlKey(url);
+        if (!snippetByUrlKey.has(key)) snippetByUrlKey.set(key, snippet);
+        const host = extractHostname(url);
+        if (host && !snippetByHostname.has(host)) {
+          snippetByHostname.set(host, snippet);
         }
       }
+    }
+    // Recurse into nested arrays / objects under known sub-keys.
+    // Don't recurse into encrypted_content — it's opaque base64 the
+    // model reads but humans cannot, and walking it wastes work.
+    for (const [k, v] of Object.entries(obj)) {
+      if (k === "encrypted_content") continue;
+      if (v && typeof v === "object") harvestFrom(v);
+    }
+  };
+
+  // Pass 1b: walk top-level blocks, gather text + search counts,
+  // and harvest citations along the way.
+  for (const block of blocks) {
+    if (block.type === "text" && typeof block.text === "string") {
+      combinedText += (combinedText ? "\n" : "") + block.text;
     } else if (
       block.type === "server_tool_use" &&
       (block.name === "web_search" || block.name === undefined)
@@ -361,8 +415,11 @@ function parseAnthropicMixedContent(
       const query = block.input?.query ?? "";
       if (id) queryByToolUseId.set(id, query);
     }
+    harvestFrom(block);
   }
 
+  // Pass 2: emit sources from web_search_tool_result blocks, pulling
+  // snippets from the harvested maps.
   const sources: ExternalSource[] = [];
   for (const block of blocks) {
     if (block.type !== "web_search_tool_result") continue;
@@ -379,19 +436,19 @@ function parseAnthropicMixedContent(
       if (recordType !== "web_search_result") continue;
       const rawUrl = typeof r.url === "string" ? r.url : "";
       if (!rawUrl) continue;
-      // Sprint 4 Polish (Fix D): unwrap markdown-link / angle-bracket
-      // wrappings before parsing so domain extraction always yields
-      // a bare hostname even if upstream emits markdown-styled URLs.
       const url = unwrapUrl(rawUrl);
       const domain = extractHostname(url);
-      // Sprint 4 Polish (Fix C): look in multiple plausible locations
-      // for a readable snippet. encrypted_content stays excluded — it
-      // is opaque base64 the model reads but humans cannot. Prefer the
-      // text-block citation map (real cited_text) over the search
-      // result's own text-like fields.
-      const fromCitations = snippetByUrl.get(canonicalUrlKey(url));
+      // Try in order: canonical URL key (most precise), hostname-only
+      // (catches paths that differ slightly), then this result's own
+      // text-like fields. encrypted_content is intentionally excluded —
+      // see harvestFrom().
+      const fromUrlKey = snippetByUrlKey.get(canonicalUrlKey(url));
+      const fromHostname = domain
+        ? snippetByHostname.get(domain)
+        : undefined;
       const snippet = pickSnippet(
-        fromCitations,
+        fromUrlKey,
+        fromHostname,
         r.cited_text,
         r.text,
         r.snippet,
@@ -778,12 +835,20 @@ const ROLE_INSTRUCTIONS: Record<SpecialistRole, string> = {
   historian:
     "You are the HISTORICAL CASES specialist. The ANALOGOUS PRIOR CASES section contains tenant-memory reasoning artifacts (synthesizer summaries and high-confidence specialist claims from past deliberations) retrieved by semantic similarity over the cd_tenant_memory_index. Each case includes text_content, the originating deliberation's consensus outcome, cited mechanisms, and similarity score. Your tasks: (1) summarize what these prior cases suggest about the current anomaly, (2) note mechanism patterns that recur across cases, (3) compare/contrast each case with the current anomaly. If the ANALOGOUS PRIOR CASES section is empty or absent, this is a cold-start tenant — produce a useful output that explicitly states 'No analogous prior cases in tenant memory; reasoning from current evidence and the degradation mechanism database only.' Do NOT fabricate prior cases.",
   synthesizer:
-    "You are the SYNTHESIZER. You produce the final authoritative analysis. Consider ALL prior outputs plus the ARBITRATION decision in the prompt. If arbitration.status is 'flagged_dissent', LEAD your summary with the dissent and explicitly defend or concede each unresolved objection. If 'rejected_low_confidence', LABEL your summary 'LOW-CONFIDENCE ADVISORY' and produce best-guess output without overstating certainty. " +
+    "You are the SYNTHESIZER. You produce the final authoritative analysis. Consider ALL prior outputs plus the ARBITRATION decision in the prompt. If arbitration.status is 'rejected_low_confidence', LABEL your summary 'LOW-CONFIDENCE ADVISORY' and produce best-guess output without overstating certainty. " +
     "SPRINT 4C CONSEQUENCE PROFILE: If the prompt contains a CONSEQUENCE PROFILE section, it is the deterministic, rules-based risk quantification produced by the consequence engine. Treat its numbers (tiers, dollar ranges, hours-of-downtime, time-to-consequence days, recommended_action_tier) as AUTHORITATIVE. Your job is to (a) state the recommended_action_tier explicitly in your summary, (b) state the overall_tier with the worst-case category, (c) provide narrative context explaining WHY each consequence tier applies — cite evidence from prior specialists and the cited_mechanisms — and (d) if any category had estimated_value: null, explain in your open_questions what additional data would unlock that category. Do NOT override, contradict, or re-estimate any numerical value the consequence engine produced. If no CONSEQUENCE PROFILE section is present, the engine failed or wasn't run — proceed with diagnostic-only output and note the gap in open_questions. " +
-    // Structures the summary per the code-first/why/how pedagogical
-    // pattern from FORGED Weld Academy curriculum — anchors authority,
-    // explains reasoning, prescribes action.
-    "SPRINT 4 POLISH (Fix A): Structure your `summary` prose using the CODE-FIRST / WHY / HOW pattern. (1) CODE-FIRST: open the summary with the authoritative standard(s) the analysis anchors to (e.g., 'Per API 579-1/ASME FFS-1 Part 5, …' or 'Per NACE SP0169-2013 §6.4, …'). The standard goes first because authority is the anchor — pick from API, ASME, NACE, ASNT, DNV, PHMSA, BSEE, CFR, ISO, or similar authoritative bodies as appropriate. (2) WHY: explain the underlying engineering/physical reasoning that connects the cited evidence to the cited standard (e.g., 'because cathodic shielding under disbonded coatings prevents CP current from reaching the steel surface, sustaining localized corrosion despite an otherwise functional CP system'). (3) HOW: state the practical action and what the operator should do next (e.g., 'Conduct a Level 2 FFS assessment, regrid UT at 25 mm spacing, retrofit anodes given the > 70% depletion at KP 2.45'). Apply this three-part pattern to the HEADLINE conclusions only — do not repeat it for every minor point. The `claims` array stays structured / machine-readable; only the `summary` text changes shape.",
+    // Sprint 4 Polish 2 (Fix 5): explicit priority order resolves the
+    // conflict between the Polish 1 code-first directive and the older
+    // "LEAD with dissent on flagged_dissent" directive — production
+    // showed the dissent prefix winning, pushing the code citation
+    // into the second sentence. Code citation ALWAYS leads now;
+    // dissent acknowledgment moves to a second paragraph when needed.
+    "SPRINT 4 POLISH 2 (Fix 5) — SUMMARY STRUCTURE (in this strict priority order, applied to the `summary` text): " +
+    "(1) FIRST SENTENCE: open with the authoritative standard(s) the analysis anchors to. Example: 'Per API 579-1/ASME FFS-1 Part 5 and DNV-RP-F101, this anomaly …'. Pick from API, ASME, NACE, ASNT, DNV, PHMSA, BSEE, CFR, ISO, IMCA, ABS, or similar authoritative bodies as appropriate. Never lead with the dissent. Always lead with the code citation. " +
+    "(2) SECOND PARAGRAPH (only if arbitration.status is 'flagged_dissent' or consensus is 'majority_with_dissent' / 'split'): acknowledge the dissent in 1-2 sentences using the explicit prefix 'DISSENT ADDRESSED:'. Then immediately pivot back to the code-anchored analysis. Skip this paragraph entirely when consensus is 'unanimous' or arbitration is 'accepted'. " +
+    "(3) THIRD PARAGRAPH (WHY): the engineering/physical reasoning that connects evidence to the cited standard (e.g., 'because cathodic shielding under disbonded coatings prevents CP current from reaching the steel surface …'). " +
+    "(4) FOURTH PARAGRAPH (HOW): the practical action — recommended_action_tier explicitly stated, specific next steps, and what additional data would close any confidence gaps (e.g., 'Recommended action: urgent_assessment. Conduct a Level 2 FFS per API 579-1, regrid UT at 25 mm spacing, retrofit anodes given the > 70% depletion at KP 2.45.'). " +
+    "Apply this four-part structure to the HEADLINE conclusions only — do not repeat for every minor point. The `claims` array stays structured / machine-readable; only the `summary` prose changes shape.",
 };
 
 function buildUserPrompt(

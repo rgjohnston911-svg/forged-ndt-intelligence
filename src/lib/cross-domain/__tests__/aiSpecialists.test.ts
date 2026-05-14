@@ -1067,6 +1067,292 @@ describe("parseAnthropicMixedContent — direct unit", () => {
     const parsed = parseAnthropicMixedContent(blocks);
     assert.equal(parsed.cited_sources[0].domain, "files.asme.org");
   });
+
+  // Sprint 4 Polish 2 (Fix 3) — broaden snippet harvest across all
+  // citation nesting levels. Production smoke-test showed 0/30 sources
+  // with snippets even when the parser found citations on text blocks;
+  // root hypothesis is that Anthropic embeds citation objects at
+  // varying nesting levels. These tests pin the new defensive walker.
+
+  it("Fix 3: citation as a sibling of url on the search result itself (cited_text on result item)", () => {
+    // Some response shapes attach cited_text directly to the
+    // web_search_result item rather than emitting a separate citation
+    // object on the text block.
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_sib",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_sib",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.nace.org/sp0169",
+            title: "NACE SP0169-2013",
+            cited_text:
+              "Cathodic shielding under disbonded coatings is documented at NACE SP0169 §6.4.",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.ok(parsed.cited_sources[0].snippet);
+    assert.ok(
+      parsed.cited_sources[0].snippet!.includes("Cathodic shielding"),
+      `snippet not lifted from cited_text sibling; got: ${parsed.cited_sources[0].snippet}`
+    );
+  });
+
+  it("Fix 3: citation nested inside a sub-content array of a text block", () => {
+    // Some response shapes nest citations under content[] within a
+    // text block (rather than directly under block.citations[]). The
+    // recursive walker should still find them.
+    const blocks = [
+      {
+        type: "text",
+        text: "Per NACE SP0169-2013, CP shielding is documented.",
+        content: [
+          {
+            type: "citation_group",
+            citations: [
+              {
+                type: "web_search_result_location",
+                url: "https://www.nace.org/sp0169",
+                title: "NACE SP0169-2013",
+                cited_text:
+                  "CP shielding under disbonded coatings is a known threat per §6.4.",
+              },
+            ],
+          },
+        ],
+      },
+      {
+        type: "server_tool_use",
+        id: "srvtu_nest",
+        name: "web_search",
+        input: { query: "NACE" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_nest",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.nace.org/sp0169",
+            title: "NACE SP0169-2013",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.ok(
+      parsed.cited_sources[0].snippet &&
+        parsed.cited_sources[0].snippet.includes("CP shielding"),
+      `snippet not lifted from nested citation; got: ${parsed.cited_sources[0].snippet}`
+    );
+  });
+
+  it("Fix 3: hostname-only fallback — citation URL has different path than search result URL", () => {
+    // Production seen: text-block citation URL points at an article
+    // path, web_search_tool_result URL points at the journal root.
+    // canonicalUrlKey wouldn't match (different pathnames); hostname
+    // fallback rescues the snippet.
+    const blocks = [
+      {
+        type: "text",
+        text: "Per ASME PVP 2024-89234, …",
+        citations: [
+          {
+            url: "https://www.asme.org/codes-standards/find-codes-standards/pvp",
+            cited_text:
+              "ASME PVP coating disbondment proceedings discuss CP shielding under FBE.",
+          },
+        ],
+      },
+      {
+        type: "server_tool_use",
+        id: "srvtu_host",
+        name: "web_search",
+        input: { query: "ASME PVP" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_host",
+        content: [
+          {
+            type: "web_search_result",
+            // Different path — but same host.
+            url: "https://www.asme.org/codes-standards/find-codes-standards/pvp/proceedings",
+            title: "ASME PVP",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.ok(
+      parsed.cited_sources[0].snippet &&
+        parsed.cited_sources[0].snippet.includes("ASME PVP"),
+      `hostname-only fallback should have lifted the snippet; got: ${parsed.cited_sources[0].snippet}`
+    );
+  });
+
+  // ----- Sprint 4 Polish 2 (Fix 4) — domain unwrap: trailing
+  // punctuation + chained wrappings collapse correctly -----
+
+  it("Fix 4: URL with trailing comma → unwrapped to bare host", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_tp1",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_tp1",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.researchgate.net/publication/abc,",
+            title: "ResearchGate paper",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].domain, "www.researchgate.net");
+    // url is unwrapped (no trailing comma in the canonical form)
+    assert.ok(
+      !parsed.cited_sources[0].url.endsWith(","),
+      `url should not retain trailing comma: ${parsed.cited_sources[0].url}`
+    );
+  });
+
+  it("Fix 4: URL with trailing period → unwrapped to bare host", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_tp2",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_tp2",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://www.energy.gov/oe/articles/x.",
+            title: "DOE article",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].domain, "www.energy.gov");
+    assert.ok(!parsed.cited_sources[0].url.endsWith("."));
+  });
+
+  it("Fix 4: chained wrappings — markdown link inside angle brackets with trailing semicolon", () => {
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_chain",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_chain",
+        content: [
+          {
+            type: "web_search_result",
+            url: "<[asme.org](https://files.asme.org/pvp/2024/89234.pdf)>;",
+            title: "chained wrap",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(
+      parsed.cited_sources[0].domain,
+      "files.asme.org",
+      `chained wrappings must collapse; got domain=${parsed.cited_sources[0].domain}`
+    );
+  });
+
+  it("Fix 4: production-shape regression — researchgate markdown link → bare host", () => {
+    // Production-observed shape from Sprint 4 Polish smoke test:
+    // domain ended up as "[www.researchgate.net](https://www.researchgate.net)"
+    // because the URL field arrived in markdown-link form. After Fix 4
+    // the unwrap chain handles both ingress paths.
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_rg",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_rg",
+        content: [
+          {
+            type: "web_search_result",
+            url: "[www.researchgate.net](https://www.researchgate.net/publication/abc)",
+            title: "rg",
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources[0].domain, "www.researchgate.net");
+  });
+
+  it("Fix 3: harvester does NOT descend into encrypted_content (opaque base64)", () => {
+    // Encrypted_content is base64 the model reads but humans cannot.
+    // Walking into it wastes work and could surface garbled bytes
+    // if the harvester wasn't careful. The walker explicitly skips it.
+    const blocks = [
+      {
+        type: "server_tool_use",
+        id: "srvtu_enc",
+        name: "web_search",
+        input: { query: "x" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srvtu_enc",
+        content: [
+          {
+            type: "web_search_result",
+            url: "https://example.com/opaque",
+            title: "opaque",
+            // Malicious-looking nested object pretending to be a
+            // citation. Harvester must not pick this up.
+            encrypted_content: {
+              url: "https://example.com/opaque",
+              cited_text: "this should not surface as a snippet",
+            },
+          },
+        ],
+      },
+    ];
+    const parsed = parseAnthropicMixedContent(blocks);
+    assert.equal(parsed.cited_sources.length, 1);
+    assert.equal(
+      parsed.cited_sources[0].snippet,
+      undefined,
+      "harvester must not walk into encrypted_content"
+    );
+  });
 });
 
 describe("getWebSearchToolsForRole", () => {
@@ -1305,20 +1591,25 @@ describe("SpecialistAnalysis — Sprint 4B optional cited_sources", () => {
 const STANDARD_CITATION_REGEX =
   /\b(API|ASME|NACE|DNV|PHMSA|BSEE|CFR|ISO|ASNT)[\s\-]?[0-9A-Z][0-9A-Z\-.\/ ]*/;
 
-describe("Fix A — Synthesizer system prompt contains code-first/why/how directive", () => {
-  it("buildSystemPrompt('synthesizer') includes CODE-FIRST, WHY, and HOW language", () => {
+describe("Fix A (updated by Polish 2 Fix 5) — Synthesizer system prompt contains code-first/why/how directive", () => {
+  it("buildSystemPrompt('synthesizer') instructs first-sentence code citation, WHY paragraph, HOW paragraph", () => {
     const sysPrompt = buildSystemPrompt("synthesizer");
+    // Polish 2 renamed the labels: CODE-FIRST → "FIRST SENTENCE",
+    // WHY: → "THIRD PARAGRAPH (WHY)", HOW: → "FOURTH PARAGRAPH (HOW)".
+    // The pedagogical structure intent is preserved; only the
+    // language is sharper to resolve the conflict with the older
+    // "lead with dissent" directive.
     assert.ok(
-      sysPrompt.includes("CODE-FIRST"),
-      "synthesizer prompt must mention CODE-FIRST anchor"
+      sysPrompt.includes("FIRST SENTENCE"),
+      "synthesizer prompt must instruct on FIRST SENTENCE structure"
     );
     assert.ok(
-      sysPrompt.includes("WHY:") || sysPrompt.includes("(2) WHY"),
-      "synthesizer prompt must mention WHY (reasoning)"
+      sysPrompt.includes("(WHY)") || sysPrompt.includes("WHY:"),
+      "synthesizer prompt must mention WHY (reasoning) paragraph"
     );
     assert.ok(
-      sysPrompt.includes("HOW:") || sysPrompt.includes("(3) HOW"),
-      "synthesizer prompt must mention HOW (action)"
+      sysPrompt.includes("(HOW)") || sysPrompt.includes("HOW:"),
+      "synthesizer prompt must mention HOW (action) paragraph"
     );
     // Mentions authoritative bodies the operator might recognize
     assert.ok(
@@ -1327,7 +1618,7 @@ describe("Fix A — Synthesizer system prompt contains code-first/why/how direct
     );
   });
 
-  it("non-synthesizer roles do NOT receive the code-first directive", () => {
+  it("non-synthesizer roles do NOT receive the synthesizer structure directive", () => {
     for (const role of [
       "inspector",
       "engineer",
@@ -1337,8 +1628,8 @@ describe("Fix A — Synthesizer system prompt contains code-first/why/how direct
     ] as const) {
       const p = buildSystemPrompt(role);
       assert.ok(
-        !p.includes("CODE-FIRST"),
-        `role ${role} should not receive the synthesizer code-first directive`
+        !p.includes("FIRST SENTENCE"),
+        `role ${role} should not receive the synthesizer structure directive`
       );
     }
   });
@@ -1387,5 +1678,159 @@ describe("Fix A — Synthesizer summary parses cleanly when model leads with a c
     // Existing structural assertions still hold
     assert.equal(result.analysis.role, "synthesizer");
     assert.equal(result.analysis.claims.length, 1);
+  });
+});
+
+// ============================================================
+// Sprint 4 Polish 2 — Fix 5: code citation always leads the summary,
+// even with dissent. Prior Polish 1 (Fix A) and the older
+// "LEAD with dissent on flagged_dissent" directive conflicted —
+// production showed dissent winning. Fix 5 makes the priority order
+// explicit: FIRST SENTENCE is the code citation, dissent moves to a
+// labeled second paragraph if present.
+// ============================================================
+
+function firstSentence(s: string): string {
+  // Crude sentence split — first period/exclamation/question that's
+  // followed by whitespace or end of string. Good enough for the
+  // assertion: "does the citation appear before the first sentence
+  // boundary?"
+  const m = s.match(/^([^.!?]*[.!?])(\s|$)/);
+  return m ? m[1].trim() : s.trim();
+}
+
+describe("Fix 5 — Synthesizer system prompt enforces strict priority order", () => {
+  it("buildSystemPrompt('synthesizer') contains FIRST SENTENCE + DISSENT ADDRESSED + 'Never lead with the dissent' language", () => {
+    const p = buildSystemPrompt("synthesizer");
+    assert.ok(
+      p.includes("FIRST SENTENCE"),
+      "must instruct on FIRST SENTENCE structure"
+    );
+    assert.ok(
+      p.includes("DISSENT ADDRESSED:"),
+      "must specify the DISSENT ADDRESSED: prefix"
+    );
+    assert.ok(
+      /never lead with the dissent/i.test(p),
+      "must explicitly say to not lead with dissent"
+    );
+    assert.ok(
+      p.includes("priority order"),
+      "must frame the structure as a priority order"
+    );
+  });
+
+  it("removed the old 'LEAD your summary with the dissent' directive", () => {
+    const p = buildSystemPrompt("synthesizer");
+    assert.ok(
+      !/lead your summary with the dissent/i.test(p),
+      "the conflicting directive that pushed dissent into the first sentence must be gone"
+    );
+  });
+});
+
+describe("Fix 5 — synthesizer summary FIRST SENTENCE matches the standard-citation regex", () => {
+  beforeEach(installFetchMock);
+  afterEach(restoreFetch);
+
+  it("flagged_dissent + code-first summary → FIRST sentence is the code citation, dissent appears as second paragraph", async () => {
+    // Summary models what the new directive should produce: code
+    // citation leads, dissent acknowledgment as labeled second
+    // paragraph, then WHY then HOW.
+    const summary =
+      "Per API 579-1/ASME FFS-1 Part 5 and DNV-RP-F101, this anomaly requires a Level 2 fitness-for-service assessment. " +
+      "DISSENT ADDRESSED: the devil's advocate flagged uncertainty in the wall-loss measurement reliability; we concede a follow-up UT regrid is warranted but the cited standard still governs. " +
+      "Cathodic shielding under the disbonded coating prevents CP current from reaching the substrate, sustaining localized corrosion. " +
+      "Recommended action: urgent_assessment. Conduct Level 2 FFS per API 579-1, regrid UT at 25 mm spacing.";
+    const validJson = JSON.stringify({
+      summary,
+      claims: [
+        {
+          text: "Per API 579-1 Part 5, Level 2 FFS required.",
+          confidence: 0.85,
+          supporting_evidence_ids: [],
+          cited_mechanism_codes: ["pitting_corrosion"],
+        },
+      ],
+      open_questions: [],
+      cited_mechanisms: ["pitting_corrosion"],
+      cited_evidence: [],
+    });
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          id: "msg_synth_fix5",
+          content: [{ type: "text", text: validJson }],
+          usage: { input_tokens: 900, output_tokens: 240 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )) as typeof fetch;
+
+    const result = await deliberateAsSynthesizer(DELIB_INPUT, {
+      status: "flagged_dissent",
+      reason: "3 unresolved objections",
+    });
+    assert.equal(result.ok, true, result.error ?? "");
+    // CRITICAL: the citation must appear in the FIRST sentence, not
+    // somewhere later. This is the Polish 2 acceptance criterion.
+    const first = firstSentence(result.analysis.summary);
+    assert.ok(
+      STANDARD_CITATION_REGEX.test(first),
+      `FIRST sentence must cite an authoritative standard. first="${first}"`
+    );
+    // First sentence does NOT start with DISSENT — that's the
+    // production regression we're fixing.
+    assert.ok(
+      !/^dissent\b/i.test(first),
+      `FIRST sentence must not lead with 'DISSENT'. first="${first}"`
+    );
+    // Dissent acknowledgment still present elsewhere in the summary.
+    assert.ok(
+      result.analysis.summary.includes("DISSENT ADDRESSED:"),
+      "dissent should still be acknowledged in a later paragraph"
+    );
+  });
+
+  it("unanimous consensus → no DISSENT ADDRESSED paragraph, FIRST sentence still cites a standard", async () => {
+    const summary =
+      "Per NACE SP0169-2013 §6.4, the observed cathodic protection performance meets acceptance criteria at the current CP-on potential. " +
+      "Pitting morphology indicates underfilm initiation under disbonded coating, consistent with the cited NACE practice. " +
+      "Recommended action: monitor. Schedule annual CP survey and visual inspection at the affected riser TDP.";
+    const validJson = JSON.stringify({
+      summary,
+      claims: [
+        {
+          text: "Per NACE SP0169-2013 §6.4, CP performance meets criteria.",
+          confidence: 0.9,
+          supporting_evidence_ids: [],
+          cited_mechanism_codes: ["underfilm_corrosion"],
+        },
+      ],
+      open_questions: [],
+      cited_mechanisms: ["underfilm_corrosion"],
+      cited_evidence: [],
+    });
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          id: "msg_synth_unanim",
+          content: [{ type: "text", text: validJson }],
+          usage: { input_tokens: 800, output_tokens: 200 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )) as typeof fetch;
+
+    const result = await deliberateAsSynthesizer(DELIB_INPUT, {
+      status: "accepted",
+      reason: "no objections",
+    });
+    assert.equal(result.ok, true, result.error ?? "");
+    const first = firstSentence(result.analysis.summary);
+    assert.ok(STANDARD_CITATION_REGEX.test(first));
+    // Unanimous case correctly omits the DISSENT ADDRESSED paragraph.
+    assert.ok(
+      !result.analysis.summary.includes("DISSENT ADDRESSED:"),
+      "DISSENT ADDRESSED: must be omitted on unanimous consensus"
+    );
   });
 });

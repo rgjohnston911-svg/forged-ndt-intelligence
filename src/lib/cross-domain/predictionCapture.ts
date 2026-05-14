@@ -221,16 +221,19 @@ async function loadLatestCausalChain(
   if (rows.length === 0) return null;
   // Filter for rows whose linked_anomaly_ids contains this anomaly_id.
   // (Defensive against the jsonb-contains corner case we hit before.)
-  const match =
-    rows.find((r) => {
-      const ids = r.linked_anomaly_ids;
-      return Array.isArray(ids) && (ids as unknown[]).includes(anomaly_id);
-    }) ??
-    // If none of the asset's chains explicitly list this anomaly_id,
-    // fall back to the most recent chain for the asset — defensible
-    // because the engine writes one chain per anomaly and the most
-    // recent is the most likely match.
-    rows[0];
+  //
+  // Sprint 4 Polish 2 (Fix 1): the previous rows[0] fallback caused
+  // silent contamination — when no chain explicitly listed THIS
+  // anomaly_id but other chains existed for the same asset, the
+  // function returned a foreign chain and capture wrote its mechanism
+  // as primary_mechanism for the wrong anomaly. Return null instead so
+  // the caller proceeds with primary_mechanism: null (the honest
+  // outcome) rather than a misattributed mechanism.
+  const match = rows.find((r) => {
+    const ids = r.linked_anomaly_ids;
+    return Array.isArray(ids) && (ids as unknown[]).includes(anomaly_id);
+  });
+  if (!match) return null;
   return {
     id: String(match.id),
     title: (match.title as string | null) ?? null,
@@ -337,6 +340,13 @@ export async function captureDeliberationPrediction(
   org_id: string,
   supabase: SupabaseClient
 ): Promise<CaptureResult> {
+  // Sprint 4 Polish 2 (Fix 1): unconditional entry log so production
+  // Netlify logs always show that this function was invoked. Before
+  // this log, the production failure was indistinguishable from "the
+  // orchestrator never called us".
+  console.log(
+    `[prediction capture ${deliberation_id}] entering capture (org=${org_id})`
+  );
   try {
     const delib = await loadDeliberation(supabase, deliberation_id, org_id);
     if (!delib) {
@@ -429,6 +439,19 @@ export async function captureDeliberationPrediction(
       inserted && typeof inserted === "object"
         ? String((inserted as Record<string, unknown>).id ?? "")
         : "";
+    // Sprint 4 Polish 2 (Fix 1): if PostgREST's RETURNING-via-.select
+    // came back empty (RLS quirk, supabase-js corner case, etc.) the
+    // pre-Polish-2 code returned ok:true with prediction_id="" and the
+    // orchestrator logged success while no row actually landed. Treat
+    // an empty prediction_id as a silent-insert failure so it shows up
+    // in arbitration_rules_applied.prediction_capture_error.
+    if (!prediction_id) {
+      return {
+        ok: false,
+        error:
+          "prediction_insert_returned_no_row (insert reported no error but RETURNING was empty — likely RLS or PostgREST corner case)",
+      };
+    }
     return { ok: true, prediction_id };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
