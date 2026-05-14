@@ -152,13 +152,88 @@ const CATEGORY_FAILURE_PATHS: Record<string, string[]> = {
   unknown: ["progression_unknown"],
 };
 
+// Sprint 4 Polish (Fix F): widen domain_match against multiple
+// asset-side signals. The old scorer matched only asset.domain
+// (e.g., 'pipeline') against mechanism.related_domains (often
+// 'subsea' or 'marine' for corrosion mechanisms). Disjoint
+// vocabularies drove domain_match=0.00 for the production subsea
+// pipeline anomaly, dragging every fit_score down by ~50%.
+//
+// Now we union the asset-side tokens from:
+//   - asset.domain (the constraint enum)
+//   - asset.asset_type
+//   - asset.asset_subtype (when present)
+//   - tokens extracted from asset.service_environment
+//   - tokens extracted from asset.location_description (when present)
+//
+// Token extraction looks only for obvious environment words
+// (marine, subsea, offshore, underwater, onshore, buried,
+// atmospheric, splash, immersed). False positives are cheap
+// (slightly over-rank a mechanism); false negatives are
+// expensive (drag down ALL fit scores). Sprint 5+ can introduce
+// a proper domain ontology if needed.
+const ENVIRONMENT_TOKENS = [
+  "marine",
+  "subsea",
+  "offshore",
+  "underwater",
+  "onshore",
+  "buried",
+  "atmospheric",
+  "splash",
+  "immersed",
+  "subterranean",
+  "industrial",
+  "pipeline",
+];
+
+function extractEnvironmentTokens(s: string | null | undefined): string[] {
+  if (!s) return [];
+  const lower = s.toLowerCase();
+  const found: string[] = [];
+  for (const t of ENVIRONMENT_TOKENS) {
+    // Whole-word-ish match using word-boundary lookalikes (some env
+    // strings use underscores). Accept hits anywhere in the token list.
+    const re = new RegExp(`(^|[^a-z])${t}([^a-z]|$)`);
+    if (re.test(lower)) found.push(t);
+  }
+  return found;
+}
+
+interface AssetDomainSignals {
+  domain: string;
+  asset_type: string;
+  asset_subtype: string;
+  service_environment: string;
+  location_description: string;
+}
+
+function collectAssetDomainTokens(signals: AssetDomainSignals): Set<string> {
+  const tokens = new Set<string>();
+  if (signals.domain) tokens.add(signals.domain.toLowerCase());
+  if (signals.asset_type) tokens.add(signals.asset_type.toLowerCase());
+  if (signals.asset_subtype) tokens.add(signals.asset_subtype.toLowerCase());
+  for (const t of extractEnvironmentTokens(signals.service_environment)) {
+    tokens.add(t);
+  }
+  for (const t of extractEnvironmentTokens(signals.location_description)) {
+    tokens.add(t);
+  }
+  return tokens;
+}
+
 function scoreDomainMatch(
   related_domains: unknown,
-  asset_domain: string
+  asset_tokens: Set<string>
 ): number {
   if (!Array.isArray(related_domains) || related_domains.length === 0) return 0;
+  if (asset_tokens.size === 0) return 0;
   const arr = related_domains as unknown[];
-  return arr.some((d) => typeof d === "string" && d === asset_domain) ? 1 : 0;
+  return arr.some(
+    (d) => typeof d === "string" && asset_tokens.has(d.toLowerCase())
+  )
+    ? 1
+    : 0;
 }
 
 function scoreSeverityEnvelope(
@@ -224,7 +299,8 @@ function scoreMechanism(
   m: MechanismRow,
   anomaly: AnomalyContext,
   _asset: AssetContext,
-  engineer_cited_mechanisms: string[]
+  engineer_cited_mechanisms: string[],
+  asset_tokens: Set<string>
 ): ScoredMechanism {
   // Scoring uses ONLY columns that exist in cd_degradation_mechanisms:
   // related_domains, default_consequence_bias, mechanism_key. Material /
@@ -234,7 +310,7 @@ function scoreMechanism(
     {
       name: "domain_match",
       weight: 0.5,
-      score: scoreDomainMatch(m.related_domains, _asset.domain),
+      score: scoreDomainMatch(m.related_domains, asset_tokens),
     },
     {
       name: "severity_envelope",
@@ -335,9 +411,25 @@ export async function buildCausalChain(
     return emptyFailureResult("no_mechanism_records_for_candidates");
   }
 
+  // Sprint 4 Polish (Fix F): pre-compute the widened set of asset-side
+  // tokens once per call. asset_subtype and location_description are
+  // optional on AssetContext today; safe-coerce when absent.
+  const assetTokens = collectAssetDomainTokens({
+    domain: asset.domain ?? "",
+    asset_type: asset.asset_type ?? "",
+    asset_subtype:
+      (asset as unknown as { asset_subtype?: string }).asset_subtype ?? "",
+    service_environment: asset.service_environment ?? "",
+    location_description:
+      (asset as unknown as { location_description?: string })
+        .location_description ?? "",
+  });
+
   const scored = rows
     .filter((r) => r.active !== false)
-    .map((r) => scoreMechanism(r, anomaly, asset, candidateMechanismCodes))
+    .map((r) =>
+      scoreMechanism(r, anomaly, asset, candidateMechanismCodes, assetTokens)
+    )
     .sort((a, b) => b.fit_score - a.fit_score);
 
   if (scored.length === 0) {

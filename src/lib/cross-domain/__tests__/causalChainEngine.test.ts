@@ -604,6 +604,103 @@ describe("Fix E — mechanism_already_cited normalization", () => {
     }
   });
 
+  it("Sprint 4 Polish (Fix F): asset domain disjoint from mechanism.related_domains but service_environment tokens overlap → score 1.0", async () => {
+    // Brief's named scenario: asset.domain='pipeline',
+    // service_environment='subsea_seawater_aerated' vs mechanism with
+    // related_domains=['subsea','marine'] should now match via the
+    // widened vocabulary (token 'subsea' extracted from env string).
+    const supabase = makeMockSupabase({
+      cd_degradation_mechanisms: [
+        {
+          mechanism_key: "pitting_corrosion",
+          display_name: "Pitting Corrosion",
+          category: "corrosion",
+          default_consequence_bias: "high",
+          related_domains: ["subsea", "marine"], // no 'pipeline' entry!
+          active: true,
+        },
+      ],
+      cd_causal_chains: [],
+    });
+    const r = await buildCausalChain({
+      anomaly: ANOMALY,
+      asset: {
+        ...ASSET,
+        domain: "pipeline" as never,
+        service_environment: "subsea_seawater_aerated",
+      },
+      candidateMechanismCodes: ["pitting_corrosion"],
+      supabase: supabase as never,
+      org_id: ORG,
+    });
+    assert.equal(r.ok, true, r.reason ?? "");
+    assert.ok(
+      /domain_match=1\.00/.test(r.primary_mechanism!.reasoning),
+      `domain_match should fire on env-token overlap; reasoning: ${r.primary_mechanism!.reasoning}`
+    );
+  });
+
+  it("Sprint 4 Polish (Fix F): asset_type 'pipeline_segment' matches mechanism.related_domains 'pipeline' via direct token", async () => {
+    const supabase = makeMockSupabase({
+      cd_degradation_mechanisms: [
+        {
+          mechanism_key: "general_corrosion",
+          display_name: "General Corrosion",
+          category: "corrosion",
+          default_consequence_bias: "moderate",
+          related_domains: ["pipeline"],
+          active: true,
+        },
+      ],
+      cd_causal_chains: [],
+    });
+    const r = await buildCausalChain({
+      anomaly: ANOMALY,
+      // domain='other', so the OLD scorer would miss this.
+      asset: {
+        ...ASSET,
+        domain: "other" as never,
+        asset_type: "pipeline",
+      },
+      candidateMechanismCodes: ["general_corrosion"],
+      supabase: supabase as never,
+      org_id: ORG,
+    });
+    assert.equal(r.ok, true);
+    assert.ok(
+      /domain_match=1\.00/.test(r.primary_mechanism!.reasoning),
+      "asset_type 'pipeline' must match related_domains ['pipeline']"
+    );
+  });
+
+  it("Sprint 4 Polish (Fix F): truly disjoint domains still score 0.00", async () => {
+    const supabase = makeMockSupabase({
+      cd_degradation_mechanisms: [
+        {
+          mechanism_key: "fatigue_cracking",
+          display_name: "Fatigue Cracking",
+          category: "fatigue",
+          default_consequence_bias: "critical",
+          related_domains: ["aerospace"], // not a token we recognize
+          active: true,
+        },
+      ],
+      cd_causal_chains: [],
+    });
+    const r = await buildCausalChain({
+      anomaly: ANOMALY,
+      asset: { ...ASSET, domain: "pipeline" as never },
+      candidateMechanismCodes: ["fatigue_cracking"],
+      supabase: supabase as never,
+      org_id: ORG,
+    });
+    assert.equal(r.ok, true);
+    assert.ok(
+      /domain_match=0\.00/.test(r.primary_mechanism!.reasoning),
+      "no token overlap → 0.00 (regression: must not over-match)"
+    );
+  });
+
   it("Engineer cites NO matching mechanism → cited component scores 0.00 (regression: scorer must NOT always return 1.0)", async () => {
     const supabase = makeMockSupabase({
       cd_degradation_mechanisms: [
