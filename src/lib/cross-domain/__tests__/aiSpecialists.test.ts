@@ -372,7 +372,9 @@ import {
   deliberateAsInspector,
   deliberateAsHistorian,
   deliberateAsResearcher,
+  deliberateAsSynthesizer,
   buildUserPrompt,
+  buildSystemPrompt,
   parseAnthropicMixedContent,
   getWebSearchToolsForRole,
   WEB_SEARCH_COST_PER_CALL_USD,
@@ -1059,5 +1061,104 @@ describe("SpecialistAnalysis — Sprint 4B optional cited_sources", () => {
     };
     assert.equal(a.cited_sources!.length, 1);
     assert.equal(a.searches_performed, 1);
+  });
+});
+
+// ============================================================
+// Sprint 4 Polish — Fix A: Synthesizer code-first / why / how
+//
+// Two-part test: (1) the system prompt now contains the directive
+// language so the model is actually asked to structure summaries
+// that way; (2) when the model returns a summary that opens with
+// an authoritative-standard citation, the wrapper parses and
+// surfaces it unchanged. The regex pin is the brief's acceptance
+// criterion: the summary must match (API|ASME|NACE|DNV|PHMSA|BSEE|CFR|ISO|ASNT)[\s-][0-9A-Z-]+.
+// ============================================================
+
+const STANDARD_CITATION_REGEX =
+  /\b(API|ASME|NACE|DNV|PHMSA|BSEE|CFR|ISO|ASNT)[\s\-]?[0-9A-Z][0-9A-Z\-.\/ ]*/;
+
+describe("Fix A — Synthesizer system prompt contains code-first/why/how directive", () => {
+  it("buildSystemPrompt('synthesizer') includes CODE-FIRST, WHY, and HOW language", () => {
+    const sysPrompt = buildSystemPrompt("synthesizer");
+    assert.ok(
+      sysPrompt.includes("CODE-FIRST"),
+      "synthesizer prompt must mention CODE-FIRST anchor"
+    );
+    assert.ok(
+      sysPrompt.includes("WHY:") || sysPrompt.includes("(2) WHY"),
+      "synthesizer prompt must mention WHY (reasoning)"
+    );
+    assert.ok(
+      sysPrompt.includes("HOW:") || sysPrompt.includes("(3) HOW"),
+      "synthesizer prompt must mention HOW (action)"
+    );
+    // Mentions authoritative bodies the operator might recognize
+    assert.ok(
+      /API|ASME|NACE|ASNT/.test(sysPrompt),
+      "synthesizer prompt must name authoritative bodies"
+    );
+  });
+
+  it("non-synthesizer roles do NOT receive the code-first directive", () => {
+    for (const role of [
+      "inspector",
+      "engineer",
+      "researcher",
+      "devils_advocate",
+      "historian",
+    ] as const) {
+      const p = buildSystemPrompt(role);
+      assert.ok(
+        !p.includes("CODE-FIRST"),
+        `role ${role} should not receive the synthesizer code-first directive`
+      );
+    }
+  });
+});
+
+describe("Fix A — Synthesizer summary parses cleanly when model leads with a code citation", () => {
+  beforeEach(installFetchMock);
+  afterEach(restoreFetch);
+
+  it("model returns code-first/why/how summary → parses, summary regex-matches an authoritative standard", async () => {
+    const codeFirstSummary =
+      "Per API 579-1/ASME FFS-1 Part 5, the documented localized wall loss requires a Level 2 fitness-for-service assessment. The pitting morphology and CP shielding signature is consistent with under-coating localized corrosion because cathodic protection current cannot reach the disbonded substrate. Operator action: conduct Level 2 FFS assessment, regrid UT at 25 mm spacing, retrofit sacrificial anodes given the > 70% depletion at the riser TDP.";
+    const validJson = JSON.stringify({
+      summary: codeFirstSummary,
+      claims: [
+        {
+          text: "Per API 579-1 Part 5, Level 2 FFS is required at the observed RSF.",
+          confidence: 0.85,
+          supporting_evidence_ids: [],
+          cited_mechanism_codes: ["pitting_corrosion"],
+        },
+      ],
+      open_questions: [],
+      cited_mechanisms: ["pitting_corrosion"],
+      cited_evidence: [],
+    });
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          id: "msg_synth_codefirst",
+          content: [{ type: "text", text: validJson }],
+          usage: { input_tokens: 800, output_tokens: 220 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )) as typeof fetch;
+
+    const result = await deliberateAsSynthesizer(DELIB_INPUT, {
+      status: "accepted",
+      reason: "no objections",
+    });
+    assert.equal(result.ok, true, result.error ?? "");
+    assert.ok(
+      STANDARD_CITATION_REGEX.test(result.analysis.summary),
+      `summary should cite an authoritative standard. summary="${result.analysis.summary}"`
+    );
+    // Existing structural assertions still hold
+    assert.equal(result.analysis.role, "synthesizer");
+    assert.equal(result.analysis.claims.length, 1);
   });
 });
