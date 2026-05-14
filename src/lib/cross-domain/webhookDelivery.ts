@@ -106,6 +106,13 @@ export async function deliverDeliberationWebhook(
   payload: DeliberationWebhookPayload,
   supabase: SupabaseClient
 ): Promise<WebhookDeliveryResult> {
+  // Sprint 4 Polish 4 (webhook observability): entry breadcrumb. Before
+  // this, an org with no webhook configured produced ZERO console
+  // output and ZERO DB writes — making "code never ran" indistinguishable
+  // from "ran and no-op'd". This log proves the function was reached.
+  console.log(
+    `[webhook ${payload.deliberation_id}] deliverDeliberationWebhook: entry — loading config for org ${payload.org_id}`
+  );
   let cfg: WebhookConfig | null;
   try {
     cfg = await loadWebhookConfig(supabase, payload.org_id);
@@ -119,13 +126,20 @@ export async function deliverDeliberationWebhook(
     };
   }
   if (!cfg) {
-    // No webhook configured / disabled — normal no-op.
+    // No webhook configured / disabled — normal no-op. Breadcrumb so
+    // this path is visible in Netlify logs (was previously silent).
+    console.log(
+      `[webhook ${payload.deliberation_id}] no webhook configured / disabled for org ${payload.org_id} — skipping delivery (attempted:false)`
+    );
     return { ok: true, attempted: false };
   }
 
   const bodyStr = JSON.stringify(payload);
   const signature = signWebhookBody(bodyStr, cfg.secret);
   const retryMs = webhookRetryDelayMs();
+  console.log(
+    `[webhook ${payload.deliberation_id}] POSTing to configured endpoint (org ${payload.org_id})`
+  );
 
   // Up to 2 attempts: initial + ONE retry, retry ONLY on 5xx.
   for (let attempt = 1; attempt <= 2; attempt++) {
