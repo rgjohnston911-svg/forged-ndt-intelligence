@@ -2138,11 +2138,15 @@ describe("Fix 5 — synthesizer summary FIRST SENTENCE matches the standard-cita
 });
 
 // ============================================================
-// Sprint 4 Polish 3 — Fix 3: Anthropic prompt caching on the 5
-// Anthropic specialists' system prompts. The system field is sent as
-// a content-block array with cache_control: ephemeral; cost math
-// bills cache reads at 0.1x and cache writes at 1.25x the normal
-// input rate.
+// Sprint 4 Polish 4 Phase 2 — Anthropic prompt caching removed.
+// Polish 3 Fix 3 wired cache_control: ephemeral onto specialist
+// system prompts; Phase 2 found every prompt is below its model's
+// cacheable minimum (sonnet-4-6 = 1,024 tokens; opus-4-6 = 4,096),
+// so the directive was a silent no-op (0/0 cache fields in prod).
+// The cache_control wrapping + cache-aware cost branches were
+// removed. These tests replace the old "system is a cache_control
+// content-block array" assertions with a regression guard that
+// `system` is a plain string again.
 // ============================================================
 
 const ANTHROPIC_DELIBERATE_FNS = [
@@ -2152,18 +2156,18 @@ const ANTHROPIC_DELIBERATE_FNS = [
   ["historian", deliberateAsHistorian],
 ] as const;
 
-describe("Fix 3 — Anthropic specialist system prompt sent with cache_control: ephemeral", () => {
+describe("Phase 2 — Anthropic specialist system prompt is a plain string (cache_control removed)", () => {
   beforeEach(installFetchMock);
   afterEach(restoreFetch);
 
   for (const [role, fn] of ANTHROPIC_DELIBERATE_FNS) {
-    it(`${role}: deliberation request body's system is a content-block array with cache_control ephemeral`, async () => {
+    it(`${role}: deliberation request body's system is a plain string with no cache_control`, async () => {
       let capturedBody = "";
       globalThis.fetch = (async (_url: FetchInput, init?: FetchInit) => {
         capturedBody = String(init?.body ?? "");
         return new Response(
           JSON.stringify({
-            id: "msg_cache_" + role,
+            id: "msg_" + role,
             content: [
               {
                 type: "text",
@@ -2184,27 +2188,30 @@ describe("Fix 3 — Anthropic specialist system prompt sent with cache_control: 
 
       await fn(DELIB_INPUT);
       const body = JSON.parse(capturedBody);
-      assert.ok(Array.isArray(body.system), `${role}: system must be an array`);
-      assert.equal(body.system.length, 1);
-      assert.equal(body.system[0].type, "text");
-      assert.ok(
-        typeof body.system[0].text === "string" &&
-          body.system[0].text.length > 0,
-        `${role}: system block must carry the prompt text`
+      assert.equal(
+        typeof body.system,
+        "string",
+        `${role}: system must be a plain string`
       );
-      assert.deepEqual(body.system[0].cache_control, { type: "ephemeral" });
-      // user message stays a plain string — not cacheable usefully
-      assert.equal(typeof body.messages[0].content, "string");
+      assert.ok(
+        (body.system as string).length > 0,
+        `${role}: system string must carry the prompt text`
+      );
+      // No cache_control anywhere in the serialized request body.
+      assert.ok(
+        !capturedBody.includes("cache_control"),
+        `${role}: request body must not contain cache_control`
+      );
     });
   }
 
-  it("synthesizer: system block also carries cache_control ephemeral", async () => {
+  it("synthesizer: system is a plain string with no cache_control", async () => {
     let capturedBody = "";
     globalThis.fetch = (async (_url: FetchInput, init?: FetchInit) => {
       capturedBody = String(init?.body ?? "");
       return new Response(
         JSON.stringify({
-          id: "msg_cache_synth",
+          id: "msg_synth",
           content: [
             {
               type: "text",
@@ -2227,109 +2234,19 @@ describe("Fix 3 — Anthropic specialist system prompt sent with cache_control: 
       reason: "x",
     });
     const body = JSON.parse(capturedBody);
-    assert.ok(Array.isArray(body.system));
-    assert.deepEqual(body.system[0].cache_control, { type: "ephemeral" });
+    assert.equal(typeof body.system, "string");
+    assert.ok(!capturedBody.includes("cache_control"));
   });
 });
 
-describe("Fix 3 — computeCostUsd accounts for cached vs uncached input tokens", () => {
-  it("cache read tokens billed at 0.1x the normal input rate", () => {
-    // claude-sonnet-4-6: input_per_mtok = 3, output_per_mtok = 15.
-    // 1,000,000 uncached input + 0 output:
-    const uncached = computeCostUsd("claude-sonnet-4-6", 1_000_000, 0);
-    assert.equal(uncached, 3);
-    // 1,000,000 cache-READ input tokens → 3 * 0.1 = 0.3
-    const cacheRead = computeCostUsd("claude-sonnet-4-6", 0, 0, 1_000_000, 0);
-    assert.ok(
-      Math.abs(cacheRead - 0.3) < 1e-9,
-      `cache-read cost ${cacheRead} expected 0.3`
-    );
-    // 1,000,000 cache-CREATION tokens → 3 * 1.25 = 3.75
-    const cacheWrite = computeCostUsd("claude-sonnet-4-6", 0, 0, 0, 1_000_000);
-    assert.ok(
-      Math.abs(cacheWrite - 3.75) < 1e-9,
-      `cache-write cost ${cacheWrite} expected 3.75`
-    );
-  });
-
-  it("mixed: uncached + cache-read + cache-write + output are additive, never double-counted", () => {
-    // 100k uncached, 900k cache-read, 0 cache-write, 50k output
-    // input side: (100k/1M)*3 + (900k/1M)*3*0.1 = 0.3 + 0.27 = 0.57
-    // output side: (50k/1M)*15 = 0.75
-    // total = 1.32
-    const cost = computeCostUsd(
-      "claude-sonnet-4-6",
-      100_000,
-      50_000,
-      900_000,
-      0
-    );
-    assert.ok(Math.abs(cost - 1.32) < 1e-9, `mixed cost ${cost} expected 1.32`);
-  });
-
-  it("backward compat: 3-arg calls behave exactly as before (zero cache contribution)", () => {
-    const threeArg = computeCostUsd("claude-opus-4-6", 1_000_000, 1_000_000);
-    // opus: 15 input + 75 output = 90
-    assert.equal(threeArg, 90);
-  });
-});
-
-describe("Fix 3 — cache token counts flow into cost + ai_cost_log on a cache hit", () => {
-  beforeEach(installFetchMock);
-  afterEach(restoreFetch);
-
-  it("Anthropic response with cache_read_input_tokens → cost reflects the discount, ai_cost_log records the counts", async () => {
-    const supabase = makeMockSupabase({ ai_cost_log: [] });
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          id: "msg_cache_hit",
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({
-                summary: "s",
-                claims: [],
-                open_questions: [],
-                cited_mechanisms: [],
-                cited_evidence: [],
-              }),
-            },
-          ],
-          // Cache hit: most of the input served from a warm cache.
-          usage: {
-            input_tokens: 200,
-            cache_read_input_tokens: 3000,
-            cache_creation_input_tokens: 0,
-            output_tokens: 50,
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      )) as typeof fetch;
-
-    const result = await deliberateAsInspector(DELIB_INPUT, {
-      cost: { orgId: ORG, supabaseAdmin: supabase as never },
-    });
-    assert.equal(result.ok, true, result.error ?? "");
-    // Expected cost (claude-sonnet-4-6: in 3, out 15):
-    //   uncached: 200/1M * 3            = 0.0006
-    //   cache-read: 3000/1M * 3 * 0.1   = 0.0009
-    //   output: 50/1M * 15             = 0.00075
-    //   total                          = 0.00225
-    const expected = 0.0006 + 0.0009 + 0.00075;
-    assert.ok(
-      Math.abs(result.analysis.cost_usd - expected) < 1e-9,
-      `cost_usd ${result.analysis.cost_usd} expected ${expected}`
-    );
-    // ai_cost_log row carries the cache counts in metadata.
-    const rows = supabase.__store.ai_cost_log;
-    assert.equal(rows.length, 1);
-    const meta = (rows[0] as Record<string, unknown>).metadata as Record<
-      string,
-      unknown
-    >;
-    assert.equal(meta.cache_read_input_tokens, 3000);
-    assert.equal(meta.cache_creation_input_tokens, 0);
+describe("Phase 2 — computeCostUsd is token-only (no cache args)", () => {
+  it("3-arg cost = input_tokens*rate + output_tokens*rate", () => {
+    // claude-sonnet-4-6: input 3/Mtok, output 15/Mtok.
+    assert.equal(computeCostUsd("claude-sonnet-4-6", 1_000_000, 0), 3);
+    // claude-opus-4-6: input 15/Mtok, output 75/Mtok → 15 + 75 = 90.
+    assert.equal(computeCostUsd("claude-opus-4-6", 1_000_000, 1_000_000), 90);
+    // Unknown model → 0 (unchanged behaviour).
+    assert.equal(computeCostUsd("unknown-model", 1_000_000, 1_000_000), 0);
   });
 });
 
