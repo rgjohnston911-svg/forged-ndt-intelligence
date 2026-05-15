@@ -1333,7 +1333,29 @@ describe("runDeliberation — Fix 5 webhook delivery", () => {
     assert.ok(String(payload.poll_url).includes("delib-fix5-fires"));
   });
 
-  it("webhook returns 500 (twice) → deliberation still completes ok, webhook_error logged to arbitration_rules_applied", async () => {
+  // Polish 4 webhook observability: a successful delivery now writes
+  // webhook_attempted + webhook_status to arbitration_rules_applied —
+  // previously the success path wrote NOTHING, making it
+  // indistinguishable from "never ran".
+  it("webhook delivered (200) → webhook_attempted:true + webhook_status:200 written, no webhook_error", async () => {
+    const supabase = supabaseWith(true);
+    await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-fix5-success-fields",
+      supabase: supabase as never,
+    });
+    assert.equal(webhookPosts.length, 1);
+    const row = supabase.__store.cd_deliberation_log[0] as Record<
+      string,
+      unknown
+    >;
+    const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    assert.equal(ara.webhook_attempted, true);
+    assert.equal(ara.webhook_status, 200);
+    assert.equal(ara.webhook_error, undefined);
+  });
+
+  it("webhook returns 500 (twice) → deliberation still completes ok; webhook_attempted:true, webhook_status:500, webhook_error logged", async () => {
     webhookResponder = () => new Response("server error", { status: 500 });
     const supabase = supabaseWith(true);
     const result = await runDeliberation(input(), {
@@ -1346,12 +1368,14 @@ describe("runDeliberation — Fix 5 webhook delivery", () => {
     assert.equal(result.per_specialist.length, 6);
     // initial + one retry on 5xx.
     assert.equal(webhookPosts.length, 2);
-    // webhook_error recorded, deliberation NOT failed.
     const row = supabase.__store.cd_deliberation_log[0] as Record<
       string,
       unknown
     >;
     const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    // Polish 4: all three webhook_* observability fields populated.
+    assert.equal(ara.webhook_attempted, true);
+    assert.equal(ara.webhook_status, 500);
     assert.ok(
       typeof ara.webhook_error === "string" &&
         (ara.webhook_error as string).includes("500"),
@@ -1361,7 +1385,7 @@ describe("runDeliberation — Fix 5 webhook delivery", () => {
     assert.notEqual(ara.final_status, "failed");
   });
 
-  it("webhook disabled (enabled:false) → no POST fired, deliberation completes normally", async () => {
+  it("webhook disabled (enabled:false) → no POST fired, but webhook_attempted:false + webhook_status:not_attempted_no_config still recorded (the c9bbd36b ambiguity fix)", async () => {
     const supabase = supabaseWith(false);
     const result = await runDeliberation(input(), {
       org_id: ORG,
@@ -1375,6 +1399,12 @@ describe("runDeliberation — Fix 5 webhook delivery", () => {
       unknown
     >;
     const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    // The whole point of Polish 4: "no webhook configured" is now
+    // DISTINCT from "code never ran" — webhook_attempted is an
+    // explicit false, not a null.
+    assert.equal(ara.webhook_attempted, false);
+    assert.equal(ara.webhook_status, "not_attempted_no_config");
+    // No error because a missing config is a deliberate no-op.
     assert.equal(ara.webhook_error, undefined);
   });
 });

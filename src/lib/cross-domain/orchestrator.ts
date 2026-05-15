@@ -441,13 +441,29 @@ async function triggerPredictionCapture(
   }
 }
 
-// Sprint 4 Polish 3 (Fix 5): webhook delivery. Same merge-into-
-// arbitration_rules_applied pattern as the other supplementary hooks
-// — a webhook failure is recorded but NEVER fails the deliberation.
-async function mergeWebhookError(
+// Sprint 4 Polish 3 (Fix 5) + Polish 4 webhook observability: merge
+// the webhook OUTCOME into arbitration_rules_applied. Same merge
+// pattern as the other supplementary hooks — a webhook failure is
+// recorded but NEVER fails the deliberation.
+//
+// Polish 4 change: the original mergeWebhookError only wrote
+// webhook_error, and ONLY on failure. That made three states
+// indistinguishable in the DB — "code never ran", "ran but no webhook
+// configured", and "ran and succeeded" all left
+// arbitration_rules_applied with no webhook_* keys at all. We now
+// ALWAYS write webhook_attempted + webhook_status (and webhook_error
+// when present) on every path the trigger reaches, so the production
+// query can tell those states apart.
+interface WebhookOutcomeFields {
+  webhook_attempted: boolean;
+  webhook_status: number | string;
+  webhook_error?: string;
+}
+
+async function mergeWebhookOutcome(
   supabase: SupabaseClient,
   deliberation_id: string,
-  message: string
+  fields: WebhookOutcomeFields
 ): Promise<void> {
   try {
     const { data } = await supabase
@@ -458,14 +474,17 @@ async function mergeWebhookError(
     const row = (data ?? {}) as Record<string, unknown>;
     const existing =
       (row.arbitration_rules_applied as Record<string, unknown> | null) ?? {};
+    const merged: Record<string, unknown> = {
+      ...existing,
+      webhook_attempted: fields.webhook_attempted,
+      webhook_status: fields.webhook_status,
+    };
+    if (fields.webhook_error !== undefined) {
+      merged.webhook_error = fields.webhook_error;
+    }
     await supabase
       .from("cd_deliberation_log")
-      .update({
-        arbitration_rules_applied: {
-          ...existing,
-          webhook_error: message,
-        },
-      })
+      .update({ arbitration_rules_applied: merged })
       .eq("id", deliberation_id);
   } catch {
     // Best-effort — outcome already stands; nothing else to do.
@@ -485,6 +504,12 @@ async function triggerWebhookDelivery(
   arbitration: ArbitrationDecision,
   ctx: WebhookTriggerContext
 ): Promise<void> {
+  // Polish 4 webhook observability: entry breadcrumb so Netlify logs
+  // always show this function was reached — even on the no-config
+  // path that previously produced zero output.
+  console.log(
+    `[webhook ${opts.deliberation_id}] triggerWebhookDelivery: entry`
+  );
   try {
     // poll_url points the receiver at the status endpoint for the full
     // payload. CROSS_DOMAIN_PUBLIC_BASE_URL is preferred; Netlify also
@@ -511,26 +536,54 @@ async function triggerWebhookDelivery(
     };
 
     const result = await deliverDeliberationWebhook(payload, supabase);
+
+    // Derive a DB-observable webhook_status from the result on EVERY
+    // path so the three previously-indistinguishable states are now
+    // distinct in arbitration_rules_applied.
+    let webhook_status: number | string;
+    if (typeof result.status === "number") {
+      webhook_status = result.status; // delivered (2xx) or HTTP error (4xx/5xx)
+    } else if (!result.attempted) {
+      webhook_status = "not_attempted_no_config";
+    } else {
+      // attempted but no HTTP status → thrown network error /
+      // config-load failure inside deliverDeliberationWebhook.
+      webhook_status = "network_error";
+    }
+
     if (result.ok) {
       if (result.attempted) {
         console.log(
           `[webhook ${opts.deliberation_id}] delivered status=${result.status}`
         );
+      } else {
+        console.log(
+          `[webhook ${opts.deliberation_id}] no webhook configured — recorded webhook_attempted:false`
+        );
       }
-      // result.attempted === false → no webhook configured / disabled;
-      // intentional silent no-op.
+      await mergeWebhookOutcome(supabase, opts.deliberation_id, {
+        webhook_attempted: result.attempted,
+        webhook_status,
+      });
     } else {
-      const detail =
-        result.error ?? `status_${result.status ?? "unknown"}`;
+      const detail = result.error ?? `status_${result.status ?? "unknown"}`;
       console.warn(
         `[webhook ${opts.deliberation_id}] delivery failed: ${detail}`
       );
-      await mergeWebhookError(supabase, opts.deliberation_id, detail);
+      await mergeWebhookOutcome(supabase, opts.deliberation_id, {
+        webhook_attempted: result.attempted,
+        webhook_status,
+        webhook_error: detail,
+      });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[webhook ${opts.deliberation_id}] threw err="${message}"`);
-    await mergeWebhookError(supabase, opts.deliberation_id, message);
+    await mergeWebhookOutcome(supabase, opts.deliberation_id, {
+      webhook_attempted: false,
+      webhook_status: "trigger_threw",
+      webhook_error: message,
+    });
   }
 }
 
