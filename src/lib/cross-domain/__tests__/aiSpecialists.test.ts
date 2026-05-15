@@ -343,6 +343,82 @@ describe("AI specialist wrappers — error handling + retry", () => {
     assert.equal(out.attempts, 1);
     assert.ok(out.error && out.error.includes("ANTHROPIC_API_KEY"));
   });
+
+  // ============================================================
+  // Sprint 4 Polish 4 Phase 7 — Anthropic 5xx retry expansion.
+  // Pre-Phase-7 the Anthropic retryable list was [529] alone.
+  // Deliberation 9c7ab9b9-... died with `synthesizer_failed:
+  // anthropic 500: Internal server error` during a real
+  // status.anthropic.com 5xx incident. Phase 7 expanded the list to
+  // [500, 502, 503, 504, 529] — the same set OpenAI already uses.
+  // These tests pin each new status retrying once and succeeding,
+  // plus a regression guard that 400 (and any other 4xx) still goes
+  // straight to the fatal path.
+  // ============================================================
+
+  for (const status of [500, 502, 503, 504] as const) {
+    it(`Phase 7: retries on Anthropic ${status} — ${status} once then 200 = attempts:2`, async () => {
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        if (calls === 1) {
+          return new Response(
+            JSON.stringify({
+              type: "error",
+              error: { type: "api_error", message: "transient" },
+            }),
+            { status }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            id: "msg_after_5xx_retry",
+            content: [{ type: "text", text: "OK" }],
+            usage: { input_tokens: 12, output_tokens: 1 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }) as typeof fetch;
+
+      const out = await callInspector("hi");
+      assert.equal(
+        out.ok,
+        true,
+        `Anthropic ${status} must retry-then-succeed; got error: ${out.error}`
+      );
+      assert.equal(out.response, "OK");
+      assert.equal(out.attempts, 2);
+      assert.equal(
+        calls,
+        2,
+        `Anthropic ${status} must trigger exactly 2 fetches (initial + 1 retry)`
+      );
+    });
+  }
+
+  it("Phase 7: Anthropic 400 still fails fast (no retry; 4xx stays fatal)", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response(
+        JSON.stringify({
+          type: "error",
+          error: { type: "invalid_request_error", message: "bad body" },
+        }),
+        { status: 400 }
+      );
+    }) as typeof fetch;
+
+    const out = await callInspector("hi");
+    assert.equal(out.ok, false);
+    assert.equal(out.attempts, 1);
+    assert.equal(
+      calls,
+      1,
+      "Anthropic 400 must NOT be retried (4xx is a client error)"
+    );
+    assert.ok(out.error && out.error.includes("400"));
+  });
 });
 
 describe("SPECIALIST_SPECS", () => {
