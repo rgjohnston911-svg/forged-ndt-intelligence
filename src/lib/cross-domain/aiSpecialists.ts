@@ -163,11 +163,22 @@ function computeCostUsd(
 class ProviderHttpError extends Error {
   readonly status: number;
   readonly provider: "anthropic" | "openai";
-  constructor(provider: "anthropic" | "openai", status: number, body: string) {
+  // Sprint 4 Polish 4 Phase 8: server-supplied Retry-After (in ms),
+  // when present. Currently only populated on the Anthropic path
+  // (per phase scope). callWithRetry honors it instead of the
+  // exponential schedule when defined.
+  readonly retryAfterMs?: number;
+  constructor(
+    provider: "anthropic" | "openai",
+    status: number,
+    body: string,
+    retryAfterMs?: number
+  ) {
     super(`${provider} ${status}: ${body.slice(0, 300)}`);
     this.name = "ProviderHttpError";
     this.provider = provider;
     this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -193,9 +204,49 @@ const OPENAI_RETRYABLE_STATUSES = new Set([500, 502, 503, 504, 529]);
 // blip. 500/502/503/504 are textbook transient server-side failures
 // (Internal Server Error / Bad Gateway / Service Unavailable /
 // Gateway Timeout) and recover on retry. 4xx stays fatal (client
-// errors; retry won't help). 429 left out on purpose — it needs
-// Retry-After header parsing (Phase 8 candidate).
-const ANTHROPIC_RETRYABLE_STATUSES = new Set([500, 502, 503, 504, 529]);
+// errors; retry won't help).
+//
+// Sprint 4 Polish 4 Phase 8: added 429 to the Anthropic-only set.
+// 429 is retryable BUT comes with a `retry-after` header per
+// https://platform.claude.com/docs/en/api/rate-limits — undershooting
+// will re-429 ("earlier retries will fail"). callAnthropic parses the
+// header and passes it through ProviderHttpError; callWithRetry honors
+// it instead of the exponential schedule, capped at RETRY_AFTER_MAX_MS
+// so a "wait 600s" response doesn't burn the Netlify 15-min ceiling.
+// OPENAI_RETRYABLE_STATUSES intentionally still excludes 429 — Phase 8
+// is Anthropic-only per scope discipline.
+const ANTHROPIC_RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504, 529]);
+
+// Sprint 4 Polish 4 Phase 8: ceiling on how long we'll honor an
+// Anthropic Retry-After value. Worst-case sleep budget per specialist
+// becomes maxRetries * cap = 3 * 60s = 3 min, leaving the remaining
+// 12 min of the Netlify Background Function ceiling for the rest of
+// the deliberation chain. If Anthropic asks for longer than the cap
+// we honor only the cap — likely to re-429, but the deliberation
+// surfaces a failure faster instead of stalling the whole function.
+// Env override exists so tests can collapse the cap (and use
+// retry-after: 600-style responses without actually sleeping).
+function getRetryAfterMaxMs(): number {
+  const envCap = Number(process.env.CROSS_DOMAIN_RETRY_AFTER_MAX_MS);
+  return Number.isFinite(envCap) && envCap >= 0 ? envCap : 60_000;
+}
+
+// Sprint 4 Polish 4 Phase 8: parse Retry-After header value.
+// Anthropic documents the value as integer seconds
+// (https://platform.claude.com/docs/en/api/rate-limits). RFC 7231 also
+// permits HTTP-date format, but Anthropic does not use it — keeping
+// this parser strict to the documented format avoids a second code
+// path that would never execute against the real API. Returns null
+// when the header is absent, blank, non-numeric, negative, or NaN
+// (caller falls back to the exponential schedule).
+export function parseRetryAfterMs(headerValue: string | null): number | null {
+  if (!headerValue) return null;
+  const trimmed = headerValue.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const seconds = Number(trimmed);
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  return seconds * 1000;
+}
 
 function isRetryable(err: unknown): boolean {
   if (!(err instanceof ProviderHttpError)) return false;
@@ -240,12 +291,31 @@ async function callWithRetry<T>(
       }
       const status =
         err instanceof ProviderHttpError ? err.status : "client-error";
-      console.warn(
-        `[cross-domain retry] attempt ${attempt}/${opts.maxRetries + 1} failed with ${status}; backing off`
-      );
-      const baseDelay = opts.baseDelayMs * Math.pow(2, attempt - 1);
-      const jitter = baseDelay * opts.jitterPct * (Math.random() * 2 - 1);
-      await sleep(Math.max(0, baseDelay + jitter));
+      // Sprint 4 Polish 4 Phase 8: when the provider supplied a
+      // Retry-After value (currently Anthropic on 429), honor it
+      // instead of the exponential schedule. Cap at RETRY_AFTER_MAX_MS
+      // (default 60s) so a "wait 600s" response can't burn the Netlify
+      // 15-min ceiling. No jitter is applied — Anthropic's docs are
+      // explicit that "earlier retries will fail", so undershooting is
+      // wasted work. When the header is absent we fall back to the
+      // existing exponential + jitter schedule (unchanged).
+      const retryAfterMs =
+        err instanceof ProviderHttpError ? err.retryAfterMs : undefined;
+      let waitMs: number;
+      if (typeof retryAfterMs === "number") {
+        waitMs = Math.min(retryAfterMs, getRetryAfterMaxMs());
+        console.warn(
+          `[cross-domain retry] attempt ${attempt}/${opts.maxRetries + 1} failed with ${status}; honoring Retry-After=${retryAfterMs}ms (capped at ${waitMs}ms)`
+        );
+      } else {
+        const baseDelay = opts.baseDelayMs * Math.pow(2, attempt - 1);
+        const jitter = baseDelay * opts.jitterPct * (Math.random() * 2 - 1);
+        waitMs = Math.max(0, baseDelay + jitter);
+        console.warn(
+          `[cross-domain retry] attempt ${attempt}/${opts.maxRetries + 1} failed with ${status}; backing off`
+        );
+      }
+      await sleep(waitMs);
     }
   }
   // Unreachable; loop either returns or throws.
@@ -599,7 +669,15 @@ async function callAnthropic(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new ProviderHttpError("anthropic", res.status, text);
+    // Sprint 4 Polish 4 Phase 8: thread Retry-After through so
+    // callWithRetry can honor it. parseRetryAfterMs returns null when
+    // absent or malformed → ProviderHttpError.retryAfterMs is undefined
+    // → callWithRetry falls back to the exponential schedule. Only
+    // wired on the Anthropic path per scope; OpenAI's path is
+    // intentionally unchanged.
+    const retryAfterMs =
+      parseRetryAfterMs(res.headers.get("retry-after")) ?? undefined;
+    throw new ProviderHttpError("anthropic", res.status, text, retryAfterMs);
   }
   const data = (await res.json()) as {
     id?: string;
