@@ -8,6 +8,7 @@ import {
   callHistorian,
   callSynthesizer,
   SPECIALIST_SPECS,
+  parseRetryAfterMs,
 } from "../aiSpecialists";
 import { makeMockSupabase } from "./fixtures";
 
@@ -34,6 +35,7 @@ const ORIGINAL_FETCH = globalThis.fetch;
 const ORIGINAL_ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 const ORIGINAL_OPENAI_KEY = process.env.OPENAI_API_KEY;
 const ORIGINAL_RETRY_BASE = process.env.CROSS_DOMAIN_RETRY_BASE_MS;
+const ORIGINAL_RETRY_AFTER_MAX = process.env.CROSS_DOMAIN_RETRY_AFTER_MAX_MS;
 
 let fetchCalls: FetchCall[] = [];
 
@@ -84,6 +86,13 @@ function restoreFetch() {
   else process.env.OPENAI_API_KEY = ORIGINAL_OPENAI_KEY;
   if (ORIGINAL_RETRY_BASE === undefined) delete process.env.CROSS_DOMAIN_RETRY_BASE_MS;
   else process.env.CROSS_DOMAIN_RETRY_BASE_MS = ORIGINAL_RETRY_BASE;
+  // Phase 8: restore the Retry-After cap env var (tests may override
+  // it to collapse the 60s default for fast assertions).
+  if (ORIGINAL_RETRY_AFTER_MAX === undefined) {
+    delete process.env.CROSS_DOMAIN_RETRY_AFTER_MAX_MS;
+  } else {
+    process.env.CROSS_DOMAIN_RETRY_AFTER_MAX_MS = ORIGINAL_RETRY_AFTER_MAX;
+  }
 }
 
 describe("AI specialist wrappers — happy path", () => {
@@ -418,6 +427,210 @@ describe("AI specialist wrappers — error handling + retry", () => {
       "Anthropic 400 must NOT be retried (4xx is a client error)"
     );
     assert.ok(out.error && out.error.includes("400"));
+  });
+
+  // ============================================================
+  // Sprint 4 Polish 4 Phase 8 — Anthropic 429 + Retry-After parsing.
+  // 429 was excluded from Phase 7's retry expansion because honoring
+  // it correctly requires reading the `retry-after` header (Anthropic
+  // docs: "earlier retries will fail"). Phase 8 adds the header parser,
+  // includes 429 in ANTHROPIC_RETRYABLE_STATUSES, and threads
+  // retryAfterMs through ProviderHttpError so callWithRetry can sleep
+  // for the server-supplied duration (capped at RETRY_AFTER_MAX_MS to
+  // keep one rate-limit hit from burning the Netlify 15-min ceiling).
+  //
+  // OpenAI's path is intentionally NOT touched — Phase 8 is
+  // Anthropic-only per scope discipline.
+  // ============================================================
+
+  it("Phase 8: retries on Anthropic 429 with retry-after: 0 — succeeds on 2nd attempt", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls === 1) {
+        return new Response(
+          JSON.stringify({
+            type: "error",
+            error: { type: "rate_limit_error", message: "slow down" },
+          }),
+          { status: 429, headers: { "retry-after": "0" } }
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          id: "msg_after_429",
+          content: [{ type: "text", text: "OK" }],
+          usage: { input_tokens: 12, output_tokens: 1 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const out = await callInspector("hi");
+    assert.equal(out.ok, true, `429+Retry-After must retry-then-succeed; got error: ${out.error}`);
+    assert.equal(out.response, "OK");
+    assert.equal(out.attempts, 2);
+    assert.equal(calls, 2);
+  });
+
+  it("Phase 8: huge Retry-After is capped — CROSS_DOMAIN_RETRY_AFTER_MAX_MS=0 lets test complete without sleeping 600s", async () => {
+    // The presence of this test passing within the test-suite timeout
+    // IS the assertion: if the cap weren't applied, the helper would
+    // sleep for 600,000ms (10 min) honoring the header verbatim. With
+    // the env override the cap is 0ms → immediate retry → fast pass.
+    process.env.CROSS_DOMAIN_RETRY_AFTER_MAX_MS = "0";
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls === 1) {
+        return new Response(
+          JSON.stringify({
+            type: "error",
+            error: { type: "rate_limit_error", message: "slow down" },
+          }),
+          { status: 429, headers: { "retry-after": "600" } }
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          id: "msg_after_429_capped",
+          content: [{ type: "text", text: "OK" }],
+          usage: { input_tokens: 12, output_tokens: 1 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const out = await callInspector("hi");
+    assert.equal(out.ok, true, `Capped Retry-After must allow retry; got error: ${out.error}`);
+    assert.equal(out.attempts, 2);
+    assert.equal(calls, 2);
+  });
+
+  it("Phase 8: 429 without Retry-After header falls back to exponential — retries and succeeds", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      if (calls === 1) {
+        return new Response(
+          JSON.stringify({
+            type: "error",
+            error: { type: "rate_limit_error", message: "slow down" },
+          }),
+          { status: 429 } // no retry-after header
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          id: "msg_after_429_no_header",
+          content: [{ type: "text", text: "OK" }],
+          usage: { input_tokens: 12, output_tokens: 1 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const out = await callInspector("hi");
+    assert.equal(
+      out.ok,
+      true,
+      `429 without header must fall back to exponential and succeed; got error: ${out.error}`
+    );
+    assert.equal(out.attempts, 2);
+    assert.equal(calls, 2);
+  });
+
+  it("Phase 8: persistent 429 exhausts retries — 4 attempts then ok:false", async () => {
+    process.env.CROSS_DOMAIN_RETRY_AFTER_MAX_MS = "0";
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response(
+        JSON.stringify({
+          type: "error",
+          error: { type: "rate_limit_error", message: "slow down" },
+        }),
+        { status: 429, headers: { "retry-after": "1" } }
+      );
+    }) as typeof fetch;
+
+    const out = await callInspector("hi");
+    assert.equal(out.ok, false);
+    assert.equal(out.attempts, 4, "persistent 429 must reach maxRetries+1");
+    assert.equal(calls, 4);
+    assert.ok(out.error && out.error.includes("429"));
+  });
+
+  it("Phase 8: Anthropic 403 still fails fast (regression: 4xx-other-than-429 stays fatal)", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response(
+        JSON.stringify({
+          type: "error",
+          error: { type: "permission_error", message: "forbidden" },
+        }),
+        { status: 403 }
+      );
+    }) as typeof fetch;
+
+    const out = await callInspector("hi");
+    assert.equal(out.ok, false);
+    assert.equal(out.attempts, 1);
+    assert.equal(calls, 1, "Anthropic 403 must NOT be retried");
+    assert.ok(out.error && out.error.includes("403"));
+  });
+
+  it("Phase 8: OpenAI 429 still fatal — Phase 8 is Anthropic-only by scope", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response(
+        JSON.stringify({ error: { message: "rate limited", type: "rate_limit_error" } }),
+        { status: 429, headers: { "retry-after": "0" } }
+      );
+    }) as typeof fetch;
+
+    const out = await callDevilsAdvocate("hi");
+    assert.equal(out.ok, false);
+    assert.equal(out.attempts, 1);
+    assert.equal(calls, 1, "OpenAI 429 must NOT be retried in Phase 8");
+    assert.ok(out.error && out.error.includes("429"));
+  });
+});
+
+describe("Phase 8 — parseRetryAfterMs unit", () => {
+  it("parses integer seconds to ms", () => {
+    assert.equal(parseRetryAfterMs("0"), 0);
+    assert.equal(parseRetryAfterMs("1"), 1000);
+    assert.equal(parseRetryAfterMs("30"), 30_000);
+    assert.equal(parseRetryAfterMs("600"), 600_000);
+  });
+
+  it("tolerates surrounding whitespace", () => {
+    assert.equal(parseRetryAfterMs("  5  "), 5000);
+    assert.equal(parseRetryAfterMs("\t10\n"), 10_000);
+  });
+
+  it("returns null for absent / empty / blank values", () => {
+    assert.equal(parseRetryAfterMs(null), null);
+    assert.equal(parseRetryAfterMs(""), null);
+    assert.equal(parseRetryAfterMs("   "), null);
+  });
+
+  it("returns null for non-integer or signed values (HTTP-date, decimals, negatives)", () => {
+    // Anthropic documents integer seconds; we intentionally do NOT
+    // accept RFC 7231 HTTP-date form. A future API change there would
+    // surface as null → exponential fallback (safe), not a crash.
+    assert.equal(
+      parseRetryAfterMs("Wed, 21 Oct 2026 07:28:00 GMT"),
+      null
+    );
+    assert.equal(parseRetryAfterMs("1.5"), null);
+    assert.equal(parseRetryAfterMs("-5"), null);
+    assert.equal(parseRetryAfterMs("abc"), null);
+    assert.equal(parseRetryAfterMs("5s"), null);
+    assert.equal(parseRetryAfterMs("+5"), null);
   });
 });
 
