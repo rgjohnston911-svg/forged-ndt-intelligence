@@ -22,7 +22,10 @@ import type { Handler } from "@netlify/functions";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { runDeliberation } from "../../src/lib/cross-domain/orchestrator";
 import { checkOrgBudget } from "../../src/lib/cross-domain/budgetGuard";
-import { finalizeDeliberation } from "../../src/lib/cross-domain/deliberationFinalizer";
+import {
+  finalizeDeliberation,
+  type FinalizeWebhookContext,
+} from "../../src/lib/cross-domain/deliberationFinalizer";
 import { retrieveAnalogousCases } from "../../src/lib/cross-domain/memoryRetrieval";
 import type {
   AnomalyContext,
@@ -253,6 +256,14 @@ export const handler: Handler = async (event) => {
   }
   const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey);
 
+  // Sprint 4 Polish 4 Phase 6 (B3): hoisted into the outer scope so
+  // the `finally` block can pass anomaly + asset context to
+  // finalizeDeliberation. Populated inside the inner try once
+  // loadAnomaly + loadAsset succeed. Stays undefined if the
+  // deliberation aborts before those loads complete — in which case
+  // the finalizer's webhook fire is skipped (optional param).
+  let webhookCtx: FinalizeWebhookContext | undefined;
+
   try {
     try {
       // Budget pre-check (orchestrator also runs this; doing it up-front
@@ -277,6 +288,12 @@ export const handler: Handler = async (event) => {
         await markRowFailed(supabase, deliberation_id, "asset_not_found");
         return json(200, { ok: false, reason: "asset_not_found" });
       }
+      // Phase 6 (B3): now that both anomaly + asset are loaded, hand
+      // the IDs to the outer scope so the `finally` block can pass
+      // them through to finalizeDeliberation. Webhook payloads from
+      // the belt-and-suspenders path now carry real anomaly + asset
+      // identifiers (vs. all-null in the pre-Phase-6 silent path).
+      webhookCtx = { anomaly_id: anomaly.id, asset_id: asset.id };
 
       const [evidence, mechanismVocabulary, analogousCases] = await Promise.all([
         loadEvidence(supabase, org_id, anomaly.id),
@@ -321,7 +338,12 @@ export const handler: Handler = async (event) => {
     // completed by markRowFailed or the orchestrator's finalizeLog,
     // this no-ops.
     try {
-      await finalizeDeliberation(deliberation_id, org_id, supabase);
+      // Phase 6 (B3): pass webhookCtx so the belt-and-suspenders
+      // finalize path fires the webhook for its two genuine-finalize
+      // branches (partial-chain + normal-finalize). Undefined when
+      // the deliberation aborted before anomaly/asset loaded — the
+      // finalizer treats undefined as "skip webhook fire".
+      await finalizeDeliberation(deliberation_id, org_id, supabase, webhookCtx);
     } catch (finalizeErr) {
       console.error(
         "[cross-domain finalize] finalization failed:",

@@ -1407,4 +1407,106 @@ describe("runDeliberation — Fix 5 webhook delivery", () => {
     // No error because a missing config is a deliberate no-op.
     assert.equal(ara.webhook_error, undefined);
   });
+
+  // ============================================================
+  // Sprint 4 Polish 4 Phase 6 — webhook fires on FAILURE paths too.
+  // Phase 5 wired triggerWebhookDelivery only into the
+  // `if (synthesizer.ok)` success block. Phase 6 (A — helper-level)
+  // moves the trigger inside finalizeLogAsFailure, so every failure
+  // call site in runDeliberation (engineer-failed, cap-exceeded × 4,
+  // !synthesizer.ok) fires the webhook automatically. This test pins
+  // the !synthesizer.ok path (the one production evidence in the
+  // brief: deliberation 9c7ab9b9 with Anthropic 500 mid-synthesizer).
+  // ============================================================
+
+  it("Phase 6: synthesizer failure → finalizeLogAsFailure fires webhook with failure payload", async () => {
+    // Override the role-aware mock for THIS test: synthesizer call
+    // returns a non-retryable 4xx (so the deliberation fails). Every
+    // other specialist returns its normal scripted response.
+    globalThis.fetch = (async (urlInput: FetchInput, init?: FetchInit) => {
+      const url = String(urlInput);
+      if (url.includes("webhook-receiver.test")) {
+        webhookPosts.push({
+          headers: (init?.headers ?? {}) as Record<string, string>,
+          body: String(init?.body ?? ""),
+        });
+        return webhookResponder();
+      }
+      let body: Record<string, unknown> = {};
+      try {
+        body = JSON.parse(String(init?.body ?? "{}"));
+      } catch {
+        body = {};
+      }
+      // System-prompt-keyed role lookup — synthesizer responds with
+      // 401 (4xx, not retryable per existing isRetryable rules) so
+      // deliberate() returns ok:false with parse_error=http_error.
+      const sysText = Array.isArray(body.system)
+        ? (body.system as Array<Record<string, unknown>>)
+            .map((b) => String(b.text ?? ""))
+            .join("")
+        : typeof body.system === "string"
+          ? (body.system as string)
+          : typeof body.input === "string"
+            ? (body.input as string)
+            : "";
+      if (sysText.includes("SYNTHESIZER")) {
+        return new Response(
+          JSON.stringify({
+            type: "error",
+            error: { type: "auth", message: "forced fail" },
+          }),
+          { status: 401 }
+        );
+      }
+      if (sysText.includes("INSPECTION specialist"))
+        return RESPONSE_BY_ROLE.inspector();
+      if (sysText.includes("SENIOR ENGINEERING specialist"))
+        return RESPONSE_BY_ROLE.engineer();
+      if (sysText.includes("RESEARCH specialist"))
+        return RESPONSE_BY_ROLE.researcher();
+      if (sysText.includes("ADVERSARIAL REVIEWER"))
+        return RESPONSE_BY_ROLE.devils_advocate();
+      if (sysText.includes("HISTORICAL CASES specialist"))
+        return RESPONSE_BY_ROLE.historian();
+      return new Response(JSON.stringify({ error: "unknown" }), {
+        status: 500,
+      });
+    }) as typeof fetch;
+
+    const supabase = supabaseWith(true);
+    const result = await runDeliberation(input(), {
+      org_id: ORG,
+      deliberation_id: "delib-phase6-synthfail",
+      supabase: supabase as never,
+    });
+    // The deliberation itself fails (synthesizer 401, no retry on 4xx).
+    assert.equal(result.ok, false);
+    assert.equal(result.aborted_reason, "synthesizer_failed");
+    // CRITICAL Phase 6 assertion: webhook fired despite the failure.
+    assert.equal(
+      webhookPosts.length,
+      1,
+      "Phase 6: webhook must fire on the !synthesizer.ok failure path"
+    );
+    // Payload carries the failure-state arbitration + null consequence
+    // tiers (consequence engine may or may not have run; in this test
+    // path it DID run after engineer, so it's populated, but the
+    // signature in the DB row matters more).
+    const payload = JSON.parse(webhookPosts[0].body);
+    assert.equal(payload.event, "deliberation.completed");
+    assert.equal(payload.deliberation_id, "delib-phase6-synthfail");
+    // DB-side observability fields populated.
+    const row = supabase.__store.cd_deliberation_log[0] as Record<
+      string,
+      unknown
+    >;
+    const ara = row.arbitration_rules_applied as Record<string, unknown>;
+    assert.equal(ara.webhook_attempted, true);
+    assert.equal(ara.webhook_status, 200);
+    // arbitration_rules_applied also still carries the failure state
+    // from finalizeLogAsFailure's UPDATE (read-modify-write merge).
+    // The final_status set by the helper, then merged with webhook_*.
+    assert.equal(ara.final_status, "failed");
+  });
 });

@@ -491,14 +491,20 @@ async function mergeWebhookOutcome(
   }
 }
 
-interface WebhookTriggerContext {
+// Sprint 4 Polish 4 Phase 6: exported so deliberationFinalizer.ts can
+// re-use the same trigger from its terminal-state UPDATE branches.
+// No new logic — same helper Phase 5 introduced.
+export interface WebhookTriggerContext {
   anomaly_id: string;
   asset_id: string;
   consequenceProfile: ConsequenceProfile | null;
   total_cost_usd: number;
 }
 
-async function triggerWebhookDelivery(
+// Sprint 4 Polish 4 Phase 6: exported. Identical signature + body to
+// Phase 5 — Phase 6 only adds new call sites in finalizeLogAsFailure
+// (helper-level wiring, this file) and deliberationFinalizer.ts.
+export async function triggerWebhookDelivery(
   supabase: SupabaseClient,
   opts: RunDeliberationOptions,
   arbitration: ArbitrationDecision,
@@ -592,12 +598,28 @@ async function triggerWebhookDelivery(
 // The actual failure marker lives in arbitration_rules_applied.error;
 // the status endpoint derives status='failed' from that, not from
 // consensus_level.
+// Sprint 4 Polish 4 Phase 6: optional webhook context. When passed,
+// the helper fires triggerWebhookDelivery AFTER the terminal-state
+// UPDATE resolves — so every failure call site (engineer-fail,
+// per-deliberation-cap-exceeded × 4, !synthesizer.ok) gets the same
+// webhook coverage that Phase 5 already gave the happy path. The
+// param is optional so any caller that doesn't have the context can
+// skip the webhook without forcing every site to know about it
+// (backward-compatible by construction).
+interface FailureWebhookContext {
+  arbitration: ArbitrationDecision;
+  anomaly_id: string;
+  asset_id: string;
+  consequenceProfile: ConsequenceProfile | null;
+}
+
 async function finalizeLogAsFailure(
   supabase: SupabaseClient,
   opts: RunDeliberationOptions,
   perSpecialist: SpecialistAnalysis[],
   errorMessage: string,
-  totalCost: number
+  totalCost: number,
+  webhookCtx?: FailureWebhookContext
 ): Promise<void> {
   await supabase
     .from("cd_deliberation_log")
@@ -614,6 +636,18 @@ async function finalizeLogAsFailure(
       deliberation_completed_at: new Date().toISOString(),
     })
     .eq("id", opts.deliberation_id);
+  // Sprint 4 Polish 4 Phase 6: webhook fires AFTER the terminal-state
+  // UPDATE so the receiver's payload reflects the persisted state.
+  // Skipped when no context is passed (e.g., tests that mock the
+  // helper directly).
+  if (webhookCtx) {
+    await triggerWebhookDelivery(supabase, opts, webhookCtx.arbitration, {
+      anomaly_id: webhookCtx.anomaly_id,
+      asset_id: webhookCtx.asset_id,
+      consequenceProfile: webhookCtx.consequenceProfile,
+      total_cost_usd: totalCost,
+    });
+  }
 }
 
 // ------------------------------------------------------------
@@ -760,7 +794,13 @@ export async function runDeliberation(
       opts,
       perSpecialist,
       "per_deliberation_cap_exceeded",
-      runningCost
+      runningCost,
+      {
+        arbitration: arb,
+        anomaly_id: input.anomaly.id,
+        asset_id: input.asset.id,
+        consequenceProfile,
+      }
     );
     return emptyResult(
       opts,
@@ -784,7 +824,13 @@ export async function runDeliberation(
       opts,
       perSpecialist,
       `engineer_failed: ${engineer.error ?? "unknown"}`,
-      runningCost
+      runningCost,
+      {
+        arbitration: arb,
+        anomaly_id: input.anomaly.id,
+        asset_id: input.asset.id,
+        consequenceProfile,
+      }
     );
     await recordSpend(supabase, org_id, deliberation_id, runningCost);
     return emptyResult(
@@ -804,7 +850,13 @@ export async function runDeliberation(
       opts,
       perSpecialist,
       "per_deliberation_cap_exceeded",
-      runningCost
+      runningCost,
+      {
+        arbitration: arb,
+        anomaly_id: input.anomaly.id,
+        asset_id: input.asset.id,
+        consequenceProfile,
+      }
     );
     await recordSpend(supabase, org_id, deliberation_id, runningCost);
     return emptyResult(
@@ -954,7 +1006,13 @@ export async function runDeliberation(
       opts,
       perSpecialist,
       "per_deliberation_cap_exceeded",
-      runningCost
+      runningCost,
+      {
+        arbitration: arb,
+        anomaly_id: input.anomaly.id,
+        asset_id: input.asset.id,
+        consequenceProfile,
+      }
     );
     await recordSpend(supabase, org_id, deliberation_id, runningCost);
     return emptyResult(
@@ -982,7 +1040,13 @@ export async function runDeliberation(
       opts,
       perSpecialist,
       "per_deliberation_cap_exceeded",
-      runningCost
+      runningCost,
+      {
+        arbitration: arb,
+        anomaly_id: input.anomaly.id,
+        asset_id: input.asset.id,
+        consequenceProfile,
+      }
     );
     await recordSpend(supabase, org_id, deliberation_id, runningCost);
     return emptyResult(
@@ -1046,7 +1110,13 @@ export async function runDeliberation(
       opts,
       perSpecialist,
       `synthesizer_failed: ${synthesizer.error ?? "unknown"}`,
-      runningCost
+      runningCost,
+      {
+        arbitration,
+        anomaly_id: input.anomaly.id,
+        asset_id: input.asset.id,
+        consequenceProfile,
+      }
     );
   }
   await recordSpend(supabase, org_id, deliberation_id, runningCost);
