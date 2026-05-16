@@ -23,8 +23,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   SpecialistAnalysis,
   ArbitrationDecision,
+  ConsequenceProfile,
 } from "./types";
-import { arbitrate } from "./orchestrator";
+import { arbitrate, triggerWebhookDelivery } from "./orchestrator";
 import { SPECIALIST_ORDER } from "./deliberationState";
 
 export const REQUIRED_SPECIALIST_COUNT = SPECIALIST_ORDER.length;
@@ -94,17 +95,39 @@ export interface FinalizeDeliberationResult {
   final_status?: string;
 }
 
+// Sprint 4 Polish 4 Phase 6 (B3): optional context for webhook
+// delivery. The minimal finalizer doesn't have anomaly/asset/cost in
+// scope on its own — it only has the deliberation row. Callers that
+// DO have that context (the background function loads anomaly + asset
+// before invoking runDeliberation) pass it in; callers that don't
+// (tests, future recovery paths without business context) omit it
+// and the webhook fire is skipped — backward-compatible by
+// construction. consequenceProfile is null here because the finalizer
+// runs OUTSIDE runDeliberation's scope where the consequence engine
+// result lives; the webhook payload's recommended_action_tier and
+// overall_consequence_tier already accept null. total_cost_usd is
+// read from the deliberation row.
+export interface FinalizeWebhookContext {
+  anomaly_id: string;
+  asset_id: string;
+}
+
 export async function finalizeDeliberation(
   deliberation_id: string,
   org_id: string,
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  webhookCtx?: FinalizeWebhookContext
 ): Promise<FinalizeDeliberationResult> {
   const row = await readRow(supabase, deliberation_id, org_id);
   if (!row) return { status: "noop_row_missing" };
 
   // Idempotency: never finalize twice. If completed_at is set, leave
   // the row alone — there is nothing to do and we don't want to clobber
-  // a prior successful finalize with stale state.
+  // a prior successful finalize with stale state. This early-return
+  // ALSO guards against double-firing the webhook: when runDeliberation
+  // already finalized + fired its inline webhook, this branch no-ops
+  // before reaching either of the two UPDATE branches below, so the
+  // webhook never fires twice for the same deliberation.
   if (row.deliberation_completed_at) {
     return { status: "noop_already_finalized" };
   }
@@ -133,6 +156,30 @@ export async function finalizeDeliberation(
         deliberation_completed_at: new Date().toISOString(),
       })
       .eq("id", deliberation_id);
+    // Sprint 4 Polish 4 Phase 6: fire webhook for the partial-chain
+    // failure path. No arbitration was computed (the branch above
+    // didn't call arbitrate(outputs)), so we synthesize a minimal
+    // ArbitrationDecision marking the failure cause — same shape the
+    // orchestrator's emptyArbitration helper produces.
+    if (webhookCtx) {
+      const arbitration: ArbitrationDecision = {
+        status: "rejected_low_confidence",
+        reason: errorMessage,
+        devils_advocate_objections_addressed: 0,
+        devils_advocate_objections_unresolved: 0,
+      };
+      await triggerWebhookDelivery(
+        supabase,
+        { deliberation_id, org_id, supabase },
+        arbitration,
+        {
+          anomaly_id: webhookCtx.anomaly_id,
+          asset_id: webhookCtx.asset_id,
+          consequenceProfile: null as ConsequenceProfile | null,
+          total_cost_usd: row.total_cost_usd ?? 0,
+        }
+      );
+    }
     return {
       status: "finalized_partial_chain",
       consensus_level: "unresolved",
@@ -163,6 +210,24 @@ export async function finalizeDeliberation(
       },
     })
     .eq("id", deliberation_id);
+  // Sprint 4 Polish 4 Phase 6: fire webhook for the normal-finalize
+  // recovery path (runDeliberation completed all 6 specialists but
+  // didn't reach its own finalizeLog / inline webhook — e.g., crashed
+  // between specialist 6 and the success block). consequenceProfile
+  // isn't in this minimal finalizer's scope — passed null.
+  if (webhookCtx) {
+    await triggerWebhookDelivery(
+      supabase,
+      { deliberation_id, org_id, supabase },
+      arbitration,
+      {
+        anomaly_id: webhookCtx.anomaly_id,
+        asset_id: webhookCtx.asset_id,
+        consequenceProfile: null as ConsequenceProfile | null,
+        total_cost_usd: row.total_cost_usd ?? 0,
+      }
+    );
+  }
 
   return {
     status: "finalized",

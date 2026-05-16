@@ -350,3 +350,196 @@ describe("cd_causal_chains insert — column mapping (Sprint 3.1 verification)",
     assert.equal(row.failure_path_jsonb, undefined);
   });
 });
+
+// ============================================================
+// Sprint 4 Polish 4 Phase 6 (B3) — finalizeDeliberation's optional
+// webhookCtx param fires the webhook from BOTH genuine-finalize
+// branches (partial-chain failure + normal-finalize). The early
+// no-op branch (deliberation_completed_at already set) does NOT
+// fire — that's by design, so happy-path deliberations don't get
+// a duplicate webhook. The omit-ctx path keeps the existing
+// pre-Phase-6 behavior so legacy callers (including the 6 tests
+// above) work unchanged — backward-compatible.
+// ============================================================
+
+const ORIGINAL_FETCH_FINALIZER = globalThis.fetch;
+const WEBHOOK_URL = "https://webhook-receiver.test/forged-hook";
+const WEBHOOK_SECRET = "phase6-test-secret";
+
+function seedRowWithWebhook(opts: {
+  completed?: boolean;
+  outputs?: SpecialistAnalysis[];
+  total_cost_usd?: number;
+  webhookEnabled?: boolean;
+}) {
+  return makeMockSupabase({
+    cd_deliberation_log: [
+      {
+        id: DELIB,
+        org_id: ORG,
+        finding_id: "anomaly-x",
+        finding_type: "anomaly",
+        deliberation_started_at: new Date(Date.now() - 60000).toISOString(),
+        deliberation_completed_at: opts.completed
+          ? new Date().toISOString()
+          : null,
+        specialist_outputs: opts.outputs ?? [],
+        synthesizer_decision: null,
+        arbitration_rules_applied: {},
+        consensus_level: null,
+        escalated_to_human: false,
+        total_cost_usd: opts.total_cost_usd ?? 0.42,
+      },
+    ],
+    org_feature_flags: [
+      {
+        org_id: ORG,
+        feature_flags: {
+          webhooks: {
+            deliberation_completed: {
+              url: WEBHOOK_URL,
+              secret: WEBHOOK_SECRET,
+              enabled: opts.webhookEnabled ?? true,
+            },
+          },
+        },
+      },
+    ],
+  });
+}
+
+describe("Phase 6 (B3) — finalizeDeliberation optional webhookCtx", () => {
+  let webhookPosts: Array<{ headers: Record<string, string>; body: string }>;
+
+  function installWebhookOnlyFetchMock(status = 200) {
+    webhookPosts = [];
+    process.env.CROSS_DOMAIN_WEBHOOK_RETRY_MS = "1";
+    globalThis.fetch = (async (urlInput: unknown, init?: RequestInit) => {
+      const url = String(urlInput);
+      if (url.includes("webhook-receiver.test")) {
+        webhookPosts.push({
+          headers: (init?.headers ?? {}) as Record<string, string>,
+          body: String(init?.body ?? ""),
+        });
+        return new Response("ok", { status });
+      }
+      // Finalizer should not fetch anything else (it doesn't call any
+      // AI provider; it only reads/writes Supabase, which the mock
+      // intercepts).
+      return new Response(JSON.stringify({ error: "unexpected" }), {
+        status: 500,
+      });
+    }) as typeof fetch;
+  }
+
+  function restoreFetchFn() {
+    globalThis.fetch = ORIGINAL_FETCH_FINALIZER;
+    delete process.env.CROSS_DOMAIN_WEBHOOK_RETRY_MS;
+  }
+
+  it("normal-finalize branch + ctx → webhook fires with payload carrying anomaly_id/asset_id", async () => {
+    installWebhookOnlyFetchMock(200);
+    try {
+      const supabase = seedRowWithWebhook({ outputs: FULL_CHAIN_OUTPUTS });
+      const result = await finalizeDeliberation(
+        DELIB,
+        ORG,
+        supabase as never,
+        { anomaly_id: "anom-1", asset_id: "asset-7" }
+      );
+      assert.equal(result.status, "finalized");
+      assert.equal(
+        webhookPosts.length,
+        1,
+        "webhook must fire from the normal-finalize branch"
+      );
+      const payload = JSON.parse(webhookPosts[0].body);
+      assert.equal(payload.event, "deliberation.completed");
+      assert.equal(payload.deliberation_id, DELIB);
+      assert.equal(payload.anomaly_id, "anom-1");
+      assert.equal(payload.asset_id, "asset-7");
+      // consequenceProfile not in finalizer scope — null is acceptable
+      // and the payload type allows it.
+      assert.equal(payload.recommended_action_tier, null);
+      assert.equal(payload.overall_consequence_tier, null);
+      // total_cost_usd read from the row.
+      assert.equal(payload.total_cost_usd, 0.42);
+    } finally {
+      restoreFetchFn();
+    }
+  });
+
+  it("partial-chain branch + ctx → webhook fires with synthetic failure arbitration", async () => {
+    installWebhookOnlyFetchMock(200);
+    try {
+      // Only 3 outputs → partial-chain branch.
+      const supabase = seedRowWithWebhook({
+        outputs: FULL_CHAIN_OUTPUTS.slice(0, 3),
+      });
+      const result = await finalizeDeliberation(
+        DELIB,
+        ORG,
+        supabase as never,
+        { anomaly_id: "anom-2", asset_id: "asset-8" }
+      );
+      assert.equal(result.status, "finalized_partial_chain");
+      assert.equal(
+        webhookPosts.length,
+        1,
+        "webhook must fire from the partial-chain branch"
+      );
+      const payload = JSON.parse(webhookPosts[0].body);
+      assert.equal(payload.deliberation_id, DELIB);
+      assert.equal(payload.anomaly_id, "anom-2");
+      // consensus_level reflects the failed/unresolved state.
+      assert.equal(payload.consensus_level, "unresolved");
+      assert.equal(payload.escalated_to_human, true);
+    } finally {
+      restoreFetchFn();
+    }
+  });
+
+  it("normal-finalize + NO ctx → webhook does NOT fire (backward compat)", async () => {
+    installWebhookOnlyFetchMock(200);
+    try {
+      const supabase = seedRowWithWebhook({ outputs: FULL_CHAIN_OUTPUTS });
+      // Legacy 3-arg call — no webhookCtx. This is the shape every
+      // pre-Phase-6 caller (including the 6 prior tests in this file)
+      // uses. Must keep working.
+      const result = await finalizeDeliberation(DELIB, ORG, supabase as never);
+      assert.equal(result.status, "finalized");
+      assert.equal(
+        webhookPosts.length,
+        0,
+        "omitting webhookCtx must skip webhook fire — backward compat"
+      );
+    } finally {
+      restoreFetchFn();
+    }
+  });
+
+  it("already_finalized no-op branch → webhook does NOT fire even with ctx (no double-fire)", async () => {
+    installWebhookOnlyFetchMock(200);
+    try {
+      // completed_at already set → early-return noop_already_finalized.
+      const supabase = seedRowWithWebhook({
+        completed: true,
+        outputs: FULL_CHAIN_OUTPUTS,
+      });
+      const result = await finalizeDeliberation(
+        DELIB,
+        ORG,
+        supabase as never,
+        { anomaly_id: "anom-3", asset_id: "asset-9" }
+      );
+      assert.equal(result.status, "noop_already_finalized");
+      assert.equal(
+        webhookPosts.length,
+        0,
+        "no-op branch must NOT fire webhook — prevents double-fire when runDeliberation already fired its own"
+      );
+    } finally {
+      restoreFetchFn();
+    }
+  });
+});
