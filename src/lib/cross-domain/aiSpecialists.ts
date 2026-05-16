@@ -183,10 +183,25 @@ class RetryExhaustedError extends Error {
 }
 
 const OPENAI_RETRYABLE_STATUSES = new Set([500, 502, 503, 504, 529]);
+// Sprint 4 Polish 4 Phase 7: expanded from [529] alone to also retry
+// 500/502/503/504. Deliberation 9c7ab9b9-e8f3-4fdc-92d1-2d0d3b2a1b86
+// (2026-05-14) failed with `synthesizer_failed: anthropic 500: ...
+// Internal server error` during an Anthropic incident window
+// (status.anthropic.com showed elevated 5xx on Opus 4.6/4.7). With
+// only 529 on the list, that 500 went straight to the fatal path —
+// the deliberation lost its synthesizer for a transient upstream
+// blip. 500/502/503/504 are textbook transient server-side failures
+// (Internal Server Error / Bad Gateway / Service Unavailable /
+// Gateway Timeout) and recover on retry. 4xx stays fatal (client
+// errors; retry won't help). 429 left out on purpose — it needs
+// Retry-After header parsing (Phase 8 candidate).
+const ANTHROPIC_RETRYABLE_STATUSES = new Set([500, 502, 503, 504, 529]);
 
 function isRetryable(err: unknown): boolean {
   if (!(err instanceof ProviderHttpError)) return false;
-  if (err.provider === "anthropic") return err.status === 529;
+  if (err.provider === "anthropic") {
+    return ANTHROPIC_RETRYABLE_STATUSES.has(err.status);
+  }
   return OPENAI_RETRYABLE_STATUSES.has(err.status);
 }
 
