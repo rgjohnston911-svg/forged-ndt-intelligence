@@ -9,11 +9,17 @@
 //   GET  /package-store?hash=X   - retrieve a package by hash
 //   GET  /package-store/list     - list recent stored package hashes
 'use strict';
-var blobs;
-try {
-  blobs = require('@netlify/blobs');
-} catch (e) {
-  blobs = null;
+// DEPLOY355 - @netlify/blobs is ESM-only; use dynamic import() instead of require()
+var blobsModule = null;
+async function loadBlobs() {
+  if (blobsModule) return blobsModule;
+  try {
+    blobsModule = await import('@netlify/blobs');
+    return blobsModule;
+  } catch (e) {
+    console.log('[package-store] Failed to import @netlify/blobs: ' + (e.message || e));
+    return null;
+  }
 }
 var crypto = require('crypto');
 var CORS_HEADERS = {
@@ -22,11 +28,13 @@ var CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
 };
 var STORE_NAME = 'pil-package-store';
-function getStore() {
+async function getStore() {
+  var blobs = await loadBlobs();
   if (!blobs || !blobs.getStore) return null;
   try {
     return blobs.getStore(STORE_NAME);
   } catch (e) {
+    console.log('[package-store] Failed to get store: ' + (e.message || e));
     return null;
   }
 }
@@ -44,7 +52,7 @@ function sha256(s) {
   return crypto.createHash('sha256').update(s).digest('hex');
 }
 async function storePackage(pkg) {
-  var store = getStore();
+  var store = await getStore();
   if (!store) {
     return { ok: false, error: 'Package store unavailable', fallback: true };
   }
@@ -69,7 +77,7 @@ async function storePackage(pkg) {
   }
 }
 async function fetchPackage(hash) {
-  var store = getStore();
+  var store = await getStore();
   if (!store) return { ok: false, error: 'Package store unavailable' };
   try {
     var record = await store.get(hash, { type: 'json' });
@@ -80,7 +88,7 @@ async function fetchPackage(hash) {
   }
 }
 async function listPackages(limit) {
-  var store = getStore();
+  var store = await getStore();
   if (!store) return { ok: false, hashes: [] };
   try {
     var list = await store.list();
