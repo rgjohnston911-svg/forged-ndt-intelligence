@@ -25,5 +25,5 @@ npm-debug.log*
 # Netlify
 .netlify/
 
-# Test harnesses
-*.cjs
+# Test harnesses (local-only test scripts in tests/ - production .cjs in netlify/functions/ tracked)
+tests/*.cjs

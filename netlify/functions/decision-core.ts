@@ -460,6 +460,8 @@
 // NO TEMPLATE LITERALS -- STRING CONCATENATION ONLY
 // @ts-nocheck
 import type { Handler, HandlerEvent } from "@netlify/functions";
+// DEPLOY354 - DecisionPackage Assembler for PIL/audit-layer integration
+import decisionPackageAssembler from "./decision-package-assembler.cjs";
 
 // ============================================================================
 // TYPES
@@ -6339,10 +6341,8 @@ var handler: Handler = async function(event: HandlerEvent) {
       ", Inspection=" + inspection.inspection_confidence + ". Overall=" + confidence.overall + " (" + confidence.band + ").";
     if (confidence.limiting_factors.length > 0) confNarr += " Limiting: " + confidence.limiting_factors.join("; ") + ".";
 
-    return {
-      statusCode: 200,
-      headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
-      body: JSON.stringify({
+    // DEPLOY354 - Build response body as variable so we can attach the canonical DecisionPackage
+    var responseBody: any = {
         decision_core: {
           engine_version: "physics-first-decision-core-v2.12.2",
           elapsed_ms: elapsedMs,
@@ -6477,7 +6477,30 @@ var handler: Handler = async function(event: HandlerEvent) {
             decision_trace: decision.decision_trace
           }
         }
-      })
+    };
+
+
+    // DEPLOY354 - Assemble canonical DecisionPackage for PIL / audit-layer consumers.
+    // Defensive: any Assembler failure must NOT break decision-core's existing response.
+    try {
+      var decisionTimestampIso = new Date(startMs + elapsedMs).toISOString();
+      responseBody.decisionPackage = decisionPackageAssembler.assembleDecisionPackage({
+        caseId: (event && event.queryStringParameters && event.queryStringParameters.caseId) || null,
+        decisionTimestamp: decisionTimestampIso,
+        decisionCore: responseBody
+      });
+    } catch (assemblerErr: any) {
+      responseBody.decisionPackageError = {
+        error: assemblerErr.assemblerError || "ASSEMBLER_FAILED",
+        field: assemblerErr.field || null,
+        message: assemblerErr.message || String(assemblerErr)
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+      body: JSON.stringify(responseBody)
     };
   } catch (err: any) {
     return { statusCode: 500, headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
