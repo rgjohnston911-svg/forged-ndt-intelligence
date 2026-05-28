@@ -32,6 +32,12 @@ async function getStore() {
   var blobs = await loadBlobs();
   if (!blobs || !blobs.getStore) return null;
   try {
+    // DEPLOY356 - Try implicit context first; fall back to explicit siteID+token
+    var siteID = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
+    var token = process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN;
+    if (siteID && token) {
+      return blobs.getStore({ name: STORE_NAME, siteID: siteID, token: token });
+    }
     return blobs.getStore(STORE_NAME);
   } catch (e) {
     console.log('[package-store] Failed to get store: ' + (e.message || e));
