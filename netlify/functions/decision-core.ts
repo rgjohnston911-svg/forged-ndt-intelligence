@@ -6025,6 +6025,28 @@ var handler: Handler = async function(event: HandlerEvent) {
     var numVals = parsed.numeric_values || {};
     var lt_handler = transcript.toLowerCase();
 
+    // ============================================================================
+    // DEPLOY365 - Stage 5 of SA build brief. Read sa_responses, validate via
+    // situational-awareness-gate.cjs, hold result for downstream use. Defensive:
+    // any failure leaves saValidatedSet null and the pre-SA code path runs unchanged.
+    // referenceMs = startMs (already captured at handler entry) keeps the gate's
+    // staleness math consistent with the rest of the run.
+    // ============================================================================
+    var saResponses = (body.sa_responses && body.sa_responses.length) ? body.sa_responses : null;
+    var saValidatedSet: any = null;
+    if (saResponses) {
+      try {
+        var saGate = require("./situational-awareness-gate.cjs");
+        saValidatedSet = saGate.validateSet(saResponses, [], startMs);
+      } catch (saErr: any) {
+        saValidatedSet = {
+          error: (saErr && saErr.message) ? saErr.message : "SA_GATE_UNAVAILABLE",
+          validated: [], rejected: [], unresolvedQuestions: [],
+          stats: { submitted: saResponses.length, validated: 0, rejected: 0, criticalUnresolved: 0 }
+        };
+      }
+    }
+
     // DEPLOY182: NPS nominal wall inference
     var npsWallInference = inferNominalWall(transcript, numVals);
     numVals._nps_inference = npsWallInference;
@@ -6397,6 +6419,20 @@ var handler: Handler = async function(event: HandlerEvent) {
       }
     }
 
+    // ============================================================================
+    // DEPLOY365 - Stage 5. SA-driven evidence penalty. Each unresolved CRITICAL
+    // question (per the gate's validateSet output) adds 0.10 to totalPenalty,
+    // capped at +0.30. The EXISTING hard confidence gate (HIGH/CRITICAL tier +
+    // reality_confidence < 0.60) then HOLDs naturally when SA evidence is
+    // missing for critical questions. This is not a new HOLD rule per the
+    // brief's Section 1: it is a new evidence signal feeding the existing math.
+    // ============================================================================
+    if (saValidatedSet && saValidatedSet.stats && saValidatedSet.stats.criticalUnresolved > 0) {
+      var saPenalty = Math.min(0.30, saValidatedSet.stats.criticalUnresolved * 0.10);
+      totalPenalty += saPenalty;
+      contradictions.flags.push("WARNING: " + saValidatedSet.stats.criticalUnresolved + " CRITICAL question(s) unresolved by validated evidence. Confidence reduced by " + saPenalty.toFixed(2) + ".");
+    }
+
     var confidence = computeRealityConfidence(
       physics.physics_confidence, damage.damage_confidence, consequence.consequence_confidence,
       authority.authority_confidence, inspection.inspection_confidence, totalPenalty);
@@ -6580,7 +6616,12 @@ var handler: Handler = async function(event: HandlerEvent) {
             phased_strategy: decision.phased_strategy,
             hard_locks: decision.hard_locks,
             decision_trace: decision.decision_trace
-          }
+          },
+          // DEPLOY365 - Stage 5. ValidatedEvidenceSet from the SA gate. Lives
+          // here at the decision_core level (NOT inside the DecisionPackage)
+          // so DecisionPackage byte-identity is preserved (brief Directive 4).
+          // Absent from the response entirely when sa_responses was not present.
+          validated_evidence_set: saValidatedSet
         }
     };
 
