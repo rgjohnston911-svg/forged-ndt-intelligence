@@ -16,8 +16,8 @@ This is a **pure deterministic projection**. Same inputs → byte-identical outp
 ### 1. NEW — `netlify/functions/situational-awareness-stakeholder.cjs`
 The L9.1 engine. Pure JS (`var` only, string concatenation only, no template literals, no arrow functions, `module.exports`). Exports `projectStakeholders(decisionPackage, validatedEvidenceSet)` returning a `StakeholderRealityView[]` in the fixed role order: `INSPECTOR, ENGINEER, TECHNICIAN, OPS_MANAGER, SAFETY, STUDENT, RELIABILITY, FINANCIAL, LEGAL`.
 
-### 2. NEW — `netlify/functions/situational-awareness-stakeholder.test.cjs`
-The Stage 7 acceptance gate: a pure-function determinism + projection-correctness suite.
+### 2. LOCAL-ONLY — `tests/situational-awareness-stakeholder.test.cjs`
+The Stage 7 acceptance gate: a pure-function determinism + projection-correctness suite. It lives in `tests/`, which is **git-ignored** (`tests/*.cjs`) — test harnesses are local-only by design, exactly like `tests/situational-awareness-gate.test.cjs`. It must NOT live under `netlify/functions/`, because every file there is bundled as a deployable function and a dotted name like `...stakeholder.test` is rejected by the Netlify bundler. Only the engine module (file 1) is committed/deployed.
 
 **No other files change.**
 
@@ -51,15 +51,15 @@ Before pasting anything into the GitHub web editor, run **Ctrl+F → "git pull"*
 ### Step 1 — Add the engine
 Create `netlify/functions/situational-awareness-stakeholder.cjs` with the file in this deploy. Commit.
 
-### Step 2 — Add the test
-Create `netlify/functions/situational-awareness-stakeholder.test.cjs`. Commit.
+### Step 2 — Keep the test local
+Place `tests/situational-awareness-stakeholder.test.cjs` locally. It is git-ignored (`tests/*.cjs`) and is NOT committed — run it locally as the acceptance gate. Do not place it under `netlify/functions/`.
 
 ### Step 3 — No wiring
 Do **not** add any caller. Stage 8 (Conflict Detection) and Stage 9 (Executive Brief) consume these views later; Stage 11 assembles the `SituationalAwarenessPackage`.
 
 ## Acceptance Gate (run locally)
 ```
-node netlify/functions/situational-awareness-stakeholder.test.cjs
+node tests/situational-awareness-stakeholder.test.cjs
 ```
 Expected output:
 ```
