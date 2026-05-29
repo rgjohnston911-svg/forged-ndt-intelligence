@@ -6105,6 +6105,13 @@ var handler: Handler = async function(event: HandlerEvent) {
       if ((_cl_hasB314 || _cl_hasB318 || _cl_hasApi1160) && _cl_hasPipelineTerm) {
         _cl_lockClass = "pipeline";
         _cl_lockReason = "Explicit pipeline code reference (B31.4/B31.8/API 1160) with pipeline term.";
+      } else if (hasWord(lt_handler, "gathering pipeline") || hasWord(lt_handler, "transmission pipeline")) {
+        // DEPLOY360 - Categorical pipeline asset phrases lock to pipeline even without an explicit
+        // transportation code citation. Gathering/transmission pipeline transcripts commonly cite
+        // API 5L (pipe steel material spec) in place of B31.4/B31.8/API 1160, leaving the transportation
+        // code implied by context.
+        _cl_lockClass = "pipeline";
+        _cl_lockReason = "Unambiguous pipeline asset phrase (gathering/transmission pipeline).";
       } else if ((_cl_hasArema || _cl_hasRailBridgeTerm) && _cl_hasBridgeTerm) {
         _cl_lockClass = "rail_bridge";
         _cl_lockReason = "Rail bridge code reference (AREMA or rail-bridge term) with bridge context.";
