@@ -6063,6 +6063,80 @@ var handler: Handler = async function(event: HandlerEvent) {
     }
 
     // ============================================================================
+    // DEPLOY359 - EARLY CODE-BASED CLASSIFICATION LOCK
+    // When the transcript contains explicit engineering code references (ASME B31.3,
+    // API 570, B31.4/B31.8, API 1160, API 650/653/620, API 510, ASME Section I, AREMA,
+    // TEMA) together with matching asset terminology, lock the asset class immediately
+    // and skip the downstream facility-equipment cascade. The downstream cascade keys
+    // on facility-unit names (hydrotreater, hydrocracker, separator/drum, etc.) and
+    // would otherwise force-promote code-precise piping inputs into pressure_vessel.
+    // Patent-compliant: deterministic substring matching, no LLM, no probabilistic
+    // scoring. Code citations are authoritative inspector classifications.
+    // ============================================================================
+    var isCodeLocked = false;
+    if (!isHyperbaricLocked && correctionGuardOpen) {
+      var _cl_hasB313 = hasWord(lt_handler, "b31.3");
+      var _cl_hasApi570 = hasWord(lt_handler, "api 570") || hasWord(lt_handler, "api570");
+      var _cl_hasB314 = hasWord(lt_handler, "b31.4");
+      var _cl_hasB318 = hasWord(lt_handler, "b31.8");
+      var _cl_hasApi1160 = hasWord(lt_handler, "api 1160") || hasWord(lt_handler, "api1160");
+      var _cl_hasApi650 = hasWord(lt_handler, "api 650") || hasWord(lt_handler, "api650");
+      var _cl_hasApi653 = hasWord(lt_handler, "api 653") || hasWord(lt_handler, "api653");
+      var _cl_hasApi620 = hasWord(lt_handler, "api 620") || hasWord(lt_handler, "api620");
+      var _cl_hasApi510 = hasWord(lt_handler, "api 510") || hasWord(lt_handler, "api510");
+      var _cl_hasAsmeSecI = hasWord(lt_handler, "section i ") || hasWord(lt_handler, "section i,") || hasWord(lt_handler, "section i.");
+      var _cl_hasArema = hasWord(lt_handler, "arema");
+      var _cl_hasTema = hasWord(lt_handler, "tema");
+      var _cl_hasPipingTerm = hasWord(lt_handler, "piping") || hasWord(lt_handler, "pipe ") || hasWord(lt_handler, "header") || hasWord(lt_handler, "process piping");
+      var _cl_hasPipelineTerm = hasWord(lt_handler, "pipeline") || hasWord(lt_handler, "transmission line");
+      var _cl_hasBoilerTerm = hasWord(lt_handler, "boiler") || hasWord(lt_handler, "water-tube") || hasWord(lt_handler, "water tube") || hasWord(lt_handler, "fire-tube") || hasWord(lt_handler, "fire tube") || hasWord(lt_handler, "steam drum") || hasWord(lt_handler, "superheater") || hasWord(lt_handler, "economizer");
+      var _cl_hasStorageTankTerm = hasWord(lt_handler, "storage tank") || hasWord(lt_handler, "aboveground") || hasWord(lt_handler, "atmospheric storage") || hasWord(lt_handler, "ast ");
+      var _cl_hasBridgeTerm = hasWord(lt_handler, "bridge") || hasWord(lt_handler, "span") || hasWord(lt_handler, "truss") || hasWord(lt_handler, "girder");
+      var _cl_hasRailBridgeTerm = hasWord(lt_handler, "rail bridge") || hasWord(lt_handler, "railway bridge") || hasWord(lt_handler, "railroad bridge");
+      var _cl_hasVesselConstructTerm = hasWord(lt_handler, "vessel") || hasWord(lt_handler, "column") || hasWord(lt_handler, "tower") || hasWord(lt_handler, "drum") || hasWord(lt_handler, "absorber") || hasWord(lt_handler, "stripper") || hasWord(lt_handler, "separator") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "tan-tan") || hasWord(lt_handler, "tan tan");
+      var _cl_hasHxTerm = hasWord(lt_handler, "heat exchanger") || hasWord(lt_handler, "shell-and-tube") || hasWord(lt_handler, "shell and tube") || (hasWord(lt_handler, "exchanger") && (hasWord(lt_handler, "shell side") || hasWord(lt_handler, "tube side") || hasWord(lt_handler, "tubesheet") || hasWord(lt_handler, "tube bundle") || hasWord(lt_handler, "u-tube") || hasWord(lt_handler, "u-bend")));
+
+      // Priority order: pipeline > rail_bridge > heat_exchanger > boiler > storage_tank > piping > pressure_vessel.
+      // The more specific class wins. Heat exchanger beats pressure_vessel because TEMA evidence is specific.
+      // Piping beats pressure_vessel even when offshore/facility context is present (code citation outranks
+      // geographic/facility heuristics).
+      var _cl_lockClass = null;
+      var _cl_lockReason = "";
+      if ((_cl_hasB314 || _cl_hasB318 || _cl_hasApi1160) && _cl_hasPipelineTerm) {
+        _cl_lockClass = "pipeline";
+        _cl_lockReason = "Explicit pipeline code reference (B31.4/B31.8/API 1160) with pipeline term.";
+      } else if ((_cl_hasArema || _cl_hasRailBridgeTerm) && _cl_hasBridgeTerm) {
+        _cl_lockClass = "rail_bridge";
+        _cl_lockReason = "Rail bridge code reference (AREMA or rail-bridge term) with bridge context.";
+      } else if (_cl_hasTema || _cl_hasHxTerm) {
+        _cl_lockClass = "heat_exchanger";
+        _cl_lockReason = "TEMA or heat-exchanger construction terms (shell-and-tube, tubesheet, U-tube/U-bend).";
+      } else if (_cl_hasAsmeSecI && _cl_hasBoilerTerm) {
+        _cl_lockClass = "boiler";
+        _cl_lockReason = "ASME Section I with boiler/steam term.";
+      } else if ((_cl_hasApi650 || _cl_hasApi653 || _cl_hasApi620) && _cl_hasStorageTankTerm) {
+        _cl_lockClass = "storage_tank";
+        _cl_lockReason = "API 650/653/620 storage tank code with storage tank term.";
+      } else if ((_cl_hasB313 || _cl_hasApi570) && _cl_hasPipingTerm) {
+        _cl_lockClass = "piping";
+        _cl_lockReason = "Explicit piping code reference (ASME B31.3 or API 570) with piping term.";
+      } else if (_cl_hasApi510 && _cl_hasVesselConstructTerm) {
+        _cl_lockClass = "pressure_vessel";
+        _cl_lockReason = "API 510 vessel inspection code with vessel construction term.";
+      }
+
+      if (_cl_lockClass) {
+        var _cl_startingClass = asset.asset_class || "unknown";
+        if (assetClass !== _cl_lockClass) {
+          assetClass = _cl_lockClass;
+          assetCorrected = (_cl_startingClass !== _cl_lockClass);
+          assetCorrectionReason = "DEPLOY359 code-based lock: " + _cl_lockReason;
+        }
+        isCodeLocked = true;
+      }
+    }
+
+    // ============================================================================
     // DEPLOY115: STRUCTURAL DOMAIN LOCK
     // ============================================================================
     var isStructuralLocked = false;
@@ -6112,29 +6186,31 @@ var handler: Handler = async function(event: HandlerEvent) {
       }
     }
 
-    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && (hasWord(lt_handler, "hydrocracker") || hasWord(lt_handler, "hydrotreater") || hasWord(lt_handler, "reactor vessel") || hasWord(lt_handler, "delayed coker"))) {
+    if (!isHyperbaricLocked && !isStructuralLocked && !isCodeLocked && correctionGuardOpen && (hasWord(lt_handler, "hydrocracker") || hasWord(lt_handler, "hydrotreater") || hasWord(lt_handler, "reactor vessel") || hasWord(lt_handler, "delayed coker"))) {
       if (assetClass !== "pressure_vessel") {
         assetClass = "pressure_vessel";
         assetCorrected = true;
         assetCorrectionReason = "Transcript describes process reactor/hydrocracker. Overriding to pressure_vessel.";
       }
     }
-    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && (hasWord(lt_handler, "boiler") || hasWord(lt_handler, "steam drum") || hasWord(lt_handler, "economizer"))) {
-      if (assetClass !== "pressure_vessel" && assetClass !== "boiler") {
-        assetClass = "pressure_vessel";
+    if (!isHyperbaricLocked && !isStructuralLocked && !isCodeLocked && correctionGuardOpen && (hasWord(lt_handler, "boiler") || hasWord(lt_handler, "steam drum") || hasWord(lt_handler, "economizer"))) {
+      if (assetClass !== "boiler" && assetClass !== "pressure_vessel") {
+        // DEPLOY359 - boiler/steam equipment promotes to boiler (its own supported domain),
+        // not pressure_vessel. Boiler has a distinct authority chain (ASME Section I + NBIC).
+        assetClass = "boiler";
         assetCorrected = true;
-        assetCorrectionReason = "Transcript describes boiler/steam equipment. Overriding to pressure_vessel.";
+        assetCorrectionReason = "Transcript describes boiler/steam equipment. Overriding to boiler.";
       }
     }
     // DEPLOY120: SEPARATOR/DRUM -> PRESSURE VESSEL
-    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && (hasWord(lt_handler, "separator") || hasWord(lt_handler, "knockout drum") || hasWord(lt_handler, "flash drum") || hasWord(lt_handler, "surge drum") || hasWord(lt_handler, "accumulator") || (hasWord(lt_handler, "vessel") && !hasWord(lt_handler, "pipe") && !hasWord(lt_handler, "piping") && !hasWord(lt_handler, "line")))) {
+    if (!isHyperbaricLocked && !isStructuralLocked && !isCodeLocked && correctionGuardOpen && (hasWord(lt_handler, "separator") || hasWord(lt_handler, "knockout drum") || hasWord(lt_handler, "flash drum") || hasWord(lt_handler, "surge drum") || hasWord(lt_handler, "accumulator") || (hasWord(lt_handler, "vessel") && !hasWord(lt_handler, "pipe") && !hasWord(lt_handler, "piping") && !hasWord(lt_handler, "line")))) {
       if (assetClass !== "pressure_vessel") {
         assetClass = "pressure_vessel";
         assetCorrected = true;
         assetCorrectionReason = "Transcript describes separator/drum/vessel equipment. Overriding to pressure_vessel.";
       }
     }
-    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && (hasWord(lt_handler, "pipe") || hasWord(lt_handler, "piping") || hasWord(lt_handler, "pipeline")) && assetClass !== "piping" && assetClass !== "pipeline") {
+    if (!isHyperbaricLocked && !isStructuralLocked && !isCodeLocked && correctionGuardOpen && (hasWord(lt_handler, "pipe") || hasWord(lt_handler, "piping") || hasWord(lt_handler, "pipeline")) && assetClass !== "piping" && assetClass !== "pipeline") {
       if (assetClass === "unknown" || assetClass === "bridge_concrete" || assetClass === "bridge") {
         assetClass = "piping";
         assetCorrected = true;
@@ -6157,7 +6233,7 @@ var handler: Handler = async function(event: HandlerEvent) {
     // omitted bridge/rail_bridge/offshore_platform -- those classes are
     // protected upstream by the structural lock so the unification is safe
     // and eliminates list-drift risk.
-    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && assetClass !== "piping" && assetClass !== "pipeline") {
+    if (!isHyperbaricLocked && !isStructuralLocked && !isCodeLocked && correctionGuardOpen && assetClass !== "piping" && assetClass !== "pipeline") {
       var hasLineWord = hasWord(lt_handler, "line") || hasWord(lt_handler, "pipe") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || hasWord(lt_handler, "tubing");
       var hasProcessContext = hasWord(lt_handler, "amine") || hasWord(lt_handler, "steam") || hasWord(lt_handler, "process") || hasWord(lt_handler, "sour") || hasWord(lt_handler, "flare") || hasWord(lt_handler, "condensate") || hasWord(lt_handler, "caustic") || hasWord(lt_handler, "hydrogen") || hasWord(lt_handler, "header") || hasWord(lt_handler, "elbow") || (lt_handler.indexOf(" tee ") !== -1 || lt_handler.indexOf(" tee,") !== -1 || lt_handler.indexOf(" tee.") !== -1 || lt_handler.indexOf("pipe tee") !== -1) || hasWord(lt_handler, "reducer") || hasWord(lt_handler, "dead leg") || hasWord(lt_handler, "hydro") || hasWord(lt_handler, "intrados") || hasWord(lt_handler, "downstream") || hasWord(lt_handler, "upstream") || hasWord(lt_handler, "propane") || hasWord(lt_handler, "lpg") || hasWord(lt_handler, "ngl") || hasWord(lt_handler, "butane") || hasWord(lt_handler, "ethylene") || hasWord(lt_handler, "carbon steel") || hasWord(lt_handler, "psi") || hasWord(lt_handler, "inch") || hasWord(lt_handler, "weld") || hasWord(lt_handler, "insulation") || hasWord(lt_handler, "support") || hasWord(lt_handler, "flow");
       var hasVesselEvidence = hasWord(lt_handler, "vessel") || hasWord(lt_handler, "drum") || hasWord(lt_handler, "tank") || hasWord(lt_handler, "shell side") || hasWord(lt_handler, "tube side") || hasWord(lt_handler, "head") && hasWord(lt_handler, "shell") || hasWord(lt_handler, "nozzle") && !hasWord(lt_handler, "pipe nozzle");
@@ -6167,7 +6243,7 @@ var handler: Handler = async function(event: HandlerEvent) {
         assetCorrectionReason = "Field language indicates piping (process line/pipe + no vessel evidence). Overriding upstream classification (" + (asset.asset_class || "unknown") + ") to piping.";
       }
     }
-    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && (hasWord(lt_handler, "storage tank") || hasWord(lt_handler, "aboveground storage") || hasWord(lt_handler, "aboveground tank")) && assetClass !== "tank") {
+    if (!isHyperbaricLocked && !isStructuralLocked && !isCodeLocked && correctionGuardOpen && (hasWord(lt_handler, "storage tank") || hasWord(lt_handler, "aboveground storage") || hasWord(lt_handler, "aboveground tank")) && assetClass !== "tank") {
       assetClass = "tank";
       assetCorrected = true;
       assetCorrectionReason = "Transcript describes storage tank.";
@@ -6177,7 +6253,7 @@ var handler: Handler = async function(event: HandlerEvent) {
     // smoking gun in the nuclear PWR validation scenario -- "Pressurized Water
     // Reactor" matched hasWord("reactor") and silently rewrote nuclear_vessel
     // to pressure_vessel, bypassing the SUPPORTED_DOMAINS gate.
-    if (!isHyperbaricLocked && !isStructuralLocked && correctionGuardOpen && assetClass !== "piping" && assetClass !== "pipeline" && (hasWord(lt_handler, "pressure vessel") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "heat exchanger") || hasWord(lt_handler, "autoclave")) && assetClass !== "pressure_vessel") {
+    if (!isHyperbaricLocked && !isStructuralLocked && !isCodeLocked && correctionGuardOpen && assetClass !== "piping" && assetClass !== "pipeline" && (hasWord(lt_handler, "pressure vessel") || hasWord(lt_handler, "reactor") || hasWord(lt_handler, "autoclave")) && assetClass !== "pressure_vessel") {
       assetClass = "pressure_vessel";
       assetCorrected = true;
       assetCorrectionReason = "Transcript describes pressure equipment. Overriding to pressure_vessel.";
