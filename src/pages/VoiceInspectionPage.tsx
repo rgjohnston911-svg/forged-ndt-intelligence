@@ -1340,6 +1340,12 @@ export default function VoiceInspectionPage() {
   // the value persists across renders without triggering one and is read/
   // written synchronously by handleGenerate / handleGenerateWithAnswers.
   var originalTranscriptHashRef = useRef<string | null>(null);
+  // DEPLOY364-fix. sa_responses[] originated by handleGenerateWithAnswers and
+  // consumed by continuePipeline (where the decision-core POST lives). Ref
+  // because continuePipeline is a sibling function at component scope, not
+  // nested inside handleGenerate, so handleGenerate's saResponsesOverride
+  // parameter is not in continuePipeline's closure. The ref bridges them.
+  var saResponsesRef = useRef<any[]>([]);
   var [isGenerating, setIsGenerating] = useState(false);
   var [steps, setSteps] = useState<StepState[]>([]);
   var [evidenceConfirmPending, setEvidenceConfirmPending] = useState(false);
@@ -1945,6 +1951,11 @@ export default function VoiceInspectionPage() {
     if (!saResponsesOverride) {
       originalTranscriptHashRef.current = transcriptHash(inputText);
     }
+    // DEPLOY364-fix. Stash sa_responses in a ref so continuePipeline (which
+    // owns the decision-core POST) can read it after the pipeline resumes.
+    // Stage 5 will start honoring this field server-side; today the backend
+    // ignores it, which is harmless to existing decision-core logic.
+    saResponsesRef.current = saResponsesOverride || [];
     setIsGenerating(true); setPipelinePaused(false); setEvidenceConfirmPending(false);
     setPreliminaryEvidence(null); setErrors([]);
     setParsed(null); setAsset(null); setRealityLock(null);
@@ -2139,10 +2150,11 @@ export default function VoiceInspectionPage() {
           authority_lock: localAuthResult,
           // DEPLOY364 - Stage 4 sibling field. Carries typed sa_responses[]
           // (EvidenceEntry envelopes per brief Appendix B) when the call
-          // originated from handleGenerateWithAnswers. The backend will start
-          // honoring this field in Stage 5 (DEPLOY365); for now it is sent
-          // and ignored, which is harmless to existing decision-core logic.
-          sa_responses: saResponsesOverride || []
+          // originated from handleGenerateWithAnswers. Read from the ref
+          // because this call lives inside continuePipeline, a sibling
+          // function that does not close over handleGenerate's parameters.
+          // Stage 5 will start honoring this field server-side.
+          sa_responses: saResponsesRef.current
         });
         coreResult = coreRes.decision_core || coreRes;
         setDecisionCore(coreResult);
