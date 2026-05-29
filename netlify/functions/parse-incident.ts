@@ -1,32 +1,39 @@
-// DEPLOY362 - Stage 2 of SA build brief.
-// Augments DEPLOY84b Universal AI Incident Parser v3.1 with deterministic
-// typing of LLM-emitted questions per docs/FORGED_SA_BUILD_BRIEF.md.
+// DEPLOY363 - Stage 3 of SA build brief.
+// Adds deterministic inspection-scope detection to DEPLOY362's question typer
+// so CRITICAL questions incompatible with the detected scope are diverted out
+// of the frontend response and into an audit-visible dropped_questions[] list.
+// Resolves the brief's "routine-UT-survey false-HOLD" failure mode: a routine
+// thickness survey is no longer asked "is there an active leak?" merely
+// because the LLM emits such a question by default.
 //
 // Behavior change (additive only):
-//   * After the LLM returns need_more_info questions, a pure-JS post-processor
-//     stamps each question with decisionImpact, allowedProvenances, questionId,
-//     and a typedOptions[] array. Legacy fields (question, why, options[]) are
-//     preserved exactly — pre-SA frontend renders identically.
-//   * Options matching the Non-Evidence Token Registry from
-//     situational-awareness-gate.cjs are filtered out of BOTH legacy options[]
-//     and typedOptions[] so a user/stakeholder cannot click "Unknown" / "N/A"
-//     / "TBD" / etc. and have it accepted as evidence.
+//   * New helper classifyInspectionScope(transcript) returns one of:
+//     INCIDENT_RESPONSE, FFS_ASSESSMENT, COMMISSIONING, ROUTINE_SURVEY,
+//     UNKNOWN. Pure function over the transcript text.
+//   * New helper dropOutOfScopeCritical(rawQuestions, scope) runs BEFORE the
+//     Stage 2 typer. Any question that classifies as CRITICAL AND falls
+//     inside the scope's drop list is removed from the frontend questions[]
+//     and surfaced in a separate dropped_questions[] array with audit info.
+//   * response_body.inspection_scope is always populated when the LLM took
+//     the need_more_info path (so the frontend can surface the scope to the
+//     reviewer).
+//   * response_body.dropped_questions is populated ONLY when at least one
+//     CRITICAL question was dropped (otherwise the field is absent so the
+//     common-case response shape is unchanged).
 //
 // What this is NOT:
-//   * LLM-generated typing. The typer is deterministic. The LLM produces
-//     question text and option text; the typer scores impact and provenance.
-//   * A modification to the LLM prompt or the LLM call. Both unchanged.
-//   * A change to non-question response paths (status: "interpreted"). Those
-//     paths produce byte-for-byte identical output.
+//   * A change to Stage 2's typeQuestions(). Same signature, same return shape.
+//   * A change to the LLM prompt or the LLM call.
+//   * A change to non-question response paths (status: "interpreted").
 //
 // Patent compliance:
-//   * Claim 1(ii) determinism: typer is a pure function over question text.
-//   * Claim 1(iv) provenance non-increase: gate's isNonEvidenceToken filter
-//     prevents non-evidence values from being structurally rendered as
-//     clickable evidence-emitting options.
-//   * Claim 1(ix) LLM synthesis-only: the LLM emits candidate questions but
-//     does not assert provenance, impact, or source; those are stamped by the
-//     deterministic post-processor.
+//   * Claim 1(ii) determinism: scope classifier and drop filter are pure
+//     functions over input text. No clock, no random, no LLM.
+//   * Claim 1(v) reality-confidence-gated disposition: by NOT emitting an
+//     out-of-scope CRITICAL question, the downstream gate is no longer asked
+//     to HOLD on a question that has nothing to do with the inspection. The
+//     existing gate's behavior is unchanged; we are simply scoping the
+//     question surface correctly upstream, as the brief mandates.
 //
 // NO TEMPLATE LITERALS - STRING CONCATENATION ONLY
 
@@ -50,7 +57,7 @@ try {
 }
 
 // ----------------------------------------------------------------------------
-// DETERMINISTIC QUESTION TYPER (Stage 2)
+// DETERMINISTIC QUESTION TYPER (Stage 2, DEPLOY362)
 // ----------------------------------------------------------------------------
 
 // Classify a question's decision impact from its text. Pure function.
@@ -191,6 +198,144 @@ function typeQuestions(rawQuestions: any): any[] {
     });
   }
   return typed;
+}
+
+// ----------------------------------------------------------------------------
+// INSPECTION-SCOPE CLASSIFIER + SCOPE-AWARE DROP FILTER (Stage 3, DEPLOY363)
+// ----------------------------------------------------------------------------
+
+// Classify the inspection scope from transcript text. Pure function.
+// Precedence: INCIDENT_RESPONSE > FFS_ASSESSMENT > COMMISSIONING >
+// ROUTINE_SURVEY > UNKNOWN (conservative default keeps all CRITICAL questions).
+function classifyInspectionScope(transcript: string): string {
+  if (!transcript) { return "UNKNOWN"; }
+  var lt = String(transcript).toLowerCase();
+
+  // INCIDENT_RESPONSE: any incident signal trumps everything else. Every
+  // CRITICAL question stays in play because the inspection exists to answer
+  // them.
+  var incident = [
+    "incident", "emergency", "leak detected", "leak confirmed",
+    "active leak", "spill", "rupture", "release event",
+    "anomaly observed", "anomaly detected", "anomaly identified",
+    "unexpected pressure decline", "unexpected pressure drop",
+    "hydrocarbon sheen", "sheen observed", "smoke observed",
+    "fire incident", "explosion", "blast",
+    "boat hit", "vessel struck", "impact damage", "dropped object",
+    "overpressure event", "exceedance", "high temp excursion",
+    "process upset", "trip event"
+  ];
+  for (var ii = 0; ii < incident.length; ii++) {
+    if (lt.indexOf(incident[ii]) !== -1) { return "INCIDENT_RESPONSE"; }
+  }
+
+  // FFS_ASSESSMENT: explicit fitness-for-service assessment work.
+  var ffs = [
+    "api 579", "api 579-1", "asme ffs-1",
+    "fitness for service", "fitness-for-service", "ffs assessment",
+    "ffs level 1", "ffs level 2", "ffs level 3",
+    "rbi reevaluation", "rbi re-evaluation", "rbi re evaluation",
+    "post-degradation evaluation", "remaining strength evaluation"
+  ];
+  for (var fi = 0; fi < ffs.length; fi++) {
+    if (lt.indexOf(ffs[fi]) !== -1) { return "FFS_ASSESSMENT"; }
+  }
+
+  // COMMISSIONING: pre-service inspection / new construction.
+  var commission = [
+    "new construction", "commissioning", "pre-service inspection",
+    "pre service inspection", "pre-startup inspection",
+    "hydrostatic test", "hydro test", "post-fabrication",
+    "shop fabrication", "as-built inspection", "newly installed",
+    "first inspection after install"
+  ];
+  for (var ci = 0; ci < commission.length; ci++) {
+    if (lt.indexOf(commission[ci]) !== -1) { return "COMMISSIONING"; }
+  }
+
+  // ROUTINE_SURVEY: scheduled / periodic / CML / in-service inspection.
+  var routine = [
+    "routine inspection", "scheduled inspection", "periodic inspection",
+    "annual inspection", "quarterly inspection", "monthly inspection",
+    "cml grid", "cml readings", "cml established",
+    "ut survey", "ut thickness survey", "thickness monitoring",
+    "in-service inspection", "rbi inspection", "turnaround inspection",
+    "external inspection per api 510", "external inspection per api 570",
+    "ut readings on cml", "scheduled ut", "scheduled mt", "scheduled pt"
+  ];
+  for (var ri = 0; ri < routine.length; ri++) {
+    if (lt.indexOf(routine[ri]) !== -1) { return "ROUTINE_SURVEY"; }
+  }
+
+  return "UNKNOWN";
+}
+
+// Per-scope drop list. For each inspection scope, this is the set of question
+// text fragments (case-insensitive) that mark a CRITICAL question as out of
+// scope. Empty list means "keep all CRITICAL questions" — which is the safe
+// default for INCIDENT_RESPONSE, FFS_ASSESSMENT, and UNKNOWN.
+var SCOPE_DROP_CRITICAL: { [key: string]: string[] } = {
+  ROUTINE_SURVEY: [
+    "active leak", "is there a leak", "is there an active",
+    "ongoing leak", "leak detected",
+    "imminent rupture", "is the asset about to rupture",
+    "should we evacuate", "evacuation",
+    "shutdown immediately", "is the unit safe to operate",
+    "fire risk", "ignition risk"
+  ],
+  COMMISSIONING: [
+    "active leak", "is there a leak", "ongoing leak",
+    "operational impact", "production loss",
+    "shutdown immediately", "fatigue margin", "remaining life"
+  ],
+  INCIDENT_RESPONSE: [],
+  FFS_ASSESSMENT: [],
+  UNKNOWN: []
+};
+
+// Check whether a CRITICAL question is in scope for the given inspection
+// scope. Pure function. If the scope has no drop list (e.g., UNKNOWN), the
+// question is in scope. If any drop-list keyword is a substring of the
+// lowercased question text, the question is out of scope.
+function isQuestionInScope(qt: string, scope: string): boolean {
+  if (!qt || !scope) { return true; }
+  var dropList = SCOPE_DROP_CRITICAL[scope];
+  if (!dropList || !dropList.length) { return true; }
+  var lt = String(qt).toLowerCase();
+  for (var di = 0; di < dropList.length; di++) {
+    if (lt.indexOf(dropList[di]) !== -1) { return false; }
+  }
+  return true;
+}
+
+// Pre-typer scope filter. Walks the raw question list, classifies each
+// question's decision impact, and diverts CRITICAL-impact questions that are
+// out of scope into a separate dropped list. Pure function; never mutates
+// input.
+function dropOutOfScopeCritical(rawQuestions: any, scope: string): any {
+  var kept: any[] = [];
+  var dropped: any[] = [];
+  if (!rawQuestions || !rawQuestions.length) {
+    return { kept: kept, dropped: dropped };
+  }
+  for (var qi = 0; qi < rawQuestions.length; qi++) {
+    var rq = rawQuestions[qi];
+    if (!rq || typeof rq !== "object") { continue; }
+    var qt = rq.question || "";
+    var impact = classifyDecisionImpact(qt);
+    if (impact === "CRITICAL" && !isQuestionInScope(qt, scope)) {
+      dropped.push({
+        questionId: buildQuestionId(qt),
+        question: qt,
+        decisionImpact: "CRITICAL",
+        scope: scope,
+        reason: "CRITICAL_OUT_OF_SCOPE"
+      });
+    } else {
+      kept.push(rq);
+    }
+  }
+  return { kept: kept, dropped: dropped };
 }
 
 // ----------------------------------------------------------------------------
@@ -444,16 +589,26 @@ var handler = async function(event: any): Promise<any> {
       response_body.ai_error = ai_error;
     }
 
-    // If AI said need_more_info, flag it. DEPLOY362: run the LLM-emitted
-    // questions through the deterministic typer before exposing them on the
-    // response body. The typer adds decisionImpact / allowedProvenances /
-    // typedOptions / questionId and filters Non-Evidence Token options.
-    // Legacy frontend (DEPLOY361 and earlier) reads only the legacy fields
-    // (question, why, options[]) and behaves identically.
+    // If AI said need_more_info, flag it. Pipeline:
+    //   DEPLOY363 Stage 3: classifyInspectionScope -> dropOutOfScopeCritical
+    //                      diverts CRITICAL questions incompatible with the
+    //                      inspection scope into dropped_questions[].
+    //   DEPLOY362 Stage 2: typeQuestions stamps the remaining questions with
+    //                      typed envelope fields (decisionImpact,
+    //                      allowedProvenances, typedOptions, questionId) and
+    //                      filters Non-Evidence Token options.
+    //   Legacy frontend reads only question/why/options[] and behaves
+    //   identically to pre-SA versions.
     if (ai_interpretation && ai_interpretation.status === "need_more_info") {
+      var inspection_scope = classifyInspectionScope(transcript);
+      var scope_filter = dropOutOfScopeCritical(ai_interpretation.questions || [], inspection_scope);
       response_body.needs_input = true;
-      response_body.questions = typeQuestions(ai_interpretation.questions || []);
+      response_body.questions = typeQuestions(scope_filter.kept);
       response_body.understood = ai_interpretation.understood_so_far || "";
+      response_body.inspection_scope = inspection_scope;
+      if (scope_filter.dropped.length > 0) {
+        response_body.dropped_questions = scope_filter.dropped;
+      }
     }
 
     // If AI gave full interpretation, extract asset info for resolve-asset compatibility
