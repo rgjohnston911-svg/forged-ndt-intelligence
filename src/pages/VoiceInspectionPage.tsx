@@ -1072,6 +1072,23 @@ async function callAPI(endpoint: string, body: any): Promise<any> {
   return res.json();
 }
 
+// DEPLOY364 - Stage 4 of SA build brief. Deterministic stable hash of the
+// transcript string. Used by handleGenerate / handleGenerateWithAnswers to
+// enforce the brief's Section 2A invariant: the transcript is immutable
+// input. Any re-gen whose transcript does not hash to the value captured at
+// the original Analyze submission is rejected (fail loud, do not submit).
+// Not a cryptographic hash; purely a tamper-detection fingerprint with
+// sufficient collision resistance for transcript-length strings.
+function transcriptHash(s: string): string {
+  if (!s) { return "h-empty"; }
+  var hash = 0;
+  for (var i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash) + s.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return "h-" + (hash >>> 0).toString(36);
+}
+
 var SUPABASE_URL = "https://lrxwirjcuzultolomnos.supabase.co";
 var SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxyeHdpcmpjdXp1bHRvbG9tbm9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwNzQ1NjcsImV4cCI6MjA5MDY1MDU2N30.oVGJybVpR2ktkHWMXsNeVFkBB7QFzfpp9QyIk00zwUU";
 
@@ -1317,6 +1334,12 @@ function EvidenceConfirmationCard({ evidence, onConfirm, onSkip, isGenerating }:
 
 export default function VoiceInspectionPage() {
   var [transcript, setTranscript] = useState("");
+  // DEPLOY364 - Stage 4. Captures transcript hash at the original Analyze
+  // submission so handleGenerateWithAnswers can detect any code path that
+  // mutates the transcript before re-submit. useRef (not useState) because
+  // the value persists across renders without triggering one and is read/
+  // written synchronously by handleGenerate / handleGenerateWithAnswers.
+  var originalTranscriptHashRef = useRef<string | null>(null);
   var [isGenerating, setIsGenerating] = useState(false);
   var [steps, setSteps] = useState<StepState[]>([]);
   var [evidenceConfirmPending, setEvidenceConfirmPending] = useState(false);
@@ -1910,9 +1933,18 @@ export default function VoiceInspectionPage() {
     var next = current.slice(); next[idx] = Object.assign({}, next[idx], updates); return next;
   }
 
-  async function handleGenerate(transcriptOverride?: string) {
+  async function handleGenerate(transcriptOverride?: string, saResponsesOverride?: any[]) {
     var inputText = transcriptOverride || transcript;
     if (!inputText.trim()) return;
+    // DEPLOY364 - Stage 4 of SA build brief. Capture the transcript hash on a
+    // fresh Analyze (no SA responses provided). When handleGenerateWithAnswers
+    // re-invokes us with saResponsesOverride, the ref retains the original-
+    // submit hash so the re-gen's transcript can be compared against it for
+    // tamper detection. Subsequent re-gens do not recapture, preserving the
+    // baseline until the user clicks Analyze again with a fresh transcript.
+    if (!saResponsesOverride) {
+      originalTranscriptHashRef.current = transcriptHash(inputText);
+    }
     setIsGenerating(true); setPipelinePaused(false); setEvidenceConfirmPending(false);
     setPreliminaryEvidence(null); setErrors([]);
     setParsed(null); setAsset(null); setRealityLock(null);
@@ -2104,7 +2136,13 @@ export default function VoiceInspectionPage() {
         var coreRes = await callAPI("decision-core", {
           parsed: parsedResult, asset: assetResult, confirmed_flags: confirmedFlags,
           transcript: inputText, reality_lock: realityLock, evidence_provenance: provenanceData,
-          authority_lock: localAuthResult
+          authority_lock: localAuthResult,
+          // DEPLOY364 - Stage 4 sibling field. Carries typed sa_responses[]
+          // (EvidenceEntry envelopes per brief Appendix B) when the call
+          // originated from handleGenerateWithAnswers. The backend will start
+          // honoring this field in Stage 5 (DEPLOY365); for now it is sent
+          // and ignored, which is harmless to existing decision-core logic.
+          sa_responses: saResponsesOverride || []
         });
         coreResult = coreRes.decision_core || coreRes;
         setDecisionCore(coreResult);
@@ -2256,10 +2294,59 @@ export default function VoiceInspectionPage() {
   function handleConfirmEvidence(confirmed: any) { continuePipeline(confirmed); }
   function handleSkipEvidence() { continuePipeline(null); }
   function handleGenerateWithAnswers() {
-    var answers = Object.values(selectedAnswers).join(". ") + ".";
-    var enriched = transcript + " " + answers;
-    setTranscript(enriched); setAiQuestions(null); setSelectedAnswers({}); setPipelinePaused(false);
-    handleGenerate(enriched);
+    // DEPLOY364 - Stage 4 of SA build brief. Rebuilds the SA-flow re-generation
+    // around typed sa_responses[] per the brief's Appendix B contract.
+    //
+    // Differences from the legacy approach (pre-DEPLOY364):
+    //   * Transcript is NEVER mutated. Form answers travel as a typed sibling
+    //     field (sa_responses) instead of being concatenated to the transcript.
+    //   * Each answer is a typed EvidenceEntry. Form clicks surface with
+    //     source=STAKEHOLDER_OPINION, provenance=REPORTED - which the backend
+    //     gate (DEPLOY361) treats correctly (cannot resolve CRITICAL).
+    //   * Non-Evidence Token answers ("Unknown", "N/A", etc.) are dropped
+    //     client-side as defense in depth; the backend gate also rejects them.
+    //   * Transcript-hash invariant (brief Section 2A): before re-submit,
+    //     assert that the current transcript still hashes to the value
+    //     captured at the original Analyze submission. Fail loud if they
+    //     differ. This catches any code path that tries to mutate the
+    //     transcript (the root cause of the NDT TEST 2 bug class).
+    var sa_responses: any[] = [];
+    if (aiQuestions && Array.isArray(aiQuestions)) {
+      for (var qi = 0; qi < aiQuestions.length; qi++) {
+        var q = aiQuestions[qi];
+        var qKey = "q" + qi;
+        var ans = (selectedAnswers as any)[qKey];
+        if (!ans || typeof ans !== "string") continue;
+        var ansTrim = ans.trim();
+        if (!ansTrim) continue;
+        var lower = ansTrim.toLowerCase();
+        if (lower === "unknown" || lower === "n/a" || lower === "na" || lower === "none" ||
+            lower === "not sure" || lower === "tbd" || lower === "?" || lower === "-") continue;
+        sa_responses.push({
+          questionId: (q && q.questionId) ? q.questionId : ("q-legacy-" + qi),
+          questionText: (q && q.question) ? q.question : "",
+          questionDecisionImpact: (q && q.decisionImpact) ? q.decisionImpact : "MEDIUM",
+          answerValue: ansTrim,
+          answerSource: "STAKEHOLDER_OPINION",
+          answerProvenance: "REPORTED"
+        });
+      }
+    }
+    // Transcript-hash invariant (brief Section 2A).
+    var currentHash = transcriptHash(transcript);
+    if (originalTranscriptHashRef.current && originalTranscriptHashRef.current !== currentHash) {
+      console.error("[DEPLOY364] Transcript mutation detected. originalHash=" +
+                    originalTranscriptHashRef.current + " currentHash=" + currentHash);
+      setErrors(function(prev: string[]) {
+        return (prev || []).concat([
+          "Transcript changed since original submission. Click Analyze again to re-submit the new transcript, then provide situational-awareness answers."
+        ]);
+      });
+      return;
+    }
+    setAiQuestions(null); setSelectedAnswers({}); setPipelinePaused(false);
+    // Pass sa_responses through as a sibling to the (unchanged) transcript.
+    handleGenerate(transcript, sa_responses);
   }
 
   var dc = decisionCore;
