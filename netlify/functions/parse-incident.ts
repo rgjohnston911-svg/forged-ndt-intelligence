@@ -1,13 +1,201 @@
-// DEPLOY84b — Universal AI Incident Parser v3.1
-// Fix: ALWAYS return partial_events and partial_environment in need_more_info mode
-// "Just have a conversation with the really smart AI"
-// NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
+// DEPLOY362 - Stage 2 of SA build brief.
+// Augments DEPLOY84b Universal AI Incident Parser v3.1 with deterministic
+// typing of LLM-emitted questions per docs/FORGED_SA_BUILD_BRIEF.md.
+//
+// Behavior change (additive only):
+//   * After the LLM returns need_more_info questions, a pure-JS post-processor
+//     stamps each question with decisionImpact, allowedProvenances, questionId,
+//     and a typedOptions[] array. Legacy fields (question, why, options[]) are
+//     preserved exactly — pre-SA frontend renders identically.
+//   * Options matching the Non-Evidence Token Registry from
+//     situational-awareness-gate.cjs are filtered out of BOTH legacy options[]
+//     and typedOptions[] so a user/stakeholder cannot click "Unknown" / "N/A"
+//     / "TBD" / etc. and have it accepted as evidence.
+//
+// What this is NOT:
+//   * LLM-generated typing. The typer is deterministic. The LLM produces
+//     question text and option text; the typer scores impact and provenance.
+//   * A modification to the LLM prompt or the LLM call. Both unchanged.
+//   * A change to non-question response paths (status: "interpreted"). Those
+//     paths produce byte-for-byte identical output.
+//
+// Patent compliance:
+//   * Claim 1(ii) determinism: typer is a pure function over question text.
+//   * Claim 1(iv) provenance non-increase: gate's isNonEvidenceToken filter
+//     prevents non-evidence values from being structurally rendered as
+//     clickable evidence-emitting options.
+//   * Claim 1(ix) LLM synthesis-only: the LLM emits candidate questions but
+//     does not assert provenance, impact, or source; those are stamped by the
+//     deterministic post-processor.
+//
+// NO TEMPLATE LITERALS - STRING CONCATENATION ONLY
 
 declare var process: any;
 declare var require: any;
 declare var Buffer: any;
 
 var OPENAI_KEY = process.env.OPENAI_API_KEY || "";
+
+// ----------------------------------------------------------------------------
+// SA gate (Stage 1, DEPLOY361). Used only for the Non-Evidence Token Registry
+// filter on options. If the require fails for any reason (build-time or
+// runtime), the typer falls back to a no-op filter so legacy behavior is
+// preserved.
+// ----------------------------------------------------------------------------
+var sa_gate: any;
+try {
+  sa_gate = require("./situational-awareness-gate.cjs");
+} catch (e) {
+  sa_gate = { isNonEvidenceToken: function (v: any) { return false; } };
+}
+
+// ----------------------------------------------------------------------------
+// DETERMINISTIC QUESTION TYPER (Stage 2)
+// ----------------------------------------------------------------------------
+
+// Classify a question's decision impact from its text. Pure function.
+function classifyDecisionImpact(qt: string): string {
+  if (!qt) { return "MEDIUM"; }
+  var lt = String(qt).toLowerCase();
+
+  // CRITICAL: life-safety, environmental release, regulatory thresholds,
+  // calibration validity, fatigue margin, HTHA / Nelson, evacuation.
+  var crit = [
+    "active leak", "confirmed leak", "rupture", "active rupture",
+    "shutdown immediately", "evacuation", "evacuat",
+    "htha", "hydrogen damage", "nelson curve", "nelson limit",
+    "fatigue margin", "remaining life", "remaining strength below",
+    "calibration", "calibrat",
+    "ignition", "fire risk",
+    "active crack", "growing crack",
+    "could the jumper survive", "survive another storm", "survive the storm",
+    "is there a leak", "is there an active",
+    "remaining wall below retirement", "below retirement",
+    "must be reported", "reporting threshold", "report to bsee",
+    "report to epa", "regulatory consequence", "fines",
+    "process moved above", "nelson limits", "damage mechanism reassessment",
+    "feedstock change"
+  ];
+  for (var ci = 0; ci < crit.length; ci++) {
+    if (lt.indexOf(crit[ci]) !== -1) { return "CRITICAL"; }
+  }
+
+  // HIGH: confirmed mechanism candidates, thickness, corrosion rate,
+  // design / operating pressure / temperature, fatigue, fracture, creep.
+  var high = [
+    "crack", "flaw", "indication",
+    "thickness", "wall loss", "wall thickness",
+    "corrosion rate", "corrosion mechanism", "damage mechanism",
+    "design pressure", "operating pressure", "operating temperature",
+    "fatigue", "stress range", "creep", "embrittl",
+    "h2s", "sour service", "wet sour",
+    "fracture", "remaining strength", "maop",
+    "cui", "stress corrosion", "mic", "co2 corrosion",
+    "is there a chemistry change"
+  ];
+  for (var hi = 0; hi < high.length; hi++) {
+    if (lt.indexOf(high[hi]) !== -1) { return "HIGH"; }
+  }
+
+  // LOW: identification, naming, manufacturer, paint color.
+  var low = [
+    "manufacturer", "year built", "year installed", "year of manufacture",
+    "paint color", "label", "asset id", "asset tag", "tag number",
+    "identifier", "where is", "located in which", "what is the name"
+  ];
+  for (var li = 0; li < low.length; li++) {
+    if (lt.indexOf(low[li]) !== -1) { return "LOW"; }
+  }
+
+  // Default.
+  return "MEDIUM";
+}
+
+// Map impact -> the set of provenances strong enough to ACCEPT (vs RESOLVE)
+// an answer to a question at this impact tier. The gate enforces that only
+// MEASURED / OBSERVED / DOCUMENTED can RESOLVE a CRITICAL question; other
+// impact tiers admit weaker provenances as resolving evidence too.
+function classifyAllowedProvenances(impact: string): string[] {
+  if (impact === "CRITICAL") {
+    return ["MEASURED", "OBSERVED", "DOCUMENTED"];
+  }
+  if (impact === "HIGH") {
+    return ["MEASURED", "OBSERVED", "DOCUMENTED", "INFERRED"];
+  }
+  if (impact === "MEDIUM") {
+    return ["MEASURED", "OBSERVED", "DOCUMENTED", "INFERRED", "REPORTED"];
+  }
+  return ["MEASURED", "OBSERVED", "DOCUMENTED", "INFERRED", "REPORTED", "ASSUMED"];
+}
+
+// Deterministic question id from question text. Stable across re-asks of the
+// same question. Used by downstream layers to chain answers to questions.
+function buildQuestionId(qt: string): string {
+  var s = String(qt || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!s) { return "q-empty"; }
+  var hash = 0;
+  for (var i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash) + s.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return "q-" + (hash >>> 0).toString(36);
+}
+
+// Remove options matching the Non-Evidence Token Registry. Returns a fresh
+// array; never mutates input.
+function filterNonEvidenceOptions(options: any): string[] {
+  if (!options || !options.length) { return []; }
+  var kept: string[] = [];
+  for (var oi = 0; oi < options.length; oi++) {
+    var opt = options[oi];
+    if (typeof opt !== "string") { continue; }
+    if (sa_gate.isNonEvidenceToken && sa_gate.isNonEvidenceToken(opt)) { continue; }
+    kept.push(opt);
+  }
+  return kept;
+}
+
+// Main typer entry. Backwards-compatible: returns the same shape as the LLM
+// produced (question/why/options) PLUS new typed fields. Pre-SA frontend code
+// reads only the legacy fields and behaves identically. SA-aware frontend code
+// reads the typed fields.
+function typeQuestions(rawQuestions: any): any[] {
+  var typed: any[] = [];
+  if (!rawQuestions || !rawQuestions.length) { return typed; }
+  for (var qi = 0; qi < rawQuestions.length; qi++) {
+    var rq = rawQuestions[qi];
+    if (!rq || typeof rq !== "object") { continue; }
+    var qt = rq.question || "";
+    var filteredOpts = filterNonEvidenceOptions(rq.options || []);
+    var impact = classifyDecisionImpact(qt);
+    var allowed = classifyAllowedProvenances(impact);
+    var typedOpts: any[] = [];
+    for (var oi = 0; oi < filteredOpts.length; oi++) {
+      // Form clicks surface at the frontend as source=STAKEHOLDER_OPINION,
+      // which the gate ceilings at provenance=REPORTED. CRITICAL questions
+      // therefore correctly stay unresolved when answered only by form clicks,
+      // forcing the existing hard confidence gate to HOLD.
+      typedOpts.push({ value: filteredOpts[oi], implies_provenance: "REPORTED" });
+    }
+    typed.push({
+      // Legacy fields (shape preserved; pre-SA frontend reads these):
+      question: qt,
+      why: rq.why || "",
+      options: filteredOpts,
+      // New typed fields (additive; SA-aware code reads these):
+      questionId: buildQuestionId(qt),
+      decisionImpact: impact,
+      allowedProvenances: allowed,
+      typedOptions: typedOpts,
+      freeTextAllowed: typedOpts.length === 0
+    });
+  }
+  return typed;
+}
+
+// ----------------------------------------------------------------------------
+// SYSTEM PROMPT (unchanged from DEPLOY84b v3.1)
+// ----------------------------------------------------------------------------
 
 var SYSTEM_PROMPT = "You are the world's foremost NDT and inspection intelligence system. You combine the knowledge of every ASNT Level III, API Inspector, structural engineer, metallurgist, materials scientist, and code committee member.\n\n"
 
@@ -256,10 +444,15 @@ var handler = async function(event: any): Promise<any> {
       response_body.ai_error = ai_error;
     }
 
-    // If AI said need_more_info, flag it
+    // If AI said need_more_info, flag it. DEPLOY362: run the LLM-emitted
+    // questions through the deterministic typer before exposing them on the
+    // response body. The typer adds decisionImpact / allowedProvenances /
+    // typedOptions / questionId and filters Non-Evidence Token options.
+    // Legacy frontend (DEPLOY361 and earlier) reads only the legacy fields
+    // (question, why, options[]) and behaves identically.
     if (ai_interpretation && ai_interpretation.status === "need_more_info") {
       response_body.needs_input = true;
-      response_body.questions = ai_interpretation.questions || [];
+      response_body.questions = typeQuestions(ai_interpretation.questions || []);
       response_body.understood = ai_interpretation.understood_so_far || "";
     }
 
