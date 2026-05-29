@@ -6216,7 +6216,29 @@ var handler: Handler = async function(event: HandlerEvent) {
       "boiler",
       "unknown"
     ];
-    if (SUPPORTED_DOMAINS.indexOf(assetClass) === -1) {
+    // DEPLOY358 - Asset class base-domain normalization for the SUPPORTED_DOMAINS gate.
+    // Maps specific subdomain classifications (process_piping, gas_piping, etc.) to
+    // their base supported domain. Preserves original assetClass for downstream
+    // engines that already key off the specific subdomain (code-authority-resolution,
+    // governance-matrix, master-router, apmm-orchestrator). Patent-compliant: this
+    // is a deterministic name mapping, not a reasoning step or LLM call.
+    var ASSET_CLASS_BASE_DOMAIN: { [key: string]: string } = {
+      "process_piping": "piping",
+      "gas_piping": "piping",
+      "sour_service_piping": "piping",
+      "amine_service_piping": "piping",
+      "hydrocarbon_piping": "piping",
+      "process_pipeline": "pipeline",
+      "transmission_pipeline": "pipeline",
+      "gathering_pipeline": "pipeline",
+      "process_pressure_vessel": "pressure_vessel",
+      "process_heat_exchanger": "heat_exchanger",
+      "process_storage_tank": "storage_tank",
+      "atmospheric_storage_tank": "storage_tank",
+      "low_pressure_storage_tank": "storage_tank"
+    };
+    var gateAssetClass = ASSET_CLASS_BASE_DOMAIN[assetClass] || assetClass;
+    if (SUPPORTED_DOMAINS.indexOf(gateAssetClass) === -1) {
       var elapsedMsRefusal = Date.now() - startMs;
       return {
         statusCode: 200,
