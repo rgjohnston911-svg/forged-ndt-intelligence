@@ -35,14 +35,14 @@ function splitScenarios(text) {
   var t = text.replace(/\r\n/g, "\n").trim();
   var parts;
   if (/\n\s*[=\-]{3,}\s*\n/.test(t)) {
-    // Explicit delimiter lines (=== or ---).
     parts = t.split(/\n\s*[=\-]{3,}\s*\n/);
   } else {
-    // No delimiter: auto-split before each "Asset:" header (the live-pack paste
-    // format), but only when 2+ headers are present; else treat as one scenario.
-    var headers = t.match(/(^|\n)\**\s*Asset\s*:/gi) || [];
-    if (headers.length >= 2) {
-      parts = t.split(/\n(?=\**\s*Asset\s*:)/i);
+    // Split before each "Asset:" marker (colon-bearing, so body prose like
+    // "the asset is..." is NOT matched). Works even when scenarios are pasted
+    // inline with no line breaks between them. Only when 2+ markers are present.
+    var markers = t.match(/\*{0,2}\s*Asset\s*:/gi) || [];
+    if (markers.length >= 2) {
+      parts = t.split(/(?=\*{0,2}\s*Asset\s*:)/i);
     } else {
       parts = [t];
     }
@@ -54,12 +54,11 @@ function splitScenarios(text) {
   }
   return out;
 }
-
 function cleanName(s) {
   return String(s || "").replace(/[*_>#`]+/g, " ").replace(/^[\s:\-]+/, "").replace(/\s+/g, " ").trim();
 }
 function deriveName(scenario, idx) {
-  var m = scenario.match(/(?:asset|platform|unit|line|equipment)\s*[:*\-]*\s*([^\n]+)/i);
+  var m = scenario.match(/(?:asset|platform|unit|equipment)\s*[:*\-]*\s*([^*\n]+)/i);
   if (m && m[1]) { var n = cleanName(m[1]).slice(0, 70); if (n) { return n; } }
   var firstLine = cleanName(scenario.split("\n")[0] || "").slice(0, 70);
   if (firstLine.length > 0) { return firstLine; }
