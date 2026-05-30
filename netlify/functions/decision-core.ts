@@ -4538,6 +4538,21 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   }
 
   // ========================================================================
+  // DEPLOY411: ASSET-CLASS / CONSEQUENCE-MODE RECONCILIATION
+  // A structural-only asset (bridge) is NOT a pressure boundary. Its governing
+  // failure consequence is structural (member fracture / collapse), not a
+  // pressure-boundary release - even if the narrative mentions pressure. Only a
+  // genuinely pressure-carrying bridge component (pipe bridge / attached process
+  // line / pipeline on the structure) keeps a pressure-boundary consequence.
+  // Prevents "Bridge + high-pressure wording -> pressure_boundary_failure".
+  var isStructuralOnlyAsset = (assetClass === "bridge" || assetClass === "rail_bridge" || assetClass === "bridge_steel" || assetClass === "bridge_concrete");
+  var bridgeCarriesPressure = hasWord(lt, "pipe bridge") || hasWord(lt, "process line") || hasWord(lt, "pipeline") || hasWord(lt, "process piping") || hasWord(lt, "pressure vessel") || hasWord(lt, "attached process") || hasWord(lt, "pipe rack") || hasWord(lt, "carries pressure") || hasWord(lt, "pressurized line");
+  if (isStructuralOnlyAsset && !bridgeCarriesPressure && (failMode === "pressure_boundary_failure" || failMode === "fire_pressure_cascade" || failMode === "structural_pressure_cascade")) {
+    failMode = "structural_failure";
+    basis.push("ASSET-CLASS RECONCILIATION: structural asset (" + assetClass + ") is not a pressure boundary; governing failure consequence is structural (member fracture / collapse), NOT pressure-boundary release. Pressure language in the narrative does not make a bridge a pressure component. (A pipe bridge / attached process line would.)");
+  }
+
+  // ========================================================================
   // DEPLOY180: CONSEQUENCE REALITY FAIL-UPWARD GATE
   // When the consequence model cannot determine human/environmental/operational
   // impact from available evidence, the safe default is UNDETERMINED, not Low/
