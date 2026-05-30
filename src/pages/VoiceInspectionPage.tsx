@@ -2250,12 +2250,12 @@ export default function VoiceInspectionPage() {
           s = updateStep(1, { status: "done", detail: coreResult.asset_correction.corrected_to + " (corrected from " + coreResult.asset_correction.original + ")" }, s);
         }
         s = updateStep(4, { status: "done", detail: tier + " | " + disp + " | " + elapsed + "ms" }, s);
-        // DEPLOY375 - Stage 9 Part 2b (frontend): when SA answers were provided,
-        // run the SA chain over the frozen decisionPackage + validated evidence
-        // and surface the Executive Brief. Best-effort: SA failure never blocks
-        // the report. With no sa_responses this block is skipped, so the
-        // SA-absent path is unchanged.
-        if (saResponsesRef.current && saResponsesRef.current.length > 0 && coreRes && coreRes.decisionPackage) {
+        // DEPLOY381 - Tier 1: run the SA chain on EVERY decision-core result, not
+        // only after SA answers were provided. The stakeholder + conflict engines
+        // work from the frozen DecisionPackage alone (validated evidence is
+        // optional), so the Stakeholder Matrix + Conflict Detection now surface in
+        // every report/PDF. Best-effort: SA failure never blocks the report.
+        if (coreRes && coreRes.decisionPackage) {
           try {
             var saVes = (coreRes.decision_core && coreRes.decision_core.validated_evidence_set) ? coreRes.decision_core.validated_evidence_set : null;
             var saRes = await callAPI("situational-awareness-orchestrate", { decisionPackage: coreRes.decisionPackage, validatedEvidenceSet: saVes, referenceIso: new Date().toISOString() });
