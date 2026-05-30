@@ -31,12 +31,13 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!profile?.org_id) return;
+    if (!profile?.org_id) { setLoading(false); return; }
     loadDashboard();
   }, [profile?.org_id]);
 
   async function loadDashboard() {
     setLoading(true);
+    try {
 
     const { data: caseData } = await supabase
       .from("inspection_cases")
@@ -76,7 +77,7 @@ export default function Dashboard() {
       thisWeek,
       completed,
     });
-    setLoading(false);
+    } catch (e) { console.error("Dashboard load failed:", e); } finally { setLoading(false); }
   }
 
   if (loading) {

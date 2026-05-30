@@ -9,6 +9,7 @@ import Cases from "./pages/Cases";
 import NewCase from "./pages/NewCase";
 import CaseDetail from "./pages/CaseDetail";
 import VoiceInspectionPage from "./pages/VoiceInspectionPage";
+import FleetTriagePage from "./pages/FleetTriagePage";
 
 // Error Boundary — catches any render crash and shows recovery UI instead of black screen
 class ErrorBoundary extends Component {
@@ -85,6 +86,7 @@ export default function App() {
           <Route path="/cases/new" element={<NewCase />} />
           <Route path="/cases/:id" element={<CaseDetail />} />
           <Route path="/voice" element={<VoiceInspectionPage />} />
+          <Route path="/fleet" element={<FleetTriagePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>
