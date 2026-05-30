@@ -1611,6 +1611,20 @@ export default function VoiceInspectionPage() {
         }
       }
 
+      // DEPLOY385: "original thickness: 0.500 in" / "as-built 0.500 inch" /
+      // "design wall 0.500 in" -> nominal wall. The original/as-built/design
+      // wall IS the nominal wall for B31G. Scenarios that state "Original
+      // Thickness" (not "nominal") previously left nominal unset, which then
+      // defaulted to a thin NPS schedule below the measured reading and produced
+      // a negative wall loss / invalid MAOP (Test-2: -96.3% wall loss, 9 psi).
+      if (!nominalWall) {
+        var rsrOrigMatch = lt.match(/(?:original|as[- ]?built|design)\s+(?:wall\s+)?(?:thickness\s*)?[:=]?\s*([0-9]*\.?[0-9]+)\s*(?:in|inch|")/);
+        if (rsrOrigMatch) {
+          var rsrOrigV = parseFloat(rsrOrigMatch[1]);
+          if (rsrOrigV > 0.05 && rsrOrigV < 5) nominalWall = rsrOrigV;
+        }
+      }
+
       // "0.262 in minimum" / "0.262 inch min" / "0.262\" minimum"
       if (!measuredMinWall) {
         var rsrMmMatch = lt.match(/([0-9]*\.?[0-9]+)\s*(?:in|inch|")\s*min(?:imum)?\b/);

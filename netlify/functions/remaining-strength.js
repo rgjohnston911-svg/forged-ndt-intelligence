@@ -385,6 +385,41 @@ var handler = async function(event) {
     // TIER A/B/C: B31G + MODIFIED B31G COMPUTATION
     // --------------------------------------------------------------------
 
+    // DEPLOY385 GUARD: remaining wall cannot physically exceed original wall.
+    // If measured_minimum_wall >= nominal_wall the inputs are inconsistent --
+    // typically the nominal/original wall was never captured and defaulted to a
+    // thin NPS schedule below the measured reading (e.g. NPS 0.5 STD 0.109 in vs
+    // a 0.214 in reading -> a bogus -96% wall loss and ~9 psi MAOP). Emitting
+    // that would be dangerously misleading, so return a data-error result.
+    if (measuredMinWall >= nominalWall) {
+      var inconsistentResult = {
+        data_quality: "inconsistent",
+        governing_maop: null,
+        governing_method: "none",
+        safe_envelope: "UNKNOWN",
+        severity_tier: "UNKNOWN",
+        recommendation: "Inconsistent thickness inputs: measured/remaining wall (" + measuredMinWall.toFixed(3) + " in) is >= nominal/original wall (" + nominalWall.toFixed(3) + " in). Remaining wall cannot exceed original. The original/nominal thickness was likely not captured (it may have defaulted to a thin schedule assumption). Provide the original/nominal wall thickness explicitly to enable a valid B31G remaining-strength assessment.",
+        inputs: {
+          nominal_wall: nominalWall,
+          measured_minimum_wall: measuredMinWall,
+          pipe_od: isNaN(pipeOD) ? null : pipeOD,
+          smys: isNaN(smys) ? null : smys,
+          operating_pressure: havePressure ? operatingPressure : null
+        },
+        inputs_derived: inputsDerived,
+        derivation_notes: derivationNotes,
+        notes: ["Guard triggered: measured_minimum_wall >= nominal_wall. No MAOP computed to avoid a negative-wall-loss / invalid-MAOP result."],
+        metadata: {
+          engine: "remaining-strength",
+          version: "1.2",
+          method: "guard_inconsistent_inputs",
+          level: "none",
+          timestamp: new Date().toISOString()
+        }
+      };
+      return { statusCode: 200, headers: headers, body: JSON.stringify(inconsistentResult) };
+    }
+
     var wallLoss = nominalWall - measuredMinWall;
     var wallLossPercent = (wallLoss / nominalWall) * 100;
     var depthRatio = wallLoss / nominalWall;
