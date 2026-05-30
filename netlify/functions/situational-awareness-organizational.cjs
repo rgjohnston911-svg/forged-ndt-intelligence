@@ -82,7 +82,7 @@ var ORG_PATTERNS = [
   { id: 'HUMAN_FACTORS', category: 'HUMAN_RELIABILITY', severity: 'MEDIUM',
     keywords: ['inexperienced', 'operators inexperienced', 'procedure deviations', 'procedures outdated',
                'outdated procedures', 'aging workforce', 'operator overtime', 'overtime doubled',
-               'new contractors', 'deferred recertification', 'deferred operator', 'near misses', 'procedure deviation'] },
+               'new contractors', 'deferred recertification', 'deferred operator', 'procedure deviation'] },
   { id: 'COST_DRIVEN_CUTS', category: 'COST_PRESSURE', severity: 'HIGH',
     keywords: ['reduced to save costs', 'to save costs', 'cost cutting', 'cost-cutting', 'budget reduced',
                'reduced maintenance budget', 'reduced maintenance', 'chemistry program reduced', 'program reduced',

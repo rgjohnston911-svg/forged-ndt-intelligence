@@ -43,7 +43,7 @@ var DOMAIN_KEYWORDS = {
     "deck soffit", "prestressed beam", "parapet", "wingwall", "scour"
   ],
   "rail": [
-    "rail", "railcar", "freight train", "track", "thermite weld", "tie plate",
+    "railway", "railcar", "freight train", "track", "thermite weld", "tie plate",
     "ballast", "derailment", "federal railroad"
   ],
   "pressure_equipment": [

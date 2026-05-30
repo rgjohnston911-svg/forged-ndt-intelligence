@@ -326,6 +326,331 @@
         "should_escalate": false,
         "governing_risk": "routine - acceptable, monitor per interval"
       }
+    },
+    {
+      "id": "C26",
+      "title": "Power HRSG creep",
+      "transcript": "Power plant HRSG superheater tubing and steam drum, boiler feedwater service, creep cracking suspected at 28 years, thickness near minimum.",
+      "expected": {
+        "domain": "power_generation",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "high-temperature creep, not general thinning"
+      }
+    },
+    {
+      "id": "C27",
+      "title": "Marine cargo ship ballast",
+      "transcript": "Cargo ship ballast tank internal coating breakdown and vessel hull plating corrosion, marine vessel in service 25 years.",
+      "expected": {
+        "domain": "marine_vessel",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "hull/ballast structural corrosion"
+      }
+    },
+    {
+      "id": "C28",
+      "title": "Crude storage tank floor",
+      "transcript": "Crude oil aboveground storage tank floor plate, API 653, soil-side corrosion suspected, edge settlement noted, 30 years.",
+      "expected": {
+        "domain": "pressure_equipment",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "soil-side floor corrosion"
+      }
+    },
+    {
+      "id": "C29",
+      "title": "Clean offshore (negation)",
+      "transcript": "Offshore platform riser routine UT, thickness nominal, no active leak, no cracking, records current, no severe weather forecast, no production change.",
+      "expected": {
+        "domain": "offshore_oil_gas",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": false,
+        "governing_risk": "routine - acceptable; negation must not fire drivers"
+      }
+    },
+    {
+      "id": "C30",
+      "title": "Amine unit SCC",
+      "transcript": "Refinery amine unit piping, amine SCC risk, no leak, thickness acceptable, MEA service.",
+      "expected": {
+        "domain": "refinery",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "amine SCC despite no leak"
+      }
+    },
+    {
+      "id": "C31",
+      "title": "Saudi sour KO drum",
+      "transcript": "Saudi Arabia sour service knockout drum, NACE MR0175, HIC/SOHIC screening, H2S service.",
+      "expected": {
+        "domain": "pressure_equipment",
+        "jurisdiction": "Middle East",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "HIC/SOHIC in sour service"
+      }
+    },
+    {
+      "id": "C32",
+      "title": "UK bridge fatigue",
+      "transcript": "United Kingdom highway bridge girder fatigue crack at welded connection, traffic increased, heavier trucks introduced.",
+      "expected": {
+        "domain": "bridge_civil",
+        "jurisdiction": "United Kingdom",
+        "org_failure": false,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "changed loading driving fatigue"
+      }
+    },
+    {
+      "id": "C33",
+      "title": "Canada pipeline MIC",
+      "transcript": "Canada onshore gas pipeline internal MIC and under-deposit corrosion, CP survey current, pigging on schedule.",
+      "expected": {
+        "domain": "pipeline",
+        "jurisdiction": "Canada",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "MIC/under-deposit mechanism"
+      }
+    },
+    {
+      "id": "C34",
+      "title": "Caustic tank deferred",
+      "transcript": "Caustic storage tank caustic SCC, coating replacement deferred twice, inspection overdue.",
+      "expected": {
+        "domain": "pressure_equipment",
+        "jurisdiction": "unknown",
+        "org_failure": true,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "caustic SCC + deferred maintenance"
+      }
+    },
+    {
+      "id": "C35",
+      "title": "Qatar LNG tank settlement",
+      "transcript": "Qatar LNG storage tank settlement within tolerance, settlement rate doubled in 18 months, adjacent tank had foundation issues.",
+      "expected": {
+        "domain": "pressure_equipment",
+        "jurisdiction": "Middle East",
+        "org_failure": false,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "settlement trend, not current condition"
+      }
+    },
+    {
+      "id": "C36",
+      "title": "Texas hydrogen pipeline",
+      "transcript": "Texas hydrogen pipeline external corrosion anomaly, hydrogen concentration increased, new operating pressure regime, material traceability incomplete.",
+      "expected": {
+        "domain": "pipeline",
+        "jurisdiction": "United States",
+        "org_failure": true,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "material suitability + loading change"
+      }
+    },
+    {
+      "id": "C37",
+      "title": "Australia autonomous crane",
+      "transcript": "Australia iron ore export terminal crane rail wear acceptable, autonomous crane software updated, near misses increasing.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "Australia",
+        "org_failure": false,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "autonomous system risk, not the wear"
+      }
+    },
+    {
+      "id": "C38",
+      "title": "Japan nuclear intake redundancy",
+      "transcript": "Japan nuclear cooling water intake marine growth, backup intake system unavailable, reactor power uprate planned.",
+      "expected": {
+        "domain": "nuclear",
+        "jurisdiction": "Japan",
+        "org_failure": false,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "loss of redundancy + uprate"
+      }
+    },
+    {
+      "id": "C39",
+      "title": "Mexico firewater barrier",
+      "transcript": "Mexico offshore firewater ring main pitting above Tmin, last firewater test failed, hurricane forecast, temporary repair exceeds approval period.",
+      "expected": {
+        "domain": "offshore_oil_gas",
+        "jurisdiction": "Mexico",
+        "org_failure": true,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "emergency barrier degradation"
+      }
+    },
+    {
+      "id": "C40",
+      "title": "Clean process piping (negation)",
+      "transcript": "Generic process piping circuit, inspection current, thickness above Tmin, low stable corrosion rate, all records complete, no service change.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": false,
+        "governing_risk": "routine - acceptable; negation must not fire"
+      }
+    },
+    {
+      "id": "C41",
+      "title": "Coker overhead sulfidation",
+      "transcript": "Refinery delayed coker overhead vapor line, sulfidation thinning, high-temperature service.",
+      "expected": {
+        "domain": "refinery",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "high-temp sulfidation"
+      }
+    },
+    {
+      "id": "C42",
+      "title": "Germany chlorine cascade",
+      "transcript": "Germany chlorine transfer area minor corrosion on a pipe support near the chlorine line, support sits above electrical junction and scrubber control cable.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "Germany",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "cascade to toxic release, not the small defect"
+      }
+    },
+    {
+      "id": "C43",
+      "title": "Refinery vacuum tower CUI",
+      "transcript": "Refinery vacuum tower shell CUI and external thinning under insulation, buckling concern.",
+      "expected": {
+        "domain": "refinery",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "CUI + buckling"
+      }
+    },
+    {
+      "id": "C44",
+      "title": "Ammonia receiver toxic",
+      "transcript": "Ammonia receiver pressure vessel SCC risk, toxic release consequence if leak, near control room.",
+      "expected": {
+        "domain": "pressure_equipment",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "toxic consequence elevation"
+      }
+    },
+    {
+      "id": "C45",
+      "title": "Norway crane op-consequence",
+      "transcript": "Norway offshore crane MT small toe crack, crane scheduled for critical subsea intervention, weather window only 3 days, replacement crane unavailable.",
+      "expected": {
+        "domain": "offshore_oil_gas",
+        "jurisdiction": "Norway",
+        "org_failure": false,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "small crack, large operational consequence"
+      }
+    },
+    {
+      "id": "C46",
+      "title": "Singapore data center cooling",
+      "transcript": "Singapore data center chilled water piping corrosion, AI cluster load doubled, cooling redundancy compromised.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "Singapore",
+        "org_failure": false,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "digital consequence + redundancy loss"
+      }
+    },
+    {
+      "id": "C47",
+      "title": "Canada dam gate consequence",
+      "transcript": "Canada hydroelectric dam gate pin wear, flood forecast exceeds historical design event, emergency spillway unavailable, community downstream.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "Canada",
+        "org_failure": true,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "minor wear, major consequence"
+      }
+    },
+    {
+      "id": "C48",
+      "title": "South Africa shaft hoist human",
+      "transcript": "South Africa platinum mine shaft hoist gearbox vibration trend, shaft only personnel access route, operator overtime doubled, production targets increased.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "South Africa",
+        "org_failure": true,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "human factors + reliability-becomes-life-safety"
+      }
+    },
+    {
+      "id": "C49",
+      "title": "Kazakhstan undocumented repair",
+      "transcript": "Kazakhstan gas processing plant small weld indication, contractor performed undocumented repair, material substitution suspected, PWHT records missing.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "Kazakhstan",
+        "org_failure": true,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "configuration control / material suitability"
+      }
+    },
+    {
+      "id": "C50",
+      "title": "Clean bridge (negation)",
+      "transcript": "Highway bridge girder routine inspection, no cracking, no section loss, loading unchanged, all records current.",
+      "expected": {
+        "domain": "bridge_civil",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": false,
+        "governing_risk": "routine - acceptable; negation must not fire"
+      }
     }
   ]
 }
