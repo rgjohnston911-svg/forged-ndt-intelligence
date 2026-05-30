@@ -4465,6 +4465,79 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   }
 
   // ========================================================================
+  // DEPLOY400: CONSEQUENCE RECEPTOR-EXPOSURE AMPLIFIER
+  // The mechanism lenses above elevate on the SOURCE (toxic/pressure/fire/hot
+  // fluid) but cap fixed equipment at HIGH. They never weigh the RECEPTOR -- who
+  // or what is exposed when the release happens. A small crack in toxic, high-
+  // pressure piping next to an OCCUPIED control room or a DOWNWIND POPULATION is a
+  // life-safety scenario: the consequence is amplified by the exposed receptor,
+  // independent of remaining wall thickness. This is the "collateral" axis.
+  // Gated behind BOTH a hazardous release pathway AND an explicit occupied/
+  // populated receptor so it cannot false-elevate a benign asset.
+  var hazardPathway = !!physics.chemical.h2s_present || !!physics.chemical.caustic_present ||
+    hasWord(lt, "toxic") || !!physics.energy.stored_energy_significant || flammableContext ||
+    (opTempF !== null && opTempF >= 400);
+  var receptorExposure = hasWord(lt, "occupied") || hasWord(lt, "manned") ||
+    hasWord(lt, "populated") || hasWord(lt, "population") || hasWord(lt, "downwind") ||
+    hasWord(lt, "residential") || hasWord(lt, "public exposure") || hasWord(lt, "control building") ||
+    hasWord(lt, "occupied control room") || hasWord(lt, "occupied building") || hasWord(lt, "occupied structure");
+  if (hazardPathway && receptorExposure) {
+    tier = "CRITICAL";
+    basis.push("CONSEQUENCE AMPLIFIER (collateral): hazardous release pathway with occupied/populated receptor exposure (e.g. occupied control room, downwind population) -- life-safety controlling. A small defect can GOVERN through consequence amplification, independent of remaining wall thickness.");
+    if (humanImpact.indexOf("FATAL") === -1) {
+      humanImpact = "FATAL -- hazardous release to occupied/populated receptors"; humanImpactSet = true;
+    }
+    if (envImpact === "Negligible") { envImpact = "Hazardous release to surrounding area"; envImpactSet = true; }
+  }
+
+  // ========================================================================
+  // DEPLOY402: SUPPORT / SECONDARY-ELEMENT FAILURE -- CASCADE GOVERNANCE
+  // The primary component can be within limits while its SUPPORT (pipe support,
+  // hanger, shoe, saddle, trunnion, support steel) is degrading. Loss of support
+  // redistributes load and can drop/overload the line onto adjacent critical
+  // equipment (cabling, scrubber, electrical) -- a collateral cascade. Then the
+  // SUPPORT failure, not the primary finding, is the governing risk. The support
+  // must be the SUBJECT of the degradation (forward scan capped at the next
+  // sentence boundary, or an adjective immediately before) so pipe-side corrosion
+  // that merely mentions a healthy support does NOT false-fire.
+  var SUPPORT_TERMS = ["pipe support", "support beneath", "supporting structure", "support structure", "pipe shoe", "spring can", "spring hanger", "pipe hanger", "saddle", "trunnion", "support steel", "support leg", "support clamp", "support member", "support bracket"];
+  var SUPPORT_DEGRADE = ["corro", "crack", "degrad", "section loss", "wasted", "wall loss", "thinning", "failing", "deteriorat", "compromised", "buckl", "wasting", "rusted", "rusting"];
+  var SUPPORT_ADJ = ["corroded", "cracked", "wasted", "rusted", "degraded", "corroding", "cracking", "failing", "buckled"];
+  var supportFailureGoverns = false;
+  for (var sti = 0; sti < SUPPORT_TERMS.length && !supportFailureGoverns; sti++) {
+    var stTerm = SUPPORT_TERMS[sti];
+    var stIdx = lt.indexOf(stTerm);
+    while (stIdx >= 0) {
+      var fwdRaw = lt.substring(stIdx, Math.min(lt.length, stIdx + 80));
+      var periodPos = fwdRaw.indexOf(". ");
+      var fwd = periodPos >= 0 ? fwdRaw.substring(0, periodPos) : fwdRaw;
+      for (var dgi = 0; dgi < SUPPORT_DEGRADE.length; dgi++) { if (fwd.indexOf(SUPPORT_DEGRADE[dgi]) >= 0) { supportFailureGoverns = true; break; } }
+      if (!supportFailureGoverns) {
+        var back = lt.substring(Math.max(0, stIdx - 24), stIdx);
+        for (var adi = 0; adi < SUPPORT_ADJ.length; adi++) { if (back.indexOf(SUPPORT_ADJ[adi]) >= 0) { supportFailureGoverns = true; break; } }
+      }
+      if (supportFailureGoverns) break;
+      stIdx = lt.indexOf(stTerm, stIdx + stTerm.length);
+    }
+  }
+  if (hasWord(lt, "loss of support") || hasWord(lt, "loss of the support") || hasWord(lt, "support has failed") || hasWord(lt, "support failure") || hasWord(lt, "support gives way")) { supportFailureGoverns = true; }
+  var supportCascade = false;
+  if (supportFailureGoverns) {
+    supportCascade = hasWord(lt, "adjacent") || hasWord(lt, "cabling") || hasWord(lt, "scrubber") || hasWord(lt, "critical equipment") || hasWord(lt, "onto") || hasWord(lt, "drop") || hasWord(lt, "fall") || hasWord(lt, "overload") || hasWord(lt, "collapse onto") || hasWord(lt, "electrical") || hasWord(lt, "knock");
+    if (supportCascade) {
+      tier = "CRITICAL";
+      basis.push("SUPPORT/SECONDARY-ELEMENT GOVERNS (cascade/collateral): the supporting structure is degrading; loss of support would drop or overload the line onto adjacent critical equipment. The primary component being within limits does NOT bound the risk -- the support failure is the governing concern.");
+      if (humanImpact.indexOf("FATAL") === -1) { humanImpact = "FATAL/major -- support failure cascades onto adjacent critical equipment"; humanImpactSet = true; }
+      if (envImpact === "Negligible") { envImpact = "Collateral damage to adjacent equipment on support failure"; envImpactSet = true; }
+      failMode = "support_failure_cascade";
+    } else {
+      if (tier === "MEDIUM" || tier === "LOW") { tier = "HIGH"; }
+      basis.push("SUPPORT/SECONDARY-ELEMENT GOVERNS: the supporting structure is degrading. Loss of support redistributes load onto the line and its connections. The primary component being within limits does NOT bound the risk -- support integrity is the governing concern.");
+      if (failMode === "equipment_degradation") { failMode = "support_degradation"; }
+    }
+  }
+
+  // ========================================================================
   // DEPLOY180: CONSEQUENCE REALITY FAIL-UPWARD GATE
   // When the consequence model cannot determine human/environmental/operational
   // impact from available evidence, the safe default is UNDETERMINED, not Low/
@@ -4627,7 +4700,9 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     monitoring_urgency: monitoringUrgency,
     consequence_confidence: roundN(consConf, 2),
     consequence_undetermined: consequenceUndetermined,
-    undetermined_impacts: undeterminedImpacts
+    undetermined_impacts: undeterminedImpacts,
+    support_failure_governs: supportFailureGoverns,
+    support_cascade: supportCascade
   };
 }
 

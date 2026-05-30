@@ -400,6 +400,12 @@ function generateInspectionReport(data: {
   html += "<div class='meta-box'><div class='meta-label'>Primary Authority</div><div class='meta-value'>" + esc(authPrimaryDisplay()) + "</div></div>";
   html += "</div>";
 
+  // DEPLOY402 - support/secondary-element governing-risk banner. When the support
+  // is degrading, the primary finding being within limits does not bound the risk.
+  if (con && con.support_failure_governs) {
+    html += "<div class='banner' style='background:#b91c1c'>GOVERNING RISK: SUPPORT FAILURE" + (con.support_cascade ? " + CASCADE onto adjacent critical equipment" : "") + " - the primary finding is within limits, but the degrading support is the governing concern.</div>";
+  }
+
   // HARDENING DIAGNOSTIC
   html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
   html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.6m)</div>";
@@ -622,6 +628,23 @@ function generateInspectionReport(data: {
     // unresolved crack-mechanism risk, NOT remaining wall thickness.
     if (fmd.disposition_driver) {
       html += "<div class='banner' style='background:#7c2d12'>DISPOSITION DRIVER: " + esc(fmd.disposition_driver) + "</div>";
+    }
+    // DEPLOY401 - forward-risk (future-state) elevated to a top-level disposition
+    // consideration. An asset can be acceptable TODAY yet be governed by its forward
+    // trajectory (accelerating trend, rising throughput, deferred turnaround). Surface
+    // it with the governing banners instead of only in the SA executive brief.
+    var fst = data.situationalAwarenessPackage && data.situationalAwarenessPackage.futureState;
+    if (fst && fst.dominant_driver && (
+          fst.verdict === "BREACH_BEFORE_NEXT_INTERVENTION" ||
+          (fst.drivers && fst.drivers.length >= 2) ||
+          fst.dominant_driver.id === "TREND_ACCELERATION"
+        )) {
+      var fwdMsg = "";
+      if (fst.verdict === "BREACH_BEFORE_NEXT_INTERVENTION" && fst.adjusted_life_months != null) {
+        fwdMsg = "Forecast to breach minimum in ~" + fst.adjusted_life_months + " mo" + (fst.next_intervention_months != null ? " - BEFORE the next planned intervention (" + fst.next_intervention_months + " mo)" : "") + ". ";
+      }
+      var drvLabels = (fst.drivers || []).map(function(d: any){ return d.label; }).join("; ");
+      html += "<div class='banner' style='background:#9a3412'>FORWARD-RISK (disposition driver): acceptable today, but the governing concern is the forward trajectory - " + esc(fst.dominant_driver.label) + (drvLabels ? " (" + esc(drvLabels) + ")" : "") + ". " + esc(fwdMsg) + "NOT today's remaining thickness.</div>";
     }
     if (fmd.governing_severity) html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(fmd.governing_severity) + "</span></div>";
     if (fmd.governing_failure_pressure) html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(fmd.governing_failure_pressure) + " psi</span></div>";
@@ -2171,16 +2194,28 @@ export default function VoiceInspectionPage() {
           var priorSa = saResponsesRef.current || [];
           var pendingQuestions: any[] = parseRes.value.questions;
           if (priorSa.length > 0) {
+            // DEPLOY402 - dedup by normalized question TEXT in addition to questionId.
+            // The parse-incident LLM does not always return a stable questionId across
+            // re-generations, so id-only matching let the SAME question be re-asked
+            // after it was answered (the 'repeating questions' loop). Text matching
+            // closes it robustly. Additive: only ever suppresses MORE, never fewer; a
+            // fresh Analyze has priorSa.length==0 so this path is unchanged.
             var answeredIds: any = {};
+            var answeredTexts: any = {};
+            var normQText = function(t: any): string { return String(t || "").toLowerCase().replace(/\s+/g, " ").replace(/[?.!,;:]+$/, "").trim(); };
             for (var ansi = 0; ansi < priorSa.length; ansi++) {
-              if (priorSa[ansi] && priorSa[ansi].questionId) { answeredIds[priorSa[ansi].questionId] = true; }
+              var pe = priorSa[ansi];
+              if (pe && pe.questionId) { answeredIds[pe.questionId] = true; }
+              if (pe && pe.questionText) { var nt = normQText(pe.questionText); if (nt) { answeredTexts[nt] = true; } }
             }
             var rawQuestions: any[] = parseRes.value.questions;
             var filtered: any[] = [];
             for (var pqi = 0; pqi < rawQuestions.length; pqi++) {
               var rawQ = rawQuestions[pqi];
               var rawQid = (rawQ && rawQ.questionId) ? rawQ.questionId : ("q-legacy-" + pqi);
+              var rawText = normQText(rawQ && rawQ.question ? rawQ.question : "");
               if (answeredIds[rawQid]) { continue; }
+              if (rawText && answeredTexts[rawText]) { continue; }
               filtered.push(rawQ);
             }
             pendingQuestions = filtered;
