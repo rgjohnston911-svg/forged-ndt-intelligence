@@ -95,6 +95,29 @@ function urgencyBand(score) {
   return 'ROUTINE';
 }
 
+// CONSEQUENCE-AWARE BAND FLOOR (correctness calibration). The additive score can
+// leave a high-consequence asset a hair under a band threshold (HIGH+hold = 55, just
+// under PRIORITY's 60) or collapse a MEDIUM asset into ROUTINE alongside a benign LOW.
+// The band is a POLICY classification, not a raw-score bucket: a held high-consequence
+// asset is at least PRIORITY; a high-consequence asset is never ROUTINE; a medium-
+// consequence asset always warrants at least near-term review. Floors only RAISE the
+// band, never lower it, and emit a traceable reason (no hidden override). Score and
+// sort order are untouched - this relabels the band only.
+var BAND_ORDER = { ROUTINE: 0, ELEVATED: 1, PRIORITY: 2, IMMEDIATE: 3 };
+function applyBandFloor(band, asset) {
+  var ct = String((asset && asset.consequence_tier) || '').toUpperCase();
+  var disp = norm(asset && asset.disposition).replace(/\s+/g, '_');
+  var withholds = disp.indexOf('hold') >= 0 || disp.indexOf('no_go') >= 0 || disp === 'no-go';
+  var floor = 'ROUTINE', why = '';
+  if (asset && asset.active_failure) { floor = 'IMMEDIATE'; why = 'confirmed active failure / loss of containment - act now regardless of consequence tier'; }
+  else if (ct === 'CRITICAL') { floor = 'PRIORITY'; why = 'CRITICAL-consequence asset is never below PRIORITY'; }
+  else if (ct === 'HIGH' && withholds) { floor = 'PRIORITY'; why = 'HIGH-consequence asset withholding continued-service approval (hold/no-go)'; }
+  else if (ct === 'HIGH') { floor = 'ELEVATED'; why = 'HIGH-consequence asset is never ROUTINE'; }
+  else if (ct === 'MEDIUM') { floor = 'ELEVATED'; why = 'MEDIUM-consequence asset warrants at least near-term review'; }
+  if (BAND_ORDER[floor] > BAND_ORDER[band]) { return { band: floor, reason: 'band floored to ' + floor + ': ' + why }; }
+  return { band: band, reason: null };
+}
+
 function recommendedAction(band, asset) {
   if (band === 'IMMEDIATE') {
     return 'Address first. Shut-in / protective-action candidate; resolve or verify before the asset is relied upon' + (asset && asset.storm_exposure ? ' or the storm arrives.' : '.');
@@ -122,7 +145,9 @@ function rankFleet(params) {
   for (var i = 0; i < assets.length; i++) {
     var a = assets[i] || {};
     var res = scoreAsset(a);
-    var band = urgencyBand(res.score);
+    var scoreBand = urgencyBand(res.score);
+    var floored = applyBandFloor(scoreBand, a);
+    var band = floored.band;
     scored.push({
       name: a.name || a.asset_id || ('Asset ' + (i + 1)),
       consequence_tier: a.consequence_tier || 'UNKNOWN',
@@ -131,6 +156,7 @@ function rankFleet(params) {
       suspected: a.suspected || null,
       urgency_score: res.score,
       urgency_band: band,
+      band_floor_reason: floored.reason,
       drivers: res.drivers,
       recommended_action: recommendedAction(band, a),
       input_index: i
