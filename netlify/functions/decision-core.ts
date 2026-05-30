@@ -5056,6 +5056,24 @@ function resolveAuthorityReality(assetClass: string, transcript: string, consequ
   var lt = transcript.toLowerCase();
   var matched: any = null;
 
+  // DEPLOY399 - normalize classifier asset-class SYNONYMS to the AUTHORITY_MAP
+  // canonical heads BEFORE matching. The classifier emits names like
+  // "process_piping" while AUTHORITY_MAP keys on "piping"; without this the
+  // match falls through to UNRESOLVED even though authority-lock resolved the
+  // codes (page-1 vs page-2 contradiction seen on the LNG transfer-line case).
+  // Intra-regime synonyms ONLY - piping and pipeline are kept DISTINCT because
+  // they are governed by different codes (B31.3 vs B31.4/B31.8).
+  var AUTHORITY_CLASS_ALIASES: any = {
+    process_piping: "piping", piping_system: "piping", process_pipe: "piping", pipe: "piping",
+    vessel: "pressure_vessel", pv: "pressure_vessel", pressure_vessel_asme: "pressure_vessel", asme_viii_vessel: "pressure_vessel",
+    exchanger: "heat_exchanger", shell_and_tube: "heat_exchanger", hx: "heat_exchanger", shell_tube_exchanger: "heat_exchanger",
+    atmospheric_tank: "storage_tank", api_650_tank: "storage_tank", api_653_tank: "storage_tank", ast: "storage_tank",
+    platform: "offshore_platform", jacket: "offshore_platform", fixed_platform: "offshore_platform", offshore_structure: "offshore_platform", production_platform: "offshore_platform", drilling_platform: "offshore_platform",
+    bridge_steel: "bridge", bridge_concrete: "bridge", railroad_bridge: "bridge", railway_bridge: "bridge", highway_bridge: "bridge", truss_bridge: "bridge",
+    railcar: "rail", rolling_stock: "rail", rail_vehicle: "rail"
+  };
+  if (assetClass && AUTHORITY_CLASS_ALIASES[assetClass]) { assetClass = AUTHORITY_CLASS_ALIASES[assetClass]; }
+
   // DEPLOY203: JURISDICTION OVERLAY
   // If non-US jurisdiction detected with sufficient confidence, use JURISDICTION_CODE_STACKS
   // instead of the US-centric AUTHORITY_MAP. PVHO and specialty entries still use AUTHORITY_MAP

@@ -376,7 +376,28 @@ function generateInspectionReport(data: {
   html += "<div class='meta-box'><div class='meta-label'>Asset Classification</div><div class='meta-value'>" + esc(displayAssetClass) + assetNote + "</div></div>";
   html += "<div class='meta-box'><div class='meta-label'>Consequence Tier</div><div class='meta-value' style='color:" + tierColorVal + "'>" + esc(con.consequence_tier) + " - " + esc(displayFailureMode) + "</div></div>";
   html += "<div class='meta-box'><div class='meta-label'>Disposition</div><div class='meta-value'>" + esc(dec.disposition).replace(/_/g, " ").toUpperCase() + "</div></div>";
-  html += "<div class='meta-box'><div class='meta-label'>Primary Authority</div><div class='meta-value'>" + esc(auth.primary_authority) + "</div></div>";
+  // DEPLOY399 - reconcile page-1 Primary Authority with the authority-lock result.
+  // decision-core's resolver can return UNRESOLVED (or an object) while authority-lock
+  // has LOCKED concrete codes (API 570 / ASME B31.3). Never show a header that
+  // contradicts the codes listed later in the report.
+  function authPrimaryDisplay(): string {
+    var pa: any = auth ? auth.primary_authority : null;
+    var paStr = (pa && typeof pa === "object") ? (pa.code || pa.standard || pa.name || "") : (pa || "");
+    if (paStr && String(paStr).toUpperCase() !== "UNRESOLVED") { return String(paStr); }
+    if (alr) {
+      if (alr.authority_chain && alr.authority_chain.length > 0) {
+        var codes: string[] = [];
+        for (var aci = 0; aci < alr.authority_chain.length; aci++) {
+          var c = alr.authority_chain[aci];
+          if (c && c.code) { codes.push(String(c.code)); }
+        }
+        if (codes.length > 0) { return codes.slice(0, 3).join(" + "); }
+      }
+      if (alr.all_codes && alr.all_codes.length > 0) { return alr.all_codes.slice(0, 3).join(" + "); }
+    }
+    return String(paStr) || "UNRESOLVED";
+  }
+  html += "<div class='meta-box'><div class='meta-label'>Primary Authority</div><div class='meta-value'>" + esc(authPrimaryDisplay()) + "</div></div>";
   html += "</div>";
 
   // HARDENING DIAGNOSTIC
@@ -589,12 +610,18 @@ function generateInspectionReport(data: {
       : fmd.governing_failure_mode === "COMPOUND" ? "#dc2626"
       : "#6b7280";
     var fmdLabel = (fmd.governing_failure_mode || "NONE").replace(/_/g, " ");
-    html += "<div class='banner' style='background:" + fmdModeColor + "'>GOVERNING: " + esc(fmdLabel) + "</div>";
+    var fmdGovLabel = (fmd.suspected_governing_mechanism && fmd.suspected_governing_mechanism.length > 0) ? "GOVERNING (CONFIRMED MECHANISM): " : "GOVERNING: ";
+    html += "<div class='banner' style='background:" + fmdModeColor + "'>" + fmdGovLabel + esc(fmdLabel) + "</div>";
     // DEPLOY397 - confirmed-vs-suspected governing split (FMD). Surface a suspected
     // higher-consequence mechanism (e.g. fatigue) pending confirmation, so 'GOVERNING:
     // CORROSION' is not misread as 'corrosion is the only risk'.
     if (fmd.suspected_governing_mechanism && fmd.suspected_governing_mechanism.length > 0) {
       html += "<div class='banner' style='background:#b45309'>SUSPECTED GOVERNING (pending confirmation): " + esc(fmd.suspected_governing_mechanism.join(", ").toUpperCase()) + "</div>";
+    }
+    // DEPLOY398 - name the DECISION driver explicitly: what governs the HOLD is the
+    // unresolved crack-mechanism risk, NOT remaining wall thickness.
+    if (fmd.disposition_driver) {
+      html += "<div class='banner' style='background:#7c2d12'>DISPOSITION DRIVER: " + esc(fmd.disposition_driver) + "</div>";
     }
     if (fmd.governing_severity) html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(fmd.governing_severity) + "</span></div>";
     if (fmd.governing_failure_pressure) html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(fmd.governing_failure_pressure) + " psi</span></div>";

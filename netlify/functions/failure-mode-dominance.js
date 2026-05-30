@@ -1,6 +1,20 @@
-// FAILURE MODE DOMINANCE ENGINE v1.4.0
+// FAILURE MODE DOMINANCE ENGINE v1.6.0
 // File: netlify/functions/failure-mode-dominance.js
 // NO TYPESCRIPT -- PURE JAVASCRIPT
+//
+// v1.6.0: DEPLOY398 -- DISPOSITION DRIVER (decision-layer fix #2, from live-pack
+//        offshore-platform case / TEST 3). Adds disposition_driver: when a
+//        suspected higher-consequence mechanism is flagged (confirmed corrosion +
+//        cracking screening-only, OR screening-only with no confirmed mode), name
+//        WHAT GOVERNS THE DECISION explicitly: the unresolved crack-mechanism risk,
+//        NOT remaining wall thickness. Separates "confirmed governing MECHANISM"
+//        (the calc lens) from "governing RISK / decision driver" (the disposition
+//        lens). governing_failure_mode, suspected_governing_mechanism and the
+//        screening-gate HOLD are UNCHANGED. Also word-boundary-gates the bare
+//        transcript crack-token scans (hic/sohic/ssc/scc) so common words like
+//        "thickness" no longer substring-match "hic" and spuriously flag HIC.
+//
+// v1.5.0: DEPLOY397 -- confirmed-vs-suspected governing split.
 //
 // v1.4.0: DEPLOY174+ CATALOG FAMILY MAP
 //        Adds CATALOG_FAMILY_MAP that maps all 21 decision-core catalog
@@ -449,8 +463,8 @@ var handler = async function(event) {
     });
 
     // Transcript cracking keyword scan (presence only; confirmation inferred below)
-    if (transcript.indexOf("crack") >= 0 || transcript.indexOf("scc") >= 0 ||
-        transcript.indexOf("hic") >= 0 || transcript.indexOf("sohic") >= 0) {
+    if (transcript.indexOf("crack") >= 0 || hasWordBoundaryMatch(transcript, "scc") ||
+        hasWordBoundaryMatch(transcript, "hic") || hasWordBoundaryMatch(transcript, "sohic")) {
       hasCracking = true;
     }
 
@@ -504,8 +518,8 @@ var handler = async function(event) {
       generic:{ present: false, state: "none" }
     };
 
-    var hasHIC_token = crackingMechanisms.some(function(m) { return m.indexOf("hic") >= 0 || m.indexOf("sohic") >= 0; }) || transcript.indexOf("hic") >= 0;
-    var hasSSC_token = crackingMechanisms.some(function(m) { return m.indexOf("ssc") >= 0 || m.indexOf("sscc") >= 0 || m.indexOf("sulfide") >= 0; }) || transcript.indexOf("ssc") >= 0 || transcript.indexOf("sulfide stress") >= 0;
+    var hasHIC_token = crackingMechanisms.some(function(m) { return m.indexOf("hic") >= 0 || m.indexOf("sohic") >= 0; }) || hasWordBoundaryMatch(transcript, "hic") || hasWordBoundaryMatch(transcript, "sohic");
+    var hasSSC_token = crackingMechanisms.some(function(m) { return m.indexOf("ssc") >= 0 || m.indexOf("sscc") >= 0 || m.indexOf("sulfide") >= 0; }) || hasWordBoundaryMatch(transcript, "ssc") || transcript.indexOf("sulfide stress") >= 0;
     var hasSCC_token = crackingMechanisms.some(function(m) { return m.indexOf("scc") >= 0 || m.indexOf("stress_corrosion") >= 0; }) || transcript.indexOf("stress corrosion") >= 0;
     var hasFatigue_token = crackingMechanisms.some(function(m) { return m.indexOf("fatigue") >= 0; }) || transcript.indexOf("fatigue") >= 0;
     var hasGenericCrack_token = transcript.indexOf("crack") >= 0;
@@ -787,6 +801,7 @@ var handler = async function(event) {
     var interactionDetail = "";
     var screeningGate = null; // v1.3
     var suspectedGoverning = null; // DEPLOY397 - unconfirmed higher-consequence mechanism (confirmed-vs-suspected split)
+    var dispositionDriver = null; // DEPLOY398 - what actually governs the DECISION (the HOLD), distinct from the confirmed calc mechanism
 
     if (hasStructuralMode) {
       governingMode = "STRUCTURAL_INSTABILITY";
@@ -859,6 +874,10 @@ var handler = async function(event) {
       governingPressure = corrosionPath.failure_pressure;
       suspectedGoverning = screeningMechanisms.filter(function(x){ return x && x !== 'generic' && x !== 'unknown' && x !== 'crack' && x !== 'cracking'; });
       governingBasis = "CONFIRMED governing mechanism: corrosion/metal loss (" + corrosionMechanisms.join(", ") + "), the only measured mechanism. SUSPECTED higher-consequence mechanism pending confirmation: " + screeningMechanisms.join(", ").toUpperCase() + " (cued but not yet observed/measured). The B31G/FFS calc governs on the CONFIRMED mechanism, but disposition is HELD until the suspected mechanism is confirmed or ruled out via the screening gate. Do not read this as \"corrosion is the only risk\".";
+      // DEPLOY398 - name the DECISION driver explicitly. The HOLD is driven by the
+      // unresolved suspected-crack risk, NOT by remaining wall thickness (which is
+      // measured/acceptable/stable). Confirmed mechanism != governing decision driver.
+      dispositionDriver = "Unresolved " + (suspectedGoverning.length > 0 ? suspectedGoverning.join("/").toUpperCase() : "crack") + " (crack-mechanism) risk pending confirmation - NOT remaining wall thickness. The measured metal loss is the confirmed mechanism but does not drive the disposition: remaining thickness is acceptable and the corrosion rate is bounded. The HOLD is governed by the suspected higher-consequence mechanism, which crack-specific NDE must confirm or rule out before any continue-service call.";
       interactionFlag = true;
       interactionType = "CORROSION_CONFIRMED_CRACKING_SCREENING";
       interactionDetail = "Confirmed corrosion with unconfirmed cracking mechanism candidates. Disposition cannot finalize until cracking screening NDE is performed.";
@@ -887,6 +906,8 @@ var handler = async function(event) {
       governingMode = "SCREENING_REQUIRED";
       suspectedGoverning = screeningMechanisms.filter(function(x){ return x && x !== 'generic' && x !== 'unknown' && x !== 'crack' && x !== 'cracking'; });
       governingBasis = "Only unconfirmed cracking mechanism candidates present (" + screeningMechanisms.join(", ").toUpperCase() + "). No confirmed failure mode. Crack-specific NDE required before governing mode can be determined.";
+      // DEPLOY398 - the disposition is governed by the unresolved crack-mechanism risk.
+      dispositionDriver = "Unresolved " + (suspectedGoverning.length > 0 ? suspectedGoverning.join("/").toUpperCase() : "crack") + " (crack-mechanism) risk pending confirmation. No confirmed failure mode exists yet; the HOLD is governed by the suspected mechanism, which crack-specific NDE must confirm or rule out before disposition can finalize.";
       screeningGate = {
         required: true,
         reason: "No confirmed mechanism; cracking candidates listed only.",
@@ -946,6 +967,7 @@ var handler = async function(event) {
       governing_basis: governingBasis,
       confirmed_governing_mechanism: (governingMode === 'CORROSION' || governingMode === 'CRACKING' || governingMode === 'STRUCTURAL_INSTABILITY' || governingMode === 'COMPOUND') ? governingMode : null,
       suspected_governing_mechanism: suspectedGoverning,
+      disposition_driver: dispositionDriver,
       governing_code_reference: governingCode,
       interaction_flag: interactionFlag,
       interaction_type: interactionType,
@@ -964,7 +986,7 @@ var handler = async function(event) {
       },
       metadata: {
         engine: "failure-mode-dominance",
-        version: "1.5.0",
+        version: "1.6.0",
         timestamp: new Date().toISOString()
       }
     };
