@@ -12,6 +12,14 @@
 
 declare var process: any;
 
+// DEPLOY388: domain scoring + the weak-signal classification guard now live in
+// the shared, unit-tested module domain-classifier.cjs, which is the SINGLE
+// SOURCE OF TRUTH. runRealityLock delegates to it (see classifyDomain call
+// below). The inline DOMAIN_KEYWORDS / SUPPORTED_DOMAINS / scoreDomains further
+// down are NO LONGER USED at runtime and are retained only for reference --
+// edit the .cjs module, not them.
+var domainClassifier = require("./domain-classifier.cjs");
+
 // ================================================================
 // DOMAIN KEYWORD MAP
 // ================================================================
@@ -197,9 +205,10 @@ function runRealityLock(transcript: string, parsedAssetClass: string, parsedAsse
   var warnings: any[] = [];
 
   // Step 1: Score all domains
-  var domainScores = scoreDomains(transcript);
-  var topDomain = domainScores[0] || { domain: "unknown", score: 0, hits: [] };
-  var secondDomain = domainScores[1] || { domain: "unknown", score: 0, hits: [] };
+  var cls = domainClassifier.classifyDomain(transcript);
+  var topDomain = { domain: cls.domain, score: cls.score, hits: cls.hits };
+  var secondDomain = { domain: cls.second, score: cls.secondScore, hits: [] };
+  if (cls.guardApplied) { trace.push("Classifier guard: " + cls.guardReason + "."); }
 
   trace.push("Domain scoring complete. Top: " + topDomain.domain + " (" + topDomain.score + "), Runner-up: " + secondDomain.domain + " (" + secondDomain.score + ").");
   if (topDomain.hits.length > 0) {
@@ -207,7 +216,7 @@ function runRealityLock(transcript: string, parsedAssetClass: string, parsedAsse
   }
 
   // Step 2: Check if domain is supported
-  var domainSupported = !!SUPPORTED_DOMAINS[topDomain.domain];
+  var domainSupported = cls.supported;
   var routingDecision = domainSupported ? "full_pipeline" : "ai_interpretation_only";
 
   trace.push("Domain " + topDomain.domain + " is " + (domainSupported ? "SUPPORTED" : "NOT SUPPORTED") + " by deterministic chain.");
