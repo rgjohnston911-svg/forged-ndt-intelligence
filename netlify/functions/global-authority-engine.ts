@@ -305,7 +305,106 @@ const JURISDICTION_REGISTRY: Record<string, JurisdictionEntry> = {
     unit_system: "Metric",
     is_offshore: true,
     note: "Flag state + classification society rules govern; IMO conventions apply"
-  }
+  },
+  france: {
+    country: "France",
+    codes: ["PED 2014/68/EU", "EN 13445", "EN 13480", "RCC-M / RSE-M (nuclear)"],
+    primary_authority_description: "PED / EN harmonized standards + French in-service regime; ASN for nuclear",
+    regulatory_body: "DGPR / ASN (nuclear)",
+    class_societies: [],
+    unit_system: "Metric",
+    note: "EU PED regime; Notified Body involvement"
+  },
+  netherlands: {
+    country: "Netherlands",
+    codes: ["PED 2014/68/EU", "EN 13445", "EN 13480"],
+    primary_authority_description: "PED / EN harmonized standards; SodM for offshore",
+    regulatory_body: "SodM / NLA",
+    class_societies: [],
+    unit_system: "Metric",
+    note: "EU PED regime"
+  },
+  poland: {
+    country: "Poland",
+    codes: ["PED 2014/68/EU", "EN 13445", "EN 13480"],
+    primary_authority_description: "PED / EN harmonized standards; UDT in-service inspection",
+    regulatory_body: "UDT (Office of Technical Inspection)",
+    class_societies: [],
+    unit_system: "Metric",
+    note: "EU PED regime"
+  },
+  indonesia: {
+    country: "Indonesia",
+    codes: ["SNI", "Ditjen Migas regulations", "ASME / API (adopted)"],
+    primary_authority_description: "Ditjen Migas / SKK Migas oil & gas regulations + SNI; API/ASME widely adopted",
+    regulatory_body: "Ditjen Migas / SKK Migas / BSN",
+    class_societies: [],
+    unit_system: "Metric",
+    note: "API/ASME commonly adopted with national overlay"
+  },
+  mexico: {
+    country: "Mexico",
+    codes: ["NOM standards", "ASME / API (adopted)"],
+    primary_authority_description: "NOM standards + ASEA (oil & gas) / PEMEX specifications; API/ASME adopted",
+    regulatory_body: "ASEA / CNH",
+    class_societies: [],
+    unit_system: "Metric",
+    note: "API/ASME commonly adopted with national overlay"
+  },
+  nigeria: {
+    country: "Nigeria",
+    codes: ["ASME / API (adopted)", "NUPRC guidelines"],
+    primary_authority_description: "NUPRC (upstream) / NMDPRA + NCDMB content rules; API/ASME-based",
+    regulatory_body: "NUPRC / NMDPRA",
+    class_societies: [],
+    unit_system: "Mixed",
+    note: "DPR dissolved 2021 -> NUPRC/NMDPRA"
+  },
+  egypt: {
+    country: "Egypt",
+    codes: ["ASME / API (adopted)", "Egyptian standards (EOS)"],
+    primary_authority_description: "EGPC / EGAS + Egyptian Organization for Standardization; API/ASME-based",
+    regulatory_body: "EGPC / EOS",
+    class_societies: [],
+    unit_system: "Metric",
+    note: "API/ASME commonly adopted with national overlay"
+  },
+  kazakhstan: {
+    country: "Kazakhstan",
+    codes: ["GOST standards", "ASME / API (adopted)"],
+    primary_authority_description: "GOST + national technical regulations; API/ASME in oil & gas",
+    regulatory_body: "National technical regulator / KazMunayGas",
+    class_societies: [],
+    unit_system: "Metric",
+    note: "API/ASME commonly adopted with GOST overlay"
+  },
+  argentina: {
+    country: "Argentina",
+    codes: ["IRAM standards", "ASME / API (adopted)"],
+    primary_authority_description: "IRAM standards + Secretaria de Energia; API/ASME adopted",
+    regulatory_body: "Secretaria de Energia / IRAM",
+    class_societies: [],
+    unit_system: "Metric",
+    note: "API/ASME commonly adopted with national overlay"
+  },
+  chile: {
+    country: "Chile",
+    codes: ["NCh standards", "ASME / API (adopted)"],
+    primary_authority_description: "NCh standards + SEC; SERNAGEOMIN for mining; API/ASME adopted",
+    regulatory_body: "SEC / SERNAGEOMIN (mining)",
+    class_societies: [],
+    unit_system: "Metric",
+    note: "API/ASME commonly adopted with national overlay"
+  },
+  south_africa: {
+    country: "South Africa",
+    codes: ["SANS", "OHS Act Pressure Equipment Regulations (PER)", "ASME / API (adopted)"],
+    primary_authority_description: "SANS + OHS Act Pressure Equipment Regulations (PER); API/ASME adopted",
+    regulatory_body: "Dept of Employment & Labour (OHS Act) / SANAS",
+    class_societies: [],
+    unit_system: "Metric",
+    note: "API/ASME commonly adopted with SANS/PER overlay"
+  },
 };
 
 // ============================================================
@@ -352,7 +451,18 @@ const LOCATION_PATTERNS: { pattern: RegExp; key: string; region?: string }[] = [
   { pattern: /\bkorea|korean\b/i, key: "korea" },
   { pattern: /\bsingapore\b/i, key: "singapore" },
   { pattern: /\bsaudi|aramco|adnoc|uae|qatar|middle\s*east|kuwait|oman|bahrain\b/i, key: "middle_east" },
-  { pattern: /\beu\b|european\s*union/i, key: "eu" }
+  { pattern: /\beu\b|european\s*union/i, key: "eu" },
+  { pattern: /\bfrance|french\b/i, key: "france" },
+  { pattern: /\bnetherlands|dutch|holland\b/i, key: "netherlands" },
+  { pattern: /\bpoland|polish\b/i, key: "poland" },
+  { pattern: /\bindonesia|indonesian|java\s*sea\b/i, key: "indonesia" },
+  { pattern: /\bmexico|mexican|pemex\b/i, key: "mexico" },
+  { pattern: /\bnigeria|nigerian\b/i, key: "nigeria" },
+  { pattern: /\begypt|egyptian\b/i, key: "egypt" },
+  { pattern: /\bkazakhstan|kazakh\b/i, key: "kazakhstan" },
+  { pattern: /\bargentina|argentine\b/i, key: "argentina" },
+  { pattern: /\bchile|chilean\b/i, key: "chile" },
+  { pattern: /\bsouth\s*africa|south\s*african\b/i, key: "south_africa" }
 ];
 
 function resolveLocationText(locationText: string | undefined): LocationResolution {

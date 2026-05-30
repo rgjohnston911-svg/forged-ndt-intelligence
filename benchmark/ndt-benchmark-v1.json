@@ -2,30 +2,330 @@
   "version": "v1",
   "note": "Frozen labeled benchmark. Offline-scored layers: domain, org_failure, forecast_driver. live_only labels (authority/mechanism/disposition/governing_risk) are scored via live full-pipeline runs, not this harness. Each case: expected labels + which layers are auto-scored.",
   "cases": [
-    {"id":"C01","title":"Brazil FPSO turret bearing","transcript":"Santos Basin Brazil deepwater FPSO turret mooring bearing assembly, 122% of design. Vibration increased 340% over 8 months. Severe storm forecast in 5 days. Turret manufacturer no longer exists. Original design calculations unavailable.","expected":{"domain":"offshore_oil_gas","jurisdiction":"Brazil","org_failure":true,"forecast_driver":true,"should_escalate":true,"governing_risk":"loss of design-basis knowledge + storm loading, not the bearing vibration"}},
-    {"id":"C02","title":"Saudi sour gas separator","transcript":"Eastern Province Saudi Arabia sour gas separator shell, UT localized thinning above Tmin, corrosion rate stable. H2S increased 40%. Weld repair by contractor 18 months ago. PWHT records missing.","expected":{"domain":"pressure_equipment","jurisdiction":"Saudi Arabia","org_failure":true,"forecast_driver":false,"should_escalate":true,"governing_risk":"HIC/SOHIC + weld-repair material suitability, not wall loss"}},
-    {"id":"C03","title":"North Sea wind monopile","transcript":"North Sea offshore wind farm monopile foundation, ROV marine growth loss exposing coating damage, 22% section loss. Turbine output increased through software upgrade. Storm frequency increasing. Foundation designed using older environmental assumptions.","expected":{"domain":"wind_energy","jurisdiction":"Norway","org_failure":true,"forecast_driver":true,"should_escalate":true,"governing_risk":"future fatigue life under increased loading + design-basis drift"}},
-    {"id":"C04","title":"France nuclear feedwater FAC","transcript":"France nuclear station feedwater system, UT localized wall thinning above minimum, FAC suspected. Flow rates increased after efficiency upgrades. Similar failure occurred at another unit. Regulatory inspection in 60 days.","expected":{"domain":"nuclear","jurisdiction":"France","org_failure":false,"forecast_driver":true,"should_escalate":true,"governing_risk":"flow-accelerated corrosion as a systemic fleet issue"}},
-    {"id":"C05","title":"Indonesia subsea pipeline free span","transcript":"Java Sea Indonesia offshore gas export pipeline, ROV unexpected seabed exposure, free span exceeds design assumptions, no leak. Fishing activity increased. Monsoon approaching. Recent anchor strike nearby.","expected":{"domain":"pipeline","jurisdiction":"Indonesia","org_failure":false,"forecast_driver":true,"should_escalate":true,"governing_risk":"free-span fatigue + geohazard, not corrosion"}},
-    {"id":"C06","title":"Canada tailings pipeline erosion","transcript":"Alberta Canada oil sands tailings pipeline, wall loss, thickness acceptable, corrosion negligible. Slurry velocity increased 28%. Pump upgrades completed. Environmental regulator auditing site.","expected":{"domain":"pipeline","jurisdiction":"Canada","org_failure":false,"forecast_driver":true,"should_escalate":true,"governing_risk":"erosion-corrosion acceleration from velocity, not general corrosion"}},
-    {"id":"C07","title":"Singapore LNG cryogenic support","transcript":"Singapore LNG export terminal cryogenic transfer line support, structural member above minimum section. LNG throughput increased. Thermal cycling doubled. Adjacent support replaced last year.","expected":{"domain":"pressure_equipment","jurisdiction":"Singapore","org_failure":false,"forecast_driver":true,"should_escalate":true,"governing_risk":"support load validity under increased thermal cycling"}},
-    {"id":"C08","title":"UK rail bridge gusset crack","transcript":"England UK rail bridge gusset plate cracking, crack 1.2 inches, no distortion. Freight traffic increased 60%. Heavier locomotives introduced. Original design based on older loading criteria.","expected":{"domain":"bridge_civil","jurisdiction":"United Kingdom","org_failure":true,"forecast_driver":true,"should_escalate":true,"governing_risk":"changed operational loading, not just the crack"}},
-    {"id":"C09","title":"UAE gas compression seal failures","transcript":"Abu Dhabi UAE gas compression station, repeated seal failures, compressor inspections normal, vibration acceptable. Gas composition changed. New field tie-in completed. Process upset frequency increasing.","expected":{"domain":"unknown","jurisdiction":"UAE","org_failure":false,"forecast_driver":false,"should_escalate":true,"governing_risk":"process change as root cause"}},
-    {"id":"C10","title":"Japan dry dock gate","transcript":"Yokohama Japan shipyard dry dock gate, UT localized section loss within design limits. Tsunami design basis updated. Increased vessel size. Emergency closure system overdue for testing.","expected":{"domain":"unknown","jurisdiction":"Japan","org_failure":true,"forecast_driver":true,"should_escalate":true,"governing_risk":"emergency-system degradation drives overall risk"}},
-    {"id":"C11","title":"Refinery delayed coker (clean route)","transcript":"Refinery delayed coker crude unit, overhead piping pipe rack, sulfidation screening, routine inspection, readings nominal, all records current.","expected":{"domain":"refinery","jurisdiction":"United States","org_failure":false,"forecast_driver":false,"should_escalate":false,"governing_risk":"routine - no governing hidden risk"}},
-    {"id":"C12","title":"Low-consequence utility drain (false positive)","transcript":"Low-pressure utility water drain on a non-critical skid. Heavy external corrosion and rough pitting, thickness below original design. Line is isolated, non-pressure, non-toxic, non-fire-risk, spare bypass available.","expected":{"domain":"unknown","jurisdiction":"United States","org_failure":false,"forecast_driver":false,"should_escalate":false,"governing_risk":"high visual severity but LOW consequence - do not over-escalate"}},
-    {"id":"C13","title":"Qatar LNG compressor redundancy","transcript":"Qatar LNG train refrigeration compressor, bearing temperatures increasing slowly within OEM limits. LNG export demand all-time high. Spare compressor unavailable. Major turnaround postponed 14 months.","expected":{"domain":"unknown","jurisdiction":"Qatar","org_failure":true,"forecast_driver":true,"should_escalate":true,"governing_risk":"loss of redundancy, not bearing temperature"}},
-    {"id":"C14","title":"Germany chlorine line barrier","transcript":"Germany chemical plant chlorine line, UT minor wall thinning. Leak consequence toxic cloud, school 1 km downwind. Emergency evacuation system failed previous drill.","expected":{"domain":"chemical_process","jurisdiction":"Germany","org_failure":true,"forecast_driver":false,"should_escalate":true,"governing_risk":"consequence + barrier degradation, not the minor thinning"}},
-    {"id":"C15","title":"Texas petrochemical systemic maintenance","transcript":"Texas petrochemical complex, repeated flange leaks. Turnaround delayed. Contractor turnover. Procurement delays.","expected":{"domain":"unknown","jurisdiction":"United States","org_failure":true,"forecast_driver":true,"should_escalate":true,"governing_risk":"systemic maintenance failure"}},
-    {"id":"C16","title":"India refinery organizational","transcript":"India refinery hydrocracker, thermal fatigue indications. Startups tripled. Control room turnover high. Procedures outdated.","expected":{"domain":"refinery","jurisdiction":"India","org_failure":true,"forecast_driver":true,"should_escalate":true,"governing_risk":"organizational/operational behavior is the damage driver"}},
-    {"id":"C17","title":"Poland power FAC cost-cut","transcript":"Poland power plant, FAC thinning. Chemistry program reduced to save costs.","expected":{"domain":"unknown","jurisdiction":"Poland","org_failure":true,"forecast_driver":false,"should_escalate":true,"governing_risk":"cost-driven mitigation cut accelerating FAC"}},
-    {"id":"C18","title":"Kazakhstan undocumented weld repair","transcript":"Kazakhstan gas processing plant, small weld indication. Contractor performed undocumented repair. Material substitution suspected.","expected":{"domain":"unknown","jurisdiction":"Kazakhstan","org_failure":true,"forecast_driver":false,"should_escalate":true,"governing_risk":"configuration control / material suitability"}},
-    {"id":"C19","title":"Argentina pipeline CP failure","transcript":"Argentina pipeline, coating holiday. CP system intermittently offline.","expected":{"domain":"pipeline","jurisdiction":"Argentina","org_failure":true,"forecast_driver":false,"should_escalate":true,"governing_risk":"protection-system failure (CP), not just the holiday"}},
-    {"id":"C20","title":"Nigeria security non-technical","transcript":"Nigeria production facility, corrosion anomaly. Security incidents increasing. Maintenance access limited.","expected":{"domain":"unknown","jurisdiction":"Nigeria","org_failure":false,"forecast_driver":true,"should_escalate":true,"governing_risk":"non-technical (security/access) risk dominates"}},
-    {"id":"C21","title":"CUI insulated alkylation line","transcript":"Refinery insulated 8-inch carbon-steel acid-transfer line, acceptable UT at four accessible windows, insulation jacketing damaged near two supports, no leak. Recent steam tracing leak, chloride-contaminated insulation, thermal cycling between ambient and 240F.","expected":{"domain":"refinery","jurisdiction":"United States","org_failure":false,"forecast_driver":false,"should_escalate":true,"governing_risk":"CUI - sparse UT cannot be extrapolated across the circuit"}},
-    {"id":"C22","title":"HTHA hydrotreater hydrogen","transcript":"Hydrotreater reactor effluent piping, UT minor wall loss on high-temperature hydrogen service, PAUT no clear crack. Operated above original hydrogen partial pressure 18 months. Material 1.25Cr-0.5Mo near Nelson curve limits.","expected":{"domain":"refinery","jurisdiction":"United States","org_failure":false,"forecast_driver":false,"should_escalate":true,"governing_risk":"HTHA/hydrogen damage, not thickness"}},
-    {"id":"C23","title":"Brittle fracture LPG sphere","transcript":"Older LPG sphere, acceptable shell thickness, no cracks. Operations plans lower winter operating temperature. Material normalized carbon steel but Charpy impact data missing, unknown MDMT margin, older weld repairs. Cold front forecast.","expected":{"domain":"pressure_equipment","jurisdiction":"United States","org_failure":true,"forecast_driver":true,"should_escalate":true,"governing_risk":"brittle fracture / MDMT toughness, not thickness"}},
-    {"id":"C24","title":"Dead leg under-deposit","transcript":"Chemical plant rarely used bypass branch, wall loss near the cap, main line readings normal. Branch normally blocked in, heat tracing failed, deposits found previously, process contains chlorides.","expected":{"domain":"chemical_process","jurisdiction":"United States","org_failure":false,"forecast_driver":false,"should_escalate":true,"governing_risk":"dead-leg under-deposit corrosion; do not use main-line condition"}},
-    {"id":"C25","title":"Routine vessel, fully documented (clean)","transcript":"Pressure vessel shell, API 510 inspection current, thickness well above Tmin, low stable corrosion rate, all records complete, normal service, no severe weather.","expected":{"domain":"pressure_equipment","jurisdiction":"United States","org_failure":false,"forecast_driver":false,"should_escalate":false,"governing_risk":"routine - acceptable, monitor per interval"}}
+    {
+      "id": "C01",
+      "title": "Brazil FPSO turret bearing",
+      "transcript": "Santos Basin Brazil deepwater FPSO turret mooring bearing assembly, 122% of design. Vibration increased 340% over 8 months. Severe storm forecast in 5 days. Turret manufacturer no longer exists. Original design calculations unavailable.",
+      "expected": {
+        "domain": "offshore_oil_gas",
+        "jurisdiction": "Brazil",
+        "org_failure": true,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "loss of design-basis knowledge + storm loading, not the bearing vibration"
+      }
+    },
+    {
+      "id": "C02",
+      "title": "Saudi sour gas separator",
+      "transcript": "Eastern Province Saudi Arabia sour gas separator shell, UT localized thinning above Tmin, corrosion rate stable. H2S increased 40%. Weld repair by contractor 18 months ago. PWHT records missing.",
+      "expected": {
+        "domain": "pressure_equipment",
+        "jurisdiction": "Middle East",
+        "org_failure": true,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "HIC/SOHIC + weld-repair material suitability, not wall loss"
+      }
+    },
+    {
+      "id": "C03",
+      "title": "North Sea wind monopile",
+      "transcript": "North Sea offshore wind farm monopile foundation, ROV marine growth loss exposing coating damage, 22% section loss. Turbine output increased through software upgrade. Storm frequency increasing. Foundation designed using older environmental assumptions.",
+      "expected": {
+        "domain": "wind_energy",
+        "jurisdiction": "unknown",
+        "org_failure": true,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "future fatigue life under increased loading + design-basis drift"
+      }
+    },
+    {
+      "id": "C04",
+      "title": "France nuclear feedwater FAC",
+      "transcript": "France nuclear station feedwater system, UT localized wall thinning above minimum, FAC suspected. Flow rates increased after efficiency upgrades. Similar failure occurred at another unit. Regulatory inspection in 60 days.",
+      "expected": {
+        "domain": "nuclear",
+        "jurisdiction": "France",
+        "org_failure": false,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "flow-accelerated corrosion as a systemic fleet issue"
+      }
+    },
+    {
+      "id": "C05",
+      "title": "Indonesia subsea pipeline free span",
+      "transcript": "Java Sea Indonesia offshore gas export pipeline, ROV unexpected seabed exposure, free span exceeds design assumptions, no leak. Fishing activity increased. Monsoon approaching. Recent anchor strike nearby.",
+      "expected": {
+        "domain": "pipeline",
+        "jurisdiction": "Indonesia",
+        "org_failure": false,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "free-span fatigue + geohazard, not corrosion"
+      }
+    },
+    {
+      "id": "C06",
+      "title": "Canada tailings pipeline erosion",
+      "transcript": "Alberta Canada oil sands tailings pipeline, wall loss, thickness acceptable, corrosion negligible. Slurry velocity increased 28%. Pump upgrades completed. Environmental regulator auditing site.",
+      "expected": {
+        "domain": "pipeline",
+        "jurisdiction": "Canada",
+        "org_failure": false,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "erosion-corrosion acceleration from velocity, not general corrosion"
+      }
+    },
+    {
+      "id": "C07",
+      "title": "Singapore LNG cryogenic support",
+      "transcript": "Singapore LNG export terminal cryogenic transfer line support, structural member above minimum section. LNG throughput increased. Thermal cycling doubled. Adjacent support replaced last year.",
+      "expected": {
+        "domain": "pressure_equipment",
+        "jurisdiction": "Singapore",
+        "org_failure": false,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "support load validity under increased thermal cycling"
+      }
+    },
+    {
+      "id": "C08",
+      "title": "UK rail bridge gusset crack",
+      "transcript": "England UK rail bridge gusset plate cracking, crack 1.2 inches, no distortion. Freight traffic increased 60%. Heavier locomotives introduced. Original design based on older loading criteria.",
+      "expected": {
+        "domain": "bridge_civil",
+        "jurisdiction": "United Kingdom",
+        "org_failure": true,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "changed operational loading, not just the crack"
+      }
+    },
+    {
+      "id": "C09",
+      "title": "UAE gas compression seal failures",
+      "transcript": "Abu Dhabi UAE gas compression station, repeated seal failures, compressor inspections normal, vibration acceptable. Gas composition changed. New field tie-in completed. Process upset frequency increasing.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "Middle East",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "process change as root cause"
+      }
+    },
+    {
+      "id": "C10",
+      "title": "Japan dry dock gate",
+      "transcript": "Yokohama Japan shipyard dry dock gate, UT localized section loss within design limits. Tsunami design basis updated. Increased vessel size. Emergency closure system overdue for testing.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "Japan",
+        "org_failure": true,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "emergency-system degradation drives overall risk"
+      }
+    },
+    {
+      "id": "C11",
+      "title": "Refinery delayed coker (clean route)",
+      "transcript": "Refinery delayed coker crude unit, overhead piping pipe rack, sulfidation screening, routine inspection, readings nominal, all records current.",
+      "expected": {
+        "domain": "refinery",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": false,
+        "governing_risk": "routine - no governing hidden risk"
+      }
+    },
+    {
+      "id": "C12",
+      "title": "Low-consequence utility drain (false positive)",
+      "transcript": "Low-pressure utility water drain on a non-critical skid. Heavy external corrosion and rough pitting, thickness below original design. Line is isolated, non-pressure, non-toxic, non-fire-risk, spare bypass available.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": false,
+        "governing_risk": "high visual severity but LOW consequence - do not over-escalate"
+      }
+    },
+    {
+      "id": "C13",
+      "title": "Qatar LNG compressor redundancy",
+      "transcript": "Qatar LNG train refrigeration compressor, bearing temperatures increasing slowly within OEM limits. LNG export demand all-time high. Spare compressor unavailable. Major turnaround postponed 14 months.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "Middle East",
+        "org_failure": true,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "loss of redundancy, not bearing temperature"
+      }
+    },
+    {
+      "id": "C14",
+      "title": "Germany chlorine line barrier",
+      "transcript": "Germany chemical plant chlorine line, UT minor wall thinning. Leak consequence toxic cloud, school 1 km downwind. Emergency evacuation system failed previous drill.",
+      "expected": {
+        "domain": "chemical_process",
+        "jurisdiction": "Germany",
+        "org_failure": true,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "consequence + barrier degradation, not the minor thinning"
+      }
+    },
+    {
+      "id": "C15",
+      "title": "Texas petrochemical systemic maintenance",
+      "transcript": "Texas petrochemical complex, repeated flange leaks. Turnaround delayed. Contractor turnover. Procurement delays.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "United States",
+        "org_failure": true,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "systemic maintenance failure"
+      }
+    },
+    {
+      "id": "C16",
+      "title": "India refinery organizational",
+      "transcript": "India refinery hydrocracker, thermal fatigue indications. Startups tripled. Control room turnover high. Procedures outdated.",
+      "expected": {
+        "domain": "refinery",
+        "jurisdiction": "India",
+        "org_failure": true,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "organizational/operational behavior is the damage driver"
+      }
+    },
+    {
+      "id": "C17",
+      "title": "Poland power FAC cost-cut",
+      "transcript": "Poland power plant, FAC thinning. Chemistry program reduced to save costs.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "Poland",
+        "org_failure": true,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "cost-driven mitigation cut accelerating FAC"
+      }
+    },
+    {
+      "id": "C18",
+      "title": "Kazakhstan undocumented weld repair",
+      "transcript": "Kazakhstan gas processing plant, small weld indication. Contractor performed undocumented repair. Material substitution suspected.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "Kazakhstan",
+        "org_failure": true,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "configuration control / material suitability"
+      }
+    },
+    {
+      "id": "C19",
+      "title": "Argentina pipeline CP failure",
+      "transcript": "Argentina pipeline, coating holiday. CP system intermittently offline.",
+      "expected": {
+        "domain": "pipeline",
+        "jurisdiction": "Argentina",
+        "org_failure": true,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "protection-system failure (CP), not just the holiday"
+      }
+    },
+    {
+      "id": "C20",
+      "title": "Nigeria security non-technical",
+      "transcript": "Nigeria production facility, corrosion anomaly. Security incidents increasing. Maintenance access limited.",
+      "expected": {
+        "domain": "unknown",
+        "jurisdiction": "Nigeria",
+        "org_failure": false,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "non-technical (security/access) risk dominates"
+      }
+    },
+    {
+      "id": "C21",
+      "title": "CUI insulated alkylation line",
+      "transcript": "Refinery insulated 8-inch carbon-steel acid-transfer line, acceptable UT at four accessible windows, insulation jacketing damaged near two supports, no leak. Recent steam tracing leak, chloride-contaminated insulation, thermal cycling between ambient and 240F.",
+      "expected": {
+        "domain": "refinery",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "CUI - sparse UT cannot be extrapolated across the circuit"
+      }
+    },
+    {
+      "id": "C22",
+      "title": "HTHA hydrotreater hydrogen",
+      "transcript": "Hydrotreater reactor effluent piping, UT minor wall loss on high-temperature hydrogen service, PAUT no clear crack. Operated above original hydrogen partial pressure 18 months. Material 1.25Cr-0.5Mo near Nelson curve limits.",
+      "expected": {
+        "domain": "refinery",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "HTHA/hydrogen damage, not thickness"
+      }
+    },
+    {
+      "id": "C23",
+      "title": "Brittle fracture LPG sphere",
+      "transcript": "Older LPG sphere, acceptable shell thickness, no cracks. Operations plans lower winter operating temperature. Material normalized carbon steel but Charpy impact data missing, unknown MDMT margin, older weld repairs. Cold front forecast.",
+      "expected": {
+        "domain": "pressure_equipment",
+        "jurisdiction": "unknown",
+        "org_failure": true,
+        "forecast_driver": true,
+        "should_escalate": true,
+        "governing_risk": "brittle fracture / MDMT toughness, not thickness"
+      }
+    },
+    {
+      "id": "C24",
+      "title": "Dead leg under-deposit",
+      "transcript": "Chemical plant rarely used bypass branch, wall loss near the cap, main line readings normal. Branch normally blocked in, heat tracing failed, deposits found previously, process contains chlorides.",
+      "expected": {
+        "domain": "chemical_process",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": true,
+        "governing_risk": "dead-leg under-deposit corrosion; do not use main-line condition"
+      }
+    },
+    {
+      "id": "C25",
+      "title": "Routine vessel, fully documented (clean)",
+      "transcript": "Pressure vessel shell, API 510 inspection current, thickness well above Tmin, low stable corrosion rate, all records complete, normal service, no severe weather.",
+      "expected": {
+        "domain": "pressure_equipment",
+        "jurisdiction": "unknown",
+        "org_failure": false,
+        "forecast_driver": false,
+        "should_escalate": false,
+        "governing_risk": "routine - acceptable, monitor per interval"
+      }
+    }
   ]
 }
