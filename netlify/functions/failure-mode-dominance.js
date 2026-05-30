@@ -786,6 +786,7 @@ var handler = async function(event) {
     var interactionType = "none";
     var interactionDetail = "";
     var screeningGate = null; // v1.3
+    var suspectedGoverning = null; // DEPLOY397 - unconfirmed higher-consequence mechanism (confirmed-vs-suspected split)
 
     if (hasStructuralMode) {
       governingMode = "STRUCTURAL_INSTABILITY";
@@ -856,7 +857,8 @@ var handler = async function(event) {
     else if (hasCorrosionMode && hasCrackingMode_screeningOnly) {
       governingMode = "CORROSION";
       governingPressure = corrosionPath.failure_pressure;
-      governingBasis = "Corrosion is the confirmed mechanism (" + corrosionMechanisms.join(", ") + "). Cracking mechanisms (" + screeningMechanisms.join(", ").toUpperCase() + ") are listed as screening candidates only - no observation or measurement evidence. Govern on confirmed mechanism; screening gate emitted for cracking.";
+      suspectedGoverning = screeningMechanisms.filter(function(x){ return x && x !== 'generic' && x !== 'unknown' && x !== 'crack' && x !== 'cracking'; });
+      governingBasis = "CONFIRMED governing mechanism: corrosion/metal loss (" + corrosionMechanisms.join(", ") + "), the only measured mechanism. SUSPECTED higher-consequence mechanism pending confirmation: " + screeningMechanisms.join(", ").toUpperCase() + " (cued but not yet observed/measured). The B31G/FFS calc governs on the CONFIRMED mechanism, but disposition is HELD until the suspected mechanism is confirmed or ruled out via the screening gate. Do not read this as \"corrosion is the only risk\".";
       interactionFlag = true;
       interactionType = "CORROSION_CONFIRMED_CRACKING_SCREENING";
       interactionDetail = "Confirmed corrosion with unconfirmed cracking mechanism candidates. Disposition cannot finalize until cracking screening NDE is performed.";
@@ -883,6 +885,7 @@ var handler = async function(event) {
     // Only screening-level cracking, no corrosion
     else if (hasCrackingMode_screeningOnly) {
       governingMode = "SCREENING_REQUIRED";
+      suspectedGoverning = screeningMechanisms.filter(function(x){ return x && x !== 'generic' && x !== 'unknown' && x !== 'crack' && x !== 'cracking'; });
       governingBasis = "Only unconfirmed cracking mechanism candidates present (" + screeningMechanisms.join(", ").toUpperCase() + "). No confirmed failure mode. Crack-specific NDE required before governing mode can be determined.";
       screeningGate = {
         required: true,
@@ -941,6 +944,8 @@ var handler = async function(event) {
       governing_failure_pressure: governingPressure,
       governing_severity: governingSeverity,
       governing_basis: governingBasis,
+      confirmed_governing_mechanism: (governingMode === 'CORROSION' || governingMode === 'CRACKING' || governingMode === 'STRUCTURAL_INSTABILITY' || governingMode === 'COMPOUND') ? governingMode : null,
+      suspected_governing_mechanism: suspectedGoverning,
       governing_code_reference: governingCode,
       interaction_flag: interactionFlag,
       interaction_type: interactionType,
@@ -959,7 +964,7 @@ var handler = async function(event) {
       },
       metadata: {
         engine: "failure-mode-dominance",
-        version: "1.4.0",
+        version: "1.5.0",
         timestamp: new Date().toISOString()
       }
     };

@@ -590,6 +590,12 @@ function generateInspectionReport(data: {
       : "#6b7280";
     var fmdLabel = (fmd.governing_failure_mode || "NONE").replace(/_/g, " ");
     html += "<div class='banner' style='background:" + fmdModeColor + "'>GOVERNING: " + esc(fmdLabel) + "</div>";
+    // DEPLOY397 - confirmed-vs-suspected governing split (FMD). Surface a suspected
+    // higher-consequence mechanism (e.g. fatigue) pending confirmation, so 'GOVERNING:
+    // CORROSION' is not misread as 'corrosion is the only risk'.
+    if (fmd.suspected_governing_mechanism && fmd.suspected_governing_mechanism.length > 0) {
+      html += "<div class='banner' style='background:#b45309'>SUSPECTED GOVERNING (pending confirmation): " + esc(fmd.suspected_governing_mechanism.join(", ").toUpperCase()) + "</div>";
+    }
     if (fmd.governing_severity) html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(fmd.governing_severity) + "</span></div>";
     if (fmd.governing_failure_pressure) html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(fmd.governing_failure_pressure) + " psi</span></div>";
     if (fmd.governing_code_reference) html += "<div class='info-row'><span class='info-label'>Assessment Code</span><span class='info-value'>" + esc(fmd.governing_code_reference) + "</span></div>";
