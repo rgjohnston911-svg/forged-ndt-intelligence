@@ -32,6 +32,7 @@ var brief = require('./situational-awareness-brief.cjs');
 var assembler = require('./situational-awareness-package.cjs');
 var survivalBridge = require('./situational-awareness-survival-bridge.cjs');
 var organizational = require('./situational-awareness-organizational.cjs');
+var convergence = require('./situational-awareness-convergence.cjs');
 
 var CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -112,6 +113,12 @@ function orchestrateSa(parts) {
   // package object for rendering. NOT part of saPackageHash (which covers the
   // core SA artifact), so verifySaPackage remains valid.
   saPackage.organizationalFailures = organizational.detectOrganizationalFailures(p.signals || { transcript: '' });
+
+  // DEPLOY384 - Tier 3b: attach Convergence Detection (how many independent
+  // evidence streams support a common failure hypothesis). Like Tier 3a, this
+  // is attached for rendering only and is NOT part of saPackageHash, so
+  // verifySaPackage remains valid.
+  saPackage.convergence = convergence.detectConvergence(p.signals || { transcript: '' });
 
   var signature = null;
   if (p.signingKey) { signature = assembler.signSaPackage(saPackage, p.signingKey); }

@@ -1108,6 +1108,15 @@ function generateInspectionReport(data: {
         html += "<div class='gap-item'>[" + esc(oind.severity) + "] " + esc(String(oind.id).replace(/_/g, " ")) + " - " + esc(String(oind.category).replace(/_/g, " ")) + "</div>";
       }
     }
+    if (sap.convergence && sap.convergence.convergence_count >= 2 && sap.convergence.primary_hypothesis) {
+      var cvg = sap.convergence;
+      html += "<div style='margin-top:8px;font-weight:700;font-size:11px;color:#92400e;'>Convergence (score " + esc(String(cvg.convergence_score)) + "/10)</div>";
+      html += "<div style='font-size:10px;color:#374151;margin-bottom:4px;'>" + esc(String(cvg.convergence_count)) + " independent evidence streams converge on: " + esc(String(cvg.primary_hypothesis.narrative)) + "</div>";
+      for (var cvi = 0; cvi < cvg.primary_hypothesis.supporting_streams.length; cvi++) {
+        var cstr = cvg.primary_hypothesis.supporting_streams[cvi];
+        html += "<div class='gap-item'>" + esc(String(cstr.source)) + " - " + esc(String(cstr.id).replace(/_/g, " ")) + "</div>";
+      }
+    }
     if (sap.saPackageHash) {
       html += "<div style='font-size:9px;color:#9ca3af;margin-top:6px;font-family:monospace;word-break:break-all;'>SA pkg: " + esc(sap.saPackageHash) + "</div>";
     }
@@ -2611,6 +2620,9 @@ export default function VoiceInspectionPage() {
             )}
             {saPackage.organizationalFailures && saPackage.organizationalFailures.indicators && saPackage.organizationalFailures.indicators.length > 0 && (
               <div style={{ fontSize: "12px", color: "#991b1b", marginTop: "8px" }}><strong>Organizational risk {saPackage.organizationalFailures.organizational_failure_score}/10:</strong> {saPackage.organizationalFailures.indicators.length} management-system failure(s) detected.</div>
+            )}
+            {saPackage.convergence && saPackage.convergence.convergence_count >= 2 && (
+              <div style={{ fontSize: "12px", color: "#92400e", marginTop: "8px" }}><strong>Convergence {saPackage.convergence.convergence_score}/10:</strong> {saPackage.convergence.convergence_count} independent evidence streams support one failure hypothesis.</div>
             )}
           </Card>
         )}
