@@ -6037,7 +6037,23 @@ var handler: Handler = async function(event: HandlerEvent) {
     if (saResponses) {
       try {
         var saGate = require("./situational-awareness-gate.cjs");
-        saValidatedSet = saGate.validateSet(saResponses, [], startMs);
+        // DEPLOY386 - FUNC-1: derive the required-questions list from the
+        // submitted responses themselves. Each EvidenceEntry already carries
+        // questionId + questionDecisionImpact, so the set of questions that
+        // need resolving IS the set represented in sa_responses. Previously
+        // this argument was hardcoded to [], so stats.criticalUnresolved was
+        // ALWAYS 0 and the unresolved-CRITICAL confidence penalty / HOLD
+        // (below) could never fire. A CRITICAL question answered only by
+        // stakeholder opinion (provenance REPORTED, not a STRONG provenance of
+        // MEASURED/OBSERVED/DOCUMENTED) is now correctly treated as unresolved.
+        var saRequired: any[] = [];
+        for (var rqi = 0; rqi < saResponses.length; rqi++) {
+          var rqr = saResponses[rqi];
+          if (rqr && rqr.questionId) {
+            saRequired.push({ questionId: rqr.questionId, decisionImpact: rqr.questionDecisionImpact || "MEDIUM" });
+          }
+        }
+        saValidatedSet = saGate.validateSet(saResponses, saRequired, startMs);
       } catch (saErr: any) {
         saValidatedSet = {
           error: (saErr && saErr.message) ? saErr.message : "SA_GATE_UNAVAILABLE",
