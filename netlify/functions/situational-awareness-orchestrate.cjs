@@ -30,6 +30,7 @@ var conflict = require('./situational-awareness-conflict.cjs');
 var consequence = require('./situational-awareness-consequence.cjs');
 var brief = require('./situational-awareness-brief.cjs');
 var assembler = require('./situational-awareness-package.cjs');
+var survivalBridge = require('./situational-awareness-survival-bridge.cjs');
 
 var CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -85,7 +86,15 @@ function orchestrateSa(parts) {
 
   var views = stakeholder.projectStakeholders(viewPkg, ves);
   var matrix = conflict.detectConflicts(views, ves);
-  var scenarios = consequence.buildConsequenceScenarios(viewPkg, matrix, ves, p.probabilityBasis || null);
+  // DEPLOY382 - Tier 2: when no explicit probabilityBasis is supplied but an L4
+  // failure-timeline is, derive a basis from the platform's own remaining-life
+  // estimate + confidence band (survival bridge). Never fabricated; empty basis
+  // (confidence:0) when the timeline is not quantified.
+  var probabilityBasis = p.probabilityBasis || null;
+  if (!probabilityBasis && p.failureTimeline) {
+    probabilityBasis = survivalBridge.buildProbabilityBasis(p.failureTimeline, pkg);
+  }
+  var scenarios = consequence.buildConsequenceScenarios(viewPkg, matrix, ves, probabilityBasis);
   var execBrief = brief.buildExecutiveBrief(viewPkg, ves, matrix, scenarios);
 
   var saPackage = assembler.assembleSaPackage({
@@ -130,6 +139,7 @@ exports.handler = async function (event) {
       decisionPackageHash: body.decisionPackageHash,
       validatedEvidenceSet: body.validatedEvidenceSet || null,
       probabilityBasis: body.probabilityBasis || null,
+      failureTimeline: body.failureTimeline || null,
       referenceIso: body.referenceIso || null,
       signingKey: body.signingKey || null
     });

@@ -1083,6 +1083,22 @@ function generateInspectionReport(data: {
         html += "<div class='info-row'><span class='info-label'>" + esc(sav.role) + "</span><span class='info-value'>" + esc(sav.what_they_want) + "</span></div>";
       }
     }
+    if (sap.consequenceScenarios && sap.consequenceScenarios.length > 0) {
+      var hasRealScenario = false;
+      for (var scz = 0; scz < sap.consequenceScenarios.length; scz++) { if (sap.consequenceScenarios[scz].confidence > 0) { hasRealScenario = true; } }
+      if (hasRealScenario) {
+        html += "<div style='margin-top:8px;font-weight:700;font-size:11px;'>Future Scenarios (probability-weighted)</div>";
+        for (var sci = 0; sci < sap.consequenceScenarios.length; sci++) {
+          var scen = sap.consequenceScenarios[sci];
+          if (!(scen.confidence > 0) || !scen.probability_weighted_outcomes || scen.probability_weighted_outcomes.length === 0) { continue; }
+          html += "<div style='margin-top:4px;font-size:11px;'><strong>" + esc(scen.option) + "</strong> (confidence " + esc(String(scen.confidence)) + ")</div>";
+          for (var sco = 0; sco < scen.probability_weighted_outcomes.length; sco++) {
+            var sout = scen.probability_weighted_outcomes[sco];
+            html += "<div class='info-row'><span class='info-label'>" + esc(sout.outcome) + "</span><span class='info-value'>" + esc(String(Math.round(sout.probability * 100)) + "%") + "</span></div>";
+          }
+        }
+      }
+    }
     if (sap.saPackageHash) {
       html += "<div style='font-size:9px;color:#9ca3af;margin-top:6px;font-family:monospace;word-break:break-all;'>SA pkg: " + esc(sap.saPackageHash) + "</div>";
     }
@@ -2228,6 +2244,8 @@ export default function VoiceInspectionPage() {
 
       s = updateStep(4, { status: "running", detail: "6 Klein bottle states..." }, s); setSteps(s.slice());
       var coreResult: any = null;
+      var saDecisionPackage: any = null;
+      var saValidatedEvidenceSet: any = null;
       try {
         var coreRes = await callAPI("decision-core", {
           parsed: parsedResult, asset: assetResult, confirmed_flags: confirmedFlags,
@@ -2250,19 +2268,13 @@ export default function VoiceInspectionPage() {
           s = updateStep(1, { status: "done", detail: coreResult.asset_correction.corrected_to + " (corrected from " + coreResult.asset_correction.original + ")" }, s);
         }
         s = updateStep(4, { status: "done", detail: tier + " | " + disp + " | " + elapsed + "ms" }, s);
-        // DEPLOY381 - Tier 1: run the SA chain on EVERY decision-core result, not
-        // only after SA answers were provided. The stakeholder + conflict engines
-        // work from the frozen DecisionPackage alone (validated evidence is
-        // optional), so the Stakeholder Matrix + Conflict Detection now surface in
-        // every report/PDF. Best-effort: SA failure never blocks the report.
+        // DEPLOY382 - Tier 2: capture the frozen DecisionPackage + validated
+        // evidence here; the SA chain runs after the failure-timeline (L4) step
+        // so it can pass a real probabilityBasis (remaining-life) into the
+        // Consequence Simulator.
         if (coreRes && coreRes.decisionPackage) {
-          try {
-            var saVes = (coreRes.decision_core && coreRes.decision_core.validated_evidence_set) ? coreRes.decision_core.validated_evidence_set : null;
-            var saRes = await callAPI("situational-awareness-orchestrate", { decisionPackage: coreRes.decisionPackage, validatedEvidenceSet: saVes, referenceIso: new Date().toISOString() });
-            if (saRes && saRes.situationalAwarenessPackage) { setSaPackage(saRes.situationalAwarenessPackage); }
-          } catch (saErr: any) {
-            errs.push("situational-awareness: " + (saErr && saErr.message ? saErr.message : String(saErr)));
-          }
+          saDecisionPackage = coreRes.decisionPackage;
+          saValidatedEvidenceSet = (coreRes.decision_core && coreRes.decision_core.validated_evidence_set) ? coreRes.decision_core.validated_evidence_set : null;
         }
       } catch (e: any) {
         s = updateStep(4, { status: "error", detail: e.message }, s);
@@ -2332,6 +2344,19 @@ export default function VoiceInspectionPage() {
         errs.push("failure-timeline: " + ftErr.message);
       }
       setSteps(s.slice());
+
+      // DEPLOY382 - Tier 2: run the SA chain now that the failure-timeline (L4)
+      // is available, so the Consequence Simulator receives a real probabilityBasis
+      // derived from the platform's own remaining-life estimate. Best-effort: a SA
+      // failure never blocks the report.
+      if (saDecisionPackage) {
+        try {
+          var saRes = await callAPI("situational-awareness-orchestrate", { decisionPackage: saDecisionPackage, validatedEvidenceSet: saValidatedEvidenceSet, failureTimeline: ftResult || null, referenceIso: new Date().toISOString() });
+          if (saRes && saRes.situationalAwarenessPackage) { setSaPackage(saRes.situationalAwarenessPackage); }
+        } catch (saErr: any) {
+          errs.push("situational-awareness: " + (saErr && saErr.message ? saErr.message : String(saErr)));
+        }
+      }
 
       // DEPLOY170.3: Superbrain runs LAST (step 8) with full engine context.
       // This is the architectural fix that unlocks DEPLOY170.2 backend
