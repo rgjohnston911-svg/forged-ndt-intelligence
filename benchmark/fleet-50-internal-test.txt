@@ -1,0 +1,55 @@
+FLEET RANK OF ALL 50 (deterministic engines):
+
+ 1.  99 IMMEDIATE CRITICAL NONE                               C45 LNG Transfer Line
+ 2.  97 IMMEDIATE CRITICAL CORROSION                          C25 LNG Transfer Line
+ 3.  89 IMMEDIATE CRITICAL CORROSION                          C05 LNG Transfer Line
+ 4.  89 IMMEDIATE CRITICAL CRACKING                           C11 Refinery Piping
+ 5.  89 IMMEDIATE CRITICAL CRACKING                           C12 Pressure Vessel
+ 6.  89 IMMEDIATE CRITICAL CRACKING                           C13 Offshore Platform
+ 7.  89 IMMEDIATE CRITICAL CRACKING                           C14 Bridge
+ 8.  89 IMMEDIATE CRITICAL CRACKING                           C15 LNG Transfer Line
+ 9.  89 IMMEDIATE CRITICAL CRACKING                           C16 Pipeline
+10.  89 IMMEDIATE CRITICAL CRACKING                           C17 Storage Tank
+11.  89 IMMEDIATE CRITICAL CRACKING                           C18 Heat Exchanger
+12.  89 IMMEDIATE CRITICAL CRACKING                           C19 Boiler
+13.  89 IMMEDIATE CRITICAL CRACKING                           C20 Subsea Structure
+14.  89 IMMEDIATE CRITICAL CORROSION                          C31 Refinery Piping
+15.  89 IMMEDIATE CRITICAL CORROSION                          C32 Pressure Vessel
+16.  89 IMMEDIATE CRITICAL CORROSION                          C33 Offshore Platform
+17.  89 IMMEDIATE CRITICAL CORROSION                          C34 Bridge
+18.  89 IMMEDIATE CRITICAL CORROSION                          C35 LNG Transfer Line
+19.  89 IMMEDIATE CRITICAL CORROSION                          C36 Pipeline
+20.  89 IMMEDIATE CRITICAL CORROSION                          C37 Storage Tank
+21.  89 IMMEDIATE CRITICAL CORROSION                          C38 Heat Exchanger
+22.  89 IMMEDIATE CRITICAL CORROSION                          C39 Boiler
+23.  89 IMMEDIATE CRITICAL CORROSION                          C40 Subsea Structure
+24.  79 PRIORITY  HIGH     NONE                               C41 Refinery Piping
+25.  79 PRIORITY  HIGH     NONE                               C42 Pressure Vessel
+26.  79 PRIORITY  HIGH     NONE                               C43 Offshore Platform
+27.  79 PRIORITY  HIGH     NONE                               C44 Bridge
+28.  79 PRIORITY  HIGH     NONE                               C46 Pipeline
+29.  79 PRIORITY  HIGH     NONE                               C47 Storage Tank
+30.  79 PRIORITY  HIGH     NONE                               C48 Heat Exchanger
+31.  79 PRIORITY  HIGH     NONE                               C49 Boiler
+32.  79 PRIORITY  HIGH     NONE                               C50 Subsea Structure
+33.  77 PRIORITY  HIGH     CORROSION                          C21 Refinery Piping
+34.  77 PRIORITY  HIGH     CORROSION                          C22 Pressure Vessel
+35.  77 PRIORITY  HIGH     CORROSION                          C23 Offshore Platform
+36.  77 PRIORITY  HIGH     CORROSION                          C24 Bridge
+37.  77 PRIORITY  HIGH     CORROSION                          C26 Pipeline
+38.  77 PRIORITY  HIGH     CORROSION                          C29 Boiler
+39.  77 PRIORITY  HIGH     CORROSION                          C30 Subsea Structure
+40.  69 PRIORITY  HIGH     CORROSION                          C01 Refinery Piping
+41.  69 PRIORITY  HIGH     CORROSION                          C02 Pressure Vessel
+42.  69 PRIORITY  HIGH     CORROSION                          C03 Offshore Platform
+43.  69 PRIORITY  HIGH     CORROSION                          C04 Bridge
+44.  69 PRIORITY  HIGH     CORROSION                          C06 Pipeline
+45.  69 PRIORITY  HIGH     CORROSION                          C07 Storage Tank
+46.  69 PRIORITY  HIGH     CORROSION                          C08 Heat Exchanger
+47.  69 PRIORITY  HIGH     CORROSION                          C09 Boiler
+48.  69 PRIORITY  HIGH     CORROSION                          C10 Subsea Structure
+49.  51 ELEVATED  MEDIUM   CORROSION                          C27 Storage Tank
+50.  51 ELEVATED  MEDIUM   CORROSION                          C28 Heat Exchanger
+
+fleet_summary: Act first on C45 LNG Transfer Line (IMMEDIATE, score 99/100, CRITICAL). 23 immediate, 23 CRITICAL-consequence, 50 withholding continued-service approval, across 50 assets.
+errors: 0 | UNKNOWN tier: 0 | total: 50

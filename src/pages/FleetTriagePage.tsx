@@ -120,8 +120,8 @@ async function runOne(scenario, stormGlobal) {
       if (lt.indexOf("corrosion") >= 0 || lt.indexOf("wall loss") >= 0 || lt.indexOf("metal loss") >= 0) { mechs.push("corrosion"); }
       if (lt.indexOf("pitting") >= 0) { mechs.push("pitting"); }
       if (lt.indexOf("erosion") >= 0) { mechs.push("erosion"); }
-      if (lt.indexOf("hic") >= 0) { mechs.push("hic"); }
-      if (lt.indexOf("ssc") >= 0) { mechs.push("ssc"); }
+      if (/\bhic\b/.test(lt)) { mechs.push("hic"); }
+      if (/\bssc\b/.test(lt)) { mechs.push("ssc"); }
       var wl = (parsed && parsed.numeric_values && parsed.numeric_values.wall_loss_percent) ? parsed.numeric_values.wall_loss_percent : 0;
       var fmdRes = await callAPI("failure-mode-dominance", {
         asset_type: asset.asset_class || asset.asset_type || "",
