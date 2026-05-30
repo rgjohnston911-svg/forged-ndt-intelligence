@@ -148,15 +148,40 @@ function buildQuestionId(qt: string): string {
   return "q-" + (hash >>> 0).toString(36);
 }
 
+// Inlined Non-Evidence Token Registry (mirrors situational-awareness-gate.cjs).
+// DEPLOY376: the option filter must not depend SOLELY on the runtime require of
+// the sibling .cjs gate. If esbuild fails to bundle that module, sa_gate falls
+// back to a no-op (lines ~55-57) and tokens like "Unknown"/"N/A" leak into the
+// rendered question options. This local check guarantees the filter regardless
+// of bundling. Pure + deterministic; normalization matches the gate exactly.
+var LOCAL_NON_EVIDENCE_TOKENS = [
+  "", "unknown", "n/a", "na", "none", "not sure", "notsure",
+  "dont know", "do not know", "tbd", "to be determined",
+  "maybe", "possibly", "idk", "unsure", "no idea", "not applicable"
+];
+function isNonEvidenceTokenLocal(value: any): boolean {
+  if (value === null || value === undefined) { return false; }
+  var s = String(value).toLowerCase();
+  s = s.replace(/[^a-z0-9 ]/g, "");
+  s = s.replace(/\s+/g, " ");
+  s = s.replace(/^ +| +$/g, "");
+  for (var i = 0; i < LOCAL_NON_EVIDENCE_TOKENS.length; i++) {
+    if (LOCAL_NON_EVIDENCE_TOKENS[i] === s) { return true; }
+  }
+  return false;
+}
+
 // Remove options matching the Non-Evidence Token Registry. Returns a fresh
-// array; never mutates input.
+// array; never mutates input. Uses BOTH the gate (when bundled) and the inlined
+// local check, so a failed require can never let a Non-Evidence token through.
 function filterNonEvidenceOptions(options: any): string[] {
   if (!options || !options.length) { return []; }
   var kept: string[] = [];
   for (var oi = 0; oi < options.length; oi++) {
     var opt = options[oi];
     if (typeof opt !== "string") { continue; }
-    if (sa_gate.isNonEvidenceToken && sa_gate.isNonEvidenceToken(opt)) { continue; }
+    var gateHit = (sa_gate.isNonEvidenceToken && sa_gate.isNonEvidenceToken(opt)) ? true : false;
+    if (gateHit || isNonEvidenceTokenLocal(opt)) { continue; }
     kept.push(opt);
   }
   return kept;
