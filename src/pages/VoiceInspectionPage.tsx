@@ -196,6 +196,7 @@ function generateInspectionReport(data: {
   failureTimelineResult?: any;
   photoAnalysisResult?: any;
   errors?: string[];
+  situationalAwarenessPackage?: any;
 }) {
   var dc = data.decisionCore;
   if (!dc) { alert("No Decision Core data to export."); return; }
@@ -1043,6 +1044,49 @@ function generateInspectionReport(data: {
   html += "<div style='padding:10px;background:#f9fafb;border-radius:6px;font-size:11px;white-space:pre-wrap;border:1px solid #e5e7eb;'>" + esc(data.transcript) + "</div>";
   html += "</div>";
 
+  // DEPLOY375 - Stage 9 Part 2b: Situational Awareness section. Renders ONLY
+  // when an SA package is present; when absent the report is byte-identical.
+  if (data.situationalAwarenessPackage && data.situationalAwarenessPackage.executiveBrief) {
+    var sap = data.situationalAwarenessPackage;
+    var eb = sap.executiveBrief;
+    var cm = sap.conflictMatrix || {};
+    html += "<div class='section'>";
+    html += "<div class='section-title'>Situational Awareness Brief</div>";
+    html += "<div class='info-row'><span class='info-label'>Recommendation</span><span class='info-value'>" + esc(eb.recommendation ? eb.recommendation.action : "") + "</span></div>";
+    if (eb.risk) {
+      html += "<div class='info-row'><span class='info-label'>Life-Safety Risk</span><span class='info-value'>" + esc(eb.risk.life_safety) + "</span></div>";
+      html += "<div class='info-row'><span class='info-label'>Financial Risk</span><span class='info-value'>" + esc(eb.risk.financial) + "</span></div>";
+      html += "<div class='info-row'><span class='info-label'>Regulatory Risk</span><span class='info-value'>" + esc(eb.risk.regulatory) + "</span></div>";
+    }
+    html += "<div class='info-row'><span class='info-label'>SA Confidence</span><span class='info-value'>" + esc(String(eb.confidence)) + "</span></div>";
+    if (eb.unknowns && eb.unknowns.unresolved_questions && eb.unknowns.unresolved_questions.length > 0) {
+      html += "<div class='gap-item'>Unresolved (" + esc(String(eb.unknowns.critical_unresolved_count)) + " CRITICAL): " + esc(eb.unknowns.unresolved_questions.join(", ")) + "</div>";
+    }
+    if (cm.active_conflicts && cm.active_conflicts.length > 0) {
+      html += "<div class='info-row'><span class='info-label'>Active Conflicts</span><span class='info-value'>" + esc(String(cm.active_conflicts.length)) + "</span></div>";
+      for (var saci = 0; saci < cm.active_conflicts.length; saci++) {
+        var sac = cm.active_conflicts[saci];
+        html += "<div style='font-size:10px;color:#6b7280;padding:2px 0;'>- " + esc((sac.between || []).join(" vs ")) + " [" + esc(sac.axis) + "] " + esc(sac.severity) + "</div>";
+      }
+    }
+    if (cm.decision_contamination_flags && cm.decision_contamination_flags.length > 0) {
+      for (var safi = 0; safi < cm.decision_contamination_flags.length; safi++) {
+        var saf = cm.decision_contamination_flags[safi];
+        html += "<div class='gap-item'>Contamination: " + esc(saf.stakeholder) + " - " + esc(saf.type) + " (" + esc(saf.severity) + ")</div>";
+      }
+    }
+    if (sap.stakeholderViews && sap.stakeholderViews.length > 0) {
+      html += "<div style='margin-top:8px;font-weight:700;font-size:11px;'>Stakeholder Positions</div>";
+      for (var savi = 0; savi < sap.stakeholderViews.length; savi++) {
+        var sav = sap.stakeholderViews[savi];
+        html += "<div class='info-row'><span class='info-label'>" + esc(sav.role) + "</span><span class='info-value'>" + esc(sav.what_they_want) + "</span></div>";
+      }
+    }
+    if (sap.saPackageHash) {
+      html += "<div style='font-size:9px;color:#9ca3af;margin-top:6px;font-family:monospace;word-break:break-all;'>SA pkg: " + esc(sap.saPackageHash) + "</div>";
+    }
+    html += "</div>";
+  }
   html += "<div class='sig-line'>";
   html += "<div class='sig-box'><div class='sig-label'>Inspector</div><div style='height:24px;'></div><div class='sig-label'>Date</div></div>";
   html += "<div class='sig-box'><div class='sig-label'>Reviewed By</div><div style='height:24px;'></div><div class='sig-label'>Date</div></div>";
@@ -1382,6 +1426,7 @@ export default function VoiceInspectionPage() {
   var [failureModeDominanceResult, setFailureModeDominanceResult] = useState<any>(null);
   var [dispositionPathwayResult, setDispositionPathwayResult] = useState<any>(null);
   var [failureTimelineResult, setFailureTimelineResult] = useState<any>(null);
+  var [saPackage, setSaPackage] = useState<any>(null);
 
   var handleSaveToCase = async function() {
     if (!decisionCore) return;
@@ -1965,7 +2010,7 @@ export default function VoiceInspectionPage() {
     setProvenanceResult(null); setProvenanceLoading(false);
     setHardeningResult(null); setHardeningLoading(false);
     setGbEditingField(null); setGbAmendments([]); setGbConfirmed(false);
-    setAiQuestions(null); setAiUnderstood(null); setSelectedAnswers({});
+    setAiQuestions(null); setAiUnderstood(null); setSelectedAnswers({}); setSaPackage(null);
     setSaveStatus("idle"); setSavedCaseId(null); setSaveError(null);
     setAuthorityLockResult(null); setRemainingStrengthResult(null);
     setFailureModeDominanceResult(null); setDispositionPathwayResult(null);
@@ -2195,6 +2240,20 @@ export default function VoiceInspectionPage() {
           s = updateStep(1, { status: "done", detail: coreResult.asset_correction.corrected_to + " (corrected from " + coreResult.asset_correction.original + ")" }, s);
         }
         s = updateStep(4, { status: "done", detail: tier + " | " + disp + " | " + elapsed + "ms" }, s);
+        // DEPLOY375 - Stage 9 Part 2b (frontend): when SA answers were provided,
+        // run the SA chain over the frozen decisionPackage + validated evidence
+        // and surface the Executive Brief. Best-effort: SA failure never blocks
+        // the report. With no sa_responses this block is skipped, so the
+        // SA-absent path is unchanged.
+        if (saResponsesRef.current && saResponsesRef.current.length > 0 && coreRes && coreRes.decisionPackage) {
+          try {
+            var saVes = (coreRes.decision_core && coreRes.decision_core.validated_evidence_set) ? coreRes.decision_core.validated_evidence_set : null;
+            var saRes = await callAPI("situational-awareness-orchestrate", { decisionPackage: coreRes.decisionPackage, validatedEvidenceSet: saVes, referenceIso: new Date().toISOString() });
+            if (saRes && saRes.situationalAwarenessPackage) { setSaPackage(saRes.situationalAwarenessPackage); }
+          } catch (saErr: any) {
+            errs.push("situational-awareness: " + (saErr && saErr.message ? saErr.message : String(saErr)));
+          }
+        }
       } catch (e: any) {
         s = updateStep(4, { status: "error", detail: e.message }, s);
         errs.push("decision-core: " + e.message);
@@ -2489,10 +2548,30 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
+        {saPackage && saPackage.executiveBrief && (
+          <Card title="Situational Awareness Brief" icon={"\uD83E\uDDED"} collapsible={true}>
+            <div style={{ fontSize: "13px", marginBottom: "8px" }}><strong>Recommendation:</strong> {saPackage.executiveBrief.recommendation ? saPackage.executiveBrief.recommendation.action : ""}</div>
+            {saPackage.executiveBrief.risk && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "8px" }}>
+                <span style={{ fontSize: "12px", padding: "4px 10px", background: "#eff6ff", borderRadius: "4px" }}>Life-safety: <strong>{saPackage.executiveBrief.risk.life_safety}</strong></span>
+                <span style={{ fontSize: "12px", padding: "4px 10px", background: "#eff6ff", borderRadius: "4px" }}>Financial: <strong>{saPackage.executiveBrief.risk.financial}</strong></span>
+                <span style={{ fontSize: "12px", padding: "4px 10px", background: "#eff6ff", borderRadius: "4px" }}>Regulatory: <strong>{saPackage.executiveBrief.risk.regulatory}</strong></span>
+                <span style={{ fontSize: "12px", padding: "4px 10px", background: "#f0fdf4", borderRadius: "4px" }}>Confidence: <strong>{saPackage.executiveBrief.confidence}</strong></span>
+              </div>
+            )}
+            {saPackage.conflictMatrix && saPackage.conflictMatrix.active_conflicts && saPackage.conflictMatrix.active_conflicts.length > 0 && (
+              <div style={{ fontSize: "12px", marginBottom: "8px" }}><strong>{saPackage.conflictMatrix.active_conflicts.length}</strong> active stakeholder conflict(s).</div>
+            )}
+            {saPackage.executiveBrief.unknowns && saPackage.executiveBrief.unknowns.unresolved_questions && saPackage.executiveBrief.unknowns.unresolved_questions.length > 0 && (
+              <div style={{ fontSize: "12px", color: "#991b1b" }}>Unresolved ({saPackage.executiveBrief.unknowns.critical_unresolved_count} CRITICAL): {saPackage.executiveBrief.unknowns.unresolved_questions.join(", ")}</div>
+            )}
+          </Card>
+        )}
+
         {dc && (
           <div style={{ marginBottom: "16px" }}>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative, superbrainResult: superbrainResult, provenanceResult: provenanceResult, authorityLockResult: authorityLockResult, remainingStrengthResult: remainingStrengthResult, failureModeDominanceResult: failureModeDominanceResult, dispositionPathwayResult: dispositionPathwayResult, failureTimelineResult: failureTimelineResult, errors: errors }); }} disabled={isGenerating} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#1e40af", border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+              <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative, superbrainResult: superbrainResult, provenanceResult: provenanceResult, authorityLockResult: authorityLockResult, remainingStrengthResult: remainingStrengthResult, failureModeDominanceResult: failureModeDominanceResult, dispositionPathwayResult: dispositionPathwayResult, failureTimelineResult: failureTimelineResult, situationalAwarenessPackage: saPackage, errors: errors }); }} disabled={isGenerating} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#1e40af", border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
                 {isGenerating ? "\u23F3 Pipeline Running..." : "\uD83D\uDCC4 Export PDF"}
               </button>
               {saveStatus === "saved" ? (
