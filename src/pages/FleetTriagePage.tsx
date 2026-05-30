@@ -41,11 +41,14 @@ function splitScenarios(text) {
   return out;
 }
 
+function cleanName(s) {
+  return String(s || "").replace(/[*_>#`]+/g, " ").replace(/^[\s:\-]+/, "").replace(/\s+/g, " ").trim();
+}
 function deriveName(scenario, idx) {
-  var m = scenario.match(/(?:asset|platform|unit|line|equipment)\s*[:\-]\s*([^\n]+)/i);
-  if (m && m[1]) { return m[1].trim().slice(0, 70); }
-  var firstLine = (scenario.split("\n")[0] || "").trim();
-  if (firstLine.length > 0) { return firstLine.slice(0, 70); }
+  var m = scenario.match(/(?:asset|platform|unit|line|equipment)\s*[:*\-]*\s*([^\n]+)/i);
+  if (m && m[1]) { var n = cleanName(m[1]).slice(0, 70); if (n) { return n; } }
+  var firstLine = cleanName(scenario.split("\n")[0] || "").slice(0, 70);
+  if (firstLine.length > 0) { return firstLine; }
   return "Asset " + (idx + 1);
 }
 

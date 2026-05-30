@@ -4,6 +4,7 @@ const NAV_ITEMS = [
   { path: "/", label: "Dashboard", icon: "\u25A3" },
   { path: "/cases", label: "Cases", icon: "\u25C9" },
   { path: "/voice", label: "Inspect", icon: "\uD83C\uDF99\uFE0F" },
+  { path: "/fleet", label: "Fleet", icon: "\u2693" },
 ];
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { profile, signOut } = useAuth();
