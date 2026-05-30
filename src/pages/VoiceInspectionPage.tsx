@@ -57,6 +57,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { runHardeningPipeline } from "../utils/hardening-pipeline";
 import PhotoAnalysisCard from "../PhotoAnalysisCard";
+import { supabase } from "../lib/supabase";
 
 // ============================================================================
 // DEPLOY170: NPS SCHEDULE TABLE (ASME B36.10M)
@@ -1109,8 +1110,17 @@ function generateInspectionReport(data: {
 
 var API_BASE = "/api";
 async function callAPI(endpoint: string, body: any): Promise<any> {
+  // DEPLOY380 - API Auth Phase 2: attach the Supabase user session token so the
+  // backend can authenticate the caller. Additive/non-breaking: functions do not
+  // enforce yet, and with no session we send no Authorization header (as before).
+  var apiHeaders: any = { "Content-Type": "application/json" };
+  try {
+    var sessionRes = await supabase.auth.getSession();
+    var token = (sessionRes && sessionRes.data && sessionRes.data.session && sessionRes.data.session.access_token) ? sessionRes.data.session.access_token : "";
+    if (token) { apiHeaders["Authorization"] = "Bearer " + token; }
+  } catch (e) { /* no session -> proceed unauthenticated (pre-enforcement) */ }
   var res = await fetch(API_BASE + "/" + endpoint, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    method: "POST", headers: apiHeaders, body: JSON.stringify(body),
   });
   if (!res.ok) { var text = await res.text(); throw new Error(endpoint + " failed (" + res.status + "): " + text); }
   return res.json();
