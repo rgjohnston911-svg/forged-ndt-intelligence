@@ -2002,18 +2002,48 @@ export default function VoiceInspectionPage() {
         parsedResult = parseRes.value.parsed || parseRes.value;
         setParsed(parsedResult);
         if (parseRes.value.needs_input && parseRes.value.questions) {
-          setAiQuestions(parseRes.value.questions);
-          setAiUnderstood(parseRes.value.understood || "");
-          for (var wi = 3; wi < s.length; wi++) s = updateStep(wi, { status: "waiting", detail: "waiting for answers" }, s);
-          s = updateStep(0, { status: "done", detail: (parsedResult?.events?.length || 0) + " events" }, s);
-          if (assetRes.status === "fulfilled") {
-            assetResult = assetRes.value.resolved || assetRes.value;
-            setAsset(assetResult);
-            s = updateStep(1, { status: "done", detail: assetResult?.asset_class || "" }, s);
+          // DEPLOY373 - Stage 9 Part 2: close the "same question asked twice"
+          // UX echo. On a re-generation that already carries typed sa_responses,
+          // suppress any question whose answer is already on record so the
+          // platform does not re-ask it. Id derivation MUST match
+          // handleGenerateWithAnswers (q.questionId, else "q-legacy-"+index) so
+          // the two code paths align. All gated on priorSa.length>0, so a fresh
+          // Analyze (no sa_responses) is byte-identical to the prior path.
+          var priorSa = saResponsesRef.current || [];
+          var pendingQuestions: any[] = parseRes.value.questions;
+          if (priorSa.length > 0) {
+            var answeredIds: any = {};
+            for (var ansi = 0; ansi < priorSa.length; ansi++) {
+              if (priorSa[ansi] && priorSa[ansi].questionId) { answeredIds[priorSa[ansi].questionId] = true; }
+            }
+            var rawQuestions: any[] = parseRes.value.questions;
+            var filtered: any[] = [];
+            for (var pqi = 0; pqi < rawQuestions.length; pqi++) {
+              var rawQ = rawQuestions[pqi];
+              var rawQid = (rawQ && rawQ.questionId) ? rawQ.questionId : ("q-legacy-" + pqi);
+              if (answeredIds[rawQid]) { continue; }
+              filtered.push(rawQ);
+            }
+            pendingQuestions = filtered;
           }
-          setSteps(s.slice()); stepsRef.current = s; setErrors(errs); errorsRef.current = errs;
-          setIsGenerating(false); setPipelinePaused(true);
-          return;
+          if (pendingQuestions.length > 0) {
+            setAiQuestions(pendingQuestions);
+            setAiUnderstood(parseRes.value.understood || "");
+            for (var wi = 3; wi < s.length; wi++) s = updateStep(wi, { status: "waiting", detail: "waiting for answers" }, s);
+            s = updateStep(0, { status: "done", detail: (parsedResult?.events?.length || 0) + " events" }, s);
+            if (assetRes.status === "fulfilled") {
+              assetResult = assetRes.value.resolved || assetRes.value;
+              setAsset(assetResult);
+              s = updateStep(1, { status: "done", detail: assetResult?.asset_class || "" }, s);
+            }
+            setSteps(s.slice()); stepsRef.current = s; setErrors(errs); errorsRef.current = errs;
+            setIsGenerating(false); setPipelinePaused(true);
+            return;
+          }
+          // Every emitted question is already answered via sa_responses: do not
+          // re-pause. Clear the stale question UI and let the pipeline continue
+          // so the answers flow into the fresh decision-core run.
+          setAiQuestions(null); setPipelinePaused(false);
         }
         s = updateStep(0, { status: "done", detail: (parsedResult?.events?.length || 0) + " events" }, s);
       } else {
