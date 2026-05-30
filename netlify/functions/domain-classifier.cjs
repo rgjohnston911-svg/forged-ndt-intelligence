@@ -82,7 +82,7 @@ var DOMAIN_KEYWORDS = {
   ],
   "wind_energy": [
     "wind turbine", "nacelle", "blade", "tower base", "rotor hub",
-    "yaw bearing", "wind farm"
+    "yaw bearing", "wind farm", "monopile", "offshore wind", "transition piece"
   ],
   "aircraft_aviation": [
     "aircraft", "airplane", "cargo aircraft", "landing gear", "wing root",
@@ -106,6 +106,24 @@ var SUPPORTED_DOMAINS = {
 var MIN_UNSUPPORTED_COMMIT_HITS = 2;   // need >=2 distinct keyword hits, and
 var MIN_UNSUPPORTED_COMMIT_SCORE = 16; // >= this score, to trust an unsupported domain
 var MIN_SUPPORTED_FALLBACK_SCORE = 10; // else fall back to a supported domain with >= this score
+
+// DEPLOY393 - domain-DEFINING terms. If present, the domain is selected even
+// when unsupported (overrides the weak-signal guard) and even if a generic
+// higher-weight term (e.g. 'bearing','platform') scored another domain higher.
+// Fixes: FPSO->bridge (via 'bearing'), wind monopile->offshore (via 'offshore'),
+// nuclear->unknown (guard suppression).
+var UNAMBIGUOUS_TERMS = {
+  nuclear: ['nuclear', 'reactor core', 'spent fuel', 'fuel rod'],
+  aerospace_ground_test: ['rocket engine', 'combustion chamber', 'thrust frame', 'hot fire', 'cryogenic propellant'],
+  spacecraft_satellite: ['spacecraft', 'satellite', 'propulsion module', 'on-orbit'],
+  aircraft_aviation: ['aircraft', 'airframe', 'fuselage', 'landing gear', 'wing spar'],
+  wind_energy: ['wind turbine', 'wind farm', 'offshore wind', 'monopile', 'nacelle', 'transition piece'],
+  offshore_oil_gas: ['fpso', 'wellhead', 'jacket leg', 'riser', 'subsea'],
+  pipeline: ['pipeline', 'pig launcher'],
+  bridge_civil: ['bridge', 'girder', 'abutment'],
+  rail: ['railcar', 'thermite weld', 'derailment'],
+  marine_vessel: ['marine vessel', 'cargo ship', 'vessel hull']
+};
 
 function keywordWeight(kw) {
   if (kw.length > 10) { return 12; }
@@ -176,6 +194,27 @@ function classifyDomain(transcript) {
   // No signal at all.
   if (top.score === 0) {
     return out("unknown", 0, [], false, "no domain keywords matched");
+  }
+
+  // DEPLOY393 - unambiguous domain-defining override. Among domains with a
+  // defining term present, pick the highest-scored one. This selects the true
+  // domain even when a generic term scored another higher, and lets clearly
+  // unsupported domains (nuclear/wind/aircraft) classify rather than be guarded.
+  var lt = String(transcript || '').toLowerCase();
+  var unamb = {};
+  for (var ud in UNAMBIGUOUS_TERMS) {
+    if (!UNAMBIGUOUS_TERMS.hasOwnProperty(ud)) { continue; }
+    for (var ti = 0; ti < UNAMBIGUOUS_TERMS[ud].length; ti++) {
+      if (lt.indexOf(UNAMBIGUOUS_TERMS[ud][ti]) >= 0) { unamb[ud] = UNAMBIGUOUS_TERMS[ud][ti]; break; }
+    }
+  }
+  var chosen = null;
+  for (var us = 0; us < scores.length; us++) {
+    if (unamb[scores[us].domain]) { chosen = scores[us]; break; }
+  }
+  if (chosen) {
+    return out(chosen.domain, chosen.score, chosen.hits.length ? chosen.hits : [unamb[chosen.domain]], false,
+      'unambiguous domain term: ' + unamb[chosen.domain]);
   }
   // Supported top domain -> trust it.
   if (SUPPORTED_DOMAINS[top.domain]) {
