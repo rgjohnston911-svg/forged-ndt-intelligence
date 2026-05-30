@@ -23,6 +23,13 @@
 
 import { Handler } from "@netlify/functions";
 
+// DEPLOY387 - SEC-3: enforce auth on this admin/intake endpoint. Top-level
+// require so a bundling failure 500s the function rather than silently
+// allowing (per auth-guard contract). Accepts a Supabase user JWT (SPA) or
+// the server X-API-Key. No SPA/internal caller exists for master-router, so
+// enforcement has no blast radius on the app.
+var authGuard = require("./auth-guard.cjs");
+
 // ============================================================
 // HELPERS
 // ============================================================
@@ -469,6 +476,13 @@ var handler: Handler = async function(event) {
   }
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "Method not allowed" }) };
+  }
+
+  // DEPLOY387 - SEC-3: deny unless the caller presents a valid Supabase JWT
+  // or the server X-API-Key. Fail closed.
+  var auth = await authGuard.verifyAuth(event);
+  if (!auth.ok) {
+    return authGuard.denyResponse(auth, { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" });
   }
 
   try {
