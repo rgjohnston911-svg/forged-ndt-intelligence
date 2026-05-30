@@ -33,14 +33,31 @@ var ORG_PATTERNS = [
                'no root-cause', 'root cause not'] },
   { id: 'DEGRADATION_IGNORED', category: 'TREND_NEGLECT', severity: 'HIGH',
     keywords: ['higher than predicted', 'higher than expected', 'worse than predicted',
-               'anode consumption', 'degraded', 'degrading', 'accelerating', 'trend ignored'] },
+               'anode consumption', 'degraded', 'degrading', 'degradation', 'accelerating', 'accelerated',
+               'worsening', 'increasing severity', 'trend ignored'] },
   { id: 'SCHEDULE_PRESSURE_OVERRIDE', category: 'PRODUCTION_PRESSURE', severity: 'MEDIUM',
     keywords: ['cannot shut down', 'cannot happen before', 'cannot shutdown', 'shutdown cannot',
                'before hurricane', 'before season', 'keep running', 'must stay online',
-               'production target', 'production pressure', 'schedule pressure'] },
+               'production target', 'production pressure', 'schedule pressure',
+               'production continuity', 'production schedule', 'emphasized production', 'planned utilization'] },
   { id: 'NORMALIZED_DEVIATION', category: 'COMPLACENCY', severity: 'MEDIUM',
     keywords: ['just coating', 'only coating', 'just cosmetic', 'nothing to worry',
-               'probably fine', 'always been like', 'no big deal', 'just surface'] }
+               'probably fine', 'always been like', 'no big deal', 'just surface'] },
+  // DEPLOY389: management-system failures surfaced by the SA validation corpus.
+  { id: 'DEFERRED_MAINTENANCE', category: 'MAINTENANCE_DEFERRAL', severity: 'HIGH',
+    keywords: ['deferred maintenance', 'maintenance backlog', 'maintenance deferred',
+               'outage delayed', 'planned outage delayed', 'work order deferred', 'deferred repair',
+               'repair deferred', 'deferred twice', 'replacement deferred', 'scheduled for replacement'] },
+  { id: 'RECOMMENDATION_DOWNGRADED', category: 'GOVERNANCE_FAILURE', severity: 'HIGH',
+    keywords: ['recommendations downgraded', 'recommendation downgraded', 'recommendations were downgraded',
+               'downgraded during', 'recommendation overruled', 'overruled', 'recommendation ignored',
+               'recommendation dismissed', 'recommendation rejected'] },
+  { id: 'PERSONNEL_TURNOVER', category: 'COMPETENCY_RISK', severity: 'MEDIUM',
+    keywords: ['turnover in experienced', 'recent turnover', 'personnel turnover', 'staff turnover',
+               'loss of experienced', 'inexperienced crew', 'staffing shortage', 'lost institutional knowledge'] },
+  { id: 'INCENTIVE_BIAS', category: 'DECISION_CONTAMINATION', severity: 'MEDIUM',
+    keywords: ['incentives tied to production', 'incentives tied to', 'management incentives',
+               'bonus tied to', 'compensation tied to', 'incentivized to'] }
 ];
 
 var SEVERITY_WEIGHT = { CRITICAL: 4, HIGH: 3, MEDIUM: 1.5, LOW: 0.5 };
