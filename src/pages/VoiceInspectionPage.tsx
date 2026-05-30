@@ -191,6 +191,7 @@ function generateInspectionReport(data: {
   superbrainResult: any;
   provenanceResult?: any;
   authorityLockResult?: any;
+  globalAuthorityResult?: any;
   remainingStrengthResult?: any;
   failureModeDominanceResult?: any;
   dispositionPathwayResult?: any;
@@ -294,6 +295,7 @@ function generateInspectionReport(data: {
   var sb = data.superbrainResult;
 
   var alr = data.authorityLockResult || null;
+  var gae = data.globalAuthorityResult || null;  // DEPLOY390 jurisdiction overlay
   var rsr = data.remainingStrengthResult || null;
   var fmd = data.failureModeDominanceResult || null;
   var dpr = data.dispositionPathwayResult || null;
@@ -1122,6 +1124,17 @@ function generateInspectionReport(data: {
     }
     html += "</div>";
   }
+  // DEPLOY390 - Jurisdiction & Applicable Codes (vs US)
+  if (gae && gae.country) {
+    html += "<div class='section'><div class='section-title'>Jurisdiction & Applicable Codes</div>";
+    html += "<div class='info-row'><span class='info-label'>Detected Jurisdiction</span><span class='info-value'>" + esc(String(gae.country)) + (gae.offshore_region ? " (offshore: " + esc(String(gae.offshore_region)) + ")" : "") + "</span></div>";
+    if (gae.primary_authority) { html += "<div class='info-row'><span class='info-label'>Governing Authority</span><span class='info-value'>" + esc(String(gae.primary_authority)) + "</span></div>"; }
+    if (gae.equivalent_or_related_standards && gae.equivalent_or_related_standards.length > 0) {
+      html += "<div class='info-row'><span class='info-label'>US -> Local Crosswalk</span><span class='info-value'>" + esc(gae.equivalent_or_related_standards.join('; ')) + "</span></div>";
+    }
+    if (gae.inspector_message) { html += "<div style='font-size:10px;color:#374151;margin-top:4px;'>" + esc(String(gae.inspector_message)) + "</div>"; }
+    html += "</div>";
+  }
   html += "<div class='sig-line'>";
   html += "<div class='sig-box'><div class='sig-label'>Inspector</div><div style='height:24px;'></div><div class='sig-label'>Date</div></div>";
   html += "<div class='sig-box'><div class='sig-label'>Reviewed By</div><div style='height:24px;'></div><div class='sig-label'>Date</div></div>";
@@ -1466,6 +1479,7 @@ export default function VoiceInspectionPage() {
   var [gbAmendments, setGbAmendments] = useState<any[]>([]);
   var [gbConfirmed, setGbConfirmed] = useState(false);
   var [authorityLockResult, setAuthorityLockResult] = useState<any>(null);
+  var [globalAuthorityResult, setGlobalAuthorityResult] = useState<any>(null);  // DEPLOY390
   var [remainingStrengthResult, setRemainingStrengthResult] = useState<any>(null);
   var [failureModeDominanceResult, setFailureModeDominanceResult] = useState<any>(null);
   var [dispositionPathwayResult, setDispositionPathwayResult] = useState<any>(null);
@@ -2257,6 +2271,15 @@ export default function VoiceInspectionPage() {
         setSteps(s.slice());
       }
 
+      // DEPLOY390 - jurisdiction-aware codes + US comparison. Best-effort overlay;
+      // never blocks the report. Detects location from the transcript and crosswalks
+      // the US authority code to the governing local standard.
+      try {
+        var gaeReqCode = (localAuthResult && localAuthResult.authority_chain && localAuthResult.authority_chain[0] && localAuthResult.authority_chain[0].code) ? localAuthResult.authority_chain[0].code : "";
+        var gaeRes = await callAPI("global-authority-engine", { asset_description: inputText, location_text: inputText, asset_type: (assetResult && assetResult.asset_class) || "", requested_code: gaeReqCode, industry_domain: "oil_gas" });
+        if (gaeRes) { setGlobalAuthorityResult(gaeRes); }
+      } catch (gaeErr: any) { errs.push("global-authority (non-blocking): " + (gaeErr && gaeErr.message ? gaeErr.message : String(gaeErr))); }
+
       try {
         localStrengthResult = await callRemainingStrength(parsedResult, grammarBridgeResult);
         if (localStrengthResult) {
@@ -2641,10 +2664,23 @@ export default function VoiceInspectionPage() {
           </Card>
         )}
 
+        {globalAuthorityResult && globalAuthorityResult.country && (
+          <Card title="Jurisdiction & Applicable Codes" icon={"\uD83C\uDF0D"}>
+            <div style={{ fontSize: "13px", marginBottom: "6px" }}>Detected jurisdiction: <strong>{globalAuthorityResult.country}</strong>{globalAuthorityResult.offshore_region ? " (offshore: " + globalAuthorityResult.offshore_region + ")" : ""} \u2014 {globalAuthorityResult.jurisdiction_status}</div>
+            <div style={{ fontSize: "13px", marginBottom: "6px" }}>Governing authority: <strong>{globalAuthorityResult.primary_authority}</strong></div>
+            {globalAuthorityResult.equivalent_or_related_standards && globalAuthorityResult.equivalent_or_related_standards.length > 0 && (
+              <div style={{ fontSize: "12px", color: "#1e40af", marginBottom: "6px" }}><strong>US &rarr; local:</strong> {globalAuthorityResult.equivalent_or_related_standards.join("; ")}</div>
+            )}
+            {globalAuthorityResult.inspector_message && (
+              <div style={{ fontSize: "12px", color: "#374151" }}>{globalAuthorityResult.inspector_message}</div>
+            )}
+          </Card>
+        )}
+
         {dc && (
           <div style={{ marginBottom: "16px" }}>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative, superbrainResult: superbrainResult, provenanceResult: provenanceResult, authorityLockResult: authorityLockResult, remainingStrengthResult: remainingStrengthResult, failureModeDominanceResult: failureModeDominanceResult, dispositionPathwayResult: dispositionPathwayResult, failureTimelineResult: failureTimelineResult, situationalAwarenessPackage: saPackage, errors: errors }); }} disabled={isGenerating} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#1e40af", border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+              <button onClick={function() { generateInspectionReport({ transcript: transcript, parsed: parsed, asset: asset, decisionCore: dc, aiNarrative: aiNarrative, superbrainResult: superbrainResult, provenanceResult: provenanceResult, authorityLockResult: authorityLockResult, remainingStrengthResult: remainingStrengthResult, failureModeDominanceResult: failureModeDominanceResult, dispositionPathwayResult: dispositionPathwayResult, failureTimelineResult: failureTimelineResult, situationalAwarenessPackage: saPackage, globalAuthorityResult: globalAuthorityResult, errors: errors }); }} disabled={isGenerating} style={{ flex: 1, padding: "12px 24px", fontSize: "14px", fontWeight: 700, color: "#fff", backgroundColor: isGenerating ? "#9ca3af" : "#1e40af", border: "none", borderRadius: "6px", cursor: isGenerating ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
                 {isGenerating ? "\u23F3 Pipeline Running..." : "\uD83D\uDCC4 Export PDF"}
               </button>
               {saveStatus === "saved" ? (
