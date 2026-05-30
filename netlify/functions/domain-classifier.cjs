@@ -31,7 +31,8 @@ var DOMAIN_KEYWORDS = {
   ],
   "refinery": [
     "refinery", "coker", "fractionator", "prv", "overhead piping", "hot line",
-    "pipe rack", "delayed coker", "crude unit", "vacuum unit", "sulfidation"
+    "pipe rack", "delayed coker", "crude unit", "vacuum unit", "sulfidation",
+    "hydrotreater", "hydrocracker", "alkylation", "reactor effluent", "amine unit", "desalter"
   ],
   "chemical_process": [
     "chemical plant", "reactor vessel", "solvent", "manifold", "separator",
@@ -120,6 +121,7 @@ var UNAMBIGUOUS_TERMS = {
   wind_energy: ['wind turbine', 'wind farm', 'offshore wind', 'monopile', 'nacelle', 'transition piece'],
   offshore_oil_gas: ['fpso', 'wellhead', 'jacket leg', 'riser', 'subsea'],
   pipeline: ['pipeline', 'pig launcher'],
+  refinery: ['refinery', 'coker', 'hydrotreater', 'hydrocracker', 'alkylation', 'reactor effluent', 'crude unit', 'vacuum unit'],
   bridge_civil: ['bridge', 'girder', 'abutment'],
   rail: ['railcar', 'thermite weld', 'derailment'],
   marine_vessel: ['marine vessel', 'cargo ship', 'vessel hull']

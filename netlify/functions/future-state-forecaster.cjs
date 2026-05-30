@@ -33,7 +33,8 @@ var FORECAST_DRIVERS = [
     keywords: ['production increase', 'increased throughput', 'throughput increase', 'throughput increased',
                'increase production', 'ramp up', 'higher utilization', 'above design capacity', 'over design capacity',
                'output increased', 'load doubled', 'load increased', 'export demand', 'record exports', 'demand spike',
-               'all-time high', 'flaring rates rising', 'throughput', 'production increase planned'] },
+               'all-time high', 'flaring rates rising', 'throughput', 'production increase planned',
+               'flow rate increased', 'flow rates increased', 'flow increased', 'velocity increased', 'slurry velocity', 'rate increased'] },
   { id: 'LOADING_CHANGE', label: 'Operating loading change beyond design basis', mult: 1.2,
     keywords: ['heavier', 'larger vessel', 'larger vessels', 'vessel sizes increased', 'increased vessel size',
                'larger trainsets', 'new trainsets heavier', 'heavier locomotives', 'uprate', 'uprating',
@@ -63,6 +64,22 @@ var FORECAST_DRIVERS = [
 function round1(x) { if (typeof x !== 'number' || isNaN(x)) { return 0; } return Math.round(x * 10) / 10; }
 function round2(x) { if (typeof x !== 'number' || isNaN(x)) { return 0; } return Math.round(x * 100) / 100; }
 function norm(s) { if (s === null || s === undefined) { return ''; } return String(s).toLowerCase().replace(/\s+/g, ' '); }
+
+// DEPLOY394 - negation guard. A keyword hit is ignored if it is immediately
+// preceded by a negation cue (no / not / without / never / free of). Prevents
+// 'no severe weather' / 'no active leak' from firing a driver. Returns true only
+// if at least one NON-negated occurrence exists.
+function hitNotNegated(text, kw) {
+  var from = 0;
+  while (from <= text.length) {
+    var idx = text.indexOf(kw, from);
+    if (idx < 0) { return false; }
+    var pre = text.substring(idx < 16 ? 0 : idx - 16, idx);
+    if (!/(^|[^a-z])(no|not|without|never|free of|absence of)\s+$/.test(pre)) { return true; }
+    from = idx + 1;
+  }
+  return false;
+}
 
 // Parse an explicit "next planned intervention / turnaround in N months|years".
 // Returns months or null.
@@ -99,7 +116,7 @@ function forecastFutureState(params) {
     var d = FORECAST_DRIVERS[i];
     var hit = '';
     for (var k = 0; k < d.keywords.length; k++) {
-      if (text.indexOf(d.keywords[k]) >= 0) { hit = d.keywords[k]; break; }
+      if (hitNotNegated(text, d.keywords[k])) { hit = d.keywords[k]; break; }
     }
     if (hit) {
       drivers.push({ id: d.id, label: d.label, rate_multiplier: d.mult, evidence: hit });

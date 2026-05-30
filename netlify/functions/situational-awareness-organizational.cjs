@@ -107,6 +107,20 @@ function norm(s) {
 }
 
 // Find the first matching keyword's surrounding snippet (for evidence display).
+// DEPLOY394 - negation guard (shared pattern with the forecaster). Ignores a
+// keyword hit immediately preceded by no/not/without/never/free of.
+function hitNotNegated(text, kw) {
+  var from = 0;
+  while (from <= text.length) {
+    var idx = text.indexOf(kw, from);
+    if (idx < 0) { return false; }
+    var pre = text.substring(idx < 16 ? 0 : idx - 16, idx);
+    if (!/(^|[^a-z])(no|not|without|never|free of|absence of)\s+$/.test(pre)) { return true; }
+    from = idx + 1;
+  }
+  return false;
+}
+
 function snippetFor(text, keyword) {
   var idx = text.indexOf(keyword);
   if (idx < 0) { return keyword; }
@@ -137,7 +151,7 @@ function detectOrganizationalFailures(signals) {
     var pat = ORG_PATTERNS[i];
     var matched = '';
     for (var k = 0; k < pat.keywords.length; k++) {
-      if (text.indexOf(pat.keywords[k]) >= 0) { matched = pat.keywords[k]; break; }
+      if (hitNotNegated(text, pat.keywords[k])) { matched = pat.keywords[k]; break; }
     }
     if (matched) {
       indicators.push({
