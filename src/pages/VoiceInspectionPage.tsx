@@ -278,7 +278,7 @@ function generateInspectionReport(data: {
     refHtml += "</body></html>";
 
     var refWin = window.open("", "_blank");
-    if (refWin) { refWin.document.write(refHtml); refWin.document.close(); }
+    if (refWin) { refWin.document.write(refHtml); refWin.document.close(); } else { alert("Pop-up blocked. Please allow pop-ups for this site."); }
     return;
   }
 
@@ -314,7 +314,7 @@ function generateInspectionReport(data: {
   var tierColorVal = con.consequence_tier === "CRITICAL" ? "#dc2626" : con.consequence_tier === "HIGH" ? "#ea580c" : con.consequence_tier === "MEDIUM" ? "#ca8a04" : "#16a34a";
   var bandColorVal = conf.band === "TRUSTED" || conf.band === "HIGH" ? "#16a34a" : conf.band === "GUARDED" ? "#ca8a04" : "#dc2626";
 
-  function esc(s: any): string { return String(s || "").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function esc(s: any): string { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
 
   var html = "";
   html += "<!DOCTYPE html><html><head><meta charset='utf-8'><title>FORGED NDT Inspection Report - " + esc(caseRef) + "</title>";
