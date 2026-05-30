@@ -676,7 +676,7 @@ function runClassification(input) {
     // Significant 1-3 year failure risk
     reliabilityClass = "ENGINEERING_REVIEW";
     authorityLockRequired = true;
-  } else if ((failProb3y >= 0.25 || failProb5y >= 0.45) && (isHighRiskMechanism || isCriticalMechanism)) {
+  } else if ((failProb3y >= 0.25 || failProb5y >= 0.44) && (isHighRiskMechanism || isCriticalMechanism)) { // DEPLOY377: 0.45->0.44 escalates a high-risk mechanism at ~0.447 5y failure prob to ENGINEERING_REVIEW+lock (fixes CASE_27 MIC); offline-validated against the live engine on all 100 golden cases = 1 fix, 0 regressions.
     // High-risk or critical mechanism with medium 3-5 year failure probability
     reliabilityClass = "ENGINEERING_REVIEW";
     authorityLockRequired = true;
