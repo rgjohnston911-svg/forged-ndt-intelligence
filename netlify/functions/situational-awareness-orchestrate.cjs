@@ -31,6 +31,7 @@ var consequence = require('./situational-awareness-consequence.cjs');
 var brief = require('./situational-awareness-brief.cjs');
 var assembler = require('./situational-awareness-package.cjs');
 var survivalBridge = require('./situational-awareness-survival-bridge.cjs');
+var organizational = require('./situational-awareness-organizational.cjs');
 
 var CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -107,6 +108,11 @@ function orchestrateSa(parts) {
     executiveBrief: execBrief
   });
 
+  // DEPLOY383 - Tier 3a: attach Organizational Failure Detection to the returned
+  // package object for rendering. NOT part of saPackageHash (which covers the
+  // core SA artifact), so verifySaPackage remains valid.
+  saPackage.organizationalFailures = organizational.detectOrganizationalFailures(p.signals || { transcript: '' });
+
   var signature = null;
   if (p.signingKey) { signature = assembler.signSaPackage(saPackage, p.signingKey); }
 
@@ -140,6 +146,7 @@ exports.handler = async function (event) {
       validatedEvidenceSet: body.validatedEvidenceSet || null,
       probabilityBasis: body.probabilityBasis || null,
       failureTimeline: body.failureTimeline || null,
+      signals: body.signals || null,
       referenceIso: body.referenceIso || null,
       signingKey: body.signingKey || null
     });

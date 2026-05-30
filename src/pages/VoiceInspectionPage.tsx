@@ -1099,6 +1099,15 @@ function generateInspectionReport(data: {
         }
       }
     }
+    if (sap.organizationalFailures && sap.organizationalFailures.indicators && sap.organizationalFailures.indicators.length > 0) {
+      var orgf = sap.organizationalFailures;
+      html += "<div style='margin-top:8px;font-weight:700;font-size:11px;color:#991b1b;'>Organizational Risk (score " + esc(String(orgf.organizational_failure_score)) + "/10)</div>";
+      html += "<div style='font-size:10px;color:#374151;margin-bottom:4px;'>" + esc(orgf.summary) + "</div>";
+      for (var ofi = 0; ofi < orgf.indicators.length; ofi++) {
+        var oind = orgf.indicators[ofi];
+        html += "<div class='gap-item'>[" + esc(oind.severity) + "] " + esc(String(oind.id).replace(/_/g, " ")) + " - " + esc(String(oind.category).replace(/_/g, " ")) + "</div>";
+      }
+    }
     if (sap.saPackageHash) {
       html += "<div style='font-size:9px;color:#9ca3af;margin-top:6px;font-family:monospace;word-break:break-all;'>SA pkg: " + esc(sap.saPackageHash) + "</div>";
     }
@@ -2351,7 +2360,7 @@ export default function VoiceInspectionPage() {
       // failure never blocks the report.
       if (saDecisionPackage) {
         try {
-          var saRes = await callAPI("situational-awareness-orchestrate", { decisionPackage: saDecisionPackage, validatedEvidenceSet: saValidatedEvidenceSet, failureTimeline: ftResult || null, referenceIso: new Date().toISOString() });
+          var saRes = await callAPI("situational-awareness-orchestrate", { decisionPackage: saDecisionPackage, validatedEvidenceSet: saValidatedEvidenceSet, failureTimeline: ftResult || null, signals: { transcript: inputText }, referenceIso: new Date().toISOString() });
           if (saRes && saRes.situationalAwarenessPackage) { setSaPackage(saRes.situationalAwarenessPackage); }
         } catch (saErr: any) {
           errs.push("situational-awareness: " + (saErr && saErr.message ? saErr.message : String(saErr)));
@@ -2599,6 +2608,9 @@ export default function VoiceInspectionPage() {
             )}
             {saPackage.executiveBrief.unknowns && saPackage.executiveBrief.unknowns.unresolved_questions && saPackage.executiveBrief.unknowns.unresolved_questions.length > 0 && (
               <div style={{ fontSize: "12px", color: "#991b1b" }}>Unresolved ({saPackage.executiveBrief.unknowns.critical_unresolved_count} CRITICAL): {saPackage.executiveBrief.unknowns.unresolved_questions.join(", ")}</div>
+            )}
+            {saPackage.organizationalFailures && saPackage.organizationalFailures.indicators && saPackage.organizationalFailures.indicators.length > 0 && (
+              <div style={{ fontSize: "12px", color: "#991b1b", marginTop: "8px" }}><strong>Organizational risk {saPackage.organizationalFailures.organizational_failure_score}/10:</strong> {saPackage.organizationalFailures.indicators.length} management-system failure(s) detected.</div>
             )}
           </Card>
         )}
