@@ -33,6 +33,7 @@ var assembler = require('./situational-awareness-package.cjs');
 var survivalBridge = require('./situational-awareness-survival-bridge.cjs');
 var organizational = require('./situational-awareness-organizational.cjs');
 var convergence = require('./situational-awareness-convergence.cjs');
+var futureForecaster = require('./future-state-forecaster.cjs');
 
 var CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -119,6 +120,14 @@ function orchestrateSa(parts) {
   // is attached for rendering only and is NOT part of saPackageHash, so
   // verifySaPackage remains valid.
   saPackage.convergence = convergence.detectConvergence(p.signals || { transcript: '' });
+
+  // DEPLOY391 - Future Reality forecast: will the (currently-acceptable) asset
+  // breach minimum before the next planned intervention, given the forecast
+  // operating reality? Attached for rendering; not part of saPackageHash.
+  saPackage.futureState = futureForecaster.forecastFutureState({
+    remainingLifeYears: (p.failureTimeline && typeof p.failureTimeline.governing_time_years === 'number') ? p.failureTimeline.governing_time_years : null,
+    signals: p.signals || { transcript: '' }
+  });
 
   var signature = null;
   if (p.signingKey) { signature = assembler.signSaPackage(saPackage, p.signingKey); }

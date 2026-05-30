@@ -1119,6 +1119,15 @@ function generateInspectionReport(data: {
         html += "<div class='gap-item'>" + esc(String(cstr.source)) + " - " + esc(String(cstr.id).replace(/_/g, " ")) + "</div>";
       }
     }
+    if (sap.futureState && (sap.futureState.verdict === "BREACH_BEFORE_NEXT_INTERVENTION" || (sap.futureState.drivers && sap.futureState.drivers.length > 0))) {
+      var fst = sap.futureState;
+      var fstColor = fst.verdict === "BREACH_BEFORE_NEXT_INTERVENTION" ? "#991b1b" : "#92400e";
+      html += "<div style='margin-top:8px;font-weight:700;font-size:11px;color:" + fstColor + ";'>Future Reality Forecast (" + esc(String(fst.verdict).replace(/_/g, " ")) + ")</div>";
+      html += "<div style='font-size:10px;color:#374151;margin-bottom:4px;'>" + esc(String(fst.summary)) + "</div>";
+      for (var fdi = 0; fdi < fst.drivers.length; fdi++) {
+        html += "<div class='gap-item'>" + esc(String(fst.drivers[fdi].label)) + "</div>";
+      }
+    }
     if (sap.saPackageHash) {
       html += "<div style='font-size:9px;color:#9ca3af;margin-top:6px;font-family:monospace;word-break:break-all;'>SA pkg: " + esc(sap.saPackageHash) + "</div>";
     }
@@ -2660,6 +2669,12 @@ export default function VoiceInspectionPage() {
             )}
             {saPackage.convergence && saPackage.convergence.convergence_count >= 2 && (
               <div style={{ fontSize: "12px", color: "#92400e", marginTop: "8px" }}><strong>Convergence {saPackage.convergence.convergence_score}/10:</strong> {saPackage.convergence.convergence_count} independent evidence streams support one failure hypothesis.</div>
+            )}
+            {saPackage.futureState && saPackage.futureState.verdict === "BREACH_BEFORE_NEXT_INTERVENTION" && (
+              <div style={{ fontSize: "12px", color: "#991b1b", marginTop: "8px" }}><strong>Future Reality:</strong> acceptable today but forecast to breach minimum in ~{saPackage.futureState.adjusted_life_months} mo — BEFORE the next planned intervention ({saPackage.futureState.next_intervention_months} mo).{saPackage.futureState.dominant_driver ? " Driver: " + saPackage.futureState.dominant_driver.label + "." : ""}</div>
+            )}
+            {saPackage.futureState && saPackage.futureState.verdict !== "BREACH_BEFORE_NEXT_INTERVENTION" && saPackage.futureState.drivers && saPackage.futureState.drivers.length > 0 && (
+              <div style={{ fontSize: "12px", color: "#92400e", marginTop: "8px" }}><strong>Future Reality:</strong> {saPackage.futureState.drivers.length} forecast risk driver(s) — {saPackage.futureState.verdict.replace(/_/g, " ").toLowerCase()}.</div>
             )}
           </Card>
         )}
