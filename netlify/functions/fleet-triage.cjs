@@ -128,6 +128,7 @@ function rankFleet(params) {
       consequence_tier: a.consequence_tier || 'UNKNOWN',
       disposition: a.disposition || null,
       governing_failure_mode: a.governing_failure_mode || null,
+      suspected: a.suspected || null,
       urgency_score: res.score,
       urgency_band: band,
       drivers: res.drivers,

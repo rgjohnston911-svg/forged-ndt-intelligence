@@ -75,7 +75,7 @@ function detectStorm(scenario) {
 async function runOne(scenario, stormGlobal) {
   var summary = {
     name: "", consequence_tier: "UNKNOWN", disposition: null,
-    governing_failure_mode: null, governing_severity: null,
+    governing_failure_mode: null, governing_severity: null, consequence_mode: null, suspected: null,
     future_state: null, support_failure_governs: false, support_cascade: false,
     org_failure_score: 0, confidence_band: null, storm_exposure: false,
     _error: null
@@ -104,10 +104,41 @@ async function runOne(scenario, stormGlobal) {
     var conf = dc.reality_confidence || {};
     summary.consequence_tier = con.consequence_tier || "UNKNOWN";
     summary.disposition = dec.disposition || null;
-    summary.governing_failure_mode = con.failure_mode || null;
+    summary.consequence_mode = con.failure_mode || null;
     summary.support_failure_governs = !!con.support_failure_governs;
     summary.support_cascade = !!con.support_cascade;
     summary.confidence_band = conf.band || null;
+
+    // FMD: the actual damage MECHANISM (cracking / corrosion / fatigue), distinct from
+    // consequence.failure_mode (the failure CONSEQUENCE, e.g. pressure_boundary_failure).
+    // FMD also yields severity (feeds the urgency score) and any suspected higher-
+    // consequence mechanism (e.g. fatigue) pending confirmation.
+    try {
+      var lt = scenario.toLowerCase();
+      var mechs = [];
+      if (lt.indexOf("crack") >= 0) { mechs.push("cracking"); }
+      if (lt.indexOf("fatigue") >= 0) { mechs.push("fatigue"); }
+      if (lt.indexOf("corrosion") >= 0 || lt.indexOf("wall loss") >= 0 || lt.indexOf("metal loss") >= 0) { mechs.push("corrosion"); }
+      if (lt.indexOf("pitting") >= 0) { mechs.push("pitting"); }
+      if (lt.indexOf("erosion") >= 0) { mechs.push("erosion"); }
+      if (lt.indexOf("hic") >= 0) { mechs.push("hic"); }
+      if (lt.indexOf("ssc") >= 0) { mechs.push("ssc"); }
+      var wl = (parsed && parsed.numeric_values && parsed.numeric_values.wall_loss_percent) ? parsed.numeric_values.wall_loss_percent : 0;
+      var fmdRes = await callAPI("failure-mode-dominance", {
+        asset_type: asset.asset_class || asset.asset_type || "",
+        service_environment: (/sour|h2s|hydrogen sulfide/.test(lt) ? "sour" : ""),
+        damage_mechanisms: mechs, wall_loss_percent: wl,
+        has_cracking: lt.indexOf("crack") >= 0, is_pressure_boundary: true,
+        jurisdiction: "", transcript: scenario
+      });
+      if (fmdRes && fmdRes.governing_failure_mode) {
+        summary.governing_failure_mode = fmdRes.governing_failure_mode;
+        summary.governing_severity = fmdRes.governing_severity || null;
+        if (fmdRes.suspected_governing_mechanism && fmdRes.suspected_governing_mechanism.length > 0) {
+          summary.suspected = fmdRes.suspected_governing_mechanism.join(", ");
+        }
+      }
+    } catch (e) { /* FMD optional - fall back to consequence mode */ }
 
     // SA orchestrate (future-state + organizational) - best effort.
     try {
@@ -236,7 +267,7 @@ export default function FleetTriagePage() {
                   <div style={{ fontSize: 13, fontWeight: 700, color: col }}>{a.urgency_band} — {a.urgency_score}/100</div>
                 </div>
                 <div style={{ fontSize: 12, color: "#8b949e", margin: "4px 0" }}>
-                  {String(a.consequence_tier).toUpperCase()}{a.disposition ? " · " + String(a.disposition).replace(/_/g, " ") : ""}{a.governing_failure_mode ? " · governing: " + a.governing_failure_mode : ""}
+                  {String(a.consequence_tier).toUpperCase()}{a.disposition ? " · " + String(a.disposition).replace(/_/g, " ") : ""}{a.governing_failure_mode ? " · mechanism: " + String(a.governing_failure_mode).replace(/_/g, " ") : ""}{a.suspected ? " · suspected: " + a.suspected : ""}
                 </div>
                 <div style={{ fontSize: 12, marginBottom: 6 }}>{a.recommended_action}</div>
                 <div style={{ fontSize: 11, color: "#8b949e" }}>
