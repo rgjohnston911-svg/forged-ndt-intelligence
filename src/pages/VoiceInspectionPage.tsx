@@ -2220,7 +2220,14 @@ export default function VoiceInspectionPage() {
             }
             pendingQuestions = filtered;
           }
-          if (pendingQuestions.length > 0) {
+          // DEPLOY403 - definitive loop fix. Only pause on the FIRST round (no prior
+          // answers). On any re-generation that already carries sa_responses, NEVER
+          // re-pause: proceed with the answers the user gave, even if parse-incident
+          // re-emitted or REPHRASED the same questions (rephrasing defeats text/id
+          // dedup). The user already had their round; re-asking is the loop bug.
+          // Unresolved items still surface downstream via the SA unresolved-questions
+          // and confidence layers.
+          if (priorSa.length === 0 && pendingQuestions.length > 0) {
             setAiQuestions(pendingQuestions);
             setAiUnderstood(parseRes.value.understood || "");
             for (var wi = 3; wi < s.length; wi++) s = updateStep(wi, { status: "waiting", detail: "waiting for answers" }, s);
