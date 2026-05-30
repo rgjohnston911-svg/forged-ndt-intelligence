@@ -646,6 +646,16 @@ function generateInspectionReport(data: {
       var drvLabels = (fst.drivers || []).map(function(d: any){ return d.label; }).join("; ");
       html += "<div class='banner' style='background:#9a3412'>FORWARD-RISK (disposition driver): acceptable today, but the governing concern is the forward trajectory - " + esc(fst.dominant_driver.label) + (drvLabels ? " (" + esc(drvLabels) + ")" : "") + ". " + esc(fwdMsg) + "NOT today's remaining thickness.</div>";
     }
+    // DEPLOY404 - human-factors / management-system governance. When NO active damage
+    // mechanism governs (or only a minor indication) but the organizational-failure
+    // detector fires, the disposition is governed by asset-integrity assurance failure,
+    // not a physical mechanism. Replaces a misleading bare 'GOVERNING: NONE'.
+    var orgF = data.situationalAwarenessPackage && data.situationalAwarenessPackage.organizationalFailures;
+    if (orgF && (orgF.organizational_failure_score >= 5 || (orgF.indicators && orgF.indicators.length >= 2))) {
+      var noActiveMech = !fmd.governing_failure_mode || fmd.governing_failure_mode === "NONE";
+      var orgVerb = noActiveMech ? "DISPOSITION GOVERNED BY" : "DISPOSITION ALSO GOVERNED BY";
+      html += "<div class='banner' style='background:#7e22ce'>" + orgVerb + ": asset-integrity assurance failure / management-system breakdown (org risk " + esc(String(orgF.organizational_failure_score)) + "/10)" + (noActiveMech ? " - no active damage mechanism governs from the minor indication; the governing risk is unknown asset condition from weak controls and missing documentation." : ".") + "</div>";
+    }
     if (fmd.governing_severity) html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(fmd.governing_severity) + "</span></div>";
     if (fmd.governing_failure_pressure) html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(fmd.governing_failure_pressure) + " psi</span></div>";
     if (fmd.governing_code_reference) html += "<div class='info-row'><span class='info-label'>Assessment Code</span><span class='info-value'>" + esc(fmd.governing_code_reference) + "</span></div>";
