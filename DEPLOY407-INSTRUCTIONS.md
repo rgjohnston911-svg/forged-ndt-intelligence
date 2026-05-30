@@ -13,6 +13,12 @@ and leading `: -`, so cards now read "Storage Tank", "Heat Exchanger", etc.
 Added a "Fleet" item (anchor icon) to the top nav so /fleet is reachable without typing
 the URL.
 
+## C. Auto-split scenarios on "Asset:" headers (FleetTriagePage.tsx)
+First live multi-scenario run merged everything into ONE asset because the scenarios were
+pasted back-to-back WITHOUT `===` delimiters. splitScenarios now: uses `===`/`---` lines if
+present, otherwise auto-splits before each `Asset:` header when 2+ are present (the live-
+pack paste format). Verified: a headerless 2-scenario paste now yields 2 separate assets.
+
 ## Verification
 - tsc -b clean. Frontend-only. Files intact (no NUL/truncation).
 
@@ -40,7 +46,7 @@ git diff --cached --stat
 ```
 Then:
 ```bash
-git commit -m "DEPLOY407 - Fleet polish: strip markdown from parsed asset names (no more '** Storage Tank'); add Fleet nav link to the header. Frontend-only; tsc clean."
+git commit -m "DEPLOY407 - Fleet polish: (a) strip markdown from parsed asset names (no more '** Storage Tank'); (b) add Fleet nav link to header; (c) auto-split scenarios on Asset: headers when no === delimiter is present, so a back-to-back paste no longer merges into one asset. Frontend-only; tsc clean."
 git push
 ```
 After deploy + hard-refresh: a "Fleet" link appears in the top nav, and asset cards show

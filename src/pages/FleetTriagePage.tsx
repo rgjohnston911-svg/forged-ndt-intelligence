@@ -32,7 +32,21 @@ async function callAPI(endpoint, body) {
 // Split a paste into individual scenarios on a delimiter line of === or ---.
 function splitScenarios(text) {
   if (!text) { return []; }
-  var parts = text.split(/\n\s*[=\-]{3,}\s*\n/);
+  var t = text.replace(/\r\n/g, "\n").trim();
+  var parts;
+  if (/\n\s*[=\-]{3,}\s*\n/.test(t)) {
+    // Explicit delimiter lines (=== or ---).
+    parts = t.split(/\n\s*[=\-]{3,}\s*\n/);
+  } else {
+    // No delimiter: auto-split before each "Asset:" header (the live-pack paste
+    // format), but only when 2+ headers are present; else treat as one scenario.
+    var headers = t.match(/(^|\n)\**\s*Asset\s*:/gi) || [];
+    if (headers.length >= 2) {
+      parts = t.split(/\n(?=\**\s*Asset\s*:)/i);
+    } else {
+      parts = [t];
+    }
+  }
   var out = [];
   for (var i = 0; i < parts.length; i++) {
     var p = (parts[i] || "").trim();
