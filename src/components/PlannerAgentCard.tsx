@@ -74,9 +74,11 @@ export default function PlannerAgentCard(props) {
     setRunning(true);
     setError("");
     try {
+      var __sess = await supabase.auth.getSession();
+      var __tok = (__sess.data && __sess.data.session && __sess.data.session.access_token) || "";
       var resp = await fetch("/api/planner-agent", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + __tok },
         body: JSON.stringify({ case_id: caseId })
       });
       var json = await resp.json();

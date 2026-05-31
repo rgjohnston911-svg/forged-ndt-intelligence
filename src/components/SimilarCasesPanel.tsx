@@ -14,6 +14,7 @@
  */
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { supabase } from "../lib/supabase";
 
 function pctFmt(n) {
   if (n === null || n === undefined || isNaN(n)) return "-";
@@ -41,9 +42,11 @@ export default function SimilarCasesPanel(props) {
     setLoading(true);
     setError("");
     try {
+      var __sess = await supabase.auth.getSession();
+      var __tok = (__sess.data && __sess.data.session && __sess.data.session.access_token) || "";
       var resp = await fetch("/api/similar-cases", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + __tok },
         body: JSON.stringify({ case_id: caseId, k: k })
       });
       var json = await resp.json();

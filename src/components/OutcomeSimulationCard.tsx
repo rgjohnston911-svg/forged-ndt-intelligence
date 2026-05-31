@@ -50,9 +50,11 @@ export default function OutcomeSimulationCard(props) {
   async function runSim() {
     setRunning(true); setError("");
     try {
+      var __sess = await supabase.auth.getSession();
+      var __tok = (__sess.data && __sess.data.session && __sess.data.session.access_token) || "";
       var resp = await fetch("/api/outcome-simulation", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + __tok },
         body: JSON.stringify({ case_id: caseId })
       });
       var json = await resp.json();

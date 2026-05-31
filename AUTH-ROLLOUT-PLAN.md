@@ -69,6 +69,15 @@ Card                          -> endpoint
 STEP: update each card to attach `Authorization: Bearer <supabase access_token>` (mirror
 EnterpriseAuditCard.tsx / InspectorAdjudicationCard.tsx), THEN guard the endpoints.
 
+DONE (DEPLOY423) - the TOKEN-ATTACH half (additive, zero-risk): all 7 cards now send
+`Authorization: Bearer <jwt>` (DecisionSpineCard, MaterialAuthorityCard, OutcomeSimulationCard,
+PlannerAgentCard, UniversalCodeAuthorityCard, CompositeRepairCard, SimilarCasesPanel; supabase
+import added to SimilarCasesPanel). The endpoints still ignore it. tsc clean.
+REMAINING - guard the 6 endpoints AFTER preview confirms the cards still work:
+  decision-spine, material-authority, outcome-simulation, planner-agent, composite-repair-authority,
+  similar-cases. (universal-code-authority is ALSO an ai-chat target - guard it only after ai-chat
+  forwards X-API-Key, i.e. with Batch B3.)
+
 --------------------------------------------------------------------------------------------------
 BATCH D - ai-chat itself (SPA chat). Confirm the chat UI attaches a JWT, then guard ai-chat. Its
 internal callEngine targets are handled by B (do not double-guard before B forwards creds).
