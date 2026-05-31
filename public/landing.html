@@ -190,6 +190,13 @@
     .demo-warn { color: var(--orange); font-weight: 600; }
     .demo-blue { color: var(--blue); }
     .demo-muted { color: var(--text-4); }
+    .demo-line { padding: 1px 6px; margin: 0 -6px; border-radius: 4px; transition: background 0.18s, opacity 0.18s; }
+    .demo-body.tracing .demo-line[data-group] { opacity: 0.30; }
+    .demo-body.tracing .demo-line.lit { opacity: 1; background: rgba(88,166,255,0.12); box-shadow: inset 2px 0 0 var(--blue); }
+    .demo-step { cursor: pointer; }
+    .demo-step.active { border-color: var(--blue); background: rgba(88,166,255,0.06); }
+    .demo-step.active .demo-step-num { color: var(--blue); }
+    .demo-hint { font-size: 12px; color: var(--text-4); margin: 0 0 14px; }
 
     .demo-narrative { }
     .demo-step-list { display: flex; flex-direction: column; gap: 20px; }
@@ -450,60 +457,59 @@
             <span style="font-size: 12px; color: var(--text-4); margin-left: 8px;">FORGED Case #RF-2026-0047</span>
           </div>
           <div class="demo-body">
-            <span class="demo-label">ASSET:</span> <span class="demo-val">6" CS Process Line, Unit 3</span><br/>
-            <span class="demo-label">METHOD:</span> <span class="demo-val">UT</span><br/>
-            <span class="demo-label">MATERIAL:</span> <span class="demo-val">A106 Gr.B carbon steel</span><br/>
-            <span class="demo-label">SERVICE:</span> <span class="demo-val">Crude unit overhead, H&#x2082;S present</span><br/>
-            <span class="demo-label">NOMINAL:</span> <span class="demo-val">0.280"</span><br/>
-            <span class="demo-label">MEASURED:</span> <span class="demo-warn">0.148"</span> <span class="demo-muted">(47% wall loss)</span><br/>
-            <span class="demo-label">TEMP:</span> <span class="demo-val">425&deg;F</span><br/>
-            <br/>
-            <span class="demo-muted">─── FORGED DECISION (22.4s) ───</span><br/>
-            <br/>
-            <span class="demo-label">MECHANISM #1:</span> <span class="demo-highlight">Sulfidation</span> <span class="demo-muted">(94.2%)</span><br/>
-            <span class="demo-label">MECHANISM #2:</span> <span class="demo-val">General Corrosion</span> <span class="demo-muted">(4.1%)</span><br/>
-            <span class="demo-label">DISPOSITION:</span> <span class="demo-warn">CRITICAL &mdash; REPLACE</span><br/>
-            <span class="demo-label">REMAINING LIFE:</span> <span class="demo-warn">~8 months</span><br/>
-            <span class="demo-label">REPAIR:</span> <span class="demo-val">Full segment replacement</span><br/>
-            <span class="demo-label">CODE REF:</span> <span class="demo-blue">API 939-C &sect;5.2, API 574 &sect;7</span><br/>
-            <span class="demo-label">CONFIDENCE:</span> <span class="demo-highlight">HIGH (0.94)</span><br/>
-            <span class="demo-label">EVIDENCE:</span> <span class="demo-val">Wall loss rate consistent with</span><br/>
-            <span class="demo-val">&nbsp;&nbsp;modified McConomy curve at 425&deg;F</span><br/>
+            <div class="demo-line" data-group="1"><span class="demo-label">ASSET:</span> <span class="demo-val">6" CS Process Line, Unit 3</span></div>
+            <div class="demo-line" data-group="1"><span class="demo-label">METHOD:</span> <span class="demo-val">UT</span></div>
+            <div class="demo-line" data-group="1"><span class="demo-label">MATERIAL:</span> <span class="demo-val">A106 Gr.B carbon steel</span></div>
+            <div class="demo-line" data-group="1"><span class="demo-label">SERVICE:</span> <span class="demo-val">Crude unit overhead, H&#x2082;S present</span></div>
+            <div class="demo-line" data-group="1"><span class="demo-label">NOMINAL:</span> <span class="demo-val">0.280"</span></div>
+            <div class="demo-line" data-group="1"><span class="demo-label">MEASURED:</span> <span class="demo-warn">0.148"</span> <span class="demo-muted">(47% wall loss)</span></div>
+            <div class="demo-line" data-group="1"><span class="demo-label">TEMP:</span> <span class="demo-val">425&deg;F</span></div>
+            <div class="demo-line demo-line-sep"><span class="demo-muted">&mdash;&mdash;&mdash; FORGED DECISION (22.4s) &mdash;&mdash;&mdash;</span></div>
+            <div class="demo-line" data-group="2"><span class="demo-label">MECHANISM #1:</span> <span class="demo-highlight">Sulfidation</span> <span class="demo-muted">(94.2%)</span></div>
+            <div class="demo-line" data-group="2"><span class="demo-label">MECHANISM #2:</span> <span class="demo-val">General Corrosion</span> <span class="demo-muted">(4.1%)</span></div>
+            <div class="demo-line" data-group="3"><span class="demo-label">REMAINING LIFE:</span> <span class="demo-warn">~8 months</span></div>
+            <div class="demo-line" data-group="3"><span class="demo-label">EVIDENCE:</span> <span class="demo-val">Wall loss rate consistent with</span></div>
+            <div class="demo-line" data-group="3"><span class="demo-val">&nbsp;&nbsp;modified McConomy curve at 425&deg;F</span></div>
+            <div class="demo-line" data-group="4"><span class="demo-label">DISPOSITION:</span> <span class="demo-warn">CRITICAL &mdash; REPLACE</span></div>
+            <div class="demo-line" data-group="4"><span class="demo-label">REPAIR:</span> <span class="demo-val">Full segment replacement</span></div>
+            <div class="demo-line" data-group="5"><span class="demo-label">CODE REF:</span> <span class="demo-blue">API 939-C &sect;5.2, API 574 &sect;7</span></div>
+            <div class="demo-line" data-group="5"><span class="demo-label">CONFIDENCE:</span> <span class="demo-highlight">HIGH (0.94)</span></div>
           </div>
         </div>
 
         <!-- Narrative steps -->
         <div class="demo-narrative">
+          <p class="demo-hint">Click a step to trace it in the output &rarr;</p>
           <div class="demo-step-list">
-            <div class="demo-step">
+            <div class="demo-step" data-step="1">
               <div class="demo-step-num">1</div>
               <div>
                 <div class="demo-step-title">Inspector enters field data</div>
                 <div class="demo-step-text">UT readings, material, service environment, and temperature. Takes 60 seconds via form or voice.</div>
               </div>
             </div>
-            <div class="demo-step">
+            <div class="demo-step" data-step="2">
               <div class="demo-step-num">2</div>
               <div>
                 <div class="demo-step-title">142 engines evaluate in parallel</div>
                 <div class="demo-step-text">Bayesian DDE ranks 40+ damage mechanisms. Sulfidation scores 94.2% based on temperature, H&#x2082;S, material, and wall loss pattern.</div>
               </div>
             </div>
-            <div class="demo-step">
+            <div class="demo-step" data-step="3">
               <div class="demo-step-num">3</div>
               <div>
                 <div class="demo-step-title">Physics engine computes remaining life</div>
                 <div class="demo-step-text">Modified McConomy curve at 425&deg;F predicts ~8 months at current corrosion rate. Below minimum required thickness.</div>
               </div>
             </div>
-            <div class="demo-step">
+            <div class="demo-step" data-step="4">
               <div class="demo-step-num">4</div>
               <div>
                 <div class="demo-step-title">Decision engine issues disposition</div>
                 <div class="demo-step-text">CRITICAL &mdash; REPLACE. Cites API 939-C &sect;5.2 for sulfidation assessment and API 574 &sect;7 for piping retirement criteria.</div>
               </div>
             </div>
-            <div class="demo-step">
+            <div class="demo-step" data-step="5">
               <div class="demo-step-num">5</div>
               <div>
                 <div class="demo-step-title">One-click audit-ready report</div>
@@ -512,6 +518,9 @@
             </div>
           </div>
         </div>
+      </div>
+      <div style="text-align:center; margin-top:32px;">
+        <a href="/demo" class="btn btn-primary">Try it yourself &mdash; interactive demo &rarr;</a>
       </div>
     </div>
   </section>
@@ -742,6 +751,29 @@
         });
       }, { threshold: 0.1 });
       els.forEach(function(el) { observer.observe(el); });
+    })();
+
+    (function() {
+      var steps = document.querySelectorAll('.demo-step[data-step]');
+      var body = document.querySelector('.demo-body');
+      if (!steps.length || !body) { return; }
+      var lines = body.querySelectorAll('.demo-line[data-group]');
+      function clear() {
+        steps.forEach(function(s) { s.classList.remove('active'); });
+        lines.forEach(function(l) { l.classList.remove('lit'); });
+        body.classList.remove('tracing');
+      }
+      steps.forEach(function(step) {
+        step.addEventListener('click', function() {
+          var g = step.getAttribute('data-step');
+          var wasActive = step.classList.contains('active');
+          clear();
+          if (wasActive) { return; }
+          step.classList.add('active');
+          body.classList.add('tracing');
+          lines.forEach(function(l) { if (l.getAttribute('data-group') === g) { l.classList.add('lit'); } });
+        });
+      });
     })();
   </script>
 
