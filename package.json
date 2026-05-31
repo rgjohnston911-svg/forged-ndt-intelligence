@@ -7,8 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "tsx --test src/lib/cross-domain/__tests__/*.test.ts",
-    "test:watch": "tsx --test --watch src/lib/cross-domain/__tests__/*.test.ts"
+    "test": "tsx --test src/lib/cross-domain/__tests__/*.test.ts src/lib/__tests__/*.test.ts",
+    "test:watch": "tsx --test --watch src/lib/cross-domain/__tests__/*.test.ts src/lib/__tests__/*.test.ts"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.8",

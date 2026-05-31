@@ -53,7 +53,12 @@ function scorePeripheral(ref) {
   var consW = CONSEQUENCE_WEIGHT[cons] || 0;
   var plausibility = couple * consW;
   var action;
-  if (ref.link_to_primary.link_type === 'NONE' || couple < COUPLING_FLOOR) {
+  if (ref.attribution_uncertain) {
+    // packed run-on utterance: a degradation cue and a 'this one is fine' cue share a
+    // clause with no boundary to bind them, so WHICH actor is degraded is unreliable.
+    // Refuse to confidently refer - surface for confirmation instead of mis-attributing.
+    action = 'NEEDS_CONFIRMATION';
+  } else if (ref.link_to_primary.link_type === 'NONE' || couple < COUPLING_FLOOR) {
     action = 'SUPPRESS';
   } else if (cons === 'HIGH' || cons === 'CRITICAL') {
     action = 'REFER';
@@ -95,12 +100,12 @@ var COUPLING_CATALOG = {
 var ACTOR_KEYWORDS = [
   { actor: 'spring_hanger',  kw: ['spring hanger', 'spring can', 'variable spring', 'constant spring', 'spring support'], candidate: 'STRUCTURAL_INSTABILITY' },
   { actor: 'anchor',         kw: ['axial anchor', 'main anchor', 'anchor support', 'line anchor', 'anchor restraint', 'pipe anchor'], candidate: 'STRUCTURAL_INSTABILITY' },
-  { actor: 'guide',          kw: ['pipe guide', 'lateral guide', 'line guide', 'guide support'], candidate: 'STRUCTURAL_INSTABILITY' },
+  { actor: 'guide',          kw: ['pipe guide', 'lateral guide', 'line guide', 'guide support', 'guide'], candidate: 'STRUCTURAL_INSTABILITY' },
   { actor: 'fixed_support',  kw: ['fixed support', 'rigid support', 'pipe shoe', 'support steel', 'trunnion', 'saddle', 'support leg', 'support bracket', 'pipe support', 'rest support', 'supporting structure', 'support structure', 'support beneath', 'support member', 'pipe hanger', 'support clamp', 'u-bolt'], candidate: 'STRUCTURAL_INSTABILITY' },
   { actor: 'foundation',     kw: ['foundation', 'footing', 'pile cap', 'pedestal', 'baseplate', 'plinth', 'anchor bolt', 'grout', 'settlement'], candidate: 'STRUCTURAL_INSTABILITY' },
   { actor: 'insulation',     kw: ['wet insulation', 'damaged insulation', 'missing insulation', 'insulation damage', 'damaged cladding', 'damaged jacketing', 'cui'], candidate: 'cui' },
   { actor: 'temp_repair',    kw: ['temporary repair', 'temp clamp', 'temporary clamp', 'leak clamp', 'clamp repair', 'band-aid', 'bandaid', 'stopgap', 'normalized repair', 'undocumented repair', 'temporary fix'], candidate: '' },
-  { actor: 'drainage',       kw: ['blocked drain', 'blocked drainage', 'poor drainage', 'standing water', 'pooling water', 'water pooling', 'ponding', 'water collecting'], candidate: '' },
+  { actor: 'drainage',       kw: ['blocked drain', 'blocked drainage', 'poor drainage', 'inadequate drainage', 'drain blocked', 'drainage blocked', 'clogged drain', 'drainage failure', 'standing water', 'pooling water', 'water pooling', 'ponding', 'water collecting'], candidate: '' },
   { actor: 'cable_tray',     kw: ['cable tray', 'cabling', 'conduit', 'junction box', 'electrical tray', 'esd cabling'], candidate: '' },
   { actor: 'adjacent_equip', kw: ['adjacent line', 'adjacent vessel', 'adjacent equipment', 'nearby equipment', 'neighboring equipment', 'adjacent unit'], candidate: '' }
 ];
@@ -124,6 +129,7 @@ function buildRef(o) {
       fmd_hook: { could_shift_governing_mode: !!o.shift, candidate_mode: o.candidate_mode || '' }
     },
     governing_plausibility: 0,
+    attribution_uncertain: !!o.uncertain,
     consequence_if_active: o.consequence || 'LOW',
     routing: { action: 'SUPPRESS', refer_to_discipline: o.discipline || '', verb: 'NONE', rationale: o.rationale || '' },
     raised_by: 'REALITY_CHALLENGE_PERIPHERAL',
@@ -142,6 +148,116 @@ function extentModifier(win) {
   return 0;
 }
 
+var DEGRADE_CUES = ['corro', 'crack', 'degrad', 'wasted', 'wasting', 'wall loss', 'section loss', 'thinning', 'deteriorat', 'rusted', 'rusting', 'buckl', 'seized', 'settl', 'loose', 'missing', 'damaged', 'leak', 'wet', 'blocked', 'failing', 'fail', 'compromis', 'undocumented', 'temporary', 'temp clamp', 'chip', 'pooling', 'standing water'];
+// A degradation cue counts only if it is NOT negated. Without this, 'no corrosion
+// on the support' / 'spring hanger shows no signs of degradation' FALSE-fire - which
+// at fleet scale aggregates into a confident systemic finding of a problem that is
+// not there. Scans the ~24 chars before each cue (within the clause) for a negation.
+function isNegated(win, idx, cueLen) {
+  var pre = win.substring(Math.max(0, idx - 24), idx);
+  var lastStop = pre.lastIndexOf('. ');
+  if (lastStop >= 0) { pre = pre.substring(lastStop + 1); }
+  if (/(^|[^a-z])(no|not|without|never|free of|absence of|no sign|no signs|no evidence|no indication)([^a-z]|$)/.test(pre)) { return true; }
+  // post-cue negation: 'corrosion ruled out', 'cracking not found', 'settlement: none detected'
+  var post = win.substring(idx + (cueLen || 0), idx + (cueLen || 0) + 24);
+  var postStop = post.indexOf('. ');
+  if (postStop >= 0) { post = post.substring(0, postStop); }
+  return /(ruled out|not found|not detected|none found|none detected|negative|cleared|no longer present)/.test(post);
+}
+function degradedNotNegated(win) {
+  for (var i = 0; i < DEGRADE_CUES.length; i++) {
+    var cue = DEGRADE_CUES[i], from = 0, idx = win.indexOf(cue, from);
+    while (idx >= 0) {
+      if (!isNegated(win, idx, cue.length)) { return true; }
+      from = idx + cue.length;
+      idx = win.indexOf(cue, from);
+    }
+  }
+  return false;
+}
+// ---- CLAUSE SCOPING (DEPLOY415b) -------------------------------------------
+// A fixed-width window bleeds a condition word across a clause boundary onto a
+// DIFFERENT subject: "the pipe is corroded but the support is fine" reads
+// 'corroded' onto the support and FALSE-fires. Scoping the condition scan to the
+// actor's own CLAUSE (split on contrastive conjunctions + sentence stops) binds the
+// condition to the right noun. This is the attribution fix. Trade-off (documented):
+// it errs toward the SAFER direction - a cross-clause anaphora ("the support was
+// inspected; it is corroded") may be missed (false negative) rather than a phantom
+// referral created (false positive), because the false positive is what aggregates
+// into a confident systemic finding that is not there.
+var CLAUSE_DELIMS = ['. ', '; ', '! ', '? ', ' but ', ' however', ' whereas ', ' although '];
+function clauseSpan(text, idx, len) {
+  var start = 0, end = text.length, d, p, q;
+  for (d = 0; d < CLAUSE_DELIMS.length; d++) {
+    p = text.lastIndexOf(CLAUSE_DELIMS[d], idx);
+    if (p >= 0 && p < idx && (p + CLAUSE_DELIMS[d].length) > start) { start = p + CLAUSE_DELIMS[d].length; }
+    q = text.indexOf(CLAUSE_DELIMS[d], idx + len);
+    if (q >= 0 && q < end) { end = q; }
+  }
+  return [start, end];
+}
+function clauseAround(text, idx, len) { var sp = clauseSpan(text, idx, len); return text.substring(sp[0], sp[1]); }
+// Incidental water observations (a puddle) vs a drainage SYSTEM problem (blocked/poor drain).
+// A puddle co-located in the same clause as a load-path structural finding is CONTEXT for
+// that finding, not a separate referral; a failed drain system always refers on its own.
+var WATER_OBS = { 'standing water': true, 'pooling water': true, 'water pooling': true, 'ponding': true, 'water collecting': true };
+function withinLoadPathClause(idx, spans) {
+  for (var i = 0; i < spans.length; i++) { if (idx >= spans[i][0] && idx < spans[i][1]) { return true; } }
+  return false;
+}
+function sentenceAround(text, idx, len) {
+  var STOPS = ['. ', '! ', '? '];
+  var start = 0, end = text.length, d, p, q;
+  for (d = 0; d < STOPS.length; d++) {
+    p = text.lastIndexOf(STOPS[d], idx);
+    if (p >= 0 && p < idx && (p + STOPS[d].length) > start) { start = p + STOPS[d].length; }
+    q = text.indexOf(STOPS[d], idx + len);
+    if (q >= 0 && q < end) { end = q; }
+  }
+  return text.substring(start, end);
+}
+// ---- TEMPORAL RESOLUTION (DEPLOY415b): a PAST-framed degradation that has SINCE
+// been REMEDIATED is not a live referral. Requires BOTH a remediation verb AND a
+// past-frame in the actor's sentence - the pairing avoids suppressing a live finding
+// just because some unrelated item was repaired.
+var REMEDIATION_CUES = ['replaced', 'repaired', 'remediated', 'renewed', 'rectified', 'refurbished', 'reinstated', 'corrected', 're-supported', 'reanchored', 're-anchored', 'newly installed', 'new support installed'];
+var PAST_FRAME = ['was ', 'were ', 'had been', 'last year', 'previously', 'formerly', 'historically', 'years ago', 'months ago', 'since been', 'has since', 'have since', 'in the past', 'prior to'];
+// PLANNED remediation is not COMPLETED remediation: "will be replaced next shutdown" /
+// "scheduled for replacement" means the finding is STILL LIVE and must refer. Only a
+// remediation cue with NO future/planned marker before it counts as done.
+var FUTURE_MARKERS = ['will ', 'will be', 'to be', 'shall ', 'scheduled', 'planned', 'pending', 'due to', 'going to', 'upcoming', 'awaiting', 'next ', 'future', 'recommend', 'proposed', 'intend'];
+function remediationCompleted(sentence) {
+  for (var i = 0; i < REMEDIATION_CUES.length; i++) {
+    var cue = REMEDIATION_CUES[i], idx = sentence.indexOf(cue);
+    while (idx >= 0) {
+      var pre = sentence.substring(Math.max(0, idx - 20), idx), future = false;
+      for (var j = 0; j < FUTURE_MARKERS.length; j++) { if (pre.indexOf(FUTURE_MARKERS[j]) >= 0) { future = true; break; } }
+      if (!future) { return true; }   // a remediation verb with no future marker before it = done
+      idx = sentence.indexOf(cue, idx + cue.length);
+    }
+  }
+  return false;
+}
+function remediatedPast(sentence) {
+  if (!remediationCompleted(sentence)) { return false; }
+  for (var i = 0; i < PAST_FRAME.length; i++) { if (sentence.indexOf(PAST_FRAME[i]) >= 0) { return true; } }
+  return false;
+}
+// ---- ACTOR MATCH (DEPLOY415b): word-boundary match for SHORT/AMBIGUOUS actor nouns
+// so "the guide" is detected but "guided wave" (a UT method) and "guidelines" are not.
+// Multi-word terms keep fast substring matching.
+var WB_ACTOR = { 'guide': true };
+function findActor(text, term) {
+  if (WB_ACTOR[term]) {
+    var re = new RegExp('\\b' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b');
+    var m = re.exec(text);
+    return m ? m.index : -1;
+  }
+  return text.indexOf(term);
+}
+// A 'this one is fine' cue. In a clean sentence clause-scoping puts it in a DIFFERENT clause
+// from the degradation; only a packed run-on (no delimiter) leaves both in one clause.
+var SOUNDNESS_RE = /\b(fine|okay|acceptable|satisfactory|sound|good condition|looks good|no issues?|nominal|intact)\b/;
 var VALID_TIER = { LOW: true, MEDIUM: true, HIGH: true, CRITICAL: true };
 
 function extractPeripheralsFromText(transcript, primaryConsequenceTier) {
@@ -151,16 +267,21 @@ function extractPeripheralsFromText(transcript, primaryConsequenceTier) {
     : 'HIGH';
   var out = [];
   var seen = {};
+  var loadPathSpans = [];
   for (var i = 0; i < ACTOR_KEYWORDS.length; i++) {
     var ak = ACTOR_KEYWORDS[i];
     if (seen[ak.actor]) { continue; }
     for (var k = 0; k < ak.kw.length; k++) {
       var term = ak.kw[k];
-      var idx = lt.indexOf(term);
+      var idx = findActor(lt, term);
       if (idx < 0) { continue; }
-      var win = lt.substring(Math.max(0, idx - 70), Math.min(lt.length, idx + term.length + 70));
-      var degraded = /corro|crack|degrad|wasted|wasting|wall loss|section loss|thinning|deteriorat|rusted|rusting|buckl|seized|settl|loose|missing|damaged|leak|wet|blocked|failing|fail|compromis|undocumented|temporary|temp clamp|chip|pooling|standing water/.test(win);
+      var win = clauseAround(lt, idx, term.length);
+      var degraded = degradedNotNegated(win);
       if (!degraded) { continue; }
+      if (remediatedPast(sentenceAround(lt, idx, term.length))) { continue; }
+      // co-located puddle = context for a load-path finding, not a separate drainage referral
+      if (ak.actor === 'drainage' && WATER_OBS[term] && withinLoadPathClause(idx, loadPathSpans)) { continue; }
+      var uncertain = SOUNDNESS_RE.test(win);
       seen[ak.actor] = true;
       var cat = COUPLING_CATALOG[ak.actor];
       var linkType = cat.link_type;
@@ -180,8 +301,10 @@ function extractPeripheralsFromText(transcript, primaryConsequenceTier) {
         candidate_mode: ak.candidate,
         shift: !!ak.candidate,
         discipline: (ak.actor === 'cable_tray') ? 'electrical' : (ak.actor === 'foundation' ? 'civil/structural' : 'structural/integrity'),
-        provenance: 'OBSERVED_VISUAL'
+        provenance: 'OBSERVED_VISUAL',
+        uncertain: uncertain
       }));
+      if (linkType === 'LOAD_PATH') { loadPathSpans.push(clauseSpan(lt, idx, term.length)); }
       break;
     }
   }

@@ -1109,6 +1109,44 @@ var handler = async function(event) {
       };
     }
 
+    // ======================================================================
+    // REPORT PROVENANCE GATE (DEPLOY417): assert every quantitative claim and the
+    // stated disposition in the synthesized PROSE traces to an engine value. The
+    // evidence_trace prefix-check (above) covers a side-array; this covers the prose
+    // the reviewer actually reads. Non-blocking - attaches a verdict the caller can
+    // flag/withhold on. This is the gate behind "won't show a number it can't source."
+    // Source is generous (decision-core + transcript + every engine) so only a true
+    // hallucination - a number present in NONE of them - flags.
+    // ======================================================================
+    var RP = require("./report-provenance.cjs");
+    var provenanceReport = null;
+    try {
+      var proseParts = [];
+      (function gather(o) {
+        if (o === null || o === undefined) { return; }
+        if (typeof o === "string") { proseParts.push(o); return; }
+        if (Array.isArray(o)) { for (var gi = 0; gi < o.length; gi++) { gather(o[gi]); } return; }
+        if (typeof o === "object") { for (var gk in o) { if (Object.prototype.hasOwnProperty.call(o, gk) && gk !== "evidence_trace") { gather(o[gk]); } } }
+      })(synthesis);
+      var provSource = {
+        decision_core: decisionCore, transcript: transcript,
+        failure_mode_dominance: fmd, authority_lock: alr, remaining_strength: rsr,
+        disposition_pathway: dpr, failure_timeline: ftr, photo_analysis: par,
+        inspection_retrieval: ir, evidence_contract: evc, coatings_intelligence: coa,
+        mechanism_causality: mca, uncertainty_boundary: unb, decision_liability: dla
+      };
+      var provDisposition = (decisionCore && decisionCore.decision_reality && decisionCore.decision_reality.disposition)
+        || (dpr && dpr.disposition) || null;
+      provenanceReport = RP.validateProvenance(proseParts, provSource, provDisposition);
+      if (provenanceReport.verdict === "FAIL") {
+        traceWarnings.push("report_provenance FAIL: "
+          + (provenanceReport.unsourced_claims.length > 0 ? ("unsourced claims [" + provenanceReport.unsourced_claims.join(", ") + "] ") : "")
+          + (!provenanceReport.disposition_match ? ("disposition prose '" + provenanceReport.stated_disposition + "' != engine '" + provenanceReport.engine_disposition + "'") : ""));
+      }
+    } catch (provErr) {
+      provenanceReport = { verdict: "UNKNOWN", error: String((provErr && provErr.message) || provErr) };
+    }
+
     var result = {
       superbrain_version: "1.5",
       synthesis_constraint_version: "v1.4",
@@ -1121,6 +1159,7 @@ var handler = async function(event) {
       trace_warnings: traceWarnings.length > 0 ? traceWarnings : null,
       constraint_metadata: constraintMetadata,
       inspection_intelligence_summary: inspectionIntelligenceSummary,
+      report_provenance: provenanceReport,
       synthesis: synthesis
     };
 

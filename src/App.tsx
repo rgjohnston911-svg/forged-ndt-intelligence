@@ -10,6 +10,7 @@ import NewCase from "./pages/NewCase";
 import CaseDetail from "./pages/CaseDetail";
 import VoiceInspectionPage from "./pages/VoiceInspectionPage";
 import FleetTriagePage from "./pages/FleetTriagePage";
+import DemoPage from "./pages/DemoPage";
 
 // Error Boundary — catches any render crash and shows recovery UI instead of black screen
 class ErrorBoundary extends Component {
@@ -62,7 +63,7 @@ class ErrorBoundary extends Component {
   }
 }
 
-export default function App() {
+function AuthedApp() {
   var auth = useAuth();
   var user = auth.user;
   var loading = auth.loading;
@@ -90,6 +91,20 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>
+    </ErrorBoundary>
+  );
+}
+
+export default function App() {
+  // PUBLIC, no-auth demo surface (landing-page "Live Demo" links here). Kept OUTSIDE
+  // the auth gate; AuthedApp (which calls useAuth) only mounts for non-/demo paths,
+  // so hooks stay clean.
+  return (
+    <ErrorBoundary>
+      <Routes>
+        <Route path="/demo" element={<DemoPage />} />
+        <Route path="*" element={<AuthedApp />} />
+      </Routes>
     </ErrorBoundary>
   );
 }

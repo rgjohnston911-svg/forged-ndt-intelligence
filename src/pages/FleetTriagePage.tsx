@@ -14,6 +14,18 @@
 // ============================================================================
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
+import { buildSystemicView, renderSystemicPanelHTML, renderCountChipHTML } from "../lib/systemicPanel";
+
+// Optional cohort hint from a scenario ("cohort: batch_1998" / "group: u1"); else "fleet".
+function deriveCohort(scenario) {
+  var m = String(scenario || "").match(/(?:cohort|group|batch|platform)\s*[:=]\s*([A-Za-z0-9_\- ]+)/i);
+  return m ? m[1].trim().replace(/\s+/g, "_").toLowerCase() : "fleet";
+}
+// Optional environment-context hint ("context: marine_splash") for the PREVALENCE expected rate.
+function deriveContext(text) {
+  var m = String(text || "").match(/context\s*[:=]\s*([A-Za-z0-9_\-]+)/i);
+  return m ? m[1].trim().toLowerCase() : null;
+}
 
 var API_BASE = "/api";
 
@@ -190,17 +202,25 @@ export default function FleetTriagePage() {
     for (var i = 0; i < scenarios.length; i++) { prog.push({ name: deriveName(scenarios[i], i), status: "pending" }); }
     setProgress(prog.slice());
     var summaries = [];
+    var systemicAssets = [];
     for (var j = 0; j < scenarios.length; j++) {
       prog[j].status = "running"; setProgress(prog.slice());
       var sum = await runOne(scenarios[j], stormGlobal);
       sum.name = deriveName(scenarios[j], j);
       summaries.push(sum);
+      systemicAssets.push({ id: sum.name, cohort: deriveCohort(scenarios[j]), transcript: scenarios[j], consequence_tier: sum.consequence_tier });
       prog[j].status = sum._error ? "error" : "done";
       prog[j].detail = sum._error ? sum._error : (sum.consequence_tier + " / " + (sum.disposition || "?"));
       setProgress(prog.slice());
     }
     try {
       var rankRes = await callAPI("fleet-triage", { assets: summaries });
+      try {
+        var sysRes = await callAPI("fleet-systemic", { assets: systemicAssets, context: deriveContext(input) });
+        rankRes.systemic_findings = (sysRes && sysRes.systemic_findings) || [];
+      } catch (se) {
+        rankRes.systemic_findings = [];
+      }
       setResult(rankRes);
     } catch (e) {
       setError("Ranking failed: " + ((e && e.message) ? e.message : String(e)));
@@ -251,10 +271,15 @@ export default function FleetTriagePage() {
         </div>
       )}
 
-      {result && result.fleet_summary && (
+      {result && result.fleet_summary && (function () {
+        var sysView = buildSystemicView(result.systemic_findings || []);
+        return (
         <div>
           <div style={{ background: "#161b22", border: "1px solid #30363d", borderRadius: 8, padding: 14, marginBottom: 14 }}>
-            <div style={{ fontSize: 12, color: "#8b949e", textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>Order of action</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <div style={{ fontSize: 12, color: "#8b949e", textTransform: "uppercase", fontWeight: 700 }}>Order of action</div>
+              <span dangerouslySetInnerHTML={{ __html: renderCountChipHTML(sysView) }} />
+            </div>
             <div style={{ fontSize: 14 }}>{result.fleet_summary.narrative}</div>
           </div>
           {result.ranked.map(function (a, i) {
@@ -275,8 +300,10 @@ export default function FleetTriagePage() {
               </div>
             );
           })}
+          <div dangerouslySetInnerHTML={{ __html: renderSystemicPanelHTML(sysView) }} />
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
