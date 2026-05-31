@@ -333,6 +333,7 @@ var CATALOG_FAMILY_MAP = {
   "wet_h2s_blister": "cracking"
 };
 
+var authGuard = require("./auth-guard.cjs");
 var handler = async function(event) {
   "use strict";
 
@@ -350,6 +351,7 @@ var handler = async function(event) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, headers: headers, body: JSON.stringify({ error: "Method not allowed" }) };
   }
+  var __auth = await authGuard.verifyAuth(event); if (!__auth.ok) { return authGuard.denyResponse(__auth, headers); }
 
   try {
     var body = JSON.parse(event.body || "{}");

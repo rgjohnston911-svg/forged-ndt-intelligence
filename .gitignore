@@ -25,5 +25,9 @@ npm-debug.log*
 # Netlify
 .netlify/
 
-# Test harnesses (local-only test scripts in tests/ - production .cjs in netlify/functions/ tracked)
+# Acceptance gates in tests/*.test.cjs are now TRACKED and run in CI (DEPLOY419).
+# Only non-gate scratch scripts in tests/ stay ignored.
 tests/*.cjs
+!tests/*.test.cjs
+# OneDrive-locked canary from DEPLOY419 gate verification (delete from Windows: del tests\_canary.test.cjs)
+tests/_canary.test.cjs

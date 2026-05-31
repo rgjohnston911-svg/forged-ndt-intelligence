@@ -4,6 +4,7 @@
 // v1.4: Universal asset-agnostic prompt — works for offshore, refinery, piping, tanks,
 //       structural steel, concrete, buried pipelines, vessels, columns, exchangers, etc.
 
+var authGuard = require("./auth-guard.cjs");
 var handler = async function(event) {
   "use strict";
 
@@ -21,6 +22,7 @@ var handler = async function(event) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, headers: headers, body: JSON.stringify({ error: "Method not allowed" }) };
   }
+  var __auth = await authGuard.verifyAuth(event); if (!__auth.ok) { return authGuard.denyResponse(__auth, headers); }
 
   try {
     var body = JSON.parse(event.body || "{}");

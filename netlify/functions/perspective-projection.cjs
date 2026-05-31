@@ -32,6 +32,7 @@
 //   16. Role-Safe Fallback Redaction
 'use strict';
 var crypto = require('crypto');
+var authGuard = require('./auth-guard.cjs');
 // ============================================================================
 // CORS
 // ============================================================================
@@ -798,7 +799,7 @@ function persistPackage(pkg, packageHashValue) {
     var bodyToSend = JSON.stringify({ decisionPackage: pkg });
     fetch(base + '/.netlify/functions/package-store', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': process.env.NDT_API_KEY || '' },
       body: bodyToSend
     }).catch(function () {
       // Best-effort: persistence failure should not affect the projection
@@ -817,6 +818,7 @@ exports.handler = async function (event, context) {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
+  var __auth = await authGuard.verifyAuth(event); if (!__auth.ok) { return authGuard.denyResponse(__auth, CORS_HEADERS); }
   try {
     var body = JSON.parse(event.body || '{}');
     var pkg = body.decisionPackage;

@@ -274,7 +274,7 @@ export var handler: Handler = async function(event) {
       try {
         var bgResp = await fetch(siteUrl + "/.netlify/functions/superbrain-report-background", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-API-Key": process.env.NDT_API_KEY || "" },
           body: JSON.stringify({
             report_id: reportId,
             session_id: body.session_id,

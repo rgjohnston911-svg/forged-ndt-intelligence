@@ -418,6 +418,7 @@ var SYSTEM_PROMPT = "You are the world's foremost NDT and inspection intelligenc
   + "11. NEVER return empty partial_events if the transcript contains ANY keyword suggesting an event, finding, or action.\n";
 
 
+var authGuard = require("./auth-guard.cjs");
 var handler = async function(event: any): Promise<any> {
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -430,6 +431,7 @@ var handler = async function(event: any): Promise<any> {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" }, body: JSON.stringify({ error: "Method not allowed" }) };
   }
+  var __auth = await authGuard.verifyAuth(event); if (!__auth.ok) { return authGuard.denyResponse(__auth, { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" }); }
 
   try {
     var body = JSON.parse(event.body || "{}");

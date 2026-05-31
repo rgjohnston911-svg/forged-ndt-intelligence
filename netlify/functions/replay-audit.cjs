@@ -31,7 +31,7 @@ function getBaseUrl(event) {
   return proto + '://' + (host || 'localhost');
 }
 async function fetchPackage(baseUrl, packageHash) {
-  var resp = await fetch(baseUrl + '/.netlify/functions/package-store?hash=' + encodeURIComponent(packageHash));
+  var resp = await fetch(baseUrl + '/.netlify/functions/package-store?hash=' + encodeURIComponent(packageHash), { headers: { 'X-API-Key': process.env.NDT_API_KEY || '' } });
   if (!resp.ok) {
     if (resp.status === 404) return { ok: false, notFound: true };
     return { ok: false, error: 'fetch failed: ' + resp.status };
@@ -42,7 +42,7 @@ async function fetchPackage(baseUrl, packageHash) {
 async function reproject(baseUrl, decisionPackage, roleContext) {
   var resp = await fetch(baseUrl + '/.netlify/functions/perspective-projection', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': process.env.NDT_API_KEY || '' },
     body: JSON.stringify({ decisionPackage: decisionPackage, roleContext: roleContext })
   });
   if (!resp.ok) {

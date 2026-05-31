@@ -462,6 +462,7 @@
 import type { Handler, HandlerEvent } from "@netlify/functions";
 // DEPLOY354 - DecisionPackage Assembler for PIL/audit-layer integration
 import decisionPackageAssembler from "./decision-package-assembler.cjs";
+import authGuard from "./auth-guard.cjs";
 
 // ============================================================================
 // TYPES
@@ -6119,6 +6120,7 @@ var handler: Handler = async function(event: HandlerEvent) {
     return { statusCode: 200, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Allow-Methods": "POST, OPTIONS" }, body: "" };
   }
   if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method not allowed" };
+  var __auth = await authGuard.verifyAuth(event); if (!__auth.ok) { return authGuard.denyResponse(__auth, { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" }); }
 
   var startMs = Date.now();
   try {

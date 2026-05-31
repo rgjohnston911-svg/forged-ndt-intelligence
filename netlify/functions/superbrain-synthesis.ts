@@ -69,6 +69,7 @@
 //   - All logic inlined, no lib/ imports
 // ============================================================================
 
+var authGuard = require("./auth-guard.cjs");
 var handler = async function(event) {
   var headers = {
     "Access-Control-Allow-Origin": "*",
@@ -88,6 +89,7 @@ var handler = async function(event) {
       body: JSON.stringify({ error: "Method not allowed" })
     };
   }
+  var __auth = await authGuard.verifyAuth(event); if (!__auth.ok) { return authGuard.denyResponse(__auth, headers); }
 
   try {
     var body = JSON.parse(event.body || "{}");

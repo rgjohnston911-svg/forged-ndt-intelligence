@@ -68,9 +68,11 @@ var REPORT_SYSTEM_PROMPT = "You are the FORGED NDT Intelligence OS Report Engine
 // ============================================================
 // BACKGROUND HANDLER
 // ============================================================
+var authGuard = require("./auth-guard.cjs");
 export var handler: Handler = async function(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
   if (event.httpMethod !== "POST") return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "POST only" }) };
+  var __auth = await authGuard.verifyAuth(event); if (!__auth.ok) { return authGuard.denyResponse(__auth, corsHeaders); }
 
   var sb = createClient(supabaseUrl, supabaseKey);
 

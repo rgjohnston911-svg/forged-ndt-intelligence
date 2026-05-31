@@ -22,6 +22,7 @@ async function loadBlobs() {
   }
 }
 var crypto = require('crypto');
+var authGuard = require('./auth-guard.cjs');
 var CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type',
@@ -111,6 +112,7 @@ exports.handler = async function (event, context) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: CORS_HEADERS, body: '' };
   }
+  var __auth = await authGuard.verifyAuth(event); if (!__auth.ok) { return authGuard.denyResponse(__auth, CORS_HEADERS); }
   if (event.httpMethod === 'POST') {
     try {
       var body = JSON.parse(event.body || '{}');

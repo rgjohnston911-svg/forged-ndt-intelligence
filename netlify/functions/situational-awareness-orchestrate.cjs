@@ -27,6 +27,7 @@
 
 var stakeholder = require('./situational-awareness-stakeholder.cjs');
 var conflict = require('./situational-awareness-conflict.cjs');
+var authGuard = require('./auth-guard.cjs');
 var consequence = require('./situational-awareness-consequence.cjs');
 var brief = require('./situational-awareness-brief.cjs');
 var assembler = require('./situational-awareness-package.cjs');
@@ -151,6 +152,7 @@ exports.handler = async function (event) {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Method not allowed' }) };
   }
+  var __auth = await authGuard.verifyAuth(event); if (!__auth.ok) { return authGuard.denyResponse(__auth, CORS_HEADERS); }
   try {
     var body = JSON.parse(event.body || '{}');
     if (!body.decisionPackage) {

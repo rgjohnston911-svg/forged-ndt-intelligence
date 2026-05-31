@@ -213,9 +213,11 @@ var CORS_HEADERS = {
   'Content-Type': 'application/json'
 };
 
+var authGuard = require('./auth-guard.cjs');
 async function handler(event) {
   if (event.httpMethod === 'OPTIONS') { return { statusCode: 200, headers: CORS_HEADERS, body: '' }; }
   if (event.httpMethod !== 'POST') { return { statusCode: 405, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Method not allowed' }) }; }
+  var __auth = await authGuard.verifyAuth(event); if (!__auth.ok) { return authGuard.denyResponse(__auth, CORS_HEADERS); }
   try {
     var body = JSON.parse(event.body || '{}');
     var result = rankFleet({ assets: body.assets || [] });

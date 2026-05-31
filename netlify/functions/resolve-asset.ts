@@ -3,6 +3,7 @@
 // NO TEMPLATE LITERALS — STRING CONCATENATION ONLY
 // ALL LOGIC INLINED — NO LIB IMPORTS
 
+var authGuard = require("./auth-guard.cjs");
 var handler = async function(event: any): Promise<any> {
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -24,6 +25,7 @@ var handler = async function(event: any): Promise<any> {
       body: JSON.stringify({ error: "Method not allowed" })
     };
   }
+  var __auth = await authGuard.verifyAuth(event); if (!__auth.ok) { return authGuard.denyResponse(__auth, { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" }); }
 
   try {
     var body = JSON.parse(event.body || "{}");
