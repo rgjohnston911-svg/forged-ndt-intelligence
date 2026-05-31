@@ -617,13 +617,19 @@ function generateInspectionReport(data: {
       : fmd.governing_failure_mode === "COMPOUND" ? "#dc2626"
       : "#6b7280";
     var fmdLabel = (fmd.governing_failure_mode || "NONE").replace(/_/g, " ");
-    var fmdGovLabel = (fmd.suspected_governing_mechanism && fmd.suspected_governing_mechanism.length > 0) ? "GOVERNING (CONFIRMED MECHANISM): " : "GOVERNING: ";
+    // DEPLOY429 - confirmed-MEASURED vs suspected-GOVERNING. When a suspected
+    // governing mechanism exists, the confirmed mode (e.g. corrosion measured by
+    // UT) is the MEASURED mechanism, NOT the governing one - so do not label it
+    // "GOVERNING". Reserve "governing" for the suspected mechanism + disposition
+    // driver. Only when nothing is suspected is the confirmed mode governing.
+    var hasSuspectedGov = (fmd.suspected_governing_mechanism && fmd.suspected_governing_mechanism.length > 0);
+    var fmdGovLabel = hasSuspectedGov ? "CONFIRMED MEASURED MECHANISM: " : "GOVERNING MECHANISM: ";
     html += "<div class='banner' style='background:" + fmdModeColor + "'>" + fmdGovLabel + esc(fmdLabel) + "</div>";
     // DEPLOY397 - confirmed-vs-suspected governing split (FMD). Surface a suspected
     // higher-consequence mechanism (e.g. fatigue) pending confirmation, so 'GOVERNING:
     // CORROSION' is not misread as 'corrosion is the only risk'.
     if (fmd.suspected_governing_mechanism && fmd.suspected_governing_mechanism.length > 0) {
-      html += "<div class='banner' style='background:#b45309'>SUSPECTED GOVERNING (pending confirmation): " + esc(fmd.suspected_governing_mechanism.join(", ").toUpperCase()) + "</div>";
+      html += "<div class='banner' style='background:#b45309'>SUSPECTED GOVERNING MECHANISM (pending confirmation): " + esc(fmd.suspected_governing_mechanism.join(", ").toUpperCase()) + "</div>";
     }
     // DEPLOY398 - name the DECISION driver explicitly: what governs the HOLD is the
     // unresolved crack-mechanism risk, NOT remaining wall thickness.
