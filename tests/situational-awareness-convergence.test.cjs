@@ -75,4 +75,52 @@ assert(bare.convergence_count === 0 && bare.convergence_score === 0, 'null signa
 var viaExtra = c.detectConvergence({ transcript: '', extraText: ['anchor drag event', 'pipe looked displaced', 'ovality exceeds design limit'] });
 assert(viaExtra.convergence_count >= 3, 'scans extraText corpus too (got ' + viaExtra.convergence_count + ')');
 
+// ============================================================================
+// DEPLOY425 - TEST 11 (produced-water reinjection, vibration-fatigue) + the
+// anti-contamination guarantee. Prior bug: the engine emitted the canned
+// "anchor drag / ovality / cathodic protection" narrative for this scenario.
+// ============================================================================
+var test11 = 'Offshore production platform produced water reinjection system 24-inch A106 Gr B. ' +
+  'Design pressure 2,850 psi operating pressure 2,300 psi. Service produced water chlorides CO2 trace H2S. ' +
+  'UT current wall 0.425 nominal 0.500 external corrosion survey. Significant vibration during high-rate injection, ' +
+  'vibration increased over previous 8 months. Clamp support replaced 14 months ago. No vibration study conducted. ' +
+  'Reinjection rates increased 40% last year. One pipe support is 18 inches from a branch connection. ' +
+  'Support shoe has coating damage and slight metal-to-metal wear. Four years ago a nearly identical system had a ' +
+  'branch connection fatigue crack resulting in produced water release. Tropical storm expected within 72 hours, ' +
+  'wave height 14-18 ft. 47 open maintenance items, 9 overdue, 3 vibration-related.';
+var r11 = c.detectConvergence({ transcript: test11 });
+
+// The correct convergence is vibration-induced fatigue, NOT anchor drag.
+assert(r11.primary_hypothesis && r11.primary_hypothesis.id === 'VIBRATION_INDUCED_FATIGUE',
+  'TEST 11 primary = vibration-induced fatigue (got ' + (r11.primary_hypothesis && r11.primary_hypothesis.id) + ')');
+assert(r11.convergence_count >= 5, 'TEST 11 strong convergence (got ' + r11.convergence_count + ')');
+
+// ANTI-CONTAMINATION: the narrative + summary must NOT assert mechanisms that
+// were never in the scenario.
+var n11 = (r11.primary_hypothesis.narrative + ' ' + r11.summary).toLowerCase();
+assert(n11.indexOf('anchor') < 0, 'TEST 11 must NOT mention anchor drag');
+assert(n11.indexOf('ovality') < 0, 'TEST 11 must NOT mention ovality');
+assert(n11.indexOf('cathodic') < 0, 'TEST 11 must NOT mention cathodic protection');
+
+// the real converging streams are present under the primary
+assert(hasStream(r11.primary_hypothesis, 'VIBRATION'), 'TEST 11 stream: vibration');
+assert(hasStream(r11.primary_hypothesis, 'STRUCTURAL_INTERFACE'), 'TEST 11 stream: branch/support interface');
+assert(hasStream(r11.primary_hypothesis, 'PRIOR_SIMILAR_FAILURE'), 'TEST 11 stream: prior similar failure');
+assert(hasStream(r11.primary_hypothesis, 'OPERATIONAL_CHANGE'), 'TEST 11 stream: operational change');
+
+// MECHANICAL_DISPLACEMENT must NOT fire here (no displacement / ovality signature)
+var mech11 = null;
+for (var mi = 0; mi < r11.hypotheses.length; mi++) {
+  if (r11.hypotheses[mi].id === 'MECHANICAL_DISPLACEMENT_DRIVEN_INTEGRITY_LOSS') { mech11 = r11.hypotheses[mi]; }
+}
+assert(mech11 && mech11.eligible === false, 'TEST 11: mechanical-displacement hypothesis is NOT eligible (no displacement/ovality)');
+
+// Signature gate proven: stripping vibration removes the fatigue claim entirely.
+var noVib = c.detectConvergence({ transcript: test11.replace(/vibrat[a-z-]*/gi, 'noise') });
+assert(!noVib.primary_hypothesis || noVib.primary_hypothesis.id !== 'VIBRATION_INDUCED_FATIGUE',
+  'without the vibration signature, the fatigue hypothesis cannot fire');
+
+console.log('DEPLOY425 anti-contamination checks passed (TEST 11 -> ' + r11.primary_hypothesis.id +
+  ', ' + r11.convergence_count + ' streams, no anchor/ovality/CP contamination).');
+
 console.log('All DEPLOY384 convergence checks passed (score ' + r.convergence_score + '/10, ' + r.convergence_count + ' independent streams converge -> ' + r.primary_hypothesis.id + ').');

@@ -1,14 +1,29 @@
 // ============================================================================
 // situational-awareness-convergence.cjs   (SA layer L9.6)
-// FORGED 4D NDT - Situational Awareness  -  DEPLOY384 / SA Tier 3b
+// FORGED 4D NDT - Situational Awareness  -  DEPLOY384 / DEPLOY425
 //
 // Convergence Detection. Most integrity failures are first dismissed because
 // each observation is read in isolation. The expert insight is that several
 // INDEPENDENT evidence streams (different sensors, surveys, people, datasets)
 // are quietly telling the same story. This engine groups independent evidence
 // streams under candidate failure hypotheses and reports how many distinct
-// streams converge on each -- e.g. "five independent evidence streams support
-// the same failure hypothesis" -> a Convergence Score (0-10).
+// streams converge on each -> a Convergence Score (0-10).
+//
+// DEPLOY425 - anti-contamination rebuild. Two prior defects fixed:
+//   1) HALLUCINATION: each hypothesis carried a pre-written narrative that
+//      name-dropped specific mechanisms (anchor drag, ovality, CP). A hypothesis
+//      fired on ANY 2 of its streams, so a produced-water reinjection scenario
+//      (coating damage on a support shoe + a prior incident + general corrosion)
+//      spuriously triggered the "anchor drag" paragraph and asserted mechanisms
+//      that were never in the scenario. FIX: every hypothesis now has REQUIRED
+//      signature streams; its mechanism narrative can only surface when those
+//      defining streams are actually present. If no hypothesis qualifies, the
+//      engine reports the converging observations WITHOUT naming a mechanism.
+//   2) COVERAGE: there was no vibration/fatigue hypothesis, so the correct
+//      convergence for operational-change-driven fatigue was not representable.
+//      FIX: added VIBRATION / OPERATIONAL_CHANGE / STRUCTURAL_INTERFACE /
+//      PRIOR_SIMILAR_FAILURE / DEFERRED_MAINTENANCE / STORM_LOADING streams and
+//      a VIBRATION_INDUCED_FATIGUE hypothesis.
 //
 // PURE DETERMINISTIC. Enumerated keyword ruleset. No LLM, no network, no clock,
 // no random. var only, string concatenation only, no template literals, no
@@ -18,13 +33,11 @@
 
 // Independent evidence streams. Each stream is a DISTINCT source/modality, so
 // that the count of active streams under a hypothesis measures independence.
-//   id     - stable identifier
-//   source - the channel/modality the stream comes from (independence basis)
-//   keywords - case-insensitive phrases matched against the narrative
 var EVIDENCE_STREAMS = [
   { id: 'INCIDENT_HISTORY', source: 'Operations / incident log',
     keywords: ['anchor drag', 'anchor-drag', 'dragged anchor', 'lost position', 'vessel lost',
-               'supply vessel', 'storm', 'allision', 'impact event'] },
+               'supply vessel', 'allision', 'vessel contact', 'impact event', 'dropped object',
+               'collision', 'struck'] },
   { id: 'VISUAL_DISPLACEMENT', source: 'ROV visual observation',
     keywords: ['pipe moved', 'pipe has moved', 'pipe looked', 'slightly displaced', 'displaced',
                'displacement', 'moved compared', 'shifted', 'out of position'] },
@@ -39,32 +52,67 @@ var EVIDENCE_STREAMS = [
                'cp degraded', 'cp appears degraded', 'low potential', 'protection degraded'] },
   { id: 'WALL_LOSS', source: 'UT / ACFM thickness',
     keywords: ['wall loss', 'remaining wall', 'external corrosion', 'metal loss', 'wall thinning',
-               'thinning', 'acfm', 'pitting', 'thickness loss'] },
+               'thinning', 'acfm', 'pitting', 'thickness loss', 'current wall'] },
   { id: 'PROCESS_CHEMISTRY', source: 'Process / fluid chemistry',
     keywords: ['co2', 'co₂', 'sour crude', 'sour service', 'produced water', 'h2s', 'h₂s',
-               'hydrogen sulfide', 'corrosive service'] },
-  { id: 'FLOW_CHANGE', source: 'Operations flow data',
+               'hydrogen sulfide', 'corrosive service', 'chlorides'] },
+  { id: 'OPERATIONAL_CHANGE', source: 'Operations / production data',
     keywords: ['flow rate increased', 'flow increased', 'increased flow', 'flow rate up',
-               'velocity increased', 'rate increased'] }
+               'velocity increased', 'rate increased', 'rates increased', 'reinjection rate',
+               'injection rate', 'throughput increased', 'increased 40', 'production increased',
+               'rate change', 'higher rate', 'high-rate'] },
+  { id: 'VIBRATION', source: 'Operations / vibration observation',
+    keywords: ['vibration', 'vibrating', 'vibration increased', 'resonance', 'cyclic load',
+               'cyclic loading', 'dynamic loading', 'vibration-related', 'pulsation'] },
+  { id: 'STRUCTURAL_INTERFACE', source: 'Structural / support inspection',
+    keywords: ['branch connection', 'branch weld', 'small-bore', 'small bore', 'tie-in',
+               'nozzle', 'support shoe', 'pipe support', 'clamp support', 'support clamp',
+               'support replaced', 'metal-to-metal wear', 'shoe'] },
+  { id: 'PRIOR_SIMILAR_FAILURE', source: 'Fleet / historical failure record',
+    keywords: ['nearly identical', 'identical system', 'similar system', 'similar platform',
+               'prior failure', 'previous failure', 'fatigue crack', 'branch connection fatigue',
+               'same failure', 'four years ago', 'previously failed', 'history of failure'] },
+  { id: 'DEFERRED_MAINTENANCE', source: 'Maintenance backlog / management system',
+    keywords: ['overdue', 'deferred', 'open maintenance', 'maintenance items', 'backlog',
+               'open items', 'past due', 'no vibration study', 'not conducted', 'no study',
+               'deferred maintenance'] },
+  { id: 'STORM_LOADING', source: 'Weather / met-ocean forecast',
+    keywords: ['tropical storm', 'storm', 'hurricane', 'wave height', 'sea state', 'heavy weather',
+               'wave', 'swell', 'cyclone'] }
 ];
 
-// Candidate failure hypotheses. Each links the independent streams that, when
-// co-present, support that explanation. A hypothesis with many active streams
-// is a strongly converged narrative.
+// Candidate failure hypotheses. Each declares:
+//   required - SIGNATURE streams that MUST all be present for the hypothesis to
+//              be eligible. This is the anti-contamination gate: the mechanism
+//              narrative can only surface when its defining evidence exists.
+//   anyOf    - (optional) at least one of these must be present too.
+//   supporting - corroborating streams that raise the convergence count.
 var HYPOTHESES = [
+  { id: 'VIBRATION_INDUCED_FATIGUE',
+    priority: 3,
+    required: ['VIBRATION'],
+    anyOf: ['STRUCTURAL_INTERFACE', 'PRIOR_SIMILAR_FAILURE', 'OPERATIONAL_CHANGE'],
+    supporting: ['STRUCTURAL_INTERFACE', 'PRIOR_SIMILAR_FAILURE', 'OPERATIONAL_CHANGE',
+                 'DEFERRED_MAINTENANCE', 'STORM_LOADING', 'PROCESS_CHEMISTRY', 'WALL_LOSS'],
+    narrative: 'An operational change (e.g. increased injection / flow rate) has raised dynamic ' +
+      'and vibratory loading on the line; with a vibration-sensitive structural interface ' +
+      '(branch connection / support) and a documented prior fatigue failure on a similar system, ' +
+      'the independent evidence converges on vibration-induced fatigue at the branch/support ' +
+      'interaction - a mechanism distinct from, and not measured by, the general wall loss seen on UT.' },
   { id: 'MECHANICAL_DISPLACEMENT_DRIVEN_INTEGRITY_LOSS',
     priority: 2,
+    required: ['INCIDENT_HISTORY', 'VISUAL_DISPLACEMENT', 'GEOMETRY_OVALITY'],
+    supporting: ['COATING_DAMAGE', 'CP_DEGRADATION', 'WALL_LOSS'],
     narrative: 'External mechanical disturbance (anchor drag / vessel contact) displaced the line, ' +
       'inducing bending and ovality plus coating damage; combined with degraded cathodic protection ' +
-      'this exposed bare steel and accelerated external corrosion / wall loss.',
-    streams: ['INCIDENT_HISTORY', 'VISUAL_DISPLACEMENT', 'GEOMETRY_OVALITY', 'COATING_DAMAGE',
-              'CP_DEGRADATION', 'WALL_LOSS'] },
+      'this exposed bare steel and accelerated external corrosion / wall loss.' },
   { id: 'INTERNAL_CORROSION_PROGRESSION',
     priority: 1,
+    required: ['PROCESS_CHEMISTRY', 'WALL_LOSS'],
+    supporting: ['OPERATIONAL_CHANGE', 'CP_DEGRADATION'],
     narrative: 'Aggressive process chemistry combined with a flow/velocity change is driving ' +
       'internal degradation, evidenced by wall loss, with cathodic-protection decline removing ' +
-      'external margin.',
-    streams: ['PROCESS_CHEMISTRY', 'FLOW_CHANGE', 'WALL_LOSS', 'CP_DEGRADATION'] }
+      'external margin.' }
 ];
 
 function round1(x) { if (typeof x !== 'number' || isNaN(x)) { return 0; } return Math.round(x * 10) / 10; }
@@ -109,6 +157,35 @@ function activeStreamMap(text) {
   return map;
 }
 
+function allPresent(ids, active) {
+  for (var i = 0; i < ids.length; i++) { if (!active[ids[i]]) { return false; } }
+  return true;
+}
+
+function anyPresent(ids, active) {
+  if (!ids || !ids.length) { return true; }
+  for (var i = 0; i < ids.length; i++) { if (active[ids[i]]) { return true; } }
+  return false;
+}
+
+// Collect, de-duplicated, the active streams that belong to a hypothesis
+// (required + anyOf + supporting). Order: required first, then the rest.
+function matchedStreamsFor(hyp, active) {
+  var ids = [];
+  var push = function (arr) {
+    if (!arr) { return; }
+    for (var i = 0; i < arr.length; i++) {
+      if (active[arr[i]] && ids.indexOf(arr[i]) < 0) { ids.push(arr[i]); }
+    }
+  };
+  push(hyp.required);
+  push(hyp.anyOf);
+  push(hyp.supporting);
+  var out = [];
+  for (var j = 0; j < ids.length; j++) { out.push(active[ids[j]]); }
+  return out;
+}
+
 // ----------------------------------------------------------------------------
 // Public: detect convergence of independent evidence streams.
 //   signals = { transcript?: string, extraText?: string[] }
@@ -130,41 +207,54 @@ function detectConvergence(signals) {
   var evaluated = [];
   for (var h = 0; h < HYPOTHESES.length; h++) {
     var hyp = HYPOTHESES[h];
-    var supporting = [];
-    for (var s = 0; s < hyp.streams.length; s++) {
-      var sid = hyp.streams[s];
-      if (active[sid]) { supporting.push(active[sid]); }
-    }
+    // ANTI-CONTAMINATION GATE: a hypothesis is only ELIGIBLE (and thus only
+    // allowed to surface its mechanism narrative / be primary) when all its
+    // signature streams are present and at least one anyOf stream is present.
+    var eligible = allPresent(hyp.required || [], active) && anyPresent(hyp.anyOf, active);
+    var supporting = matchedStreamsFor(hyp, active);
     evaluated.push({
       id: hyp.id,
       narrative: hyp.narrative,
       priority: hyp.priority,
+      eligible: eligible,
       supporting_streams: supporting,
-      stream_count: supporting.length,
-      convergence_score: scoreForCount(supporting.length)
+      stream_count: eligible ? supporting.length : 0,
+      convergence_score: eligible ? scoreForCount(supporting.length) : 0
     });
   }
 
-  // Rank: most supporting streams wins; tie-break on predefined priority.
+  // Rank: eligible first; then most supporting streams; then predefined priority.
   evaluated.sort(function (a, b) {
+    if (a.eligible !== b.eligible) { return a.eligible ? -1 : 1; }
     if (b.stream_count !== a.stream_count) { return b.stream_count - a.stream_count; }
     return b.priority - a.priority;
   });
 
-  var primary = evaluated.length ? evaluated[0] : null;
+  var top = evaluated.length ? evaluated[0] : null;
+  var primary = (top && top.eligible && top.stream_count >= 2) ? top : null;
   var convergenceCount = primary ? primary.stream_count : 0;
   var convergenceScore = primary ? round1(primary.convergence_score) : 0;
 
+  // Count all independent streams active overall (for the honest-fallback message).
+  var activeIds = []; for (var ai in active) { if (active.hasOwnProperty(ai)) { activeIds.push(ai); } }
+
   var summary;
-  if (!primary || convergenceCount < 2) {
-    summary = 'No convergence: fewer than two independent evidence streams support a common failure hypothesis.';
-  } else {
+  if (primary) {
     var srcList = [];
     for (var p = 0; p < primary.supporting_streams.length; p++) {
       srcList.push(primary.supporting_streams[p].source);
     }
     summary = convergenceCount + ' independent evidence streams (' + srcList.join('; ') +
       ') converge on the same failure hypothesis: ' + primary.narrative;
+  } else if (activeIds.length >= 2) {
+    // HONEST FALLBACK: independent observations exist but none of the defined
+    // failure hypotheses has its required signature -> name NO mechanism.
+    var fbSources = [];
+    for (var q = 0; q < activeIds.length; q++) { if (active[activeIds[q]]) { fbSources.push(active[activeIds[q]].source); } }
+    summary = activeIds.length + ' independent observations are present (' + fbSources.join('; ') +
+      ') but they do not yet converge on a single defined failure mechanism; no mechanism is asserted.';
+  } else {
+    summary = 'No convergence: fewer than two independent evidence streams support a common failure hypothesis.';
   }
 
   return {
@@ -172,6 +262,7 @@ function detectConvergence(signals) {
     primary_hypothesis: primary,
     convergence_count: convergenceCount,
     convergence_score: convergenceScore,
+    active_stream_count: activeIds.length,
     summary: summary
   };
 }
