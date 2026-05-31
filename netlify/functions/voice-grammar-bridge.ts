@@ -346,10 +346,10 @@ function extractNumericValues(transcript: string): any {
     if (tempPlain) result.temperature_f = parseFloat(tempPlain[1]);
   }
 
-  var psiMatch = /(\d+)\s*(?:psi|psig)/i.exec(t);
-  if (psiMatch) result.pressure_psi = parseFloat(psiMatch[1]);
-  var barMatch = /(\d+)\s*(?:bar\b|barg)/i.exec(t);
-  if (barMatch) result.pressure_bar = parseFloat(barMatch[1]);
+  var psiMatch = /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:psi|psig)/i.exec(t);
+  if (psiMatch) result.pressure_psi = parseFloat(psiMatch[1].replace(/,/g, ""));
+  var barMatch = /(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:bar\b|barg)/i.exec(t);
+  if (barMatch) result.pressure_bar = parseFloat(barMatch[1].replace(/,/g, ""));
 
   var yearsMatch = /(\d+)\s*(?:years?\s*(?:in\s*service|old|of\s*service|service))/i.exec(t);
   if (yearsMatch) result.service_years = parseFloat(yearsMatch[1]);
@@ -391,8 +391,8 @@ function extractNumericValues(transcript: string): any {
     if (rangeMatch2) result.wall_loss_percent = parseFloat(rangeMatch2[2]);
   }
 
-  var approxPsi = /(?:about|roughly|approximately|around|~)\s*(\d+)\s*(?:psi|psig)/i.exec(t);
-  if (approxPsi && !result.pressure_psi) result.pressure_psi = parseFloat(approxPsi[1]);
+  var approxPsi = /(?:about|roughly|approximately|around|~)\s*(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:psi|psig)/i.exec(t);
+  if (approxPsi && !result.pressure_psi) result.pressure_psi = parseFloat(approxPsi[1].replace(/,/g, ""));
   var approxTemp = /(?:about|roughly|approximately|around|~)\s*(\d+)\s*(?:degrees?\s*f|fahrenheit)/i.exec(t);
   if (approxTemp && !result.temperature_f) result.temperature_f = parseFloat(approxTemp[1]);
 

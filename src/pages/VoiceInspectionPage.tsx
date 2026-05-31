@@ -58,6 +58,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { runHardeningPipeline } from "../utils/hardening-pipeline";
 import PhotoAnalysisCard from "../PhotoAnalysisCard";
 import { supabase } from "../lib/supabase";
+import { extractFields } from "../lib/fieldExtraction";
 
 // ============================================================================
 // DEPLOY170: NPS SCHEDULE TABLE (ASME B36.10M)
@@ -1656,6 +1657,19 @@ export default function VoiceInspectionPage() {
         if (!wallLossPercent && nv.wall_loss_percent) wallLossPercent = nv.wall_loss_percent;
       }
       var lt = ((parsedData && parsedData.raw_text) || "").toLowerCase();
+      // DEPLOY424: canonical extractor (single source of truth) seeds numeric
+      // fields BEFORE the legacy regex block. Comma-safe; labeled values win
+      // over bare. gbData/parsedData (server-structured) keep priority; the
+      // legacy regexes below now only fill whatever canonical did not resolve.
+      try {
+        var __cx = extractFields((parsedData && parsedData.raw_text) || "");
+        var __cf = __cx.fields;
+        if (!operatingPressure && __cf.operating_pressure) operatingPressure = __cf.operating_pressure.value;
+        if (!nominalWall && __cf.nominal_wall) nominalWall = __cf.nominal_wall.value;
+        if (!measuredMinWall && __cf.measured_min_wall) measuredMinWall = __cf.measured_min_wall.value;
+        if (!wallLossPercent && __cf.wall_loss_percent) wallLossPercent = __cf.wall_loss_percent.value;
+        if (!diameterInches && __cf.diameter_in) { diameterInches = __cf.diameter_in.value; if (!pipeOD) pipeOD = __cf.diameter_in.value; }
+      } catch (e) { /* canonical extractor is best-effort; legacy block still runs */ }
       var gradePatterns = ["x120", "x100", "x90", "x80", "x70", "x65", "x60", "x56", "x52", "x46", "x42"];
       for (var gpi = 0; gpi < gradePatterns.length; gpi++) {
         if (!materialGrade && lt.indexOf(gradePatterns[gpi]) >= 0) { materialGrade = gradePatterns[gpi].toUpperCase(); break; }
@@ -1679,8 +1693,8 @@ export default function VoiceInspectionPage() {
         if (wlMatch) { var w = parseFloat(wlMatch[1]); if (w > 0 && w <= 100) wallLossPercent = w; }
       }
       if (!operatingPressure) {
-        var pMatch = lt.match(/(\d+(?:\.\d+)?)\s*psi/);
-        if (pMatch) { var pv = parseFloat(pMatch[1]); if (pv > 0 && pv < 20000) operatingPressure = pv; }
+        var pMatch = lt.match(/operating\s+pressure[^0-9]{0,12}(\d+(?:,\d{3})*(?:\.\d+)?)\s*psi/) || lt.match(/(\d+(?:,\d{3})*(?:\.\d+)?)\s*psi/);
+        if (pMatch) { var pv = parseFloat(pMatch[1].replace(/,/g, "")); if (pv > 0 && pv < 20000) operatingPressure = pv; }
       }
 
       // ======================================================================
