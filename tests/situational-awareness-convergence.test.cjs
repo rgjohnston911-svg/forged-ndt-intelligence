@@ -123,4 +123,24 @@ assert(!noVib.primary_hypothesis || noVib.primary_hypothesis.id !== 'VIBRATION_I
 console.log('DEPLOY425 anti-contamination checks passed (TEST 11 -> ' + r11.primary_hypothesis.id +
   ', ' + r11.convergence_count + ' streams, no anchor/ovality/CP contamination).');
 
+// ============================================================================
+// DEPLOY427 - REAC internal-corrosion case. The narrative must NOT assert
+// cathodic protection (an optional stream absent here) - prior bug printed it.
+// ============================================================================
+var reac = 'Refinery hydrocracker REAC inlet piping. Service reactor effluent high ammonium bisulfide ' +
+  'NH4HS sour H2S ammonia. Elbow nominal 0.365 in current wall 0.131 in. localized metal loss at flow ' +
+  'turns erosion-corrosion. velocity increased after revamp raised charge rate 22%. prior turnaround ' +
+  'flagged thinning no action taken.';
+var rr = c.detectConvergence({ transcript: reac });
+assert(rr.primary_hypothesis && rr.primary_hypothesis.id === 'INTERNAL_CORROSION_PROGRESSION',
+  'REAC primary = internal corrosion (got ' + (rr.primary_hypothesis && rr.primary_hypothesis.id) + ')');
+var rn = (rr.primary_hypothesis.narrative + ' ' + rr.summary).toLowerCase();
+assert(rn.indexOf('cathodic') < 0, 'REAC narrative must NOT mention cathodic protection (none in scenario)');
+assert(rn.indexOf('anchor') < 0, 'REAC narrative must NOT mention anchor drag');
+assert(rn.indexOf('vibration') < 0, 'REAC narrative must NOT mention vibration');
+// narrative names only matched streams: process chemistry + wall loss must appear
+assert(rn.indexOf('process chemistry') >= 0 && rn.indexOf('wall loss') >= 0, 'REAC narrative names the matched mechanisms');
+
+console.log('DEPLOY427 generated-narrative checks passed (REAC -> internal corrosion, no CP contamination).');
+
 console.log('All DEPLOY384 convergence checks passed (score ' + r.convergence_score + '/10, ' + r.convergence_count + ' independent streams converge -> ' + r.primary_hypothesis.id + ').');

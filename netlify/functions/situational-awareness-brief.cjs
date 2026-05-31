@@ -130,7 +130,10 @@ function lifeSafetyRisk(pkg) {
   var disp = (pkg && pkg.disposition) ? pkg.disposition : 'UNKNOWN';
   var hardLockCount = (pkg && pkg.hardLocks && pkg.hardLocks.length) ? pkg.hardLocks.length : 0;
   var tier = (pkg && pkg.consequence && pkg.consequence.tier) ? pkg.consequence.tier : 'UNKNOWN';
-  if (hardLockCount > 0 || SHUTDOWN_DISPOSITIONS[disp] === true || tier === 'HIGH') { return 'HIGH'; }
+  // DEPLOY427: CRITICAL must also map to HIGH life-safety. The prior check only
+  // caught tier === 'HIGH', so a CRITICAL hazardous-release case fell through to
+  // LOW - a life-safety contradiction. 
+  if (hardLockCount > 0 || SHUTDOWN_DISPOSITIONS[disp] === true || tier === 'HIGH' || tier === 'CRITICAL') { return 'HIGH'; }
   if (tier === 'MEDIUM') { return 'MEDIUM'; }
   return 'LOW';
 }

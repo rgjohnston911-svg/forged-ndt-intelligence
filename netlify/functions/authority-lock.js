@@ -134,6 +134,19 @@ var handler = async function(event) {
       lockReasons.push("Component type '" + resolvedComponentType + "' detected on facility '" + asset + "' — routing authority by component, not facility");
     }
 
+    // DEPLOY427: SERVED-EQUIPMENT TRAP. An exchanger/cooler asset whose described
+    // component is explicitly PIPING ("Reactor effluent air cooler INLET PIPING")
+    // must route by the piping component (API 570 / ASME B31.3), not the served
+    // exchanger (API 510 / Section VIII). The reactor/cooler words name the
+    // equipment the piping serves. Scoped to exchanger/cooler asset classes so
+    // pressure vessels with nozzle piping are unaffected.
+    if (resolvedComponentType === "piping" && componentDescription.indexOf("piping") >= 0 &&
+        (asset === "heat_exchanger" || asset === "air_cooler" || asset === "cooler" ||
+         asset === "exchanger" || asset === "reac" || asset === "fin_fan")) {
+      primaryRouteKey = "piping";
+      lockReasons.push("Served-equipment trap: explicit piping component overrides '" + asset + "' asset_type -> piping authority (API 570 / B31.3)");
+    }
+
     // Add facility-level regulatory overlay for offshore assets
     if (asset === "offshore_platform" || asset === "offshore_fixed_platform" ||
         asset === "offshore_floating" || asset === "fpso" || asset === "processing_platform") {

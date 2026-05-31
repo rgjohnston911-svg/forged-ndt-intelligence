@@ -1249,6 +1249,19 @@ async function callAPI(endpoint: string, body: any): Promise<any> {
   return res.json();
 }
 
+// DEPLOY426 - attach the Supabase user token to direct engine fetches that
+// bypass callAPI (FMD, disposition-pathway, superbrain, etc.). Auth-guarded
+// engines 401 without it -> NULL cards. Harmless for unguarded engines.
+async function engineAuthHeaders(): Promise<any> {
+  var h: any = { "Content-Type": "application/json" };
+  try {
+    var s = await supabase.auth.getSession();
+    var t = (s && s.data && s.data.session && s.data.session.access_token) ? s.data.session.access_token : "";
+    if (t) { h["Authorization"] = "Bearer " + t; }
+  } catch (e) {}
+  return h;
+}
+
 // DEPLOY364 - Stage 4 of SA build brief. Deterministic stable hash of the
 // transcript string. Used by handleGenerate / handleGenerateWithAnswers to
 // enforce the brief's Section 2A invariant: the transcript is immutable
@@ -1609,11 +1622,15 @@ export default function VoiceInspectionPage() {
       for (var mi2 = 0; mi2 < mechanisms.length; mi2++) { if (uniqueMechs.indexOf(mechanisms[mi2]) < 0) uniqueMechs.push(mechanisms[mi2]); }
       var requestBody = {
         asset_type: (assetData && (assetData.asset_class || assetData.asset_type)) || "",
+        // DEPLOY427: pass the raw description so authority-lock can route by the
+        // real component (piping) when the asset_type is a served-equipment
+        // misclassification (e.g. "REAC inlet piping" tagged heat_exchanger).
+        component_description: (parsedData && parsedData.raw_text) || "",
         service_environment: serviceEnv, damage_mechanisms: uniqueMechs,
         wall_loss_percent: wallLossPercent, has_cracking: hasCracking,
         is_pressure_boundary: confirmedFlags ? !!confirmedFlags.pressure_boundary_involved : true, jurisdiction: ""
       };
-      var response = await fetch("/.netlify/functions/authority-lock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+      var response = await fetch("/.netlify/functions/authority-lock", { method: "POST", headers: await engineAuthHeaders(), body: JSON.stringify(requestBody) });
       if (!response.ok) {
         var bodyText = await response.text();
         setErrors(function(prev) { return prev.concat(["authority-lock HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
@@ -1664,10 +1681,13 @@ export default function VoiceInspectionPage() {
       try {
         var __cx = extractFields((parsedData && parsedData.raw_text) || "");
         var __cf = __cx.fields;
-        if (!operatingPressure && __cf.operating_pressure) operatingPressure = __cf.operating_pressure.value;
-        if (!nominalWall && __cf.nominal_wall) nominalWall = __cf.nominal_wall.value;
-        if (!measuredMinWall && __cf.measured_min_wall) measuredMinWall = __cf.measured_min_wall.value;
-        if (!wallLossPercent && __cf.wall_loss_percent) wallLossPercent = __cf.wall_loss_percent.value;
+        // DEPLOY426: canonical extractor is AUTHORITATIVE for operating_pressure
+        // (operating vs design), measured_min_wall (min of all readings) and
+        // wall_loss (computed from nominal+measured, never a stray rate %).
+        if (__cf.operating_pressure) operatingPressure = __cf.operating_pressure.value;
+        if (__cf.nominal_wall) nominalWall = __cf.nominal_wall.value;
+        if (__cf.measured_min_wall) measuredMinWall = __cf.measured_min_wall.value;
+        if (__cf.wall_loss_percent) wallLossPercent = __cf.wall_loss_percent.value;
         if (!diameterInches && __cf.diameter_in) { diameterInches = __cf.diameter_in.value; if (!pipeOD) pipeOD = __cf.diameter_in.value; }
       } catch (e) { /* canonical extractor is best-effort; legacy block still runs */ }
       var gradePatterns = ["x120", "x100", "x90", "x80", "x70", "x65", "x60", "x56", "x52", "x46", "x42"];
@@ -1689,7 +1709,7 @@ export default function VoiceInspectionPage() {
         if (diaMatch) { var d = parseFloat(diaMatch[1]); if (d > 0 && d < 100) { diameterInches = d; if (!pipeOD) pipeOD = d; } }
       }
       if (!wallLossPercent) {
-        var wlMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:wall|metal|thickness)?/);
+        var wlMatch = lt.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s*(?:wall|metal|thickness)\b/);
         if (wlMatch) { var w = parseFloat(wlMatch[1]); if (w > 0 && w <= 100) wallLossPercent = w; }
       }
       if (!operatingPressure) {
@@ -1818,7 +1838,7 @@ export default function VoiceInspectionPage() {
       } else if (nominalWall) {
         requestBody.nominal_wall_source = "explicit_field";
       }
-      var response = await fetch("/.netlify/functions/remaining-strength", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+      var response = await fetch("/.netlify/functions/remaining-strength", { method: "POST", headers: await engineAuthHeaders(), body: JSON.stringify(requestBody) });
       if (response.ok) { var result = await response.json(); setRemainingStrengthResult(result); return result; }
       var bodyText = await response.text();
       setErrors(function(prev) { return prev.concat(["remaining-strength HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
@@ -1862,7 +1882,7 @@ export default function VoiceInspectionPage() {
       if (lt.indexOf("scc") >= 0 && mechanisms.indexOf("scc") < 0) mechanisms.push("scc");
       if (lt.indexOf("cui") >= 0 && mechanisms.indexOf("cui") < 0) mechanisms.push("cui");
       var response = await fetch("/.netlify/functions/failure-mode-dominance", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: await engineAuthHeaders(),
         body: JSON.stringify({
           damage_mechanisms: mechanisms, remaining_strength: remStrengthRes, authority_lock: authLockRes,
           wall_loss_percent: wallLossPercent, has_cracking: hasCracking, service_environment: serviceEnv,
@@ -1906,7 +1926,7 @@ export default function VoiceInspectionPage() {
       var structPath: any = (fmdResult && fmdResult.structural_path) || null;
       var validatedMechs: any = (coreResult && coreResult.damage_reality && coreResult.damage_reality.validated_mechanisms) || [];
       var response = await fetch("/.netlify/functions/disposition-pathway", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: await engineAuthHeaders(),
         body: JSON.stringify({
           safe_envelope: safeEnv, governing_failure_mode: govMode, governing_severity: govSev,
           reality_state: realState, disposition_blocked: dispBlocked, interaction_flag: interFlag,
@@ -2106,7 +2126,7 @@ export default function VoiceInspectionPage() {
         service_age_years: serviceAgeYears,
         fmd_severity: fmdSeverity
       };
-      var response = await fetch("/.netlify/functions/failure-timeline", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+      var response = await fetch("/.netlify/functions/failure-timeline", { method: "POST", headers: await engineAuthHeaders(), body: JSON.stringify(requestBody) });
       if (response.ok) { var result = await response.json(); setFailureTimelineResult(result); return result; }
       var bodyText = await response.text();
       setErrors(function(prev) { return prev.concat(["failure-timeline HTTP " + response.status + ": " + bodyText.substring(0, 300)]); });
@@ -2546,7 +2566,7 @@ export default function VoiceInspectionPage() {
           if (dpResult) sbBody.disposition_pathway = dpResult;
           if (ftResult) sbBody.failure_timeline = ftResult;
           var sbRes = await fetch('/.netlify/functions/superbrain-synthesis', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: await engineAuthHeaders(),
             body: JSON.stringify(sbBody)
           });
           if (sbRes.ok) {

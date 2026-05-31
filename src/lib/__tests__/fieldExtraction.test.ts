@@ -95,3 +95,29 @@ test("verifyVerbatim accepts a real value/span and rejects a fabricated one", ()
   // span not actually in the source -> rejected
   assert.equal(verifyVerbatim(text, 2300, "design pressure 2300 psi"), false);
 });
+
+// ---- DEPLOY426: TEST 12 (multi-location UT grid + rate-% contamination) ----
+
+test("TEST 12: operating pressure stays 2300, design 2850 (not swapped)", () => {
+  var r = extractFields("24-inch A106. Design Pressure 2,850 psi. Operating Pressure 2,300 psi.");
+  assert.equal(r.fields.operating_pressure.value, 2300);
+  assert.equal(r.fields.design_pressure.value, 2850);
+});
+
+test("TEST 12: measured wall = minimum of multiple current-wall readings", () => {
+  var r = extractFields("Location A nominal wall 0.500 in current wall 0.425 in. Location B nominal wall 0.500 in current wall 0.418 in. Location C nominal wall 0.500 in current wall 0.430 in.");
+  assert.equal(r.fields.measured_min_wall.value, 0.418); // worst case
+  assert.equal(r.fields.nominal_wall.value, 0.5);
+});
+
+test("TEST 12: wall loss COMPUTED from nominal+measured (~16.4%), not the rate %", () => {
+  var r = extractFields("nominal wall 0.500 in current wall 0.418 in. Reinjection rates increased 40% last year.");
+  assert.ok(Math.abs(r.fields.wall_loss_percent.value - 16.4) < 0.05);
+  assert.equal(r.fields.wall_loss_percent.rule, "computed_from_nominal_measured");
+  assert.notEqual(r.fields.wall_loss_percent.value, 40);
+});
+
+test("a bare rate/flow percentage is never read as wall loss", () => {
+  assert.equal(extractFields("reinjection rates increased 40% last year").fields.wall_loss_percent, undefined);
+  assert.equal(extractFields("flow increased 27% over 8 months").fields.wall_loss_percent, undefined);
+});
