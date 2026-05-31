@@ -20,3 +20,5 @@ jobs:
         run: npm run test:gates
       - name: Unit suite
         run: npm test
+      - name: SA eval (multi-domain governing-reality + anti-contamination corpus)
+        run: npm run eval

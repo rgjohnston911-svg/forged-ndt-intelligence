@@ -9,7 +9,8 @@
     "test:gates": "node scripts/run-gates.cjs",
     "preview": "vite preview",
     "test": "tsx --test src/lib/cross-domain/__tests__/*.test.ts src/lib/__tests__/*.test.ts",
-    "test:watch": "tsx --test --watch src/lib/cross-domain/__tests__/*.test.ts src/lib/__tests__/*.test.ts"
+    "test:watch": "tsx --test --watch src/lib/cross-domain/__tests__/*.test.ts src/lib/__tests__/*.test.ts",
+    "eval": "node scripts/eval-sa.cjs"
   },
   "dependencies": {
     "@netlify/blobs": "^10.7.8",
