@@ -59,6 +59,7 @@ import { runHardeningPipeline } from "../utils/hardening-pipeline";
 import PhotoAnalysisCard from "../PhotoAnalysisCard";
 import { supabase } from "../lib/supabase";
 import { extractFields } from "../lib/fieldExtraction";
+import { resolveGoverningReality } from "../lib/governingReality";
 
 // ============================================================================
 // DEPLOY170: NPS SCHEDULE TABLE (ASME B36.10M)
@@ -608,6 +609,36 @@ function generateInspectionReport(data: {
     html += "</div>";
   }
 
+  // DEPLOY431 - GOVERNING REALITY (top-line). Deterministic arbiter over the
+  // already-computed engines; FACTS/PHYSICS ONLY, no behavioral inference. It
+  // selects and names which established reality controls the decision.
+  try {
+    var __sap = data.situationalAwarenessPackage || {};
+    var __cvgPrim = (__sap.convergence && __sap.convergence.primary_hypothesis) ? __sap.convergence.primary_hypothesis : null;
+    var __cvgStreams = (__cvgPrim && __cvgPrim.supporting_streams) ? __cvgPrim.supporting_streams.map(function (x: any) { return x.id; }) : [];
+    var __orgF = __sap.organizationalFailures || {};
+    var __fs = __sap.futureState || {};
+    var __gr = resolveGoverningReality({
+      consequenceTier: con && con.consequence_tier, disposition: dec && dec.disposition,
+      hardLockCount: (dec && dec.hard_locks) ? dec.hard_locks.length : 0,
+      governingFailureMode: fmd && fmd.governing_failure_mode, governingSeverity: fmd && fmd.governing_severity,
+      suspectedGoverning: fmd && fmd.suspected_governing_mechanism, dispositionDriver: fmd && fmd.disposition_driver,
+      convergencePrimaryId: __cvgPrim && __cvgPrim.id, convergenceStreamIds: __cvgStreams,
+      orgFailureScore: __orgF.organizational_failure_score, orgIndicatorCount: (__orgF.indicators || []).length,
+      futureVerdict: __fs.verdict, futureDominantDriver: (__fs.dominant_driver && __fs.dominant_driver.label) || null,
+      futureAdjustedLifeMonths: (typeof __fs.adjusted_life_months === "number") ? __fs.adjusted_life_months : null,
+      futureNextInterventionMonths: (typeof __fs.next_intervention_months === "number") ? __fs.next_intervention_months : null,
+      transcript: data.transcript || ""
+    });
+    if (__gr && __gr.governs) {
+      html += "<div class='section'><div class='section-title'>Governing Reality</div>";
+      html += "<div class='banner' style='background:#111827'>" + esc(__gr.statement) + "</div>";
+      if (__gr.disposition_driver) { html += "<div class='info-row'><span class='info-label'>Disposition driver</span><span class='info-value'>" + esc(String(__gr.disposition_driver)) + "</span></div>"; }
+      for (var __gi = 0; __gi < (__gr.contributing || []).length; __gi++) { html += "<div style='font-size:10px;color:#6b7280;margin-top:2px;'>- " + esc(__gr.contributing[__gi]) + "</div>"; }
+      html += "</div>";
+    }
+  } catch (e) { /* governing-reality is additive; never block the report */ }
+
   if (fmd) {
     html += "<div class='section'>";
     html += "<div class='section-title'>Failure Mode Dominance</div>";
@@ -661,7 +692,7 @@ function generateInspectionReport(data: {
     if (orgF && (orgF.organizational_failure_score >= 5 || (orgF.indicators && orgF.indicators.length >= 2))) {
       var noActiveMech = !fmd.governing_failure_mode || fmd.governing_failure_mode === "NONE";
       var orgVerb = noActiveMech ? "DISPOSITION GOVERNED BY" : "DISPOSITION ALSO GOVERNED BY";
-      html += "<div class='banner' style='background:#7e22ce'>" + orgVerb + ": asset-integrity assurance failure / management-system breakdown (org risk " + esc(String(orgF.organizational_failure_score)) + "/10)" + (noActiveMech ? " - no active damage mechanism governs from the minor indication; the governing risk is unknown asset condition from weak controls and missing documentation." : ".") + "</div>";
+      html += "<div class='banner' style='background:#7e22ce'>" + orgVerb + ": asset-integrity assurance gap - documented deferred reviews / incomplete reviews / missing MOC (org risk " + esc(String(orgF.organizational_failure_score)) + "/10)" + (noActiveMech ? " - no active damage mechanism governs from the minor indication; the governing risk is unknown asset condition from documented assurance gaps (incomplete reviews / missing MOC)." : ".") + "</div>";
     }
     if (fmd.governing_severity) html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(fmd.governing_severity) + "</span></div>";
     if (fmd.governing_failure_pressure) html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(fmd.governing_failure_pressure) + " psi</span></div>";
