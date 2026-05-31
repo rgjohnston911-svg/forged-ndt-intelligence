@@ -59,7 +59,10 @@ var handler = async function(event) {
           componentDescription.indexOf("riser") >= 0 || componentDescription.indexOf("flowline") >= 0 ||
           componentDescription.indexOf("manifold") >= 0 || componentDescription.indexOf("spool") >= 0 ||
           componentDescription.indexOf("branch connection") >= 0 || componentDescription.indexOf("nozzle") >= 0 ||
-          componentDescription.indexOf("weldolet") >= 0) {
+          componentDescription.indexOf("weldolet") >= 0 ||
+          componentDescription.indexOf("loading line") >= 0 || componentDescription.indexOf("transfer line") >= 0 ||
+          componentDescription.indexOf("export line") >= 0 || componentDescription.indexOf("jetty line") >= 0 ||
+          componentDescription.indexOf("transfer piping") >= 0 || componentDescription.indexOf("loading arm") >= 0) {
         resolvedComponentType = "piping";
       } else if (componentDescription.indexOf("vessel") >= 0 || componentDescription.indexOf("separator") >= 0 ||
                  componentDescription.indexOf("drum") >= 0 || componentDescription.indexOf("reactor") >= 0 ||
@@ -145,6 +148,21 @@ var handler = async function(event) {
          asset === "exchanger" || asset === "reac" || asset === "fin_fan")) {
       primaryRouteKey = "piping";
       lockReasons.push("Served-equipment trap: explicit piping component overrides '" + asset + "' asset_type -> piping authority (API 570 / B31.3)");
+    }
+
+    // DEPLOY432: LNG / MARINE TRANSFER & LOADING LINE TRAP. A loading/transfer/export
+    // line (and the articulated marine loading arm it feeds) is PIPING governed by
+    // API 570 / ASME B31.3 (+ DNV / SIGTTO for LNG marine transfer) -- NOT a pressure
+    // vessel. These line terms are unambiguously piping, so override a vessel / tank /
+    // facility-equipment classification. (Does not touch "nozzle piping on a vessel".)
+    if ((componentDescription.indexOf("loading line") >= 0 || componentDescription.indexOf("transfer line") >= 0 ||
+         componentDescription.indexOf("export line") >= 0 || componentDescription.indexOf("jetty line") >= 0 ||
+         componentDescription.indexOf("transfer piping") >= 0 || componentDescription.indexOf("loading arm") >= 0) &&
+        (primaryRouteKey === "pressure_vessel" || primaryRouteKey === "vessel" || primaryRouteKey === "tank" ||
+         primaryRouteKey === "storage_tank" || primaryRouteKey === "heat_exchanger" || primaryRouteKey === "reactor" ||
+         primaryRouteKey === "drum" || primaryRouteKey === "" || isFacilityAsset)) {
+      primaryRouteKey = "piping";
+      lockReasons.push("LNG/marine transfer or loading line -> piping authority (API 570 / ASME B31.3; DNV/SIGTTO apply for LNG marine transfer); vessel/facility classification overridden");
     }
 
     // Add facility-level regulatory overlay for offshore assets

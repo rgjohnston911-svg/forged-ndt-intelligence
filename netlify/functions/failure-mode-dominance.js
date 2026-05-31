@@ -111,7 +111,13 @@ function isGlobalDeformation(text) {
     "clamp", "strap", "hanger", "hanger rod",
     // v1.3.2: piping-specific local contexts for misalignment/distortion
     "branch reinforcement", "branch connection", "nozzle connection",
-    "fitup", "fit up", "fit-up", "fabrication fit"
+    "fitup", "fit up", "fit-up", "fabrication fit",
+    // DEPLOY432: wear/guide accessory contexts. Deformation of a wear pad, wear
+    // plate, pipe guide or contact surface is a SACRIFICIAL-ACCESSORY observation
+    // (expected wear), NOT global pressure-boundary plastic deformation.
+    "wear pad", "wear pads", "wear plate", "wear plates", " pads", " pads.", " pads,",
+    "pipe guide", "guide shoe", " guide ", " guide.", " guide,", "guides",
+    "wear surface", "wear surfaces", "contact surface", "contact surfaces", "polished"
   ];
   for (var a = 0; a < ambiguousTerms.length; a++) {
     var term = ambiguousTerms[a];
@@ -1000,4 +1006,4 @@ var handler = async function(event) {
   }
 };
 
-module.exports = { handler: handler };
+module.exports = { handler: handler, isGlobalDeformation: isGlobalDeformation };
