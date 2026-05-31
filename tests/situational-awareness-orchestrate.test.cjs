@@ -26,7 +26,7 @@ function stableStringify(value) {
 }
 
 // Load the real captured response.
-var probe = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '_probe-response.json'), 'utf8'));
+var probe = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'sa-orchestrate-probe.json'), 'utf8'));
 var decisionPackage = probe.decisionPackage;
 assert(decisionPackage && decisionPackage.packageHash, 'probe has a decisionPackage with packageHash');
 

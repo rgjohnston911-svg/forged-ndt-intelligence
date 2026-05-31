@@ -1,0 +1,1553 @@
+{
+  "decision_core": {
+    "engine_version": "physics-first-decision-core-v2.12.2",
+    "elapsed_ms": 7,
+    "klein_bottle_states": 8,
+    "asset_correction": {
+      "corrected": true,
+      "original": "unknown",
+      "corrected_to": "piping",
+      "reason": "DEPLOY359 code-based lock: Explicit piping code reference (ASME B31.3 or API 570) with piping term.",
+      "assessment": {
+        "strength": "WEAK",
+        "signals": [
+          "pipe schedule"
+        ],
+        "signal_count": 1,
+        "corrected_class": "piping",
+        "original_class": "unknown"
+      }
+    },
+    "physical_reality": {
+      "stress": {
+        "primary_load_types": [
+          "internal_pressure",
+          "biaxial_tension",
+          "gravity_loading",
+          "wave_loading"
+        ],
+        "cyclic_loading": true,
+        "cyclic_source": "operational_pressure_cycling_implied",
+        "stress_concentration_present": true,
+        "stress_concentration_locations": [
+          "welds_implied_for_piping"
+        ],
+        "tensile_stress": true,
+        "compressive_stress": false,
+        "load_path_criticality": "primary",
+        "residual_stress_likely": true
+      },
+      "thermal": {
+        "operating_temp_c": 141,
+        "operating_temp_f": 285,
+        "thermal_cycling": false,
+        "fire_exposure": false,
+        "fire_duration_min": null,
+        "creep_range": false,
+        "cryogenic": false
+      },
+      "chemical": {
+        "corrosive_environment": true,
+        "environment_agents": [
+          "implied_corrosive",
+          "H2S",
+          "hydrogen",
+          "HTHA_susceptible_material",
+          "exchanger_service"
+        ],
+        "h2s_present": true,
+        "co2_present": false,
+        "chlorides_present": false,
+        "caustic_present": false,
+        "hydrogen_present": true,
+        "material_susceptibility": [
+          "SSC",
+          "HIC"
+        ],
+        "coating_intact": null,
+        "sour_service": true
+      },
+      "energy": {
+        "pressure_cycling": true,
+        "vibration": false,
+        "impact_event": false,
+        "impact_description": null,
+        "flow_erosion_risk": false,
+        "cavitation": false,
+        "stored_energy_significant": true
+      },
+      "time": {
+        "service_years": null,
+        "cycles_estimated": "cyclic_but_unknown_count",
+        "time_since_inspection_years": null
+      },
+      "field_interaction": {
+        "hotspots": [
+          "Corrosion + cyclic stress at same location",
+          "Cyclic loading at welds_implied_for_piping",
+          "Corrosion attack at stress concentration",
+          "Sour environment under tensile stress"
+        ],
+        "interaction_score": 85,
+        "interaction_level": "HIGH",
+        "warnings": [
+          "Corrosion creates surface pits that become stress risers, accelerating fatigue crack initiation. Combined damage rate is faster than either mechanism alone.",
+          "Cyclic stress concentrates at geometric discontinuities (welds_implied_for_piping). These are the most likely crack initiation sites.",
+          "Corrosion preferentially attacks areas of high stress and geometric change. Weld toes, crevices, and transitions are most vulnerable.",
+          "H2S charges hydrogen into material under tensile stress. This can cause sudden cracking with little warning. High-priority inspection zone."
+        ]
+      },
+      "physics_summary": "Loading: internal_pressure, biaxial_tension, gravity_loading, wave_loading. Cyclic: operational_pressure_cycling_implied. Stress concentrations: welds_implied_for_piping. Corrosive (implied_corrosive, H2S, hydrogen, HTHA_susceptible_material, exchanger_service). Susceptible: SSC, HIC. Stored pressure energy. Context inferred: hydrocracking/hydrotreating -> H2S inferred; hydrocracking/hydrotreating -> hydrogen inferred; material + hydrogen -> HTHA susceptibility per Nelson curve; heat exchanger -> multi-fluid service, corrosion potential on both sides.",
+      "physics_confidence": 0.8,
+      "context_inferred": [
+        "hydrocracking/hydrotreating -> H2S inferred",
+        "hydrocracking/hydrotreating -> hydrogen inferred",
+        "material + hydrogen -> HTHA susceptibility per Nelson curve",
+        "heat exchanger -> multi-fluid service, corrosion potential on both sides"
+      ],
+      "material": {
+        "class": "carbon_steel",
+        "class_confidence": 0.85,
+        "evidence": [
+          "carbon steel keyword or ASTM/ASME grade"
+        ]
+      },
+      "environment": {
+        "phases_present": [
+          "hydrocarbon_liquid"
+        ],
+        "phases_negated": [],
+        "atmosphere_class": "insulated"
+      },
+      "process_chemistry": {
+        "chloride_band": null,
+        "sulfur_class": null,
+        "amine_type": null,
+        "nh4_salt_potential": null,
+        "hydrogen_present": true,
+        "h2s_present": true,
+        "caustic_present": false,
+        "naphthenic_acid_present": false,
+        "polythionic_acid_present": false,
+        "amine_cracking_context": false,
+        "carbonate_scc_context": false,
+        "embrittlement_885f_context": false,
+        "sigma_phase_context": false,
+        "temper_embrittlement_context": false,
+        "ammonia_scc_context": false,
+        "hydrogen_charging_context": false,
+        "wet_h2s_context": false
+      },
+      "flow_regime": {
+        "flow_state": null,
+        "deadleg": null,
+        "turbulence_geometry_present": null
+      },
+      "deposits": {
+        "deposits_present": null,
+        "deposit_type": null,
+        "deposit_evidence": []
+      },
+      "coating": {
+        "coating_condition": null,
+        "coating_type": null,
+        "coating_evidence": []
+      },
+      "nps_inference": {
+        "nps_inch": null,
+        "schedule": null,
+        "nominal_wall_mm": null,
+        "outside_diameter_mm": null,
+        "wall_source": "NONE",
+        "inference_confidence": 0
+      }
+    },
+    "damage_reality": {
+      "validated_mechanisms": [
+        {
+          "id": "fatigue_mechanical",
+          "name": "Mechanical Fatigue",
+          "physics_basis": "Cyclic loading + Stress concentration",
+          "preconditions_met": [
+            "Cyclic loading",
+            "Stress concentration"
+          ],
+          "reality_state": "unverified",
+          "reality_score": 0.05,
+          "evidence_for": [],
+          "evidence_against": [],
+          "observation_basis": false,
+          "severity": "high",
+          "weld_context": "Fatigue life at weld defect zone is 5-10x shorter than base metal. Incomplete penetration at root creates stress riser for fatigue initiation. DNV-RP-C203 and BS 7910 provide weld-specific fatigue classification."
+        },
+        {
+          "id": "ssc_sulfide",
+          "name": "Sulfide Stress Cracking",
+          "physics_basis": "Tensile stress + H2S present",
+          "preconditions_met": [
+            "Tensile stress",
+            "H2S present"
+          ],
+          "reality_state": "unverified",
+          "reality_score": 0,
+          "evidence_for": [],
+          "evidence_against": [],
+          "observation_basis": false,
+          "severity": "critical",
+          "weld_context": "Weld present in sour service -- HAZ and weld root are preferential SSC/HIC initiation sites. Verify hardness per NACE MR0175."
+        },
+        {
+          "id": "hic",
+          "name": "Hydrogen Induced Cracking",
+          "physics_basis": "H2S present (hydrogen source)",
+          "preconditions_met": [
+            "H2S present (hydrogen source)"
+          ],
+          "reality_state": "unverified",
+          "reality_score": 0,
+          "evidence_for": [],
+          "evidence_against": [],
+          "observation_basis": false,
+          "severity": "high",
+          "weld_context": "Weld present in sour service -- HAZ and weld root are preferential SSC/HIC initiation sites. Verify hardness per NACE MR0175."
+        }
+      ],
+      "rejected_mechanisms": [
+        {
+          "id": "cscc",
+          "name": "Chloride Stress Corrosion Cracking",
+          "rejection_reason": "CATALOG REJECTED: Chloride SCC requires an austenitic or duplex stainless steel substrate. Carbon steel and low-alloy steel are not susceptible to the chloride SCC mechanism.",
+          "missing_precondition": "material.class_in",
+          "met_preconditions": [
+            "thermal.operating_temp_f_window"
+          ]
+        },
+        {
+          "id": "sulfidation",
+          "name": "High-Temperature Sulfidation",
+          "rejection_reason": "CATALOG REJECTED: Sulfidation kinetics are negligible below approximately 500F. Above 500F, the corrosion rate increases exponentially with temperature per the McConomy/API 939-C curve.",
+          "missing_precondition": "thermal.operating_temp_f_window",
+          "met_preconditions": [
+            "material.class_in",
+            "material.class_not_in"
+          ]
+        },
+        {
+          "id": "fatigue_thermal",
+          "name": "Thermal Fatigue",
+          "rejection_reason": "CATALOG REJECTED: Thermal fatigue requires thermal cycling and stress concentration.",
+          "missing_precondition": "thermal.thermal_cycling_required",
+          "met_preconditions": [
+            "stress.stress_concentration_required"
+          ]
+        },
+        {
+          "id": "fatigue_vibration",
+          "name": "Vibration Fatigue",
+          "rejection_reason": "CATALOG REJECTED: Vibration fatigue requires vibration and stress concentration.",
+          "missing_precondition": "energy.vibration_required",
+          "met_preconditions": [
+            "stress.stress_concentration_required"
+          ]
+        },
+        {
+          "id": "scc_chloride",
+          "name": "Chloride SCC",
+          "rejection_reason": "CATALOG REJECTED: CSCC requires austenitic/duplex stainless.",
+          "missing_precondition": "material.class_in",
+          "met_preconditions": [
+            "thermal.operating_temp_f_window",
+            "stress.tensile_required"
+          ]
+        },
+        {
+          "id": "scc_caustic",
+          "name": "Caustic SCC",
+          "rejection_reason": "CATALOG REJECTED: Caustic SCC requires caustic environment.",
+          "missing_precondition": "process_chemistry.caustic_required",
+          "met_preconditions": [
+            "stress.tensile_required"
+          ]
+        },
+        {
+          "id": "creep",
+          "name": "Creep Damage",
+          "rejection_reason": "CATALOG REJECTED: Creep requires elevated temperature.",
+          "missing_precondition": "thermal.creep_range_required",
+          "met_preconditions": [
+            "stress.tensile_required"
+          ]
+        },
+        {
+          "id": "brittle_fracture",
+          "name": "Brittle Fracture",
+          "rejection_reason": "CATALOG REJECTED: Brittle fracture requires cryogenic temperature.",
+          "missing_precondition": "thermal.cryogenic_required",
+          "met_preconditions": []
+        },
+        {
+          "id": "overload_buckling",
+          "name": "Mechanical Overload / Buckling",
+          "rejection_reason": "CATALOG REJECTED: Overload requires compressive stress or impact. Mechanical Overload / Buckling requires impact energy or overload event; no such event in history.",
+          "missing_precondition": "stress.compressive_required; energy.impact_event_required",
+          "met_preconditions": []
+        },
+        {
+          "id": "fire_damage",
+          "name": "Fire / Thermal Damage",
+          "rejection_reason": "CATALOG REJECTED: Fire damage requires fire exposure.",
+          "missing_precondition": "thermal.fire_exposure_required",
+          "met_preconditions": []
+        },
+        {
+          "id": "hydrogen_damage",
+          "name": "High Temp Hydrogen Attack",
+          "rejection_reason": "CATALOG REJECTED: Hydrogen attack requires temperature > 400F.",
+          "missing_precondition": "thermal.high_temp_hydrogen_range_required",
+          "met_preconditions": [
+            "process_chemistry.hydrogen_required"
+          ]
+        },
+        {
+          "id": "naphthenic_acid_corrosion",
+          "name": "Naphthenic Acid Corrosion",
+          "rejection_reason": "CATALOG REJECTED: Naphthenic acid corrosion is active in the 400-800F range (peak 500-750F); operating temperature is outside this window. Naphthenic acid corrosion requires naphthenic acid / high TAN environment; transcript does not indicate naphthenic acid service.",
+          "missing_precondition": "thermal.operating_temp_f_window; process_chemistry.naphthenic_acid_required",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        },
+        {
+          "id": "polythionic_acid_scc",
+          "name": "Polythionic Acid SCC",
+          "rejection_reason": "CATALOG REJECTED: Polythionic acid SCC requires sensitized austenitic or duplex stainless steel. Polythionic acid SCC requires polythionic acid environment (sulfide scale + moisture + oxygen during shutdown); transcript does not indicate polythionic acid cracking context.",
+          "missing_precondition": "material.class_in; process_chemistry.polythionic_acid_required",
+          "met_preconditions": []
+        },
+        {
+          "id": "amine_cracking",
+          "name": "Amine SCC",
+          "rejection_reason": "CATALOG REJECTED: Amine SCC requires amine service environment (MEA, DEA, MDEA); transcript does not indicate amine service.",
+          "missing_precondition": "process_chemistry.amine_cracking_required",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        },
+        {
+          "id": "carbonate_scc",
+          "name": "Carbonate SCC",
+          "rejection_reason": "CATALOG REJECTED: Carbonate SCC requires carbonate/alkaline sour water environment; transcript does not indicate carbonate cracking context.",
+          "missing_precondition": "process_chemistry.carbonate_scc_required",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        },
+        {
+          "id": "embrittlement_885f",
+          "name": "885F Embrittlement",
+          "rejection_reason": "CATALOG REJECTED: 885F embrittlement affects ferritic stainless (400-series), martensitic stainless, and the ferrite phase of duplex stainless. Austenitic stainless and carbon steel are not susceptible. 885F embrittlement is active in the 600-1000F range; operating temperature is outside this window.",
+          "missing_precondition": "material.class_in; thermal.operating_temp_f_window",
+          "met_preconditions": []
+        },
+        {
+          "id": "sigma_phase_embrittlement",
+          "name": "Sigma Phase Embrittlement",
+          "rejection_reason": "CATALOG REJECTED: Sigma phase embrittlement affects austenitic stainless (300-series) and duplex stainless steels. Carbon steel and low-alloy steel are not susceptible. Sigma phase formation requires prolonged exposure in the 1000-1600F range; operating temperature is outside this window.",
+          "missing_precondition": "material.class_in; thermal.operating_temp_f_window",
+          "met_preconditions": []
+        },
+        {
+          "id": "temper_embrittlement",
+          "name": "Temper Embrittlement",
+          "rejection_reason": "CATALOG REJECTED: Temper embrittlement primarily affects Cr-Mo low-alloy steels (1Cr through 3Cr); carbon steel and stainless steel are not typically susceptible. Temper embrittlement occurs from service in or slow cooling through the 650-1070F range; operating temperature is outside this window.",
+          "missing_precondition": "material.class_in; thermal.operating_temp_f_window",
+          "met_preconditions": []
+        },
+        {
+          "id": "carburization",
+          "name": "Carburization",
+          "rejection_reason": "CATALOG REJECTED: Carburization requires temperatures above 1100F; operating temperature is below this threshold.",
+          "missing_precondition": "thermal.operating_temp_f_window",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        },
+        {
+          "id": "metal_dusting",
+          "name": "Metal Dusting",
+          "rejection_reason": "CATALOG REJECTED: Metal dusting is active in the 900-1500F range; operating temperature is outside this window.",
+          "missing_precondition": "thermal.operating_temp_f_window",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        },
+        {
+          "id": "high_temp_oxidation",
+          "name": "High-Temp Oxidation",
+          "rejection_reason": "CATALOG REJECTED: Significant oxidation scaling requires temperatures above 1000F; operating temperature is below this threshold.",
+          "missing_precondition": "thermal.operating_temp_f_window",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        },
+        {
+          "id": "spheroidization",
+          "name": "Spheroidization",
+          "rejection_reason": "CATALOG REJECTED: Spheroidization requires prolonged exposure above 850F; operating temperature is below this threshold.",
+          "missing_precondition": "thermal.operating_temp_f_window",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        },
+        {
+          "id": "decarburization",
+          "name": "Decarburization",
+          "rejection_reason": "CATALOG REJECTED: Decarburization requires temperatures above 800F; operating temperature is below this threshold.",
+          "missing_precondition": "thermal.operating_temp_f_window",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        },
+        {
+          "id": "graphitization",
+          "name": "Graphitization",
+          "rejection_reason": "CATALOG REJECTED: Graphitization requires prolonged exposure above 800F; operating temperature is below this threshold.",
+          "missing_precondition": "thermal.operating_temp_f_window",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        },
+        {
+          "id": "galvanic_corrosion",
+          "name": "Galvanic Corrosion",
+          "rejection_reason": "CATALOG REJECTED: Galvanic corrosion requires dissimilar metal contact with an electrolyte present.",
+          "missing_precondition": "environment.galvanic_context_required",
+          "met_preconditions": [
+            "material.class_in",
+            "coating.coating_protection"
+          ]
+        },
+        {
+          "id": "atmospheric_corrosion",
+          "name": "Atmospheric Corrosion",
+          "rejection_reason": "CATALOG REJECTED: Atmospheric corrosion requires outdoor/weather exposure; no atmospheric exposure language detected.",
+          "missing_precondition": "environment.atmospheric_exposure_required",
+          "met_preconditions": [
+            "material.class_in",
+            "coating.coating_protection"
+          ]
+        },
+        {
+          "id": "soil_corrosion",
+          "name": "Soil-Side Corrosion",
+          "rejection_reason": "CATALOG REJECTED: Soil-side corrosion requires buried or soil-contact conditions; no buried/soil language detected.",
+          "missing_precondition": "environment.soil_burial_required",
+          "met_preconditions": [
+            "material.class_in",
+            "coating.coating_protection"
+          ]
+        },
+        {
+          "id": "cavitation",
+          "name": "Cavitation Damage",
+          "rejection_reason": "CATALOG REJECTED: Cavitation requires evidence of vapor bubble collapse conditions (pumps, valves, restrictions); no cavitation language detected.",
+          "missing_precondition": "energy.cavitation_required",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        },
+        {
+          "id": "ammonia_scc",
+          "name": "Ammonia SCC",
+          "rejection_reason": "CATALOG REJECTED: Ammonia SCC requires ammonia environment; no ammonia service language detected.",
+          "missing_precondition": "process_chemistry.ammonia_scc_required",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        },
+        {
+          "id": "hydrogen_embrittlement",
+          "name": "Hydrogen Embrittlement",
+          "rejection_reason": "CATALOG REJECTED: Hydrogen embrittlement requires a hydrogen charging source (cathodic protection, electroplating, pickling, welding, or H2 service); no hydrogen charging language detected.",
+          "missing_precondition": "process_chemistry.hydrogen_charging_required",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        },
+        {
+          "id": "wet_h2s_blister",
+          "name": "Wet H2S Blistering/SOHIC",
+          "rejection_reason": "CATALOG REJECTED: Wet H2S blistering requires wet (aqueous) H2S service; no wet H2S / sour water language detected.",
+          "missing_precondition": "process_chemistry.wet_h2s_required",
+          "met_preconditions": [
+            "material.class_in"
+          ]
+        }
+      ],
+      "indeterminate_mechanisms": [
+        {
+          "id": "cui",
+          "name": "Corrosion Under Insulation",
+          "family": "corrosion",
+          "status": "INDETERMINATE",
+          "summary": "Mechanism cannot be confirmed or ruled out from the available evidence. Missing data: Corrosion Under Insulation requires the presence of liquid_water or water_vapor_condensable; transcript neither confirms nor explicitly rules out the required phase.",
+          "satisfied": [
+            {
+              "bucket": "material",
+              "field": "class_in",
+              "state": "SATISFIED",
+              "detail": "Material class 'carbon_steel' is in the susceptible set [carbon_steel, low_alloy_steel]."
+            },
+            {
+              "bucket": "material",
+              "field": "class_not_in",
+              "state": "SATISFIED",
+              "detail": "Material class 'carbon_steel' is not in the forbidden set."
+            },
+            {
+              "bucket": "environment",
+              "field": "phase_must_exclude",
+              "state": "SATISFIED",
+              "detail": "No forbidden phase (vacuum, dry_inert_gas) observed in transcript."
+            },
+            {
+              "bucket": "geometry",
+              "field": "insulation_present",
+              "state": "SATISFIED",
+              "detail": "Insulation observed in transcript."
+            },
+            {
+              "bucket": "thermal",
+              "field": "operating_temp_f_window",
+              "state": "SATISFIED",
+              "detail": "Operating temperature 285F is within the required window [0F, 350F]."
+            }
+          ],
+          "unknown": [
+            {
+              "bucket": "environment",
+              "field": "phase_must_include",
+              "state": "UNKNOWN",
+              "detail": "Corrosion Under Insulation requires the presence of liquid_water or water_vapor_condensable; transcript neither confirms nor explicitly rules out the required phase."
+            }
+          ],
+          "violated": []
+        },
+        {
+          "id": "general_corrosion",
+          "name": "General Corrosion",
+          "family": "corrosion",
+          "status": "INDETERMINATE",
+          "summary": "Mechanism cannot be confirmed or ruled out from the available evidence. Missing data: General Corrosion requires the presence of liquid_water or water_vapor_condensable or aqueous_acid or aqueous_alkaline or wet_gas; transcript neither confirms nor explicitly rules out the required phase.",
+          "satisfied": [
+            {
+              "bucket": "material",
+              "field": "class_in",
+              "state": "SATISFIED",
+              "detail": "Material class 'carbon_steel' is in the susceptible set [carbon_steel, low_alloy_steel]."
+            },
+            {
+              "bucket": "material",
+              "field": "class_not_in",
+              "state": "SATISFIED",
+              "detail": "Material class 'carbon_steel' is not in the forbidden set."
+            }
+          ],
+          "unknown": [
+            {
+              "bucket": "environment",
+              "field": "phase_must_include",
+              "state": "UNKNOWN",
+              "detail": "General Corrosion requires the presence of liquid_water or water_vapor_condensable or aqueous_acid or aqueous_alkaline or wet_gas; transcript neither confirms nor explicitly rules out the required phase."
+            }
+          ],
+          "violated": []
+        },
+        {
+          "id": "pitting",
+          "name": "Pitting Corrosion",
+          "family": "corrosion",
+          "status": "INDETERMINATE",
+          "summary": "Mechanism cannot be confirmed or ruled out from the available evidence. Missing data: Chloride concentration not identified in transcript. Pitting Corrosion requires chloride band at or above 'trace'.",
+          "satisfied": [
+            {
+              "bucket": "material",
+              "field": "class_in",
+              "state": "SATISFIED",
+              "detail": "Material class 'carbon_steel' is in the susceptible set [carbon_steel, low_alloy_steel, austenitic_stainless, duplex_stainless]."
+            },
+            {
+              "bucket": "material",
+              "field": "class_not_in",
+              "state": "SATISFIED",
+              "detail": "Material class 'carbon_steel' is not in the forbidden set."
+            }
+          ],
+          "unknown": [
+            {
+              "bucket": "process_chemistry",
+              "field": "chloride_band_min",
+              "state": "UNKNOWN",
+              "detail": "Chloride concentration not identified in transcript. Pitting Corrosion requires chloride band at or above 'trace'."
+            }
+          ],
+          "violated": []
+        },
+        {
+          "id": "co2_corrosion",
+          "name": "CO2 (Sweet) Corrosion",
+          "family": "corrosion",
+          "status": "INDETERMINATE",
+          "summary": "Mechanism cannot be confirmed or ruled out from the available evidence. Missing data: CO2 (Sweet) Corrosion requires the presence of liquid_water or water_vapor_condensable or wet_gas; transcript neither confirms nor explicitly rules out the required phase.",
+          "satisfied": [
+            {
+              "bucket": "material",
+              "field": "class_in",
+              "state": "SATISFIED",
+              "detail": "Material class 'carbon_steel' is in the susceptible set [carbon_steel, low_alloy_steel]."
+            },
+            {
+              "bucket": "material",
+              "field": "class_not_in",
+              "state": "SATISFIED",
+              "detail": "Material class 'carbon_steel' is not in the forbidden set."
+            }
+          ],
+          "unknown": [
+            {
+              "bucket": "environment",
+              "field": "phase_must_include",
+              "state": "UNKNOWN",
+              "detail": "CO2 (Sweet) Corrosion requires the presence of liquid_water or water_vapor_condensable or wet_gas; transcript neither confirms nor explicitly rules out the required phase."
+            }
+          ],
+          "violated": []
+        },
+        {
+          "id": "erosion",
+          "name": "Erosion / Erosion-Corrosion",
+          "family": "corrosion",
+          "status": "INDETERMINATE",
+          "summary": "Mechanism cannot be confirmed or ruled out from the available evidence. Missing data: Flow state not identified in transcript. Erosion / Erosion-Corrosion requires flow state in [high, turbulent].",
+          "satisfied": [
+            {
+              "bucket": "material",
+              "field": "class_in",
+              "state": "SATISFIED",
+              "detail": "Material class 'carbon_steel' is in the susceptible set [carbon_steel, low_alloy_steel, austenitic_stainless, duplex_stainless]."
+            }
+          ],
+          "unknown": [
+            {
+              "bucket": "flow_regime",
+              "field": "flow_state_in",
+              "state": "UNKNOWN",
+              "detail": "Flow state not identified in transcript. Erosion / Erosion-Corrosion requires flow state in [high, turbulent]."
+            }
+          ],
+          "violated": []
+        },
+        {
+          "id": "mic",
+          "name": "Microbiologically Influenced Corrosion",
+          "family": "corrosion",
+          "status": "INDETERMINATE",
+          "summary": "Mechanism cannot be confirmed or ruled out from the available evidence. Missing data: Microbiologically Influenced Corrosion requires the presence of liquid_water or water_vapor_condensable or wet_gas; transcript neither confirms nor explicitly rules out the required phase. Flow state not identified in transcript. Microbiologically Influenced Corrosion requires flow state in [stagnant, low]. Microbiologically Influenced Corrosion requires surface deposits; transcript does not state deposit presence. Deposit type not identified. Microbiologically Influenced Corrosion requires deposit type in [biofilm, sulfide, unspecified].",
+          "satisfied": [],
+          "unknown": [
+            {
+              "bucket": "environment",
+              "field": "phase_must_include",
+              "state": "UNKNOWN",
+              "detail": "Microbiologically Influenced Corrosion requires the presence of liquid_water or water_vapor_condensable or wet_gas; transcript neither confirms nor explicitly rules out the required phase."
+            },
+            {
+              "bucket": "flow_regime",
+              "field": "flow_state_in",
+              "state": "UNKNOWN",
+              "detail": "Flow state not identified in transcript. Microbiologically Influenced Corrosion requires flow state in [stagnant, low]."
+            },
+            {
+              "bucket": "deposits",
+              "field": "deposits_required",
+              "state": "UNKNOWN",
+              "detail": "Microbiologically Influenced Corrosion requires surface deposits; transcript does not state deposit presence."
+            },
+            {
+              "bucket": "deposits",
+              "field": "deposit_type_in",
+              "state": "UNKNOWN",
+              "detail": "Deposit type not identified. Microbiologically Influenced Corrosion requires deposit type in [biofilm, sulfide, unspecified]."
+            }
+          ],
+          "violated": []
+        },
+        {
+          "id": "underdeposit_corrosion",
+          "name": "Under-Deposit Corrosion",
+          "family": "corrosion",
+          "status": "INDETERMINATE",
+          "summary": "Mechanism cannot be confirmed or ruled out from the available evidence. Missing data: Ammonium salt potential not identified. Under-Deposit Corrosion requires ammonium salt formation conditions (chlorides or ammonia in condensing overhead service). Under-Deposit Corrosion requires surface deposits; transcript does not state deposit presence. Deposit type not identified. Under-Deposit Corrosion requires deposit type in [salt, sulfide, scale, unspecified].",
+          "satisfied": [],
+          "unknown": [
+            {
+              "bucket": "process_chemistry",
+              "field": "nh4_salt_required",
+              "state": "UNKNOWN",
+              "detail": "Ammonium salt potential not identified. Under-Deposit Corrosion requires ammonium salt formation conditions (chlorides or ammonia in condensing overhead service)."
+            },
+            {
+              "bucket": "deposits",
+              "field": "deposits_required",
+              "state": "UNKNOWN",
+              "detail": "Under-Deposit Corrosion requires surface deposits; transcript does not state deposit presence."
+            },
+            {
+              "bucket": "deposits",
+              "field": "deposit_type_in",
+              "state": "UNKNOWN",
+              "detail": "Deposit type not identified. Under-Deposit Corrosion requires deposit type in [salt, sulfide, scale, unspecified]."
+            }
+          ],
+          "violated": []
+        }
+      ],
+      "primary_mechanism": {
+        "id": "fatigue_mechanical",
+        "name": "Mechanical Fatigue",
+        "physics_basis": "Cyclic loading + Stress concentration",
+        "preconditions_met": [
+          "Cyclic loading",
+          "Stress concentration"
+        ],
+        "reality_state": "unverified",
+        "reality_score": 0.05,
+        "evidence_for": [],
+        "evidence_against": [],
+        "observation_basis": false,
+        "severity": "high",
+        "weld_context": "Fatigue life at weld defect zone is 5-10x shorter than base metal. Incomplete penetration at root creates stress riser for fatigue initiation. DNV-RP-C203 and BS 7910 provide weld-specific fatigue classification."
+      },
+      "mechanism_count": {
+        "validated": 3,
+        "rejected": 31,
+        "confirmed": 0,
+        "probable": 0,
+        "possible": 0,
+        "unverified": 3
+      },
+      "damage_confidence": 0.12,
+      "physics_narrative": "Primary: Mechanical Fatigue (score 0.05). Physics: Cyclic loading + Stress concentration. 3 possible, 31 physically impossible."
+    },
+    "consequence_reality": {
+      "consequence_tier": "HIGH",
+      "failure_mode": "pressure_boundary_failure",
+      "failure_physics": "Fatigue crack propagation per Paris Law. Cyclic stress drives incremental growth at stress concentrations. Critical crack size determined by fracture toughness vs applied stress. Failure mode: leak-before-break (ductile) or catastrophic burst (insufficient toughness).",
+      "consequence_basis": [
+        "PHYSICS: Stored pressure energy -- release on failure",
+        "PHYSICS: Primary load-carrying member -- collapse risk",
+        "PHYSICS: Toxic substance (implied_corrosive, H2S, hydrogen, HTHA_susceptible_material, exchanger_service)",
+        "DEPLOY180: 1 impact dimension(s) UNDETERMINED on HIGH asset -- fail-upward applied"
+      ],
+      "human_impact": "Serious injury/fatality from toxic release",
+      "environmental_impact": "Environmental release",
+      "operational_impact": "UNDETERMINED -- insufficient evidence to classify operational impact",
+      "enforcement_requirements": [
+        "Primary + supplemental method",
+        "Engineering review recommended",
+        "Code validation mandatory",
+        "Evidence traceability for critical findings"
+      ],
+      "damage_state": "DEGRADING",
+      "degradation_certainty": "UNVERIFIED",
+      "is_routine_inspection": false,
+      "damage_trajectory": "Active damage mechanism present with gradual progression. Standard monitoring intervals should be maintained or tightened.",
+      "threshold_score": 53,
+      "threshold_reasons": [
+        "Multiple damage forces are interacting and amplifying each other at this location.",
+        "Active mechanism (Mechanical Fatigue) has threshold behavior -- stable until critical size, then rapid failure.",
+        "Note: damage state is based on physics potential, not confirmed observations. Inspection needed to verify actual condition."
+      ],
+      "monitoring_urgency": "Within 30 days",
+      "consequence_confidence": 0.8,
+      "consequence_undetermined": true,
+      "undetermined_impacts": [
+        "operational_impact"
+      ]
+    },
+    "authority_reality": {
+      "primary_authority": "API 570 + ASME B31.3",
+      "secondary_authorities": [
+        "ASME Section V",
+        "API 579-1"
+      ],
+      "conditional_authorities": [
+        {
+          "code": "ASME B31.1",
+          "cond": "power piping"
+        }
+      ],
+      "physics_code_alignment": "CONSISTENT -- API 570 + ASME B31.3 provides framework for piping",
+      "code_gaps": [],
+      "design_state_warning": null,
+      "authority_confidence": 0.85,
+      "jurisdiction_applied": false
+    },
+    "jurisdiction_reality": {
+      "jurisdiction": "US",
+      "jurisdiction_label": "United States (ASME/API)",
+      "detection_method": "default",
+      "detection_confidence": 0.5,
+      "keyword_matches": [],
+      "code_stack_applied": false,
+      "supported_jurisdictions": [
+        "US",
+        "EU",
+        "UK",
+        "NO",
+        "AU",
+        "BR",
+        "CA",
+        "ME",
+        "SG"
+      ]
+    },
+    "weld_reality": {
+      "weld_context_detected": true,
+      "joint_types": [],
+      "weld_zones_at_risk": [],
+      "pwht_status": "unknown",
+      "dissimilar_metal_weld": false,
+      "dmw_materials": [
+        "carbon_steel"
+      ],
+      "repair_weld": false,
+      "weld_processes": [],
+      "quality_concerns": [
+        "incomplete_penetration"
+      ],
+      "field_slang_matched": [
+        "IP"
+      ],
+      "mechanism_modifiers_applied": [
+        {
+          "mechanism": "fatigue_mechanical",
+          "modifier": "severity_escalated",
+          "reason": "Weld weld defect zone is preferential fatigue initiation site -- 5-10x life reduction vs base metal"
+        },
+        {
+          "mechanism": "ssc_sulfide",
+          "modifier": "weld_localization",
+          "reason": "Weld in H2S service -- HAZ is preferential SSC/HIC site"
+        },
+        {
+          "mechanism": "hic",
+          "modifier": "weld_localization",
+          "reason": "Weld in H2S service -- HAZ is preferential SSC/HIC site"
+        }
+      ]
+    },
+    "inspection_reality": {
+      "proposed_methods": [],
+      "recommended_package": [
+        "VT",
+        "MT",
+        "UT",
+        "TOFD"
+      ],
+      "method_assessments": [],
+      "all_method_scores": [
+        {
+          "method": "TOFD",
+          "physics_principle": "Diffracted wave timing",
+          "detects": "Crack height/depth sizing with high accuracy",
+          "cannot_detect": "Surface/near-surface dead zone, thin sections",
+          "scores": {
+            "detectability": 93.8,
+            "sizing": 98,
+            "material": 75,
+            "geometry": 75,
+            "orientation": 82,
+            "surface": 78,
+            "access": 55,
+            "execution": 76,
+            "overall": 83.2
+          },
+          "verdict": "SUFFICIENT",
+          "reasons_for": [
+            "Scored against planar discontinuity detection capability",
+            "TOFD excels at crack depth sizing via diffraction timing",
+            "TOFD detects diffracted energy regardless of reflector orientation"
+          ],
+          "reasons_against": [
+            "TOFD requires dual-side or wrap-around access for probe pair"
+          ],
+          "blind_spots": [
+            "Surface/near-surface dead zone",
+            "Not effective for corrosion mapping"
+          ],
+          "complementary_methods": [],
+          "is_surface_only": false,
+          "is_volumetric": true,
+          "can_size_depth": true
+        },
+        {
+          "method": "PAUT",
+          "physics_principle": "Multi-element acoustic beam steering",
+          "detects": "Complex geometry flaws, crack sizing, volumetric scanning",
+          "cannot_detect": "Requires setup discipline, coupling stability",
+          "scores": {
+            "detectability": 90.8,
+            "sizing": 88,
+            "material": 75,
+            "geometry": 75,
+            "orientation": 75,
+            "surface": 78,
+            "access": 80,
+            "execution": 71,
+            "overall": 81.1
+          },
+          "verdict": "SUFFICIENT",
+          "reasons_for": [
+            "Scored against planar discontinuity detection capability",
+            "PAUT provides crack sizing via beam steering",
+            "PAUT beam steering compensates for limited access"
+          ],
+          "reasons_against": [
+            "PAUT requires qualified setup -- poor focal law strategy creates false confidence"
+          ],
+          "blind_spots": [
+            "Requires strong setup discipline",
+            "Very rough surfaces reduce reliability"
+          ],
+          "complementary_methods": [
+            "TOFD"
+          ],
+          "is_surface_only": false,
+          "is_volumetric": true,
+          "can_size_depth": true
+        },
+        {
+          "method": "UT",
+          "physics_principle": "Acoustic impedance mismatch (wave mechanics)",
+          "detects": "Internal flaws, wall thickness, crack depth",
+          "cannot_detect": "Coarse-grain scatter, near-surface dead zone",
+          "scores": {
+            "detectability": 84.4,
+            "sizing": 70,
+            "material": 75,
+            "geometry": 75,
+            "orientation": 75,
+            "surface": 78,
+            "access": 75,
+            "execution": 76,
+            "overall": 77
+          },
+          "verdict": "SUFFICIENT_WITH_LIMITATIONS",
+          "reasons_for": [
+            "Scored against planar discontinuity detection capability"
+          ],
+          "reasons_against": [],
+          "blind_spots": [
+            "Near-surface dead zone may miss shallow flaws",
+            "Beam orientation mismatch can miss unfavorable reflectors"
+          ],
+          "complementary_methods": [
+            "TOFD",
+            "MT"
+          ],
+          "is_surface_only": false,
+          "is_volumetric": true,
+          "can_size_depth": true
+        },
+        {
+          "method": "ET",
+          "physics_principle": "Electromagnetic induction (eddy currents)",
+          "detects": "Surface/near-surface cracks, conductivity changes, coating thickness",
+          "cannot_detect": "Deep subsurface, ferromagnetic interference, lift-off sensitivity",
+          "scores": {
+            "detectability": 65.8,
+            "sizing": 42,
+            "material": 65,
+            "geometry": 75,
+            "orientation": 70,
+            "surface": 78,
+            "access": 85,
+            "execution": 76,
+            "overall": 66.6
+          },
+          "verdict": "SUFFICIENT_WITH_LIMITATIONS",
+          "reasons_for": [
+            "Scored against planar discontinuity detection capability",
+            "Single-side surface access sufficient"
+          ],
+          "reasons_against": [
+            "Carbon steel ferromagnetic response can interfere with ET"
+          ],
+          "blind_spots": [
+            "Depth penetration limited",
+            "Lift-off and geometry variation distort signals"
+          ],
+          "complementary_methods": [],
+          "is_surface_only": false,
+          "is_volumetric": false,
+          "can_size_depth": false
+        },
+        {
+          "method": "MT",
+          "physics_principle": "Magnetic flux leakage (Maxwell equations)",
+          "detects": "Surface + near-surface in ferromagnetic materials",
+          "cannot_detect": "Subsurface >6mm, non-ferromagnetic, no depth sizing",
+          "scores": {
+            "detectability": 74.8,
+            "sizing": 5,
+            "material": 75,
+            "geometry": 75,
+            "orientation": 80,
+            "surface": 78,
+            "access": 85,
+            "execution": 76,
+            "overall": 65.9
+          },
+          "verdict": "SUFFICIENT_WITH_LIMITATIONS",
+          "reasons_for": [
+            "Scored against planar discontinuity detection capability",
+            "Surface methods detect surface-breaking cracks regardless of orientation",
+            "Single-side surface access sufficient"
+          ],
+          "reasons_against": [
+            "Method cannot size crack depth -- only length",
+            "Surface methods provide crack length only -- depth requires volumetric"
+          ],
+          "blind_spots": [
+            "Crack depth unknown -- remaining life calculation impossible",
+            "Limited to ferromagnetic materials",
+            "Depth penetration limited to ~6mm",
+            "Cannot provide crack depth measurement"
+          ],
+          "complementary_methods": [
+            "UT",
+            "PAUT"
+          ],
+          "is_surface_only": false,
+          "is_volumetric": false,
+          "can_size_depth": false
+        },
+        {
+          "method": "RT",
+          "physics_principle": "Differential radiation absorption (Beer-Lambert law)",
+          "detects": "Volumetric flaws (porosity, inclusions, voids)",
+          "cannot_detect": "Tight planar cracks parallel to beam, requires backside access",
+          "scores": {
+            "detectability": 51,
+            "sizing": 45,
+            "material": 75,
+            "geometry": 75,
+            "orientation": 70,
+            "surface": 78,
+            "access": 50,
+            "execution": 76,
+            "overall": 63.2
+          },
+          "verdict": "CONDITIONALLY_SUFFICIENT",
+          "reasons_for": [
+            "Scored against planar discontinuity detection capability"
+          ],
+          "reasons_against": [
+            "RT requires backside access for film/detector placement"
+          ],
+          "blind_spots": [
+            "Tight planar cracks parallel to beam are invisible",
+            "Requires backside access"
+          ],
+          "complementary_methods": [],
+          "is_surface_only": false,
+          "is_volumetric": true,
+          "can_size_depth": false
+        },
+        {
+          "method": "PT",
+          "physics_principle": "Capillary action + fluorescence/contrast",
+          "detects": "Surface-breaking discontinuities only",
+          "cannot_detect": "Subsurface, porous surfaces, coated surfaces, no sizing",
+          "scores": {
+            "detectability": 51,
+            "sizing": 3,
+            "material": 88,
+            "geometry": 75,
+            "orientation": 80,
+            "surface": 78,
+            "access": 85,
+            "execution": 76,
+            "overall": 61.6
+          },
+          "verdict": "CONDITIONALLY_SUFFICIENT",
+          "reasons_for": [
+            "Scored against planar discontinuity detection capability",
+            "PT is material-agnostic if surface is open and clean",
+            "Surface methods detect surface-breaking cracks regardless of orientation",
+            "Single-side surface access sufficient"
+          ],
+          "reasons_against": [
+            "Method cannot detect subsurface crack propagation",
+            "Method cannot size crack depth -- only length",
+            "Surface methods provide crack length only -- depth requires volumetric"
+          ],
+          "blind_spots": [
+            "Subsurface crack growth invisible to this method",
+            "Crack depth unknown -- remaining life calculation impossible",
+            "Cannot detect subsurface discontinuities",
+            "Cannot size depth"
+          ],
+          "complementary_methods": [
+            "UT",
+            "PAUT"
+          ],
+          "is_surface_only": true,
+          "is_volumetric": false,
+          "can_size_depth": false
+        }
+      ],
+      "best_method": {
+        "method": "TOFD",
+        "overall_score": 83.2,
+        "verdict": "SUFFICIENT",
+        "scores": {
+          "detectability": 93.8,
+          "sizing": 98,
+          "material": 75,
+          "geometry": 75,
+          "orientation": 82,
+          "surface": 78,
+          "access": 55,
+          "execution": 76,
+          "overall": 83.2
+        },
+        "reasons_for": [
+          "Scored against planar discontinuity detection capability",
+          "TOFD excels at crack depth sizing via diffraction timing",
+          "TOFD detects diffracted energy regardless of reflector orientation"
+        ],
+        "reasons_against": [
+          "TOFD requires dual-side or wrap-around access for probe pair"
+        ],
+        "blind_spots": [
+          "Surface/near-surface dead zone",
+          "Not effective for corrosion mapping"
+        ],
+        "complementary_methods": []
+      },
+      "sufficiency_verdict": "INSUFFICIENT",
+      "physics_reason": "Method coverage has physics gaps: At least one NDE method with detection capability for Mechanical Fatigue; Volumetric method required -- pressure boundary integrity assessment needs subsurface characterization; Crack depth sizing -- physics: fatigue crack growth rate (Paris Law) requires measured depth. Surface methods give length only. Recommended additions: VT + MT + UT + TOFD.",
+      "required_methods": [
+        {
+          "method": "Primary NDE",
+          "physics_basis": "Method must be physically capable of detecting dominant damage mechanism"
+        }
+      ],
+      "missing_coverage": [
+        "At least one NDE method with detection capability for Mechanical Fatigue",
+        "Volumetric method required -- pressure boundary integrity assessment needs subsurface characterization",
+        "Crack depth sizing -- physics: fatigue crack growth rate (Paris Law) requires measured depth. Surface methods give length only."
+      ],
+      "constraint_analysis": {
+        "constraint_score": 27,
+        "truth_quality": "MODERATE",
+        "warnings": [
+          "Coating/insulation may reduce sensitivity or block surface methods entirely. Results may understate actual condition.",
+          "Elevated temperature may require special procedures and correction factors. Standard calibration may not apply."
+        ]
+      },
+      "inspection_confidence": 0.35
+    },
+    "evidence_provenance": null,
+    "physics_computations": {
+      "fatigue": {
+        "enabled": false,
+        "delta_k": null,
+        "growth_per_cycle_m": null,
+        "days_to_critical": null,
+        "status": "insufficient_input",
+        "narrative": "Fatigue computation requires flaw depth and stress data."
+      },
+      "critical_flaw": {
+        "enabled": false,
+        "critical_depth_mm": null,
+        "stress_ratio": null,
+        "status": "insufficient_input",
+        "narrative": "Critical flaw computation requires stress and toughness data."
+      },
+      "wall_loss": {
+        "enabled": false,
+        "remaining_life_years": null,
+        "severity_ratio": null,
+        "status": "insufficient_input",
+        "narrative": "Wall loss computation requires thickness, minimum, and corrosion rate."
+      },
+      "leak_vs_burst": {
+        "enabled": false,
+        "tendency": "INSUFFICIENT_INPUT",
+        "through_wall_risk": null,
+        "fracture_risk": null,
+        "narrative": "Leak-vs-burst requires flaw depth, wall thickness, and toughness."
+      },
+      "data_quality": {
+        "wall_source": "NONE",
+        "wall_thickness_used_mm": null,
+        "nps_inference_applied": false,
+        "confidence_note": "No wall thickness available"
+      }
+    },
+    "reality_confidence": {
+      "physics_confidence": 0.8,
+      "damage_confidence": 0.12,
+      "consequence_confidence": 0.8,
+      "authority_confidence": 0.85,
+      "inspection_confidence": 0.35,
+      "overall": 0.38,
+      "band": "LOW",
+      "certainty_state": "blocked",
+      "decision_lock": true,
+      "escalation_required": true,
+      "limiting_factors": [
+        "Inspection confidence < 0.55",
+        "Overall confidence < 0.58"
+      ],
+      "contradiction_flags": [
+        "CONFLICT: Cracking mechanism plausible but no crack-specific NDE method (MT/PT/PAUT/TOFD) in inspection plan. Cannot confirm or rule out cracking without appropriate method.",
+        "WARNING: 3 unverified/possible mechanisms on HIGH asset. Mechanism set not sufficiently resolved for confident disposition.",
+        "WARNING: Asset classification corrected from unknown to piping. Input ambiguity detected."
+      ],
+      "counterfactual_challenge": {
+        "primary_mechanism": "Mechanical Fatigue",
+        "what_if_wrong": "If the indication is actually corrosion pitting or geometric artifact rather than fatigue crack, the urgency and failure mode change significantly.",
+        "strongest_alternative": "Sulfide Stress Cracking (unverified, score 0)",
+        "fastest_resolution_test": "Surface preparation + PT/MT for crack confirmation. UT thickness grid to check for competing wall loss. If crack confirmed, TOFD/PAUT for depth sizing.",
+        "decision_critical_question": "Is the observed damage consistent with Mechanical Fatigue, or could a competing mechanism (Sulfide Stress Cracking) better explain the findings?"
+      },
+      "confidence_narrative": "Physics=0.8, Damage=0.12, Consequence=0.8, Authority=0.85, Inspection=0.35. Overall=0.38 (LOW). Limiting: Inspection confidence < 0.55; Overall confidence < 0.58."
+    },
+    "decision_reality": {
+      "disposition": "hold_for_review",
+      "disposition_basis": "Blocked by evidence_sufficiency. Method coverage has physics gaps: At least one NDE method with detection capability for Mechanical Fatigue; Volumetric method required -- pressure boundary integrity assessment needs subsurface characterization; Crack depth sizing -- physics: fatigue crack growth rate (Paris Law) requires measured depth. Surface methods give length only. Recommended additions: VT + MT + UT + TOFD.",
+      "gates": [
+        {
+          "gate": "physics_reality",
+          "result": "PASS",
+          "reason": "Physics characterized (0.8 confidence)",
+          "required_action": null
+        },
+        {
+          "gate": "life_safety",
+          "result": "PASS",
+          "reason": "Not CRITICAL life-safety",
+          "required_action": null
+        },
+        {
+          "gate": "consequence_severity",
+          "result": "ESCALATED",
+          "reason": "Unverified mechanisms on HIGH asset",
+          "required_action": "Verify all mechanism claims"
+        },
+        {
+          "gate": "evidence_sufficiency",
+          "result": "BLOCKED",
+          "reason": "Confidence below threshold: Inspection confidence < 0.55; Overall confidence < 0.58",
+          "required_action": "Collect evidence for HIGH tier"
+        },
+        {
+          "gate": "method_sufficiency",
+          "result": "WARNING",
+          "reason": "Gaps: At least one NDE method with detection capability for Mechanical Fatigue; Volumetric method required -- pressure boundary integrity assessment needs subsurface characterization; Crack depth sizing -- physics: fatigue crack growth rate (Paris Law) requires measured depth. Surface methods give length only.",
+          "required_action": "Consider supplemental methods"
+        },
+        {
+          "gate": "authority_validation",
+          "result": "PASS",
+          "reason": "Authority validated",
+          "required_action": null
+        },
+        {
+          "gate": "contradiction",
+          "result": "WARNING",
+          "reason": "CONFLICT: Cracking mechanism plausible but no crack-specific NDE method (MT/PT/PAUT/TOFD) in inspection plan. Cannot confirm or rule out cracking without appropriate method.; WARNING: 3 unverified/possible mechanisms on HIGH asset. Mechanism set not sufficiently resolved for confident disposition.; WARNING: Asset classification corrected from unknown to piping. Input ambiguity detected.",
+          "required_action": null
+        },
+        {
+          "gate": "physics_computation",
+          "result": "PASS",
+          "reason": "No computation escalation",
+          "required_action": null
+        },
+        {
+          "gate": "indeterminate_mechanism",
+          "result": "INFO",
+          "reason": "7 mechanism(s) indeterminate but consequence tier (HIGH) does not require escalation",
+          "required_action": null
+        },
+        {
+          "gate": "consequence_undetermined",
+          "result": "ESCALATED",
+          "reason": "Consequence model could not determine operational_impact on HIGH asset -- engineering review required to classify impact",
+          "required_action": "Provide evidence to classify: operational_impact"
+        },
+        {
+          "gate": "disposition_eligibility",
+          "result": "BLOCKED",
+          "reason": "Blocked at: evidence_sufficiency",
+          "required_action": "Resolve blocking gates"
+        }
+      ],
+      "guided_recovery": [
+        {
+          "priority": 1,
+          "action": "Verify all mechanism claims",
+          "physics_reason": "Unverified mechanisms on HIGH asset",
+          "who": "Qualified reviewer"
+        },
+        {
+          "priority": 2,
+          "action": "Collect evidence for HIGH tier",
+          "physics_reason": "Confidence below threshold: Inspection confidence < 0.55; Overall confidence < 0.58",
+          "who": "Qualified reviewer"
+        },
+        {
+          "priority": 3,
+          "action": "Provide evidence to classify: operational_impact",
+          "physics_reason": "Consequence model could not determine operational_impact on HIGH asset -- engineering review required to classify impact",
+          "who": "Qualified reviewer"
+        },
+        {
+          "priority": 4,
+          "action": "Resolve blocking gates",
+          "physics_reason": "Blocked at: evidence_sufficiency",
+          "who": "Qualified reviewer"
+        },
+        {
+          "priority": 5,
+          "action": "Add: At least one NDE method with detection capability for Mechanical Fatigue",
+          "physics_reason": "Detection physics gap",
+          "who": "NDE Level II/III"
+        },
+        {
+          "priority": 6,
+          "action": "Add: Volumetric method required -- pressure boundary integrity assessment needs subsurface characterization",
+          "physics_reason": "Detection physics gap",
+          "who": "NDE Level II/III"
+        },
+        {
+          "priority": 7,
+          "action": "Add: Crack depth sizing -- physics: fatigue crack growth rate (Paris Law) requires measured depth. Surface methods give length only.",
+          "physics_reason": "Detection physics gap",
+          "who": "NDE Level II/III"
+        }
+      ],
+      "phased_strategy": [
+        {
+          "phase": 1,
+          "name": "Immediate Safety",
+          "objective": "Ensure safety, isolate, document",
+          "actions": [
+            "Isolate affected area",
+            "Verify personnel safety",
+            "Verify isolation from pressure source",
+            "Document as-found conditions"
+          ],
+          "gate": "Safe to proceed with characterization?",
+          "time_frame": "Within 4 hours"
+        },
+        {
+          "phase": 2,
+          "name": "Characterization & NDE",
+          "objective": "Quantify damage, verify mechanism, collect data",
+          "actions": [
+            "Perform primary NDE for Mechanical Fatigue",
+            "ADD: At least one NDE method with detection capability for Mechanical Fatigue",
+            "ADD: Volumetric method required -- pressure boundary integrity assessment needs subsurface characterization",
+            "ADD: Crack depth sizing -- physics: fatigue crack growth rate (Paris Law) requires measured depth. Surface methods give length only.",
+            "Quantify indication size, depth, location",
+            "Wall thickness survey"
+          ],
+          "gate": "Sufficient data for engineering assessment?",
+          "time_frame": "Within 72 hours"
+        },
+        {
+          "phase": 3,
+          "name": "Engineering Analysis",
+          "objective": "FFS, remaining life, repair planning",
+          "actions": [
+            "Fitness-for-service per API 570 + ASME B31.3",
+            "Develop repair plan if required"
+          ],
+          "gate": "Fit for continued service?",
+          "time_frame": "Per engineering schedule"
+        },
+        {
+          "phase": 4,
+          "name": "Resolution & Return to Service",
+          "objective": "Repair, verify, document, close",
+          "actions": [
+            "Complete documentation and report",
+            "Update integrity database",
+            "Establish re-inspection date"
+          ],
+          "gate": "Return to service authorized?",
+          "time_frame": "Per operations schedule"
+        }
+      ],
+      "hard_locks": [],
+      "decision_trace": [
+        "PHYSICS: Loading: internal_pressure, biaxial_tension, gravity_loading, wave_loading. Cyclic: operational_pressure_cycling_implied. Stress concentrations: welds_implied_for_piping. Corrosive (implied_corrosive, H2S, hydrogen, HTHA_susceptible_material, exchanger_service). Susceptible: SSC, HIC. Stored pressure energy. Context inferred: hydrocracking/hydrotreating -> H2S inferred; hydrocracking/hydrotreating -> hydrogen inferred; material + hydrogen -> HTHA susceptibility per Nelson curve; heat exchanger -> multi-fluid service, corrosion potential on both sides.",
+        "DAMAGE: Primary = Mechanical Fatigue (unverified, score 0.05)",
+        "CONSEQUENCE: HIGH -- pressure_boundary_failure",
+        "AUTHORITY: API 570 + ASME B31.3",
+        "INSPECTION: INSUFFICIENT -- ",
+        "CONFIDENCE: 0.38 (LOW)",
+        "SELF-AUDIT: CONFLICT: Cracking mechanism plausible but no crack-specific NDE method (MT/PT/PAUT/TOFD) in inspection plan. Cannot confirm or rule out cracking without appropriate method.",
+        "SELF-AUDIT: WARNING: 3 unverified/possible mechanisms on HIGH asset. Mechanism set not sufficiently resolved for confident disposition.",
+        "SELF-AUDIT: WARNING: Asset classification corrected from unknown to piping. Input ambiguity detected.",
+        "CONSEQUENCE UNDETERMINED: operational_impact on HIGH asset",
+        "DISPOSITION: hold_for_review -- Blocked by evidence_sufficiency. Method coverage has physics gaps: At least one NDE method with detection capability for Mechanical Fatigue; Volumetric method required -- pressure boundary integrity assessment needs subsurface characterization; Crack depth sizing -- physics: fatigue crack growth rate (Paris Law) requires measured depth. Surface methods give length only. Recommended additions: VT + MT + UT + TOFD."
+      ]
+    },
+    "validated_evidence_set": null
+  },
+  "decisionPackage": {
+    "schemaVersion": "1.0",
+    "packageId": "unspecified",
+    "packageHash": "021589d29c52dac69c87458c6701536d987ac6aa74d22fe5c958677c252b941d",
+    "decisionTimestamp": "2026-05-29T04:04:45.605Z",
+    "packageTimestamp": "2026-05-29T04:04:45.605Z",
+    "projectionTimestamp": null,
+    "disposition": "HOLD_FOR_INPUT",
+    "confidence": 0.38,
+    "recommendedMethod": "Primary NDE",
+    "fmd": {
+      "dominant": {
+        "id": "fatigue_mechanical",
+        "name": "Mechanical Fatigue",
+        "physics_basis": "Cyclic loading + Stress concentration",
+        "preconditions_met": [
+          "Cyclic loading",
+          "Stress concentration"
+        ],
+        "reality_state": "unverified",
+        "reality_score": 0.05,
+        "evidence_for": [],
+        "evidence_against": [],
+        "observation_basis": false,
+        "severity": "high",
+        "weld_context": "Fatigue life at weld defect zone is 5-10x shorter than base metal. Incomplete penetration at root creates stress riser for fatigue initiation. DNV-RP-C203 and BS 7910 provide weld-specific fatigue classification."
+      },
+      "margin": 0.05,
+      "candidates": [
+        {
+          "mechanism": "Mechanical Fatigue",
+          "score": 0.05,
+          "reasoning": ""
+        },
+        {
+          "mechanism": "Sulfide Stress Cracking",
+          "score": 0,
+          "reasoning": ""
+        },
+        {
+          "mechanism": "Hydrogen Induced Cracking",
+          "score": 0,
+          "reasoning": ""
+        }
+      ],
+      "governingFailureMode": null,
+      "governingSeverity": null
+    },
+    "timeline": {
+      "timeToActionDays": 36500,
+      "rateControllingMechanism": null,
+      "compound": false,
+      "governingTimeYears": null,
+      "recommendedInspectionIntervalYears": null,
+      "urgency": null,
+      "progressionState": null
+    },
+    "hardLocks": [],
+    "bindingClauses": [],
+    "contradictions": [
+      {
+        "resolved": false,
+        "type": "UNCLASSIFIED_CONTRADICTION",
+        "category": "reality_confidence_flag",
+        "description": "CONFLICT: Cracking mechanism plausible but no crack-specific NDE method (MT/PT/PAUT/TOFD) in inspection plan. Cannot confirm or rule out cracking without appropriate method.",
+        "severity": "INFORMATIONAL"
+      },
+      {
+        "resolved": false,
+        "type": "UNCLASSIFIED_CONTRADICTION",
+        "category": "reality_confidence_flag",
+        "description": "WARNING: 3 unverified/possible mechanisms on HIGH asset. Mechanism set not sufficiently resolved for confident disposition.",
+        "severity": "INFORMATIONAL"
+      },
+      {
+        "resolved": false,
+        "type": "UNCLASSIFIED_CONTRADICTION",
+        "category": "reality_confidence_flag",
+        "description": "WARNING: Asset classification corrected from unknown to piping. Input ambiguity detected.",
+        "severity": "INFORMATIONAL"
+      }
+    ],
+    "consequence": {
+      "tier": "HIGH",
+      "humanImpact": "Serious injury/fatality from toxic release",
+      "enforcementRequirements": [
+        "Primary + supplemental method",
+        "Engineering review recommended",
+        "Code validation mandatory",
+        "Evidence traceability for critical findings"
+      ]
+    },
+    "provenance": {
+      "lowestProvenance": "ASSUMED",
+      "dominantSource": null,
+      "trustBand": null,
+      "measuredFraction": null
+    },
+    "remainingStrength": {
+      "rsf": null,
+      "mawp": null,
+      "governingMaop": null,
+      "governingMethod": null,
+      "severityTier": null,
+      "pressureReductionRequired": false
+    },
+    "resolved": {
+      "environment": {
+        "hazards": [],
+        "phasesPresent": [
+          "hydrocarbon_liquid"
+        ],
+        "atmosphereClass": "insulated"
+      },
+      "material": {
+        "class": "carbon_steel",
+        "class_confidence": 0.85,
+        "evidence": [
+          "carbon steel keyword or ASTM/ASME grade"
+        ]
+      }
+    },
+    "requiredInspections": [
+      {
+        "method": "Primary NDE",
+        "description": "Primary NDE inspection per decision_core",
+        "coverage": null,
+        "rationale": null
+      }
+    ],
+    "mustNotConclude": [
+      "Do not finalize disposition until all ASSUMED inputs are upgraded to MEASURED or OBSERVED via targeted re-inspection.",
+      "Do not declare a single root cause until additional inspection data distinguishes between competing mechanisms.",
+      "Do not communicate this disposition with confidence — overall pipeline confidence is below 0.60. Treat as preliminary.",
+      "Do not act on this disposition while contradictions remain unresolved. Review and resolve before proceeding.",
+      "Do not finalize remaining-life calculation until the recommended inspection methods are executed and results integrated."
+    ]
+  }
+}
