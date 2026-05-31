@@ -496,6 +496,29 @@ var handler = async function(event) {
       recommendation = "MAOP calculated: " + Math.round(governing_maop) + " psi (" + governing_method + "). Operating pressure not provided -- provide actual operating pressure for safe envelope assessment.";
     }
 
+    // DEPLOY428: INPUT-CONSISTENCY GUARD. A line cannot operate above its own
+    // nominal-wall Barlow capacity. If operating pressure exceeds barlow_pressure
+    // (nominal wall @ assumed SMYS), inputs do not reconcile -- usually an
+    // UNDERSTATED material grade (a 36-in line at 1,420 psi is API 5L X-grade,
+    // not A106-B). Surface the inconsistency instead of a false "reduce now".
+    var materialConsistencyFlag = false;
+    var impliedSMYS = null;
+    if (havePressure && barlow_pressure > 0 && operatingPressure > barlow_pressure) {
+      materialConsistencyFlag = true;
+      impliedSMYS = Math.round((operatingPressure * pipeOD) / (2 * nominalWall * designFactor));
+      safeEnvelope = "INPUTS_INCONSISTENT";
+      pressureReduction = 0;
+      operatingRatio = null;
+      recommendation = "INPUTS INCONSISTENT - material grade unverified. Stated operating pressure (" +
+        Math.round(operatingPressure) + " psi) exceeds the nominal-wall pressure capacity (" +
+        Math.round(barlow_pressure) + " psi) at the assumed grade (SMYS " + Math.round(smys) +
+        " psi). Operation at this pressure implies a higher-grade material (back-calculated SMYS approx " +
+        impliedSMYS + " psi, i.e. likely API 5L X-grade line pipe) or greater wall thickness than assumed. " +
+        "The B31G MAOP and any pressure-reduction value are UNRELIABLE until the actual material grade and " +
+        "nominal wall are confirmed. Verify material grade/wall before relying on this output; do not action a " +
+        "pressure reduction on the basis of this assumed-grade MAOP.";
+    }
+
     // Determine data_quality tier
     var dataQuality = "complete";
     if (derivationNotes.length > 0 && havePressure) dataQuality = "schedule_derived";
@@ -528,6 +551,8 @@ var handler = async function(event) {
       operating_pressure: havePressure ? operatingPressure : null,
       operating_ratio: operatingRatio !== null ? parseFloat(operatingRatio.toFixed(4)) : null,
       safe_envelope: safeEnvelope,
+      material_consistency_flag: materialConsistencyFlag,
+      implied_smys: impliedSMYS,
       severity_tier: severityTier,
       recommendation: recommendation,
       pressure_reduction_required: pressureReduction > 0 ? Math.round(pressureReduction) : 0,

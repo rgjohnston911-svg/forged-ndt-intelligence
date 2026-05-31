@@ -50,3 +50,21 @@ call({ nominal_wall: 0.300, measured_minimum_wall: 0.300, pipe_od: 6.625, smys: 
   assert(r.data_quality === 'inconsistent', 'C: measured==nominal flagged inconsistent');
   done();
 });
+
+// DEPLOY428 - input-consistency guard (understated grade -> INPUTS_INCONSISTENT, no false alarm).
+pending++;
+call({ nominal_wall: 0.5, measured_minimum_wall: 0.421, pipe_od: 36, material_grade: 'A106_GR_B', design_factor: 0.72, operating_pressure: 1420 }, function (r) {
+  assert(r.safe_envelope === 'INPUTS_INCONSISTENT', 'C: 36in A106-B op1420 -> inputs-inconsistent (got ' + r.safe_envelope + ')');
+  assert(r.material_consistency_flag === true, 'C: material_consistency_flag set');
+  assert(r.pressure_reduction_required === 0, 'C: no false pressure-reduction figure');
+  assert(typeof r.implied_smys === 'number' && r.implied_smys > 60000, 'C: implied SMYS X-grade (got ' + r.implied_smys + ')');
+  done();
+});
+// DEPLOY428 - genuine exceedance must STILL flag EXCEEDS (not masked).
+pending++;
+call({ nominal_wall: 0.5, measured_minimum_wall: 0.30, pipe_od: 24, material_grade: 'A106_GR_B', design_factor: 0.72, operating_pressure: 900 }, function (r) {
+  assert(r.safe_envelope === 'EXCEEDS', 'D: genuine exceedance still EXCEEDS (got ' + r.safe_envelope + ')');
+  assert(r.material_consistency_flag === false, 'D: genuine case not mislabeled');
+  assert(r.pressure_reduction_required > 0, 'D: real reduction recommended');
+  done();
+});
