@@ -4491,6 +4491,26 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     if (envImpact === "Negligible") { envImpact = "Hazardous release to surrounding area"; envImpactSet = true; }
   }
 
+  // DEPLOY430: OFFSHORE MANNED PLATFORM + HYDROCARBON/TOXIC MEDIUM -> CRITICAL.
+  // A fixed/production offshore platform is continuously manned with limited egress; a
+  // sour or hydrocarbon high-pressure release there is a credible MULTIPLE-fatality
+  // scenario (Piper Alpha class). REQUIRES a real hydrocarbon/toxic medium (not merely
+  // "offshore") so a benign offshore structural/seawater asset is NOT over-escalated.
+  var offshoreManned = (assetClass === "offshore_platform" || hasWord(lt, "offshore platform") ||
+    hasWord(lt, "production platform") || (hasWord(lt, "offshore") && hasWord(lt, "platform")));
+  // explicit hydrocarbon/toxic MEDIUM terms only (no flammableContext - it is set
+  // too broadly and would over-escalate benign offshore seawater/structural assets).
+  var hcOrToxicMedium = !!physics.chemical.h2s_present ||
+    hasWord(lt, "sour") || hasWord(lt, "h2s") || hasWord(lt, "wet gas") || hasWord(lt, "natural gas") ||
+    hasWord(lt, "gas compression") || hasWord(lt, "gas export") || hasWord(lt, "export gas") ||
+    hasWord(lt, "crude") || hasWord(lt, "condensate");
+  if (offshoreManned && hcOrToxicMedium && tier !== "CRITICAL") {
+    tier = "CRITICAL";
+    basis.push("CONSEQUENCE: Offshore manned platform with hydrocarbon/toxic pressure system -- a release is a credible multiple-fatality scenario (limited egress, confined personnel). Life-safety controlling.");
+    if (humanImpact.indexOf("FATAL") === -1) { humanImpact = "FATAL -- hydrocarbon/toxic release on a manned offshore platform"; humanImpactSet = true; }
+    envImpact = "Major hydrocarbon release / environmental contamination"; envImpactSet = true;
+  }
+
   // ========================================================================
   // DEPLOY402: SUPPORT / SECONDARY-ELEMENT FAILURE -- CASCADE GOVERNANCE
   // The primary component can be within limits while its SUPPORT (pipe support,

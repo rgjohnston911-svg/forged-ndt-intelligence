@@ -70,6 +70,17 @@ var CONFIDENT_GO = { go: 1, conditional_go: 1 };
                      crackOnly, leakOnly ];
   check('NO unverified scenario yields go/conditional_go', unverified.every(function (d) { return !CONFIDENT_GO[d]; }));
 
+  // DEPLOY430 - offshore manned platform + hydrocarbon/toxic medium -> CRITICAL consequence;
+  // a benign offshore asset (no such medium) must NOT over-escalate to CRITICAL.
+  function conseq(transcript) {
+    var ev = { httpMethod: 'POST', headers: { 'X-API-Key': 'gate-server-key' }, body: JSON.stringify({
+      transcript: transcript, parsed: { numeric_values: {} }, asset: { asset_class: 'piping', confidence: 0.8 },
+      confirmed_flags: {}, reality_lock: null, evidence_provenance: null, authority_lock: null, sa_responses: [] }) };
+    return handler(ev).then(function (res) { var b = JSON.parse(res.body); var dc = b.decision_core || b; return (dc.consequence_reality || {}).consequence_tier; });
+  }
+  check('offshore sour gas -> CRITICAL', (await conseq('Offshore fixed production platform gas compression and export system 1420 psi wet gas CO2 trace H2S. Wall loss 16 percent.')) === 'CRITICAL');
+  check('offshore benign seawater -> NOT CRITICAL', (await conseq('Offshore platform seawater lift caisson structural support no hydrocarbon general coating wear.')) !== 'CRITICAL');
+
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log('\nDECISION-CORE HOLD GATE: ' + pass + ' / ' + total + ' invariants held');
   if (pass !== total) { process.exit(1); }
