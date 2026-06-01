@@ -53,6 +53,17 @@ var recConf = R.reconcile({ transcript: 'furnace', assetClaims: [{ value: 'press
 ok(recConf.finalAsset === 'pressure_vessel', 'conflict: explicit asset survives domain-keyword challenge');
 ok(recConf.conflicts.length > 0 && recConf.requiresHumanReview === true, 'conflict surfaced + requiresHumanReview');
 
+// ---- DEPLOY448 governingStatement (the cutover renders THIS as the live banner) ----
+var brk = JSON.parse(fs.readFileSync(path.join(ROOT, "tests/fixtures/system-breakers.json"), "utf8")).cases;
+function txt(id){ var c=brk.filter(function(x){return x.id===id;})[0]; return c?c.transcript:""; }
+var sE = R.reconcile({ transcript: txt("BREAKER_E_monitoring_assurance"), assetClaims:[{value:"instrumentation_monitoring",confidence:0.9,kind:"explicit-asset"}] }).governingStatement;
+ok(/not dispositionable|loss of confidence/i.test(sE), "TEST25 statement frames assurance failure (got: "+sE.slice(0,60)+")");
+ok(!/\bcorrosion\b/i.test(sE), "TEST25 statement does NOT say corrosion");
+var sA = R.reconcile({ transcript: txt("BREAKER_A_furnace_process_drift"), assetClaims:[{value:"pressure_vessel",confidence:0.9,kind:"explicit-asset"}] }).governingStatement;
+ok(/design basis/i.test(sA), "furnace statement names lost design basis");
+var sC = R.reconcile({ transcript: txt("BREAKER_C_software_fleet_failure"), assetClaims:[{value:"wind_turbine",confidence:0.9,kind:"explicit-asset"}] }).governingStatement;
+ok(/fleet/i.test(sC) && !/\bcorrosion\b/i.test(sC), "fleet statement is systemic, not corrosion");
+
 fs.rmSync(tmp, { recursive: true, force: true });
 if (fails.length) { console.log('FAIL reconciliation-layer: ' + fails.length); fails.forEach(function (f) { console.log('   - ' + f); }); process.exit(1); }
 console.log('All reconciliation-layer Phases 8+9 checks passed (' + pass + ' assertions: deterministic axis floor for all breakers, FINAL PRINCIPLE end-to-end, Tier-1 evidence/consistency/scope/confidence vetoes, conflict surfacing).');

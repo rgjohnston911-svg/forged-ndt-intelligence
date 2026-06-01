@@ -72,7 +72,8 @@ var ASSET_AUTHORITY: { [k: string]: string[] } = {
   "bridge_steel": ["AASHTO MBE", "AWS D1.5"],
   "bridge_concrete": ["AASHTO MBE"],
   "rail_bridge": ["AREMA"],
-  "structural_steel": ["AISC 360"]
+  "structural_steel": ["AISC 360"],
+  "instrumentation_monitoring": ["ISA-18.2 (Alarm Management)", "IEC 62443 (Industrial Control System Security)"]
 };
 
 export interface DerivedAuthority {
@@ -128,7 +129,8 @@ var ASSET_FAMILY: { [k: string]: string } = {
   "wind_turbine": "wind",
   "rail_bridge": "rail",
   "bridge_steel": "bridge",
-  "bridge_concrete": "bridge"
+  "bridge_concrete": "bridge",
+  "instrumentation_monitoring": "instrumentation"
 };
 
 export interface ConsistencyVeto {

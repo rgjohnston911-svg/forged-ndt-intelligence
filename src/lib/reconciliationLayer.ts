@@ -25,11 +25,11 @@ var REFUSED_SCOPE_RE = /\b(?:nuclear|reactor core|spent fuel|aerospace|spacecraf
 
 // ---- small deterministic signal scans (facts only) ----
 function dynamicSignalCount(t: string): number {
-  var cats = [/vibrat/i, /slug/i, /transient|excursion|pressure (?:fluctuation|spike)/i, /unsupported span|free[- ]?span|loss of support/i, /cyclic/i, /throughput (?:increase|increased)|production increased|rate increased|increased flow/i, /reciprocating/i];
+  var cats = [/vibrat/i, /slug/i, /transient|pressure (?:fluctuation|spike|excursion)/i, /unsupported span|free[- ]?span|loss of support/i, /cyclic/i, /throughput (?:increase|increased)|production increased|rate increased|increased flow/i, /reciprocating/i];
   var n = 0; for (var i = 0; i < cats.length; i++) { if (cats[i].test(t)) { n++; } } return n;
 }
 function withinLimitsLanguage(t: string): boolean {
-  return /\bwithin (?:design )?(?:limits?|allowable|tolerance)\b|\bbelow (?:the )?(?:concern|allowable|threshold)\b|\bno significant (?:wall ?loss|metal ?loss|corrosion|crack)\b|\bno crack indications?\b|\bremain(?:s)? normal\b|\bno (?:coating|corrosion|tower tilt)\b/i.test(t);
+  return /\bwithin (?:design )?(?:limits?|allowable|tolerance|specification|spec)\b|\bbelow (?:the )?(?:concern|allowable|threshold)\b|\bno significant (?:wall ?loss|metal ?loss|corrosion|crack)\b|\bno crack indications?\b|\bremain(?:s)? normal\b|\bno (?:coating|corrosion|tower tilt|leaks?|faults?|equipment failures?)\b|\bquality (?:excursions?|issues?) none\b|\bproduct quality (?:remains )?acceptable\b/i.test(t);
 }
 
 // ---- ASSURANCE signals ----
@@ -42,7 +42,18 @@ function knowledgeLossCount(t: string): number {
     /records[^.]*(?:lost|destroyed|cannot be located|missing|unavailable)/i,
     /monitoring[^.]*(?:failed|unrepaired|offline|not (?:working|functioning))/i,
     /(?:advisory|external (?:change|review)|subsidence advisory)[^.]*(?:never reviewed|not reviewed|unreviewed)/i,
-    /never reviewed against/i
+    /never reviewed against/i,
+    // DEPLOY447 - information / monitoring-system assurance-failure signals: we may no
+    // longer be able to TRUST what the monitor reports (the governing risk in TEST 25).
+    /no (?:current )?validation of (?:the )?(?:monitoring )?(?:algorithms?|software|system)/i,
+    /(?:monitoring )?algorithms?[^.]*modified/i,
+    /documentation incomplete/i,
+    /software support[^.]*expired/i,
+    /support contract expired/i,
+    /patch (?:level )?[^.]*(?:\d+\s*months?\s*behind|behind)/i,
+    /database migration/i,
+    /normalization error/i,
+    /software[^.]*(?:suppress|incorrectly)/i
   ];
   var n = 0; for (var i = 0; i < sigs.length; i++) { if (sigs[i].test(t)) { n++; } } return n;
 }
@@ -55,9 +66,12 @@ function fleetPattern(t: string): boolean {
   return fleet && common && failures;
 }
 function changedUnreassessed(t: string): boolean {
-  var changed = /\b(?:throughput|production|rate|operating|feed|software|control)[^.]{0,40}(?:increas|chang|upgrad|modif|re-?rat)/i.test(t);
+  var changed = /\b(?:throughput|production|rate|operating|feed|software|control|algorithm)[^.]{0,40}(?:increas|chang|upgrad|modif|re-?rat)/i.test(t);
   var noReassess = /\bno (?:management[- ]of[- ]change|moc|reassessment|re-?assessment|review|re-?rate|engineering review)\b|without (?:a )?(?:management[- ]of[- ]change|moc|reassessment|review)/i.test(t);
-  return changed && noReassess;
+  // DEPLOY447 - a modified monitoring algorithm with no validation / incomplete documentation
+  // is itself an unreassessed operating change (the basis for trusting the system changed).
+  var unvalidatedChange = (/(?:algorithms?|software)[^.]*modif/i.test(t) || /modif[^.]*(?:algorithms?|software)/i.test(t)) && /(?:no (?:current )?validation|documentation incomplete|support[^.]*expired)/i.test(t);
+  return (changed && noReassess) || unvalidatedChange;
 }
 
 // ---- DETERMINISTIC AXIS FLOOR ----
@@ -65,25 +79,35 @@ export interface AxisDerivation extends GoverningTuple {
   evidence: { physical: string[]; assurance: string[]; operational: string[] };
 }
 
-export function deriveAxesDeterministic(transcript: string): AxisDerivation {
+var NON_PHYSICAL_ASSETS: { [k: string]: boolean } = { "instrumentation_monitoring": true, "information_system": true, "control_system": true };
+
+export function deriveAxesDeterministic(transcript: string, assetClass?: string): AxisDerivation {
   var t = String(transcript || "");
+  var nonPhysical = !!(assetClass && NON_PHYSICAL_ASSETS[String(assetClass).toLowerCase()]);
 
   // PHYSICAL
-  var fams = ["corrosion", "cracking", "structural"];
-  var confirmed: string[] = []; var suspected: string[] = [];
-  for (var i = 0; i < fams.length; i++) {
-    var ev = classifyMechanismEvidence(fams[i], t);
-    if (ev.level === "CONFIRMED") { confirmed.push(fams[i]); }
-    else if (ev.level === "SUSPECTED") { suspected.push(fams[i]); }
-  }
-  var strongSuspected = dynamicSignalCount(t) >= 2;
   var physical: PhysicalCondition;
   var physEv: string[] = [];
-  if (confirmed.length > 0) { physical = "CONFIRMED_DAMAGE"; physEv = confirmed.slice(); }
-  else if (strongSuspected) { physical = "SUSPECTED"; physEv = ["dynamic-loading signals (" + dynamicSignalCount(t) + ")"]; }
-  else if (withinLimitsLanguage(t)) { physical = "ACCEPTABLE"; physEv = ["findings within limits / non-finding"]; }
-  else if (suspected.length > 0) { physical = "SUSPECTED"; physEv = suspected.slice(); }
-  else { physical = "UNKNOWN"; }
+  if (nonPhysical) {
+    // a confidence-generating system (analyzers/monitors/software) has no physical damage
+    // mechanism; its physical condition is ACCEPTABLE when findings are within spec, else UNKNOWN.
+    physical = withinLimitsLanguage(t) ? "ACCEPTABLE" : "UNKNOWN";
+    physEv = nonPhysical ? ["non-physical asset: no damage mechanism applies"] : [];
+  } else {
+    var fams = ["corrosion", "cracking", "structural"];
+    var confirmed: string[] = []; var suspected: string[] = [];
+    for (var i = 0; i < fams.length; i++) {
+      var ev = classifyMechanismEvidence(fams[i], t);
+      if (ev.level === "CONFIRMED") { confirmed.push(fams[i]); }
+      else if (ev.level === "SUSPECTED") { suspected.push(fams[i]); }
+    }
+    var strongSuspected = dynamicSignalCount(t) >= 2;
+    if (confirmed.length > 0) { physical = "CONFIRMED_DAMAGE"; physEv = confirmed.slice(); }
+    else if (strongSuspected) { physical = "SUSPECTED"; physEv = ["dynamic-loading signals (" + dynamicSignalCount(t) + ")"]; }
+    else if (withinLimitsLanguage(t)) { physical = "ACCEPTABLE"; physEv = ["findings within limits / non-finding"]; }
+    else if (suspected.length > 0) { physical = "SUSPECTED"; physEv = suspected.slice(); }
+    else { physical = "UNKNOWN"; }
+  }
 
   // ASSURANCE
   var assurance: AssuranceState; var assEv: string[] = [];
@@ -117,6 +141,7 @@ export interface Reconciliation {
   authorityCodes: string[];
   governingReality: GoverningTuple;
   governingLabel: string;
+  governingStatement: string;
   physicallyAcceptableNotDispositionable: boolean;
   finalMechanism: string | null;
   finalDisposition: string;
@@ -145,7 +170,7 @@ export function reconcile(input: ReconcileInput): Reconciliation {
   conflicts = conflicts.concat(assetReduce.conflicts);
 
   // ---- AXES: deterministic floor, optionally enriched by an ok hypothesis ----
-  var det = deriveAxesDeterministic(t);
+  var det = deriveAxesDeterministic(t, finalAsset);
   var physical = det.physical, assurance = det.assurance, operational = det.operational;
   if (hypOk) {
     var hPhys = toPhysicalCondition(hyp.physicalCondition);
@@ -209,12 +234,43 @@ export function reconcile(input: ReconcileInput): Reconciliation {
   // ---- TIER-2: a surfaced asset conflict raises review ----
   if (conflicts.length > 0) { requiresHumanReview = true; }
 
+  // Human-readable governing-reality statement (FACTS/PHYSICS ONLY; no behavioral inference).
+  // This is what the live report renders as the top line - generated from the tuple, not a
+  // legacy mechanism string, so an assurance/operational reality is never laundered into "corrosion".
+  var gStmt = "";
+  var assuranceClause = (tuple.assurance === "LOST_DESIGN_BASIS")
+    ? "the design basis cannot be established (records lost)"
+    : (tuple.assurance === "UNKNOWN_STATE")
+      ? "the integrity-assurance basis cannot be established (monitoring/records/validation gaps)"
+      : (tuple.assurance === "DEGRADED") ? "the integrity-assurance basis is degraded" : "";
+  var opClause = (tuple.operational === "FLEET_PATTERN")
+    ? "a fleet-wide pattern (common change with failures across sister units) governs the risk"
+    : (tuple.operational === "CHANGED_UNREASSESSED") ? "an operating/process/software change was made without reassessment" : "";
+  if (vetoes.length && vetoes[0].type === "scope") {
+    gStmt = "Out of deterministic scope: " + vetoes[0].reason;
+  } else if (tuple.physical === "CONFIRMED_DAMAGE") {
+    gStmt = "A confirmed physical damage mechanism governs" + (finalMechanism ? " (" + finalMechanism + ")" : "") + "; run fitness-for-service per the applicable code.";
+  } else if (dualHold) {
+    gStmt = "The asset is physically acceptable on current findings, but it is NOT dispositionable: "
+      + [assuranceClause, opClause].filter(function (x) { return !!x; }).join("; ")
+      + ". The governing reality is loss of confidence in the basis for continued service (" + describeTuple(tuple) + "), not a physical damage mechanism. Disposition: restricted - reassessment/validation required before continued service can be affirmed.";
+  } else if (tuple.operational === "FLEET_PATTERN") {
+    gStmt = "A fleet-level pattern governs: " + opClause + ". The controlling risk is systemic, not a single-unit physical defect (" + describeTuple(tuple) + ").";
+  } else if (tuple.physical === "SUSPECTED") {
+    gStmt = "A suspected mechanism governs pending confirmation" + (finalMechanism ? " (" + finalMechanism + ")" : "") + (opClause ? "; " + opClause : "") + " (" + describeTuple(tuple) + "). Monitoring/inspection required; not yet a confirmed-damage disposition.";
+  } else if (tuple.physical === "UNKNOWN") {
+    gStmt = "The governing reality cannot be established from the available evidence (" + describeTuple(tuple) + "); HOLD for review.";
+  } else {
+    gStmt = "No confirmed damage mechanism governs; findings are within limits (" + describeTuple(tuple) + ").";
+  }
+
   return {
     finalAsset: finalAsset,
     finalAuthority: derived.primary,
     authorityCodes: derived.codes,
     governingReality: tuple,
     governingLabel: describeTuple(tuple),
+    governingStatement: gStmt,
     physicallyAcceptableNotDispositionable: dualHold,
     finalMechanism: finalMechanism,
     finalDisposition: disposition,

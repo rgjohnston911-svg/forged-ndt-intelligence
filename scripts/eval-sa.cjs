@@ -109,7 +109,7 @@ async function runCase(c) {
   var alBody = await post(AL, { asset_type: effectiveAsset || '', component_description: c.transcript, service_environment: lt.indexOf('sour') >= 0 || lt.indexOf('h2s') >= 0 ? 'sour' : '', damage_mechanisms: mechs, has_cracking: hasCracking, is_pressure_boundary: true, jurisdiction: '' });
   var authCodes = (alBody.authority_chain || []).map(function (a) { return a.code; });
 
-  var fmdBody = await post(FMD, { damage_mechanisms: mechs, has_cracking: hasCracking, transcript: c.transcript, wall_loss_percent: 0 });
+  var fmdBody = await post(FMD, { damage_mechanisms: mechs, has_cracking: hasCracking, transcript: c.transcript, wall_loss_percent: 0, asset_class: effectiveAsset });
   var conv = CV.detectConvergence({ transcript: c.transcript });
   var org = ORG.detectOrganizationalFailures({ transcript: c.transcript });
   var streamIds = (conv.primary_hypothesis && conv.primary_hypothesis.supporting_streams) ? conv.primary_hypothesis.supporting_streams.map(function (x) { return x.id; }) : [];
@@ -131,7 +131,7 @@ async function runCase(c) {
     (conv.primary_hypothesis ? conv.primary_hypothesis.narrative : ''), authCodes.join(' '),
     (con.consequence_basis || con.basis || []).join ? (con.consequence_basis || con.basis || []).join(' ') : ''].join(' || ').toLowerCase();
 
-  var axes = RECON.deriveAxesDeterministic(c.transcript);
+  var axes = RECON.deriveAxesDeterministic(c.transcript, cls.asset_class);
   return { classification: cls, tier: tier, disp: disp, authCodes: authCodes, grClass: gr.class, grStatement: gr.statement || '', suspected: fmdBody.suspected_governing_mechanism || [], reportText: reportText, axes: axes };
 }
 

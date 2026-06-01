@@ -30,6 +30,13 @@ var handler = async function(event: any): Promise<any> {
   try {
     var body = JSON.parse(event.body || "{}");
     var raw = (body.raw_text || body.transcript || "").toLowerCase();
+    // PHASE-447 NEGATION GUARD: a scenario that says "NOT a pressure vessel, pipeline, ..."
+    // must NOT have those negated nouns counted as positive evidence. Build a scoring copy
+    // with negation spans removed: "not"/"rather than"/"instead of" through the end of the
+    // line plus any immediately-following bullet lines. Length checks still use raw.
+    var scoringText = raw
+      .replace(/\bnot\b[^.\n]*(?:\n\s*[*\-][^\n]*)*/g, " ")
+      .replace(/\b(?:rather than|instead of|other than)\b[^.\n]*/g, " ");
 
     if (!raw || raw.length < 3) {
       return {
@@ -342,6 +349,25 @@ var handler = async function(event: any): Promise<any> {
       "pot bearing": { c: "bridge_steel", w: 9, t: "pot_bearing" },
       "rocker bearing": { c: "bridge_steel", w: 9, t: "rocker_bearing" },
 
+      // --- INSTRUMENTATION / MONITORING / INFORMATION SYSTEM (DEPLOY447) ---
+      // A confidence-generating system (analyzers, monitors, control software) is NOT a
+      // physical pressure asset; it must never route to corrosion/cracking/API 510.
+      "water quality assurance": { c: "instrumentation_monitoring", w: 10, t: "monitoring_system" },
+      "monitoring system": { c: "instrumentation_monitoring", w: 8, t: "monitoring_system" },
+      "monitoring network": { c: "instrumentation_monitoring", w: 8, t: "monitoring_system" },
+      "online analyzer": { c: "instrumentation_monitoring", w: 8, t: "analyzer" },
+      "online analyzers": { c: "instrumentation_monitoring", w: 8, t: "analyzer" },
+      "toc analyzer": { c: "instrumentation_monitoring", w: 9, t: "analyzer" },
+      "conductivity monitor": { c: "instrumentation_monitoring", w: 9, t: "analyzer" },
+      "particle counter": { c: "instrumentation_monitoring", w: 9, t: "analyzer" },
+      "sampling network": { c: "instrumentation_monitoring", w: 8, t: "sampling_network" },
+      "control software": { c: "instrumentation_monitoring", w: 7, t: "control_software" },
+      "monitoring algorithm": { c: "instrumentation_monitoring", w: 8, t: "monitoring_software" },
+      "monitoring algorithms": { c: "instrumentation_monitoring", w: 8, t: "monitoring_software" },
+      "instrumentation": { c: "instrumentation_monitoring", w: 6, t: "instrumentation" },
+      "scada": { c: "instrumentation_monitoring", w: 8, t: "scada" },
+      "ultrapure water": { c: "instrumentation_monitoring", w: 5, t: "upw_system" },
+
       // --- SUBSEA SPECIFIC ---
       "subsea": { c: "pipeline", w: 7, t: "subsea_pipeline" },
       "seabed": { c: "pipeline", w: 6, t: "subsea_pipeline" },
@@ -424,7 +450,7 @@ var handler = async function(event: any): Promise<any> {
     var alias_keys = Object.keys(ALIASES);
     for (var i = 0; i < alias_keys.length; i++) {
       var alias = alias_keys[i];
-      if (raw.indexOf(alias) !== -1) {
+      if (scoringText.indexOf(alias) !== -1) {
         var entry = ALIASES[alias];
         if (!scores[entry.c]) {
           scores[entry.c] = { score: 0, best_type: entry.t, best_weight: 0 };
@@ -444,7 +470,7 @@ var handler = async function(event: any): Promise<any> {
       var rule = CONTEXT_RULES[r];
       var all_present = true;
       for (var k = 0; k < rule.keywords.length; k++) {
-        if (raw.indexOf(rule.keywords[k]) === -1) {
+        if (scoringText.indexOf(rule.keywords[k]) === -1) {
           all_present = false;
           break;
         }
@@ -482,7 +508,7 @@ var handler = async function(event: any): Promise<any> {
     var __facilityOrEquip = (best_class === "pressure_vessel" || best_class === "heat_exchanger" || best_class === "refinery_process_facility");
     var __pipingRe = /\b(?:process piping|inlet piping|outlet piping|suction piping|discharge piping|piping|pipe header|process line|transfer line|recycle line|small[- ]bore|dead leg|injection point)\b/;
     var __componentOverride = false;
-    if (__facilityOrEquip && __pipingRe.test(raw)) {
+    if (__facilityOrEquip && __pipingRe.test(scoringText)) {
       best_class = "process_piping";
       best_type = "process_piping";
       __componentOverride = true;

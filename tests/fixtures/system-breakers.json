@@ -97,6 +97,37 @@
         "operational": "CHANGED_UNREASSESSED"
       },
       "retired_note": "Retired DEPLOY444 (Phase 6 evidence gate): HIC demoted (re-welded crack + trace H2S = no active cracking), evidenced fatigue leads. Now a hard gate."
+    },
+    {
+      "id": "BREAKER_E_monitoring_assurance",
+      "title": "E - Semiconductor UPW Water Quality Assurance System: a monitoring/information asset, NOT a physical pressure asset. Governing reality is loss of confidence in the monitoring system, NOT corrosion/heat_exchanger.",
+      "transcript": "Large semiconductor manufacturing facility. New advanced chip fabrication plant. Determine whether Ultrapure Water System UPW-7 can continue operation until the next planned outage in 9 months. The asset under review is a Water Quality Assurance System, NOT a pressure vessel, pipeline, storage tank, structural member, rotating equipment, or heat exchanger. The system consists of online analyzers, conductivity monitors, TOC analyzers, particle counters, a sampling network, and control software. Conductivity within specification. TOC within specification. Particle count within specification. Sampling network no leaks. Control hardware no faults. Backup power functional. Over 14 months water consumption increased 18 percent, production increased 17 percent, quality excursions none, alarm frequency increased 240 percent, alarm acknowledgements increased 310 percent. No equipment failures. IT database migration completed 11 months ago. Controls group modified three monitoring algorithms, documentation incomplete. Software support contract expired. Another semiconductor facility experienced a major contamination event whose root cause was a monitoring software normalization error: the sensors were functioning correctly but the software incorrectly suppressed a developing trend. No current validation of monitoring algorithms. Cybersecurity patch level 14 months behind. System viewed as low risk because water quality remains acceptable.",
+      "expect": {
+        "asset_class_in": [
+          "instrumentation_monitoring"
+        ],
+        "asset_class_not": [
+          "pressure_vessel",
+          "heat_exchanger",
+          "storage_tank",
+          "pipeline"
+        ]
+      },
+      "must_not_contain": [
+        "corrosion",
+        "heat_exchanger",
+        "API 510",
+        "API RP 2A",
+        "fatigue governs",
+        "metal loss"
+      ],
+      "axis_target_future": {
+        "physical": "ACCEPTABLE",
+        "assurance": "UNKNOWN_STATE",
+        "operational": "CHANGED_UNREASSESSED",
+        "final_principle_dual_output": true
+      },
+      "final_principle_note": "TEST 25 (GPT 3.5): the governing reality is loss of confidence in the monitoring system - physically ACCEPTABLE (all within spec) but NOT dispositionable (algorithms modified + unvalidated, support expired, patch 14mo behind). A confidence-generating system, not a physical asset; must never route to corrosion/API 510."
     }
   ]
 }

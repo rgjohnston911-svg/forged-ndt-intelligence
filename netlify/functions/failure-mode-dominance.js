@@ -440,6 +440,28 @@ var handler = async function(event) {
     var hasDeformation = body.has_deformation || false;
     var assetClass = (body.asset_class || "").toLowerCase().trim();
 
+    // DEPLOY447 - NON-PHYSICAL ASSET GUARD: a confidence-generating system (analyzers,
+    // monitors, control software) has NO physical damage mechanism. FMD must NOT manufacture
+    // corrosion/cracking/fatigue/structural for it. The governing reality for such assets is
+    // a system/assurance question, decided by the reconciliation layer - not a physical mode.
+    var NON_PHYSICAL_FMD = { "instrumentation_monitoring": true, "information_system": true, "control_system": true, "monitoring_system": true };
+    if (NON_PHYSICAL_FMD[assetClass]) {
+      return { statusCode: 200, headers: headers, body: JSON.stringify({
+        governing_failure_mode: "NONE",
+        governing_failure_pressure: null,
+        governing_severity: "none",
+        governing_basis: "Non-physical asset (monitoring / information / control system): no physical damage mechanism applies. The governing reality is system/assurance (trustworthiness of the monitoring), assessed by the reconciliation layer - not corrosion, cracking, fatigue, or structural.",
+        confirmed_governing_mechanism: null,
+        suspected_governing_mechanism: [],
+        disposition_driver: "Monitoring/assurance integrity - not a physical failure mode.",
+        governing_code_reference: "Non-physical asset: instrumentation & control assurance (ISA-18.2 / IEC 62443), not a metallurgical FFS code.",
+        interaction_flag: false,
+        screening_gate: null,
+        mechanism_count: 0,
+        metadata: { engine: "failure-mode-dominance", non_physical_asset: true, asset_class: assetClass }
+      }) };
+    }
+
     // ====================================================================
     // CLASSIFY EACH MECHANISM INTO FAILURE MODE CATEGORY
     // ====================================================================

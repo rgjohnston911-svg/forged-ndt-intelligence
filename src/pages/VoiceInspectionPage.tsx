@@ -1,3 +1,4 @@
+// DEPLOY448 -- src/pages/VoiceInspectionPage.tsx v16.7 (Governing-Reality cutover: banner reads from reconciliation tuple)
 // DEPLOY176 -- src/pages/VoiceInspectionPage.tsx v16.6m
 // v16.6m: HARD CONFIDENCE GATE + FORCED REALITY ENFORCEMENT LAYER
 //
@@ -60,6 +61,7 @@ import PhotoAnalysisCard from "../PhotoAnalysisCard";
 import { supabase } from "../lib/supabase";
 import { extractFields } from "../lib/fieldExtraction";
 import { resolveGoverningReality } from "../lib/governingReality";
+import { reconcile } from "../lib/reconciliationLayer";
 
 // ============================================================================
 // DEPLOY170: NPS SCHEDULE TABLE (ASME B36.10M)
@@ -630,7 +632,35 @@ function generateInspectionReport(data: {
       futureNextInterventionMonths: (typeof __fs.next_intervention_months === "number") ? __fs.next_intervention_months : null,
       transcript: data.transcript || ""
     });
-    if (__gr && __gr.governs) {
+    // DEPLOY448 CUTOVER - the Governing Reality top line now reads from the reconciliation
+    // layer (three-axis tuple), NOT the legacy mechanism string. This is the integration step:
+    // the correct answer the eval validates now actually reaches the rendered report. The legacy
+    // arbiter is retained only as a small supporting line. Facts/physics only.
+    var __recon: any = null;
+    try {
+      var __aCls = (data.asset && (data.asset.asset_class || (data.asset as any).value)) || "unknown";
+      var __aConf = (data.asset && typeof data.asset.confidence === "number") ? data.asset.confidence : 0.7;
+      var __aDef = !!(data.asset && (data.asset as any).isDefault);
+      var __cited: string[] = [];
+      if (alr && alr.authority_chain) { __cited = alr.authority_chain.map(function (a: any) { return a.code; }); }
+      __recon = reconcile({
+        transcript: data.transcript || "",
+        assetClaims: [{ value: __aCls, confidence: __aConf, kind: __aDef ? "default" : "explicit-asset", isDefault: __aDef }],
+        citedCodes: __cited
+      });
+    } catch (eRec) { __recon = null; }
+
+    if (__recon && __recon.governingStatement) {
+      html += "<div class='section'><div class='section-title'>Governing Reality</div>";
+      html += "<div class='banner' style='background:#111827'>" + esc(__recon.governingStatement) + "</div>";
+      html += "<div class='info-row'><span class='info-label'>Governing tuple</span><span class='info-value'>" + esc(String(__recon.governingLabel)) + "</span></div>";
+      html += "<div class='info-row'><span class='info-label'>Disposition</span><span class='info-value'>" + esc(String(__recon.finalDisposition)) + "</span></div>";
+      if (__recon.requiresHumanReview) { html += "<div style='font-size:10px;color:#b45309;margin-top:2px;'>Reconciliation flag: requires human review</div>"; }
+      for (var __vi = 0; __vi < (__recon.vetoes || []).length; __vi++) { html += "<div style='font-size:10px;color:#6b7280;margin-top:2px;'>- veto: " + esc(String(__recon.vetoes[__vi].reason)) + "</div>"; }
+      for (var __ci = 0; __ci < (__recon.conflicts || []).length; __ci++) { html += "<div style='font-size:10px;color:#6b7280;margin-top:2px;'>- conflict: " + esc(String((__recon.conflicts[__ci].reasons || []).join(' '))) + "</div>"; }
+      if (__gr && __gr.governs && __gr.statement) { html += "<div style='font-size:10px;color:#9ca3af;margin-top:4px;'>Legacy arbiter (supporting): " + esc(__gr.statement) + "</div>"; }
+      html += "</div>";
+    } else if (__gr && __gr.governs) {
       html += "<div class='section'><div class='section-title'>Governing Reality</div>";
       html += "<div class='banner' style='background:#111827'>" + esc(__gr.statement) + "</div>";
       if (__gr.disposition_driver) { html += "<div class='info-row'><span class='info-label'>Disposition driver</span><span class='info-value'>" + esc(String(__gr.disposition_driver)) + "</span></div>"; }
