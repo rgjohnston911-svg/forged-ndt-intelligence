@@ -1035,6 +1035,51 @@ var handler = async function(event) {
     }
 
     // ====================================================================
+    // DEPLOY452 - MECHANISM-COMPULSION GATE (GPT Rule 1/2). A CONFIRMED governing
+    // mechanism must rest on DIRECT, non-negated evidence in the transcript. If the chosen
+    // mode is supported only by negated / within-limits non-findings ("no distortion",
+    // "no crack", "within design limits", "corrosion rate stable"), DOWNGRADE to NONE. The
+    // system MUST be allowed to conclude "no confirmed damage mechanism established" rather
+    // than manufacture corrosion / cracking / structural instability. Facts only.
+    (function () {
+      if (governingMode === "NONE" || governingMode === "SCREENING_REQUIRED") { return; }
+      function clausePositive(re) {
+        var sents = transcript.split(/\.\s+|[;\n]+/);
+        for (var i = 0; i < sents.length; i++) {
+          var sent = sents[i]; var pos = sent.search(re);
+          if (pos < 0) { continue; }
+          if (/within (?:design )?(?:limit|allowable|tolerance)|\b(?:normal|acceptable|stable|unchanged|satisfactory)\b|below (?:the )?(?:concern|allowable|threshold|limit)/.test(sent)) { continue; }
+          var before = sent.slice(0, pos); var lc = before.lastIndexOf(","); var clause = (lc >= 0) ? before.slice(lc + 1) : before;
+          if (/\b(?:no|not|without|never|none)\b/.test(clause)) { continue; }
+          return true;
+        }
+        return false;
+      }
+      var DIRECT_CORR = /measured wall loss|\d+(?:\.\d+)?\s*%\s*(?:wall|metal)?\s*loss|wall loss of \d|remaining wall \d|corrosion (?:product|scale|observed|confirmed|measured)|pit(?:ting)? depth \d|accelerated thinning|measured (?:corrosion )?rate of \d/i;
+      var DIRECT_CRACK = /\b(?:ut|paut|tofd|mt|mpi|pt|rt|ae)\b[^.]{0,40}(?:crack|indication|flaw|linear)|crack(?:ing)?\s+(?:indication|detected|confirmed|observed|found|located)|through-wall crack|active crack growth|fracture\s+(?:observed|confirmed|found)/i;
+      var DIRECT_STRUCT = /settlement[^.]{0,40}(?:exceed|beyond|above)\s+(?:the\s+)?allowable|differential settlement|buckl(?:ed|ing)|failed support|yielded|out-of-plumb\s+\d|measured\s+(?:deformation|distortion|tilt|out-of-round)|collapse|progressive\s+(?:movement|tilt|distortion)/i;
+      var evidenced = false;
+      if (governingMode === "CORROSION") { evidenced = clausePositive(DIRECT_CORR); }
+      else if (governingMode === "CRACKING") { evidenced = clausePositive(DIRECT_CRACK); }
+      else if (governingMode === "STRUCTURAL_INSTABILITY") { evidenced = clausePositive(DIRECT_STRUCT); }
+      else if (governingMode === "COMPOUND") { evidenced = clausePositive(DIRECT_CORR) || clausePositive(DIRECT_CRACK); }
+      else { evidenced = true; }
+      if (!evidenced) {
+        governingMode = "NONE";
+        governingSeverity = "none";
+        governingBasis = "No confirmed damage mechanism established: the chosen mechanism rested only on negated or within-limits non-findings, with no direct supporting evidence in the account. Per the evidence rule, no physical mechanism is manufactured. The governing reality (e.g. regulatory / assurance / operational) is determined by the reconciliation layer, not a fabricated damage mode.";
+        governingCode = "No FFS code applies - no confirmed damage mechanism. See Governing Reality.";
+        if (typeof structuralPath !== "undefined" && structuralPath) {
+          structuralPath.active = false;
+          structuralPath.severity = "none";
+          structuralPath.capacity_loss_state = "none";
+          structuralPath.notes = ["Downgraded: no direct, non-negated structural evidence in the account."];
+          if (structuralPath.indicators) { structuralPath.indicators.tilt = false; structuralPath.indicators.settlement = false; structuralPath.indicators.buckling = false; structuralPath.indicators.deformation = false; }
+        }
+      }
+    })();
+
+    // ====================================================================
     // PHASE 6 - EVIDENCE GATE (re-rank the SUSPECTED list by direct/indirect
     // evidence). This does NOT touch the FMD screening weights; it constrains the
     // OUTPUT so a Tier-2 keyword guess (e.g. HIC off trace H2S + a re-welded crack)
