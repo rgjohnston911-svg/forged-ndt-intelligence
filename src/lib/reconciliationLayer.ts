@@ -230,6 +230,15 @@ export function reconcile(input: ReconcileInput): Reconciliation {
   else if (physical === "CONFIRMED_DAMAGE") { disposition = "fitness_for_service_required"; }
   else if (assuranceGoverns) { disposition = "restricted_reassessment_required"; requiresHumanReview = true; }
   else if (dualHold) { disposition = "restricted_reassessment_required"; }
+  // DEPLOY453 (FLEET_PATTERN stopgap) - a fleet-wide pattern (common change + failures
+  // across sister units) is an adverse operational reality that GOVERNS over a clean
+  // physical pass. The governing-statement block already says "a fleet-level pattern
+  // governs"; without this branch the disposition fell through to continue_with_conditions,
+  // contradicting its own statement. Placed to mirror the statement ordering (after dualHold,
+  // before SUSPECTED). NOTE: this is a hand-maintained enumeration patch; the governance
+  // contest (governancePipeline.ts) deletes it by construction - an adverse operational bid
+  // governs uniformly there, so FLEET_PATTERN needs no special-casing once the contest lands.
+  else if (operational === "FLEET_PATTERN") { disposition = "restricted_reassessment_required"; requiresHumanReview = true; }
   else if (physical === "SUSPECTED") { disposition = "monitor_and_inspect"; }
   else if (physical === "UNKNOWN") { disposition = "hold_for_review"; }
   else { disposition = "continue_with_conditions"; }

@@ -67,6 +67,14 @@ ok(!/\bcorrosion\b/i.test(sF), "flare-gas statement does NOT say corrosion");
 var sC = R.reconcile({ transcript: txt("BREAKER_C_software_fleet_failure"), assetClaims:[{value:"wind_turbine",confidence:0.9,kind:"explicit-asset"}] }).governingStatement;
 ok(/fleet/i.test(sC) && !/\bcorrosion\b/i.test(sC), "fleet statement is systemic, not corrosion");
 
+// ---- DEPLOY453 FLEET_PATTERN disposition stopgap: a fleet pattern GOVERNS over a clean
+// physical pass; disposition must match the "fleet governs" statement (not continue). ----
+var hypFleet = { meta: { ok: true }, asset: { value: 'wind_turbine', confidence: 0.9 }, physicalCondition: 'ACCEPTABLE', assuranceState: 'ESTABLISHED', operationalChange: 'FLEET_PATTERN' };
+var recFleet = R.reconcile({ transcript: 'three sister turbines, common software change, two gearbox failures across the fleet, third shows same signature; no corrosion, no tilt', hypothesis: hypFleet, assetClaims: [{ value: 'wind_turbine', confidence: 0.9, kind: 'explicit-asset' }], aggregateConfidence: 0.85 });
+ok(recFleet.governingReality.operational === 'FLEET_PATTERN', 'FLEET stopgap: operational axis is FLEET_PATTERN (got ' + recFleet.governingReality.operational + ')');
+ok(recFleet.finalDisposition === 'restricted_reassessment_required', 'FLEET stopgap: disposition governs (restricted_reassessment_required), NOT continue (got ' + recFleet.finalDisposition + ')');
+ok(/fleet/i.test(recFleet.governingStatement), 'FLEET stopgap: statement and disposition agree (statement names fleet)');
+
 fs.rmSync(tmp, { recursive: true, force: true });
 if (fails.length) { console.log('FAIL reconciliation-layer: ' + fails.length); fails.forEach(function (f) { console.log('   - ' + f); }); process.exit(1); }
 console.log('All reconciliation-layer Phases 8+9 checks passed (' + pass + ' assertions: deterministic axis floor for all breakers, FINAL PRINCIPLE end-to-end, Tier-1 evidence/consistency/scope/confidence vetoes, conflict surfacing).');
