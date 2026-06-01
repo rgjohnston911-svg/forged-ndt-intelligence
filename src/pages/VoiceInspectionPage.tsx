@@ -1,3 +1,4 @@
+// DEPLOY451 -- src/pages/VoiceInspectionPage.tsx v16.8 (RAE render cutover: Role Authority panel replaces stakeholder wants/bias/org-score)
 // DEPLOY448 -- src/pages/VoiceInspectionPage.tsx v16.7 (Governing-Reality cutover: banner reads from reconciliation tuple)
 // DEPLOY176 -- src/pages/VoiceInspectionPage.tsx v16.6m
 // v16.6m: HARD CONFIDENCE GATE + FORCED REALITY ENFORCEMENT LAYER
@@ -62,6 +63,7 @@ import { supabase } from "../lib/supabase";
 import { extractFields } from "../lib/fieldExtraction";
 import { resolveGoverningReality } from "../lib/governingReality";
 import { reconcile } from "../lib/reconciliationLayer";
+import { analyzeRoleAuthority } from "../lib/roleAuthority";
 
 // ============================================================================
 // DEPLOY170: NPS SCHEDULE TABLE (ASME B36.10M)
@@ -669,6 +671,20 @@ function generateInspectionReport(data: {
     }
   } catch (e) { /* governing-reality is additive; never block the report */ }
 
+    // DEPLOY451 (RAE) - role authority + cross-discipline conflict, computed once from the
+    // already-derived facts (no inference). Roles are authority domains, not people.
+    var __ra: any = null;
+    try {
+      __ra = analyzeRoleAuthority({
+        transcript: data.transcript || "",
+        confirmedMechanism: (fmd && fmd.confirmed_governing_mechanism) ? fmd.confirmed_governing_mechanism : null,
+        hardLockCount: (dec && dec.hard_locks) ? dec.hard_locks.length : 0,
+        consequenceTier: (con && con.consequence_tier) ? con.consequence_tier : "",
+        physical: (typeof __recon !== "undefined" && __recon && __recon.governingReality) ? __recon.governingReality.physical : "",
+        authorityCodes: (alr && alr.authority_chain) ? alr.authority_chain.map(function (a: any) { return a.code; }) : []
+      });
+    } catch (eRA) { __ra = null; }
+
   if (fmd) {
     html += "<div class='section'>";
     html += "<div class='section-title'>Failure Mode Dominance</div>";
@@ -718,11 +734,11 @@ function generateInspectionReport(data: {
     // mechanism governs (or only a minor indication) but the organizational-failure
     // detector fires, the disposition is governed by asset-integrity assurance failure,
     // not a physical mechanism. Replaces a misleading bare 'GOVERNING: NONE'.
-    var orgF = data.situationalAwarenessPackage && data.situationalAwarenessPackage.organizationalFailures;
-    if (orgF && (orgF.organizational_failure_score >= 5 || (orgF.indicators && orgF.indicators.length >= 2))) {
-      var noActiveMech = !fmd.governing_failure_mode || fmd.governing_failure_mode === "NONE";
-      var orgVerb = noActiveMech ? "DISPOSITION GOVERNED BY" : "DISPOSITION ALSO GOVERNED BY";
-      html += "<div class='banner' style='background:#7e22ce'>" + orgVerb + ": asset-integrity assurance gap - documented deferred reviews / incomplete reviews / missing MOC (org risk " + esc(String(orgF.organizational_failure_score)) + "/10)" + (noActiveMech ? " - no active damage mechanism governs from the minor indication; the governing risk is unknown asset condition from documented assurance gaps (incomplete reviews / missing MOC)." : ".") + "</div>";
+    // DEPLOY451 (RAE) - org-risk SCORE banner removed (no manufactured 0-10 score). Assurance
+    // gaps now reach the governing-reality banner via the reconciliation assurance axis; here we
+    // surface only a falsifiable COUNT of cross-discipline authority conflicts + escalation.
+    if (__ra && __ra.escalation_required) {
+      html += "<div class='banner' style='background:#7e22ce'>CROSS-DISCIPLINE AUTHORITY: " + esc(String(__ra.conflict_count)) + " conflict(s) across in-authority roles. " + esc(String(__ra.resolution)) + "</div>";
     }
     if (fmd.governing_severity) html += "<div class='info-row'><span class='info-label'>Severity</span><span class='info-value'>" + esc(fmd.governing_severity) + "</span></div>";
     if (fmd.governing_failure_pressure) html += "<div class='info-row'><span class='info-label'>Failure Pressure</span><span class='info-value'>" + esc(fmd.governing_failure_pressure) + " psi</span></div>";
@@ -1206,17 +1222,23 @@ function generateInspectionReport(data: {
         html += "<div style='font-size:10px;color:#6b7280;padding:2px 0;'>- " + esc((sac.between || []).join(" vs ")) + " [" + esc(sac.axis) + "] " + esc(sac.severity) + "</div>";
       }
     }
-    if (cm.decision_contamination_flags && cm.decision_contamination_flags.length > 0) {
-      for (var safi = 0; safi < cm.decision_contamination_flags.length; safi++) {
-        var saf = cm.decision_contamination_flags[safi];
-        html += "<div class='gap-item'>Contamination: " + esc(saf.stakeholder) + " - " + esc(saf.type) + " (" + esc(saf.severity) + ")</div>";
+    // DEPLOY451 (RAE) - decision-contamination (bias) flags removed: no human-behavior modeling.
+    // DEPLOY451 (RAE) - Role Authority panel replaces "Stakeholder Positions". Roles are
+    // authority domains: each emits a code-anchored conclusion or OUTSIDE_AUTHORITY. No wants/bias.
+    if (__ra && __ra.roles && __ra.roles.length > 0) {
+      html += "<div style='margin-top:8px;font-weight:700;font-size:11px;'>Role Authority (code-anchored conclusions)</div>";
+      for (var rai = 0; rai < __ra.roles.length; rai++) {
+        var rr = __ra.roles[rai];
+        var rval = rr.within_authority ? (esc(String(rr.conclusion)) + (rr.code_cited ? " [" + esc(String(rr.code_cited)) + "]" : "")) : ("Outside Authority - escalate to " + esc(String(rr.escalation)));
+        html += "<div class='info-row'><span class='info-label'>" + esc(String(rr.role)) + "</span><span class='info-value'>" + rval + "</span></div>";
       }
-    }
-    if (sap.stakeholderViews && sap.stakeholderViews.length > 0) {
-      html += "<div style='margin-top:8px;font-weight:700;font-size:11px;'>Stakeholder Positions</div>";
-      for (var savi = 0; savi < sap.stakeholderViews.length; savi++) {
-        var sav = sap.stakeholderViews[savi];
-        html += "<div class='info-row'><span class='info-label'>" + esc(sav.role) + "</span><span class='info-value'>" + esc(sav.what_they_want) + "</span></div>";
+      if (__ra.conflict_count > 0) {
+        html += "<div style='margin-top:6px;font-weight:700;font-size:11px;color:#991b1b;'>Cross-Discipline Conflicts: " + esc(String(__ra.conflict_count)) + "</div>";
+        for (var rci = 0; rci < __ra.conflict_list.length; rci++) {
+          var rc = __ra.conflict_list[rci];
+          html += "<div class='gap-item'>" + esc(String(rc.role_a)) + " (" + esc(String(rc.conclusion_a)) + " / " + esc(String(rc.code_a)) + ") " + esc(String(rc.divergence)) + " " + esc(String(rc.role_b)) + " (" + esc(String(rc.conclusion_b)) + " / " + esc(String(rc.code_b)) + ")</div>";
+        }
+        html += "<div style='font-size:10px;color:#374151;margin-top:2px;'>" + esc(String(__ra.resolution)) + "</div>";
       }
     }
     if (sap.consequenceScenarios && sap.consequenceScenarios.length > 0) {
@@ -1235,15 +1257,9 @@ function generateInspectionReport(data: {
         }
       }
     }
-    if (sap.organizationalFailures && sap.organizationalFailures.indicators && sap.organizationalFailures.indicators.length > 0) {
-      var orgf = sap.organizationalFailures;
-      html += "<div style='margin-top:8px;font-weight:700;font-size:11px;color:#991b1b;'>Organizational Risk (score " + esc(String(orgf.organizational_failure_score)) + "/10)</div>";
-      html += "<div style='font-size:10px;color:#374151;margin-bottom:4px;'>" + esc(orgf.summary) + "</div>";
-      for (var ofi = 0; ofi < orgf.indicators.length; ofi++) {
-        var oind = orgf.indicators[ofi];
-        html += "<div class='gap-item'>[" + esc(oind.severity) + "] " + esc(String(oind.id).replace(/_/g, " ")) + " - " + esc(String(oind.category).replace(/_/g, " ")) + "</div>";
-      }
-    }
+    // DEPLOY451 (RAE) - Organizational Risk SCORE block removed (no 0-10 score). The measurable
+    // facts (deferred maintenance, missing MOC, etc.) route to the assurance/operational axes per
+    // directive 3.7 and surface in the reconciliation governing-reality banner, never as a score.
     if (sap.convergence && sap.convergence.convergence_count >= 2 && sap.convergence.primary_hypothesis) {
       var cvg = sap.convergence;
       html += "<div style='margin-top:8px;font-weight:700;font-size:11px;color:#92400e;'>Convergence (score " + esc(String(cvg.convergence_score)) + "/10)</div>";
