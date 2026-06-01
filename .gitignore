@@ -31,3 +31,4 @@ tests/*.cjs
 !tests/*.test.cjs
 # OneDrive-locked canary from DEPLOY419 gate verification (delete from Windows: del tests\_canary.test.cjs)
 tests/_canary.test.cjs
+tsconfig.tsbuildinfo
