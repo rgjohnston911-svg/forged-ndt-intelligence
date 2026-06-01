@@ -179,6 +179,32 @@
         ]
       },
       "must_not_contain": []
+    },
+    {
+      "id": "T19_power_grid_emergent_instability",
+      "title": "TEST 19 - 500kV grid: emergent network instability, no failed asset (cross-domain SYSTEM_DRIFT generalization)",
+      "asset_class": "unknown",
+      "transcript": "National electrical grid 500 kV transmission corridor connecting nuclear gas solar wind battery storage. No blackout no equipment failures no relay trips no regulatory violations, grid reliability compliant. Grid stability analytics platform reports system resilience margin declining for 11 consecutive months, no specific asset identified. Substation infrared no hotspots, DGA transformer healthy, breaker timing within limits, drone inspection no conductor damage. Renewable penetration increased 22 to 49 percent over 3 years. Battery storage installations increased 340 percent. Peak demand increased 11 percent. Near-miss relay interventions previous year 4 current year 29 no outages. Frequency corrections increased 3x over two years, automatic balancing systems working harder. Grid optimization AI deployed 14 months ago, automatic dispatch software upgraded 9 months ago, operators report system is becoming harder to predict. Inter-control-center communications latency increased 18 percent, several temporary communication failures. Senior grid stability engineer retired position remains vacant, average operator experience 12.4 to 6.1 years. Significant increase in automated control interactions, machine-to-machine commands, autonomous dispatch actions. Real-time power trading activity increased 280 percent, optimization algorithms thousands of dispatch decisions per hour. Grid analytics engine reports emergent network behavior increasing confidence 94 percent. Every discipline reports healthy, no group believes there is a problem.",
+      "expect": {
+        "governing_class": "SYSTEM_DRIFT_NO_MECHANISM",
+        "governing_statement_contains": [
+          "operating envelope"
+        ]
+      },
+      "must_not_contain": []
+    },
+    {
+      "id": "T20_ammonia_terminal_fatigue_over_structural",
+      "title": "TEST 20 - ammonia terminal: vibration-induced fatigue governs over structural single-mode (settlement is the cause)",
+      "asset_class": "piping",
+      "transcript": "Port of Santos ammonia export terminal, 16-inch cryogenic ammonia transfer line. UT lowest measured 0.394 minimum required 0.340 acceptable by code corrosion rate stable no leak. PT loading arm swivel two linear indications acceptable. Berth dolphins coating breakdown 30 percent localized corrosion 1-2 mm no structural concern. Subsea ROV one pipeline support slightly tilted 6 degrees no apparent damage. Operators report the line vibrates significantly during compressor startup, no vibration monitoring data exists. Design originally 3 startup cycles per week, new operating model 22 startup cycles per week, no fatigue reassessment performed. Startup cooldown reduced 12 hours to 4 hours no revised thermal stress analysis. Recent dredging seabed settlement near subsea support, the tilted support sits within the settlement area. Five years ago a nearly identical transfer line experienced fatigue cracking at the support location following increased startup frequency, vibration-induced fatigue not corrosion. Tropical storm within 72 hours wave height increase, loading on dolphins mooring subsea structures.",
+      "expect": {
+        "governing_class": "CONVERGENT_MECHANISM_GOVERNS",
+        "governing_statement_contains": [
+          "vibration-induced fatigue"
+        ]
+      },
+      "must_not_contain": []
     }
   ]
 }

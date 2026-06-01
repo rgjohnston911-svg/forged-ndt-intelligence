@@ -62,20 +62,34 @@ var OPERATIONAL_CHANGE_FACTS: Array<{ re: RegExp; fact: string }> = [
   { re: /throughput increased|charge rate (?:increase|raised)|rate increased|reinjection rates increased|revamp|increased severity|increased flow|higher rate/i, fact: "operating duty / throughput increased" }
 ];
 
-// Control / network-behaviour drift signals (documented facts only). A cluster of
-// these with NO confirmed material defect means the governing reality is loss of the
-// validated operating envelope - not a damage mechanism (TEST 17/18).
+// Control / network-behaviour drift signals (documented facts only, DOMAIN-AGNOSTIC).
+// A cluster of >=3 of these with NO confirmed material defect means the governing
+// reality is loss of the validated operating envelope - not a damage mechanism
+// (TEST 17 hub / TEST 18 hydrogen network / TEST 19 power grid). Facts only.
 var SYSTEM_DRIFT_SIGNALS: Array<{ re: RegExp; fact: string }> = [
-  { re: /instability index|stability index/i, fact: "a rising system-stability index" },
-  { re: /cross-unit|cross-domain|cross unit|cross domain/i, fact: "rising cross-unit / cross-domain correlation" },
-  { re: /correlation (?:increasing|confidence|rising)|correlation.{0,15}(?:increasing|\d{2}%)/i, fact: "rising behavioural correlation across systems" },
-  { re: /\bapc\b|advanced process control|optimization software|optimisation software|network optimization|network optimisation/i, fact: "an advanced-process-control / optimization software change" },
-  { re: /control loops?[^.]{0,25}(?:adjust|hunt)|hunts more|continuously adjusting|loop hunting|system .?hunts/i, fact: "control loops hunting / continuously adjusting" },
-  { re: /anti-?surge|surge event/i, fact: "increased anti-surge / surge activity" },
-  { re: /analy[sz]ers?[^.]{0,30}(?:disagree|differ|disagreement)|disagreement[^.]{0,20}analy[sz]er|intermittent disagreement/i, fact: "analyzer disagreement (conflicting measured reality)" },
-  { re: /no single owner|ownership[^.]{0,20}(?:distributed|gap|unclear)|position eliminated|no group (?:believes|owns)|no.{0,5}owner/i, fact: "loss of single-system ownership" },
-  { re: /machine learning|ml anomaly|analytics engine|anomaly detection|ml (?:output|alert|warning)/i, fact: "an ML / analytics cross-correlation alert" }
+  { re: /instability index|stability index|resilience margin|stability margin|resilience[^.]{0,20}declin|margin[^.]{0,15}declin/i, fact: "a declining system stability / resilience margin" },
+  { re: /emergent[^.]{0,15}behaviou?r|cross-unit|cross-domain|cross unit|cross domain|behaviou?r correlation|correlation (?:increasing|confidence|rising)|correlation[^.]{0,15}(?:increasing|\d{2}\s*%)/i, fact: "rising emergent / cross-system correlated behaviour" },
+  { re: /\bapc\b|advanced process control|optimization (?:software|ai|algorithm)|optimisation (?:software|ai|algorithm)|network optimization|network optimisation|dispatch software|automatic dispatch|autonomous dispatch|machine-to-machine|automated control interaction/i, fact: "an optimization / automated-dispatch software change" },
+  { re: /control loops?[^.]{0,25}(?:adjust|hunt)|hunts more|continuously adjusting|loop hunting|harder to predict|frequency correction|near-?miss[^.]{0,25}(?:relay|intervention)|balancing[^.]{0,18}harder|anti-?surge|surge event/i, fact: "control-instability proxies (hunting / corrections / near-miss interventions / surge)" },
+  { re: /analy[sz]ers?[^.]{0,30}(?:disagree|differ|disagreement)|intermittent disagreement|latency increased|communication failure|comms? failure/i, fact: "conflicting measured reality / degraded comms" },
+  { re: /no single owner|ownership[^.]{0,20}(?:distributed|gap|unclear)|position (?:eliminated|vacant|remains vacant)|no group (?:believes|owns)|distributed among|operator experience[^.]{0,20}(?:declin|to \d)|no[^.]{0,5}owner/i, fact: "loss of single-system ownership / experienced personnel" },
+  { re: /machine learning|ml anomaly|analytics engine|analytics platform|anomaly detection|ml (?:output|alert|warning|finding)/i, fact: "an ML / analytics cross-correlation alert" },
+  { re: /renewable penetration increased|penetration increased[^.]{0,12}\d|trading activity increased|autonomous|automated (?:control|dispatch)/i, fact: "a documented operating-regime change (automation / penetration / market activity)" }
 ];
+
+// Convergence hypothesis id -> readable mechanism name + the FMD-mode "family" it
+// belongs to (so a single-mode FMD finding of a DIFFERENT family is named a
+// contributing cause, not the governing mechanism).
+var CONV_MECH_NAME: { [k: string]: string } = {
+  VIBRATION_INDUCED_FATIGUE: "vibration-induced fatigue",
+  MECHANICAL_DISPLACEMENT_DRIVEN_INTEGRITY_LOSS: "external mechanical-displacement-driven integrity loss",
+  INTERNAL_CORROSION_PROGRESSION: "internal corrosion progression"
+};
+var CONV_FAMILY: { [k: string]: string } = {
+  VIBRATION_INDUCED_FATIGUE: "FATIGUE",
+  MECHANICAL_DISPLACEMENT_DRIVEN_INTEGRITY_LOSS: "STRUCTURAL",
+  INTERNAL_CORROSION_PROGRESSION: "CORROSION"
+};
 
 function has(re: RegExp, t: string): boolean { return re.test(t); }
 function nz(s: string | null | undefined): string { return (s == null) ? "" : String(s); }
@@ -207,6 +221,33 @@ export function resolveGoverningReality(input: GoverningRealityInput): Governing
       governs: true,
       statement: "Governing reality: documented integrity-assurance gaps (deferred inspections / incomplete reviews / missing MOC) govern — the asset's current condition is not assured by the management-of-integrity record. No specific damage mechanism is the controlling risk.",
       disposition_driver: i.dispositionDriver || "assurance-gap",
+      contributing: contributing,
+      provenance: provenance
+    };
+  }
+
+  // 5b. CONVERGENT MECHANISM GOVERNS - a strong multi-stream convergence hypothesis
+  //     (>= 3 independent streams) names the governing MECHANISM and outranks a
+  //     single-mode FMD finding. When the FMD single mode is a DIFFERENT family
+  //     (e.g. structural instability from a tilt) it is a contributing CAUSE, not
+  //     the governing mechanism (TEST 20: settlement/tilt is the cause; vibration-
+  //     induced fatigue is the mechanism). Convergence draws on many independent
+  //     streams, so it is the more trustworthy basis for the governing mechanism.
+  if (convId && streamIds.length >= 3 && CONV_MECH_NAME[convId]) {
+    var mechName = CONV_MECH_NAME[convId];
+    var fmdMode = nz(i.governingFailureMode);
+    var differs = fmdMode && fmdMode !== "NONE" && up(fmdMode).indexOf(CONV_FAMILY[convId] || "___NONE___") < 0;
+    provenance.push("convergence: " + streamIds.length + " independent streams -> " + convId);
+    var stmt2 = "Governing reality: " + mechName + " governs, supported by " + streamIds.length + " independent converging evidence streams.";
+    if (differs) {
+      contributing.push("Single-mode inspection finding (" + fmdMode.replace(/_/g, " ").toLowerCase() + ") is a contributing CAUSE, not the governing mechanism");
+      stmt2 += " The single-mode inspection finding (" + fmdMode.replace(/_/g, " ").toLowerCase() + ") is a contributing cause, not the governing mechanism.";
+    }
+    return {
+      class: "CONVERGENT_MECHANISM_GOVERNS",
+      governs: true,
+      statement: stmt2,
+      disposition_driver: i.dispositionDriver || mechName,
       contributing: contributing,
       provenance: provenance
     };
