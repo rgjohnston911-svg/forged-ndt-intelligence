@@ -86,7 +86,7 @@ async function runCase(c) {
     (conv.primary_hypothesis ? conv.primary_hypothesis.narrative : ''), authCodes.join(' '),
     (con.consequence_basis || con.basis || []).join ? (con.consequence_basis || con.basis || []).join(' ') : ''].join(' || ').toLowerCase();
 
-  return { tier: tier, disp: disp, authCodes: authCodes, grClass: gr.class, suspected: fmdBody.suspected_governing_mechanism || [], reportText: reportText };
+  return { tier: tier, disp: disp, authCodes: authCodes, grClass: gr.class, grStatement: gr.statement || '', suspected: fmdBody.suspected_governing_mechanism || [], reportText: reportText };
 }
 
 var data = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/fixtures/sa-eval-cases.json'), 'utf8'));
@@ -103,6 +103,7 @@ var behavioral = data.behavioral_guard || [];
       if (e.consequence_tier_in && e.consequence_tier_in.indexOf(r.tier) < 0) fails.push('consequence tier ' + r.tier + ' not in ' + JSON.stringify(e.consequence_tier_in));
       if (e.consequence_tier_not && e.consequence_tier_not.indexOf(r.tier) >= 0) fails.push('consequence tier ' + r.tier + ' must NOT be ' + JSON.stringify(e.consequence_tier_not));
       if (e.governing_class && r.grClass !== e.governing_class) fails.push('governing class ' + r.grClass + ' != ' + e.governing_class);
+      if (e.governing_statement_contains) e.governing_statement_contains.forEach(function (ph) { if (!wbContains(r.grStatement, ph)) fails.push('governing statement should contain "' + ph + '" (got: ' + r.grStatement.slice(0, 80) + '...)'); });
       if (e.disposition && r.disp !== e.disposition) fails.push('disposition ' + r.disp + ' != ' + e.disposition);
       (c.must_contain || []).forEach(function (s) { if (!wbContains(r.reportText, s)) fails.push('MISSING: report should contain "' + s + '"'); });
       if (e.suspected_leads && (String((r.suspected[0] || '')).toLowerCase() !== e.suspected_leads.toLowerCase())) fails.push('suspected-governing should LEAD with ' + e.suspected_leads + ' (got ' + JSON.stringify(r.suspected) + ')');

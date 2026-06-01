@@ -156,16 +156,29 @@
       "asset_class": "piping",
       "transcript": "Deepwater semi-submersible production hub 19 years, 14 subsea wells, oil export gas lift produced-water reinjection subsea boosting. No alarms no leaks no trips production online. 11 unrelated anomalies across different systems dispositioned independently, no common cause investigation. Produced water reinjection header 36-inch carbon steel UT remaining wall above minimum, corrosion rate stable, acceptable. Gas lift riser minor coating damage, no metal loss, no exposed steel. Subsea flowline pressure excursions increasing within design limits. Subsea booster pump vibration increased 18 percent below alarm. Gas compression three surge events. Mooring line utilization increased 52 to 81 percent within allowable. DP collision avoidance events increased 2 to 17. Control room staffing reduced 14 to 9 operators, overtime 72 hours per month. 241 open work orders, 67 overdue. Five transmitters intermittent signal loss. Production increased 27 percent over 24 months, no facility upgrades. 41 MOCs, 17 closed administratively, no field verification. Control software upgraded, vendor tuning modifications, no post-modification interaction study. Storm intensity increasing, higher wave loading, increased vessel and riser motion. ML anomaly detection cross-domain correlation confidence increasing.",
       "expect": {
-        "consequence_tier_not": [
-          "UNKNOWN"
+        "governing_class": "SYSTEM_DRIFT_NO_MECHANISM",
+        "governing_statement_contains": [
+          "operating envelope"
         ]
       },
       "must_not_contain": [
         "hic",
         "co2 corrosion",
         "hydrogen induced"
-      ],
-      "diagnostic": true
+      ]
+    },
+    {
+      "id": "T18_hydrogen_network_instability",
+      "title": "TEST 18 - refinery hydrogen network: control-instability drift, no material mechanism",
+      "asset_class": "piping",
+      "transcript": "Integrated refinery hydrogen network, hydrocracker hydrotreater reformer hydrogen plant sulfur recovery, 22 years. No leaks no injuries no trips no code violations production at record levels. Corporate reliability dashboard hydrogen system instability index increasing for 7 consecutive months, no single asset flagged. Hydrocracker feed effluent circuit UT acceptable corrosion rate stable no reportable indications. Recycle gas compressor vibration plus 12 percent below alarm. All circuits above minimum thickness no active leaks. Refinery throughput increased 31 percent over 3 years, hydrogen consumption increased 27 percent, hydrogen purity decreased 98.7 to 95.4 percent still within limits. Advanced process control APC upgraded 14 months ago, hydrogen network optimization software installed 11 months ago, system hunts more frequently control loops continuously adjusting no alarm. Anti-surge activations 39 current year versus 11 previous year. Hydrogen analyzers intermittent disagreements analyzer A 95.4 B 97.1 C 96.2 no investigation. 312 open maintenance items 89 overdue. Senior hydrogen specialist retired position eliminated, hydrogen responsibilities distributed no single owner. Maximum utilization strategy, bonuses tied to throughput, no KPI for hydrogen network stability. Cross-unit hydrogen behavior correlation increasing confidence 91 percent. Every department reports equipment healthy, no group owns the problem.",
+      "expect": {
+        "governing_class": "SYSTEM_DRIFT_NO_MECHANISM",
+        "governing_statement_contains": [
+          "operating envelope"
+        ]
+      },
+      "must_not_contain": []
     }
   ]
 }

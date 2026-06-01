@@ -62,6 +62,21 @@ var OPERATIONAL_CHANGE_FACTS: Array<{ re: RegExp; fact: string }> = [
   { re: /throughput increased|charge rate (?:increase|raised)|rate increased|reinjection rates increased|revamp|increased severity|increased flow|higher rate/i, fact: "operating duty / throughput increased" }
 ];
 
+// Control / network-behaviour drift signals (documented facts only). A cluster of
+// these with NO confirmed material defect means the governing reality is loss of the
+// validated operating envelope - not a damage mechanism (TEST 17/18).
+var SYSTEM_DRIFT_SIGNALS: Array<{ re: RegExp; fact: string }> = [
+  { re: /instability index|stability index/i, fact: "a rising system-stability index" },
+  { re: /cross-unit|cross-domain|cross unit|cross domain/i, fact: "rising cross-unit / cross-domain correlation" },
+  { re: /correlation (?:increasing|confidence|rising)|correlation.{0,15}(?:increasing|\d{2}%)/i, fact: "rising behavioural correlation across systems" },
+  { re: /\bapc\b|advanced process control|optimization software|optimisation software|network optimization|network optimisation/i, fact: "an advanced-process-control / optimization software change" },
+  { re: /control loops?[^.]{0,25}(?:adjust|hunt)|hunts more|continuously adjusting|loop hunting|system .?hunts/i, fact: "control loops hunting / continuously adjusting" },
+  { re: /anti-?surge|surge event/i, fact: "increased anti-surge / surge activity" },
+  { re: /analy[sz]ers?[^.]{0,30}(?:disagree|differ|disagreement)|disagreement[^.]{0,20}analy[sz]er|intermittent disagreement/i, fact: "analyzer disagreement (conflicting measured reality)" },
+  { re: /no single owner|ownership[^.]{0,20}(?:distributed|gap|unclear)|position eliminated|no group (?:believes|owns)|no.{0,5}owner/i, fact: "loss of single-system ownership" },
+  { re: /machine learning|ml anomaly|analytics engine|anomaly detection|ml (?:output|alert|warning)/i, fact: "an ML / analytics cross-correlation alert" }
+];
+
 function has(re: RegExp, t: string): boolean { return re.test(t); }
 function nz(s: string | null | undefined): string { return (s == null) ? "" : String(s); }
 function up(s: string | null | undefined): string { return nz(s).toUpperCase(); }
@@ -103,6 +118,28 @@ export function resolveGoverningReality(input: GoverningRealityInput): Governing
       governs: true,
       statement: "Governing reality: a confirmed, decision-controlling defect (" + sev1 + ") governs. The measured condition is itself disqualifying.",
       disposition_driver: i.dispositionDriver || (i.governingFailureMode || null),
+      contributing: contributing,
+      provenance: provenance
+    };
+  }
+
+  // 2. SYSTEM DRIFT / CONTROL-NETWORK INSTABILITY (no material mechanism).
+  //    >= 3 distinct control/network drift signals + no confirmed critical defect ->
+  //    the governing reality is loss of the validated operating envelope, NOT a
+  //    damage mechanism. Gated high enough that mechanical-fatigue cases (which lack
+  //    this control-instability cluster) never trigger it.
+  var driftFacts = matchedFacts(SYSTEM_DRIFT_SIGNALS, t);
+  if (driftFacts.length >= 3) {
+    provenance.push("transcript: " + driftFacts.length + " distinct control / network drift signals (facts)");
+    if (i.governingFailureMode && nz(i.governingFailureMode) !== "NONE") {
+      contributing.push("Inspection mechanism (" + nz(i.governingFailureMode).replace(/_/g, " ").toLowerCase() + ") is within limits / not the controlling risk");
+    }
+    if (operationalChangePresent) { contributing.push("Operating duty increased without a corresponding systemwide reassessment"); }
+    return {
+      class: "SYSTEM_DRIFT_NO_MECHANISM",
+      governs: true,
+      statement: "Governing reality: the system has drifted toward instability - multiple independent control / network-behaviour signals are moving together (" + driftFacts.join("; ") + "), with no single defect responsible. No material damage mechanism governs; the controlling risk is loss of the validated operating envelope / system-level (control / network) instability - not corrosion or a measured defect. Resolution requires a multidisciplinary systems review, not an inspection.",
+      disposition_driver: i.dispositionDriver || "system-level control / network instability (loss of validated operating envelope)",
       contributing: contributing,
       provenance: provenance
     };
