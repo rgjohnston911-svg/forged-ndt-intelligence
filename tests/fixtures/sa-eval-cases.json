@@ -205,6 +205,21 @@
         ]
       },
       "must_not_contain": []
+    },
+    {
+      "id": "T21_lng_tank_assurance_failure",
+      "title": "TEST 21 - LNG tank: assurance failure governs; structural fabrication suppressed (settlement within limits)",
+      "asset_class": "storage_tank",
+      "transcript": "160000 m3 full containment LNG tank, 9% nickel inner, prestressed concrete outer, 18 years. Floor UT average wall loss 1.8 percent maximum 3.1 percent below concern threshold. Acoustic emissions no active crack growth detected. Tank edge settlement 12 mm design limit 75 mm acceptable. Prestressing tendon inspection no broken tendons no corrosion detected. Leak detection no LNG leakage. Tank now cycles 15 fill drain cycles annually original design 3 cycles annually no reassessment performed. Original foundation report missing destroyed during corporate acquisition. Nearby container terminal reclamation millions of tons of fill added. Groundwater monitoring shows change nobody investigated. Settlement monitoring system failed out of service 18 months replacement delayed. Database migration lost 11 years of historical settlement records. Previous owner documented foundation sensitivity concern no details. Government geotechnical study regional subsidence 3 mm per year never reviewed by facility.",
+      "expect": {
+        "governing_class": "ASSURANCE_FAILURE_UNKNOWN_STATE"
+      },
+      "must_not_contain": [
+        "structural instability",
+        "foundation instability",
+        "capacity exceeded",
+        "capacity already exceeded"
+      ]
     }
   ]
 }

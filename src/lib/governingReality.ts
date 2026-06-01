@@ -77,6 +77,18 @@ var SYSTEM_DRIFT_SIGNALS: Array<{ re: RegExp; fact: string }> = [
   { re: /renewable penetration increased|penetration increased[^.]{0,12}\d|trading activity increased|autonomous|automated (?:control|dispatch)/i, fact: "a documented operating-regime change (automation / penetration / market activity)" }
 ];
 
+// "Loss of ability to know" facts (documented gaps in the integrity-assurance
+// BASIS itself: missing baseline, lost records, failed monitoring, unreviewed
+// external change). >=2 of these with NO confirmed mechanism means UNCERTAINTY
+// is the governing risk - the asset is in an UNKNOWN state (TEST 21). Facts only.
+var LOSS_OF_KNOWLEDGE_FACTS: Array<{ re: RegExp; fact: string }> = [
+  { re: /baseline[^.]{0,25}(?:missing|destroyed|lost|unavailable)|foundation report[^.]{0,25}(?:missing|destroyed|lost)|original[^.]{0,25}report[^.]{0,15}(?:missing|destroyed|lost)/i, fact: "the design / foundation baseline is missing or destroyed" },
+  { re: /records?[^.]{0,20}(?:lost|destroyed|missing|unavailable)|lost \d+ years|history[^.]{0,15}(?:lost|missing|unavailable)|database migration lost|trend data unavailable|historical[^.]{0,15}(?:lost|unavailable)/i, fact: "historical / trend records have been lost" },
+  { re: /monitoring (?:system )?(?:failed|out of service|offline|inoperative|not working)|monitoring[^.]{0,18}(?:failed|out of service|offline)/i, fact: "a monitoring system has failed / is out of service" },
+  { re: /never reviewed|not reviewed by|study never reviewed|nobody (?:investigated|reviewed)|no determination made/i, fact: "a known external change was never reviewed" },
+  { re: /no details available|destroyed during (?:corporate )?acquisition|sensitivity concern[^.]{0,25}no details/i, fact: "a documented prior concern has no retrievable detail" }
+];
+
 // Convergence hypothesis id -> readable mechanism name + the FMD-mode "family" it
 // belongs to (so a single-mode FMD finding of a DIFFERENT family is named a
 // contributing cause, not the governing mechanism).
@@ -184,6 +196,33 @@ export function resolveGoverningReality(input: GoverningRealityInput): Governing
     };
   }
 
+  // 5b. CONVERGENT MECHANISM GOVERNS - a strong multi-stream convergence hypothesis
+  //     (>= 3 independent streams) names the governing MECHANISM and outranks a
+  //     single-mode FMD finding. When the FMD single mode is a DIFFERENT family
+  //     (e.g. structural instability from a tilt) it is a contributing CAUSE, not
+  //     the governing mechanism (TEST 20: settlement/tilt is the cause; vibration-
+  //     induced fatigue is the mechanism). Convergence draws on many independent
+  //     streams, so it is the more trustworthy basis for the governing mechanism.
+  if (convId && streamIds.length >= 3 && CONV_MECH_NAME[convId]) {
+    var mechName = CONV_MECH_NAME[convId];
+    var fmdMode = nz(i.governingFailureMode);
+    var differs = fmdMode && fmdMode !== "NONE" && up(fmdMode).indexOf(CONV_FAMILY[convId] || "___NONE___") < 0;
+    provenance.push("convergence: " + streamIds.length + " independent streams -> " + convId);
+    var stmt2 = "Governing reality: " + mechName + " governs, supported by " + streamIds.length + " independent converging evidence streams.";
+    if (differs) {
+      contributing.push("Single-mode inspection finding (" + fmdMode.replace(/_/g, " ").toLowerCase() + ") is a contributing CAUSE, not the governing mechanism");
+      stmt2 += " The single-mode inspection finding (" + fmdMode.replace(/_/g, " ").toLowerCase() + ") is a contributing cause, not the governing mechanism.";
+    }
+    return {
+      class: "CONVERGENT_MECHANISM_GOVERNS",
+      governs: true,
+      statement: stmt2,
+      disposition_driver: i.dispositionDriver || mechName,
+      contributing: contributing,
+      provenance: provenance
+    };
+  }
+
   // 3. SUSPECTED GOVERNING MECHANISM (without the operational-change root).
   if (suspected.length > 0) {
     provenance.push("FMD: suspected_governing_mechanism + disposition_driver");
@@ -213,6 +252,28 @@ export function resolveGoverningReality(input: GoverningRealityInput): Governing
     };
   }
 
+  // 4b. ASSURANCE FAILURE / UNKNOWN STATE - uncertainty is the governing risk.
+  //     >= 2 documented "loss of ability to know" facts (missing baseline, lost
+  //     records, failed monitoring, unreviewed external change) + no confirmed
+  //     critical defect: the asset is in an UNKNOWN state. Physical findings may be
+  //     within limits, but they cannot be trusted as a basis for continued service.
+  //     No damage mechanism is demonstrated (TEST 21). Facts only.
+  var knowledgeGaps = matchedFacts(LOSS_OF_KNOWLEDGE_FACTS, t);
+  if (knowledgeGaps.length >= 2) {
+    provenance.push("transcript: " + knowledgeGaps.length + " documented loss-of-assurance-basis facts");
+    if (i.governingFailureMode && nz(i.governingFailureMode) !== "NONE") {
+      contributing.push("Inspection finding (" + nz(i.governingFailureMode).replace(/_/g, " ").toLowerCase() + ") is within limits and NOT a demonstrated governing mechanism");
+    }
+    return {
+      class: "ASSURANCE_FAILURE_UNKNOWN_STATE",
+      governs: true,
+      statement: "Governing reality: the facility has lost the ability to know the asset's condition - documented gaps in the integrity-assurance basis (" + knowledgeGaps.join("; ") + "). No damage mechanism is demonstrated and the physical findings are within limits, but they cannot be trusted as a basis for continued service. The governing risk is the loss of assurance / unknown state itself - hold pending restoration of the ability to know (recover baseline & records, restore monitoring, review the external changes).",
+      disposition_driver: i.dispositionDriver || "loss of integrity-assurance basis (unknown state) - not a demonstrated damage mechanism",
+      contributing: contributing,
+      provenance: provenance
+    };
+  }
+
   // 5. ORGANIZATIONAL ASSURANCE FAILURE — documented gaps, no specific mechanism.
   if ((i.orgFailureScore && i.orgFailureScore >= 5) || (i.orgIndicatorCount && i.orgIndicatorCount >= 2)) {
     provenance.push("organizational-failure: documented assurance gaps");
@@ -221,33 +282,6 @@ export function resolveGoverningReality(input: GoverningRealityInput): Governing
       governs: true,
       statement: "Governing reality: documented integrity-assurance gaps (deferred inspections / incomplete reviews / missing MOC) govern — the asset's current condition is not assured by the management-of-integrity record. No specific damage mechanism is the controlling risk.",
       disposition_driver: i.dispositionDriver || "assurance-gap",
-      contributing: contributing,
-      provenance: provenance
-    };
-  }
-
-  // 5b. CONVERGENT MECHANISM GOVERNS - a strong multi-stream convergence hypothesis
-  //     (>= 3 independent streams) names the governing MECHANISM and outranks a
-  //     single-mode FMD finding. When the FMD single mode is a DIFFERENT family
-  //     (e.g. structural instability from a tilt) it is a contributing CAUSE, not
-  //     the governing mechanism (TEST 20: settlement/tilt is the cause; vibration-
-  //     induced fatigue is the mechanism). Convergence draws on many independent
-  //     streams, so it is the more trustworthy basis for the governing mechanism.
-  if (convId && streamIds.length >= 3 && CONV_MECH_NAME[convId]) {
-    var mechName = CONV_MECH_NAME[convId];
-    var fmdMode = nz(i.governingFailureMode);
-    var differs = fmdMode && fmdMode !== "NONE" && up(fmdMode).indexOf(CONV_FAMILY[convId] || "___NONE___") < 0;
-    provenance.push("convergence: " + streamIds.length + " independent streams -> " + convId);
-    var stmt2 = "Governing reality: " + mechName + " governs, supported by " + streamIds.length + " independent converging evidence streams.";
-    if (differs) {
-      contributing.push("Single-mode inspection finding (" + fmdMode.replace(/_/g, " ").toLowerCase() + ") is a contributing CAUSE, not the governing mechanism");
-      stmt2 += " The single-mode inspection finding (" + fmdMode.replace(/_/g, " ").toLowerCase() + ") is a contributing cause, not the governing mechanism.";
-    }
-    return {
-      class: "CONVERGENT_MECHANISM_GOVERNS",
-      governs: true,
-      statement: stmt2,
-      disposition_driver: i.dispositionDriver || mechName,
       contributing: contributing,
       provenance: provenance
     };

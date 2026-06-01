@@ -541,6 +541,19 @@ var handler = async function(event) {
       if (structuralMechanisms.indexOf("deformation") < 0) structuralMechanisms.push("deformation");
     }
 
+    // DEPLOY437: NON-FINDING GATE for movement indicators. A settlement/tilt that is
+    // documented as WITHIN LIMITS / ACCEPTABLE and NOT as an exceedance is a
+    // NON-FINDING, not structural instability (TEST 21: 12 mm vs 75 mm limit,
+    // "acceptable"). Requires an explicit acceptance qualifier AND no exceedance
+    // language, so a genuine excessive/accelerating/differential settlement still fires.
+    var __structAccept = /(?:within (?:design )?limit|below (?:design )?limit|within limits|well within|acceptable|no structural concern|no apparent damage|no immediate concern|below concern)/i.test(transcript);
+    var __structExceed = /(?:exceed|beyond (?:design )?limit|above (?:the )?limit|excessive|differential settlement|accelerating|out of tolerance|progressive (?:failure|settlement)|exceeds? (?:design )?limit)/i.test(transcript);
+    if (__structAccept && !__structExceed) {
+      hasSettlement = false;
+      hasTilt = false;
+      structuralMechanisms = structuralMechanisms.filter(function (m) { return m !== "settlement" && m !== "tilt"; });
+    }
+
     if (hasCracking && crackingMechanisms.length === 0) {
       crackingMechanisms.push("cracking_unspecified");
     }
