@@ -1,3 +1,4 @@
+// DEPLOY454 -- src/pages/VoiceInspectionPage.tsx v16.10 (SA render subordination: SA brief = supporting inputs, removed Recommendation/Financial/duplicate-conflicts/org-risk-score from both render paths)
 // DEPLOY452 -- src/pages/VoiceInspectionPage.tsx v16.9 (mechanism-compulsion gate: NONE -> 'No confirmed damage mechanism established' deferral banner; struct path suppressed)
 // DEPLOY451 -- src/pages/VoiceInspectionPage.tsx v16.8 (RAE render cutover: Role Authority panel replaces stakeholder wants/bias/org-score)
 // DEPLOY448 -- src/pages/VoiceInspectionPage.tsx v16.7 (Governing-Reality cutover: banner reads from reconciliation tuple)
@@ -370,7 +371,7 @@ function generateInspectionReport(data: {
   html += "<h1>FORGED NDT Intelligence OS</h1>";
   html += "<div style='font-size: 14px; font-weight: 700; margin-bottom: 4px;'>Physics-First Inspection Intelligence Report</div>";
   html += "<div class='subtitle'>Case: " + esc(caseRef) + " | " + esc(dateStr) + " " + esc(timeStr) + "</div>";
-  html += "<div class='subtitle'>v16.9 | Engine: " + (dc.engine_version || "decision-core") + " + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.1 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.2 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
+  html += "<div class='subtitle'>v16.10 | Engine: " + (dc.engine_version || "decision-core") + " + Authority Lock v1.0 + Remaining Strength v1.1 + FMD v1.3.2 + Disposition Pathway v1.1 + Failure Timeline v1.1 + Photo Analysis v1.4 + Superbrain v1.2 + Provenance v1.0 | Elapsed: " + (dc.elapsed_ms || "?") + "ms</div>";
   html += "</div>";
 
   html += "<div class='meta-grid'>";
@@ -415,7 +416,7 @@ function generateInspectionReport(data: {
 
   // HARDENING DIAGNOSTIC
   html += "<div class='section' style='border:3px solid #000;padding:12px;background:#fffbe6;'>";
-  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.9 / DEPLOY452 mechanism gate)</div>";
+  html += "<div style='font-size:14px;font-weight:900;color:#000;margin-bottom:8px;'>HARDENING DIAGNOSTIC (v16.10 / DEPLOY454 SA render subordination)</div>";
   html += "<div style='font-size:10px;color:#000;margin-bottom:10px;font-weight:700;'>Engine state snapshot at PDF generation time.</div>";
 
   var diagEngines = [
@@ -1211,25 +1212,25 @@ function generateInspectionReport(data: {
   if (data.situationalAwarenessPackage && data.situationalAwarenessPackage.executiveBrief) {
     var sap = data.situationalAwarenessPackage;
     var eb = sap.executiveBrief;
-    var cm = sap.conflictMatrix || {};
     html += "<div class='section'>";
-    html += "<div class='section-title'>Situational Awareness Brief</div>";
-    html += "<div class='info-row'><span class='info-label'>Recommendation</span><span class='info-value'>" + esc(eb.recommendation ? eb.recommendation.action : "") + "</span></div>";
+    // DEPLOY454 (render subordination, SA-section only) - SA is a SUPPORTING INPUT layer, not
+    // an authority. Removed three render elements that are wrong by policy (no engine change):
+    //   - SA "Recommendation": disposition belongs to the Governing Reality, not the SA brief.
+    //   - "Financial Risk": deleted by the RAE directive (no financial / human-factor modeling).
+    //   - legacy "Active Conflicts" block: a duplicate of the RAE Cross-Discipline Conflicts
+    //     panel rendered just below. RAE is the single conflict authority.
+    // NOTE: this deliberately does NOT reframe the FMD card or Authority Lock as "inputs" - that
+    // content is currently fabricated, and the honest Governing-Reality-vs-tower contradiction is
+    // kept VISIBLE as a true signal until the governance contest gates the tower on evidence.
+    html += "<div class='section-title'>Situational Awareness - Supporting Inputs</div>";
+    html += "<div style='font-size:10px;color:#6b7280;margin-bottom:6px;'>Supporting situational inputs only. The governing disposition is set by the Governing Reality above, not by this section.</div>";
     if (eb.risk) {
       html += "<div class='info-row'><span class='info-label'>Life-Safety Risk</span><span class='info-value'>" + esc(eb.risk.life_safety) + "</span></div>";
-      html += "<div class='info-row'><span class='info-label'>Financial Risk</span><span class='info-value'>" + esc(eb.risk.financial) + "</span></div>";
       html += "<div class='info-row'><span class='info-label'>Regulatory Risk</span><span class='info-value'>" + esc(eb.risk.regulatory) + "</span></div>";
     }
     html += "<div class='info-row'><span class='info-label'>SA Confidence</span><span class='info-value'>" + esc(String(eb.confidence)) + "</span></div>";
     if (eb.unknowns && eb.unknowns.unresolved_questions && eb.unknowns.unresolved_questions.length > 0) {
       html += "<div class='gap-item'>Unresolved (" + esc(String(eb.unknowns.critical_unresolved_count)) + " CRITICAL): " + esc(eb.unknowns.unresolved_questions.join(", ")) + "</div>";
-    }
-    if (cm.active_conflicts && cm.active_conflicts.length > 0) {
-      html += "<div class='info-row'><span class='info-label'>Active Conflicts</span><span class='info-value'>" + esc(String(cm.active_conflicts.length)) + "</span></div>";
-      for (var saci = 0; saci < cm.active_conflicts.length; saci++) {
-        var sac = cm.active_conflicts[saci];
-        html += "<div style='font-size:10px;color:#6b7280;padding:2px 0;'>- " + esc((sac.between || []).join(" vs ")) + " [" + esc(sac.axis) + "] " + esc(sac.severity) + "</div>";
-      }
     }
     // DEPLOY451 (RAE) - decision-contamination (bias) flags removed: no human-behavior modeling.
     // DEPLOY451 (RAE) - Role Authority panel replaces "Stakeholder Positions". Roles are
@@ -1309,7 +1310,7 @@ function generateInspectionReport(data: {
   html += "</div>";
 
   html += "<div style='margin-top:20px;padding-top:10px;border-top:1px solid #e5e7eb;text-align:center;font-size:9px;color:#9ca3af;'>";
-  html += "Generated by FORGED NDT Intelligence OS v16.9 - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
+  html += "Generated by FORGED NDT Intelligence OS v16.10 - " + esc(dateStr) + " " + esc(timeStr) + " - " + esc(caseRef);
   html += "</div>";
 
   html += "</body></html>";
@@ -2780,7 +2781,7 @@ export default function VoiceInspectionPage() {
   return (
     <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "20px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.9</h1>
+        <h1 style={{ fontSize: "22px", fontWeight: 800, margin: "0 0 4px 0", color: "#111" }}>FORGED NDT Intelligence OS {"\u2014"} v16.10</h1>
         <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>DEPLOY176: hard confidence gate + forced reality enforcement layer. Provisional mode when HIGH/CRITICAL tier falls below 0.60.</p>
       </div>
 
@@ -2859,24 +2860,18 @@ export default function VoiceInspectionPage() {
         )}
 
         {saPackage && saPackage.executiveBrief && (
-          <Card title="Situational Awareness Brief" icon={"\uD83E\uDDED"} collapsible={true}>
-            <div style={{ fontSize: "13px", marginBottom: "8px" }}><strong>Recommendation:</strong> {saPackage.executiveBrief.recommendation ? saPackage.executiveBrief.recommendation.action : ""}</div>
+          <Card title="Situational Awareness - Supporting Inputs" icon={"\uD83E\uDDED"} collapsible={true}>
+            {/* DEPLOY454 render subordination (interactive view, matches the printable report). Removed by policy: SA "Recommendation" (disposition belongs to the Governing Reality), "Financial" risk (deleted by the RAE directive), the duplicate "active stakeholder conflict(s)" line (RAE Cross-Discipline Conflicts panel is the single conflict authority), and the "Organizational risk N/10" SCORE (deleted by the RAE directive - measurable org facts route to the assurance/operational axes, never a manufactured 0-10 score). This view was the source of the lingering org-risk-score render after the RAE cutover. */}
+            <div style={{ fontSize: "11px", color: "#6b7280", marginBottom: "8px" }}>Supporting situational inputs only. The governing disposition is set by the Governing Reality, not by this section.</div>
             {saPackage.executiveBrief.risk && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "8px" }}>
                 <span style={{ fontSize: "12px", padding: "4px 10px", background: "#eff6ff", borderRadius: "4px" }}>Life-safety: <strong>{saPackage.executiveBrief.risk.life_safety}</strong></span>
-                <span style={{ fontSize: "12px", padding: "4px 10px", background: "#eff6ff", borderRadius: "4px" }}>Financial: <strong>{saPackage.executiveBrief.risk.financial}</strong></span>
                 <span style={{ fontSize: "12px", padding: "4px 10px", background: "#eff6ff", borderRadius: "4px" }}>Regulatory: <strong>{saPackage.executiveBrief.risk.regulatory}</strong></span>
                 <span style={{ fontSize: "12px", padding: "4px 10px", background: "#f0fdf4", borderRadius: "4px" }}>Confidence: <strong>{saPackage.executiveBrief.confidence}</strong></span>
               </div>
             )}
-            {saPackage.conflictMatrix && saPackage.conflictMatrix.active_conflicts && saPackage.conflictMatrix.active_conflicts.length > 0 && (
-              <div style={{ fontSize: "12px", marginBottom: "8px" }}><strong>{saPackage.conflictMatrix.active_conflicts.length}</strong> active stakeholder conflict(s).</div>
-            )}
             {saPackage.executiveBrief.unknowns && saPackage.executiveBrief.unknowns.unresolved_questions && saPackage.executiveBrief.unknowns.unresolved_questions.length > 0 && (
               <div style={{ fontSize: "12px", color: "#991b1b" }}>Unresolved ({saPackage.executiveBrief.unknowns.critical_unresolved_count} CRITICAL): {saPackage.executiveBrief.unknowns.unresolved_questions.join(", ")}</div>
-            )}
-            {saPackage.organizationalFailures && saPackage.organizationalFailures.indicators && saPackage.organizationalFailures.indicators.length > 0 && (
-              <div style={{ fontSize: "12px", color: "#991b1b", marginTop: "8px" }}><strong>Organizational risk {saPackage.organizationalFailures.organizational_failure_score}/10:</strong> {saPackage.organizationalFailures.indicators.length} management-system failure(s) detected.</div>
             )}
             {saPackage.convergence && saPackage.convergence.convergence_count >= 2 && (
               <div style={{ fontSize: "12px", color: "#92400e", marginTop: "8px" }}><strong>Convergence {saPackage.convergence.convergence_score}/10:</strong> {saPackage.convergence.convergence_count} independent evidence streams support one failure hypothesis.</div>
@@ -3053,7 +3048,7 @@ export default function VoiceInspectionPage() {
 
         {(authorityLockResult || remainingStrengthResult || failureModeDominanceResult || dispositionPathwayResult || failureTimelineResult) && (
           <div style={{ marginBottom: "16px", padding: "12px", border: "2px solid #000", borderRadius: "8px", backgroundColor: "#fffbe6" }}>
-            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.9 inline diagnostic)</div>
+            <div style={{ fontSize: "14px", fontWeight: 800, marginBottom: "8px" }}>Build 1+2+3 Engine Results (v16.10 inline diagnostic)</div>
             <div style={{ fontSize: "11px", fontFamily: "monospace", lineHeight: "1.6" }}>
               <div>ALR: {authorityLockResult ? "PRESENT \u2014 status=" + (authorityLockResult.status || "?") + " | " + ((authorityLockResult.authority_chain || []).length) + " primary | trigger_b31g=" + String(!!authorityLockResult.trigger_b31g) : "null"}</div>
               <div>RSR: {remainingStrengthResult ? "PRESENT \u2014 tier=" + (remainingStrengthResult.data_quality || "?") + " | envelope=" + (remainingStrengthResult.safe_envelope || "?") + " | MAOP=" + (remainingStrengthResult.governing_maop || "?") + " | severity=" + (remainingStrengthResult.severity_tier || "?") : "null"}</div>
