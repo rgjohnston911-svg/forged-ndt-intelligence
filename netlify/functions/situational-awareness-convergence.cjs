@@ -53,7 +53,7 @@ var EVIDENCE_STREAMS = [
                'injection rate', 'throughput increased', 'increased 40', 'production increased',
                'rate change', 'higher rate', 'high-rate', 'charge rate', 'revamp', 'increased severity'] },
   { id: 'VIBRATION', source: 'Operations / vibration observation',
-    keywords: ['vibration', 'vibrating', 'vibration increased', 'resonance', 'cyclic load',
+    keywords: ['vibration', 'vibrating', 'vibrates', 'vibrate', 'vibration increased', 'resonance', 'cyclic load',
                'cyclic loading', 'dynamic loading', 'vibration-related', 'pulsation'] },
   { id: 'STRUCTURAL_INTERFACE', source: 'Structural / support inspection',
     keywords: ['branch connection', 'branch weld', 'small-bore', 'small bore', 'tie-in',
@@ -143,12 +143,47 @@ function scoreForCount(n) {
   return 10;
 }
 
+// DEPLOY450 - EVIDENCE PROVENANCE GUARD. A convergence stream may only activate from a
+// keyword occurrence that sits in a POSITIVE context. A keyword inside a negated or
+// within-limits/normal clause ("no fatigue cracking detected", "vibration 0.14 ips ...
+// normal", "corrosion rate stable") is a NON-finding and must NOT manufacture a stream.
+// This kills the pattern-completion that invented vibration-induced fatigue on healthy
+// assets (TEST 26). Facts only: a stream needs a real, non-negated source phrase.
+// within-limits / normal qualifier judged at SENTENCE level (a measured reading reported as
+// normal / within tolerance / below alarm is a non-finding). Bare negation (no/not) is NOT
+// here - it is judged at CLAUSE level (adjacent to the keyword) so an unrelated negation in a
+// different clause ("...fatigue, not corrosion") cannot suppress a real finding.
+function withinLimitsSentence(sent) {
+  return /within (?:tolerance|limits?|design|spec)/.test(sent)
+    || /\b(normal|acceptable|stable|unchanged|excellent|satisfactory)\b/.test(sent)
+    || /below (?:the )?(?:alarm|concern|threshold|allowable)/.test(sent)
+    || /no abnormal|essentially unchanged|passed\b/.test(sent);
+}
+function positiveMatch(text, keyword) {
+  // decimal-protected sentence split (period+space), then clause-aware judgement.
+  var sentences = text.split(/\.\s+|[;\n]+/);
+  for (var si = 0; si < sentences.length; si++) {
+    var sent = sentences[si];
+    var p = sent.indexOf(keyword);
+    if (p < 0) { continue; }
+    if (withinLimitsSentence(sent)) { continue; }            // measured non-finding -> skip
+    // negation only counts if it sits in the keyword's OWN clause (after the last comma
+    // before the keyword), so "not corrosion" in a separate clause does not suppress
+    // "fatigue cracking", but "no fatigue cracking" / "no vibration monitoring" do.
+    var before = sent.slice(0, p);
+    var lastComma = before.lastIndexOf(',');
+    var clause = (lastComma >= 0) ? before.slice(lastComma + 1) : before;
+    if (/\b(?:no|not|without|never|none)\b/.test(clause)) { continue; }
+    return true;  // a real, non-negated, not-within-limits occurrence
+  }
+  return false;
+}
 function activeStreamMap(text) {
   var map = {};
   for (var i = 0; i < EVIDENCE_STREAMS.length; i++) {
     var st = EVIDENCE_STREAMS[i];
     for (var k = 0; k < st.keywords.length; k++) {
-      if (text.indexOf(st.keywords[k]) >= 0) {
+      if (positiveMatch(text, st.keywords[k])) {
         map[st.id] = { id: st.id, source: st.source, evidence: snippetFor(text, st.keywords[k]) };
         break;
       }

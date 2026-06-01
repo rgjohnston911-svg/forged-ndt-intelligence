@@ -61,6 +61,9 @@ ok(/not dispositionable|loss of confidence/i.test(sE), "TEST25 statement frames 
 ok(!/\bcorrosion\b/i.test(sE), "TEST25 statement does NOT say corrosion");
 var sA = R.reconcile({ transcript: txt("BREAKER_A_furnace_process_drift"), assetClaims:[{value:"pressure_vessel",confidence:0.9,kind:"explicit-asset"}] }).governingStatement;
 ok(/design basis/i.test(sA), "furnace statement names lost design basis");
+var sF = R.reconcile({ transcript: txt("BREAKER_F_flaregas_monitoring_trust"), assetClaims:[{value:"process_piping",confidence:0.9,kind:"explicit-asset"}] }).governingStatement;
+ok(/monitoring\/assurance failure governs|cannot be independently validated/i.test(sF), "flare-gas statement frames monitoring-assurance failure (got: "+sF.slice(0,60)+")");
+ok(!/\bcorrosion\b/i.test(sF), "flare-gas statement does NOT say corrosion");
 var sC = R.reconcile({ transcript: txt("BREAKER_C_software_fleet_failure"), assetClaims:[{value:"wind_turbine",confidence:0.9,kind:"explicit-asset"}] }).governingStatement;
 ok(/fleet/i.test(sC) && !/\bcorrosion\b/i.test(sC), "fleet statement is systemic, not corrosion");
 

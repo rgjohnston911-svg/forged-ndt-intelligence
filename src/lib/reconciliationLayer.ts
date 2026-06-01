@@ -52,6 +52,13 @@ function knowledgeLossCount(t: string): number {
     /support contract expired/i,
     /patch (?:level )?[^.]*(?:\d+\s*months?\s*behind|behind)/i,
     /database migration/i,
+    /management of change[^.]{0,40}(?:not (?:formally )?closed|opened but not)/i,
+    /(?:patch|change|modification|logic)[^.]{0,50}(?:not listed|not supported|unsupported)[^.]{0,30}(?:vendor|release notes)?/i,
+    /not listed in[^.]{0,30}release notes/i,
+    /control[- ]?logic patch|logic patch|software patch|firmware patch/i,
+    /(?:independent|separate)[^.]{0,50}(?:transmitter|instrument|sensor)[^.]{0,50}(?:still shows?|spikes|disagree)/i,
+    /no corresponding[^.]{0,40}(?:spikes|events|readings)[^.]{0,20}(?:are being )?recorded/i,
+    /cannot be independently validated|no longer trust|cannot independently verify|do not trust what the software/i,
     /normalization error/i,
     /software[^.]*(?:suppress|incorrectly)/i
   ];
@@ -66,8 +73,10 @@ function fleetPattern(t: string): boolean {
   return fleet && common && failures;
 }
 function changedUnreassessed(t: string): boolean {
-  var changed = /\b(?:throughput|production|rate|operating|feed|software|control|algorithm)[^.]{0,40}(?:increas|chang|upgrad|modif|re-?rat)/i.test(t);
-  var noReassess = /\bno (?:management[- ]of[- ]change|moc|reassessment|re-?assessment|review|re-?rate|engineering review)\b|without (?:a )?(?:management[- ]of[- ]change|moc|reassessment|review)/i.test(t);
+  var changed = /\b(?:throughput|production|rate|operating|feed|software|control|algorithm)[^.]{0,40}(?:increas|chang|upgrad|modif|re-?rat)/i.test(t)
+    || /(?:control logic |logic |software |firmware )?patch[^.]{0,20}(?:installed|applied|deployed)/i.test(t);
+  var noReassess = /\bno (?:management[- ]of[- ]change|moc|reassessment|re-?assessment|review|re-?rate|engineering review)\b|without (?:a )?(?:management[- ]of[- ]change|moc|reassessment|review)/i.test(t)
+    || /documentation incomplete|management of change[^.]{0,40}(?:not (?:formally )?closed|opened but not)|not listed in[^.]{0,30}release notes/i.test(t);
   // DEPLOY447 - a modified monitoring algorithm with no validation / incomplete documentation
   // is itself an unreassessed operating change (the basis for trusting the system changed).
   var unvalidatedChange = (/(?:algorithms?|software)[^.]*modif/i.test(t) || /modif[^.]*(?:algorithms?|software)/i.test(t)) && /(?:no (?:current )?validation|documentation incomplete|support[^.]*expired)/i.test(t);
@@ -215,9 +224,11 @@ export function reconcile(input: ReconcileInput): Reconciliation {
   // ---- DISPOSITION (function of the tuple) ----
   var tuple: GoverningTuple = { physical: physical, assurance: assurance, operational: operational };
   var dualHold = isPhysicallyAcceptableButNotDispositionable(tuple);
+  var assuranceGoverns = (physical !== "CONFIRMED_DAMAGE") && (assurance === "UNKNOWN_STATE" || assurance === "LOST_DESIGN_BASIS");
   var disposition: string;
   if (vetoes.length && vetoes[0].type === "scope") { disposition = "refer_out_of_scope"; }
   else if (physical === "CONFIRMED_DAMAGE") { disposition = "fitness_for_service_required"; }
+  else if (assuranceGoverns) { disposition = "restricted_reassessment_required"; requiresHumanReview = true; }
   else if (dualHold) { disposition = "restricted_reassessment_required"; }
   else if (physical === "SUSPECTED") { disposition = "monitor_and_inspect"; }
   else if (physical === "UNKNOWN") { disposition = "hold_for_review"; }
@@ -250,6 +261,9 @@ export function reconcile(input: ReconcileInput): Reconciliation {
     gStmt = "Out of deterministic scope: " + vetoes[0].reason;
   } else if (tuple.physical === "CONFIRMED_DAMAGE") {
     gStmt = "A confirmed physical damage mechanism governs" + (finalMechanism ? " (" + finalMechanism + ")" : "") + "; run fitness-for-service per the applicable code.";
+  } else if (assuranceGoverns) {
+    gStmt = "A monitoring/assurance failure governs: " + [assuranceClause, opClause].filter(function (x) { return !!x; }).join("; ")
+      + ". The reported state cannot be independently validated (loss of confidence in the basis for continued service); this is the controlling risk, not a physical damage mechanism (" + describeTuple(tuple) + "). Disposition: continue physical operation with elevated, independent monitoring; reassessment/validation and escalation required.";
   } else if (dualHold) {
     gStmt = "The asset is physically acceptable on current findings, but it is NOT dispositionable: "
       + [assuranceClause, opClause].filter(function (x) { return !!x; }).join("; ")

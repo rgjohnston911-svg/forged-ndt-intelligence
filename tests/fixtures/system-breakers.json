@@ -128,6 +128,22 @@
         "final_principle_dual_output": true
       },
       "final_principle_note": "TEST 25 (GPT 3.5): the governing reality is loss of confidence in the monitoring system - physically ACCEPTABLE (all within spec) but NOT dispositionable (algorithms modified + unvalidated, support expired, patch 14mo behind). A confidence-generating system, not a physical asset; must never route to corrosion/API 510."
+    },
+    {
+      "id": "BREAKER_F_flaregas_monitoring_trust",
+      "title": "F - Flare gas recovery compressor (physically healthy) + emissions monitoring trust failure after an undocumented control-logic patch. A monitoring-assurance failure must govern OVER any suspected physical mechanism; MUST NOT manufacture corrosion/API 579.",
+      "transcript": "Refinery flare gas recovery unit emissions monitoring and compressor permissive logic. Singapore large integrated refinery and petrochemical complex. Determine whether the flare gas recovery compressor system can continue operating for the next 6 months without forced outage or regulatory exposure. Compressor mechanical inspection: overall vibration 0.16 ips, alarm 0.42 ips, bearing temperatures normal, oil analysis normal wear metals, borescope inspection no impeller damage no fouling no rub marks, alignment within tolerance, foundation no cracking no movement. Preliminary mechanical assessment continue operation. Emissions analyzer status online, last calibration passed 4 weeks ago, drift check within tolerance, sample line heat tracing functional, no active analyzer fault. A control logic patch was installed 5 months ago to reduce nuisance trips during high flare load events. Patch documentation incomplete. Management of change record opened but not formally closed. Vendor support status patch is not listed in current vendor release notes. Cybersecurity scan no malware detected. Over the last 9 months reported emissions events down 68 percent, flare gas compressor recycle valve movement up 41 percent, short duration flare header pressure spikes up 26 percent, compressor trips down 80 percent. Operators report since the patch the system looks cleaner on paper but the flare header feels more unstable. Historian comparison: before patch analyzer showed frequent short emissions spikes during compressor recycle instability; after patch analyzer trend appears smoother but the independent flare header pressure transmitter still shows short pressure spikes and no corresponding emissions spikes are being recorded. Current monthly emissions report within permitted limits, no open regulatory violation, no active leak, no mechanical damage identified, no failed inspection item. The emissions analyzer may be technically functional but I no longer trust what the software is allowing us to see.",
+      "expect": {},
+      "must_not_contain": [
+        "corrosion governs",
+        "metal loss governs"
+      ],
+      "axis_target_future": {
+        "assurance": "UNKNOWN_STATE",
+        "operational": "CHANGED_UNREASSESSED"
+      },
+      "note_449": "DEPLOY449: physically healthy compressor; governing reality is monitoring-assurance failure (undocumented control-logic patch, unclosed MOC, vendor-unsupported, analyzer smoothed while independent transmitter still shows spikes). Assurance UNKNOWN_STATE must govern over the suspected physical (pressure-spike) signal.",
+      "fmd_body_followup": "DEPLOY450: legacy FMD still emits API 579 / SSC / HIC screening for a physically-healthy asset whose governing reality is monitoring-assurance. The reconciliation banner is correct; the supporting FMD card needs the same no-evidence-no-mechanism gate applied to its governing_code_reference."
     }
   ]
 }
