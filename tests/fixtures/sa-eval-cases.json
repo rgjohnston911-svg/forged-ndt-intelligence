@@ -1,55 +1,171 @@
 {
   "version": "sa-eval-v1",
   "note": "Offline-scored multi-domain SA corpus. Encodes the TEST 10-15 regressions as permanent cases + clean controls. Each case runs the full offline pipeline; scored on structured labels AND must_not_contain anti-contamination assertions. behavioral_guard is applied to EVERY case automatically.",
-  "behavioral_guard": ["complacen", "normalization of deviance", "confirmation bias", " ego ", " fear ", "negligen", " lazy ", "mindset", "attitude"],
+  "behavioral_guard": [
+    "complacen",
+    "normalization of deviance",
+    "confirmation bias",
+    " ego ",
+    " fear ",
+    "negligen",
+    " lazy ",
+    "mindset",
+    "attitude"
+  ],
   "cases": [
     {
       "id": "T11_offshore_reinjection_fatigue",
       "title": "TEST 11 - offshore produced-water reinjection, vibration fatigue",
       "asset_class": "piping",
       "transcript": "Offshore production platform produced water reinjection system, 24-inch A106 Gr B carbon steel. Design pressure 2,850 psi operating pressure 2,300 psi. Service produced water chlorides CO2 trace H2S. UT current wall 0.425 nominal 0.500 external corrosion survey. Significant vibration during high-rate injection, vibration increased over previous 8 months. Clamp support replaced 14 months ago. No vibration study conducted. Reinjection rates increased 40% last year. Pipe support 18 inches from a branch connection. Support shoe coating damage and metal-to-metal wear. Four years ago a nearly identical system had a branch connection fatigue crack. Tropical storm expected within 72 hours. 47 open maintenance items, 9 overdue, 3 vibration-related.",
-      "expect": { "authority_includes": ["API 570"], "authority_excludes": ["API 510"], "consequence_tier_in": ["HIGH", "CRITICAL"] },
-      "must_not_contain": ["anchor drag", "ovality", "cathodic"]
+      "expect": {
+        "authority_includes": [
+          "API 570"
+        ],
+        "authority_excludes": [
+          "API 510"
+        ],
+        "consequence_tier_in": [
+          "HIGH",
+          "CRITICAL"
+        ]
+      },
+      "must_not_contain": [
+        "anchor drag",
+        "ovality",
+        "cathodic"
+      ]
     },
     {
       "id": "T13_reac_inlet_piping",
       "title": "TEST 13 - REAC inlet piping, NH4HS erosion-corrosion",
       "asset_class": "piping",
       "transcript": "Refinery hydrocracker reactor effluent air cooler REAC inlet piping, 10-inch A106 Gr B carbon steel. Design pressure 2,150 psi operating pressure 1,875 psi. Service reactor effluent high ammonium bisulfide NH4HS sour H2S ammonia. Elbow nominal 0.365 in current wall 0.131 in. Localized metal loss at flow turns erosion-corrosion. Velocity increased after revamp raised charge rate 22 percent. Prior turnaround flagged thinning at same elbows no action taken. PT at elbow weld no indications no cracking found.",
-      "expect": { "authority_includes": ["API 570"], "authority_excludes": ["API 510"] },
-      "must_not_contain": ["cathodic", "anchor drag", "ovality"]
+      "expect": {
+        "authority_includes": [
+          "API 570"
+        ],
+        "authority_excludes": [
+          "API 510"
+        ]
+      },
+      "must_not_contain": [
+        "cathodic",
+        "anchor drag",
+        "ovality"
+      ]
     },
     {
       "id": "T14_offshore_sour_gas_export",
       "title": "TEST 14 - offshore gas compression/export, sour gas",
       "asset_class": "piping",
       "transcript": "Offshore fixed production platform gas compression and export system, 36-inch A106 Gr B carbon steel discharge piping. Design pressure 1,850 psi operating pressure 1,420 psi. Service wet gas CO2 trace H2S produced water carryover. UT current wall 0.421 nominal 0.500. Compressor throughput increased 35 percent during the last 18 months. Increasing vibration during slugging. No vibration study performed since the throughput increase. No MOC documentation found. Pipe support 24 inches from a large branch connection, support shoe coating damage and fretting wear. Another facility had a branch connection fatigue crack and gas release. Major storm forecast within 96 hours. 61 open work orders, 14 overdue.",
-      "expect": { "authority_includes": ["API 570"], "authority_excludes": ["API 510"], "consequence_tier_in": ["CRITICAL"] },
-      "must_not_contain": ["anchor drag", "cathodic", "global plastic deformation"]
+      "expect": {
+        "authority_includes": [
+          "API 570"
+        ],
+        "authority_excludes": [
+          "API 510"
+        ],
+        "consequence_tier_in": [
+          "CRITICAL"
+        ]
+      },
+      "must_not_contain": [
+        "anchor drag",
+        "cathodic",
+        "global plastic deformation"
+      ]
     },
     {
       "id": "T15_flng_lng_loading_line",
       "title": "TEST 15 - FLNG cryogenic LNG loading line",
       "asset_class": "piping",
       "transcript": "Floating LNG FLNG facility cryogenic LNG export loading system, 24-inch stainless steel loading line connected to articulated marine loading arm. Design pressure 1,480 psi operating pressure 1,050 psi operating temperature -260F. Service LNG cryogenic methane thermal cycling marine environment. UT current wall 0.611 nominal 0.625 corrosion negligible. LNG transfer rates increased 28 percent. ESD activations increased from 1 per year to 8 per year. Increasing loading-arm movement alarms. Marine loading arm swivel replaced 18 months ago, no post-installation dynamic study performed. Pipe guide 12 inches from major expansion loop, guide shows abnormal wear, polished contact surfaces, deformation of wear pads, condition accepted as cosmetic. No motion analysis performed since loading-rate increase. Control software updated 7 months ago, no Management of Change package located.",
-      "expect": { "authority_includes": ["API 570"], "authority_excludes": ["API 510"] },
-      "must_not_contain": ["global plastic deformation", "structural instability", "capacity exceeded", "cathodic"]
+      "expect": {
+        "authority_includes": [
+          "API 570"
+        ],
+        "authority_excludes": [
+          "API 510"
+        ]
+      },
+      "must_not_contain": [
+        "global plastic deformation",
+        "structural instability",
+        "capacity exceeded",
+        "cathodic"
+      ]
     },
     {
       "id": "CTRL_clean_documented_vessel",
       "title": "Control - routine fully-documented pressure vessel (no hidden risk)",
       "asset_class": "pressure_vessel",
       "transcript": "Pressure vessel shell, API 510 inspection current, thickness well above Tmin, low stable corrosion rate, all records complete, normal service, no severe weather, no operational change.",
-      "expect": { "authority_includes": ["API 510"], "consequence_tier_in": ["LOW", "MEDIUM", "HIGH"] },
-      "must_not_contain": ["global plastic deformation", "anchor drag", "operational change without"]
+      "expect": {
+        "authority_includes": [
+          "API 510"
+        ],
+        "consequence_tier_in": [
+          "LOW",
+          "MEDIUM",
+          "HIGH"
+        ]
+      },
+      "must_not_contain": [
+        "global plastic deformation",
+        "anchor drag",
+        "operational change without"
+      ]
     },
     {
       "id": "CTRL_benign_offshore_seawater",
       "title": "Control - benign offshore seawater structural (no hydrocarbon)",
       "asset_class": "piping",
       "transcript": "Offshore platform seawater lift caisson structural support, no hydrocarbon, general coating wear, thickness acceptable, no operational change, records current.",
-      "expect": { "consequence_tier_not": ["CRITICAL"] },
-      "must_not_contain": ["global plastic deformation", "cathodic decline", "operational change without"]
+      "expect": {
+        "consequence_tier_not": [
+          "CRITICAL"
+        ]
+      },
+      "must_not_contain": [
+        "global plastic deformation",
+        "cathodic decline",
+        "operational change without"
+      ]
+    },
+    {
+      "id": "T16_subsea_tiein_fatigue_over_hic",
+      "title": "TEST 16 - subsea tie-in: dynamic fatigue must lead the H2S->HIC screening",
+      "asset_class": "piping",
+      "transcript": "Subsea pipeline tie-in assembly, 18-inch duplex stainless flowline connected to aging carbon steel manifold spool, offshore oil and gas, water depth 420 ft. Multiphase production oil gas produced water CO2 variable H2S sand production. UT localized external corrosion, flowline 0.750 to 0.734, spool 0.625 to 0.588, corrosion rate 0.0025 per year, 15+ year remaining life. PAUT no reportable indications, no cracking. Production increased 35 percent during previous 18 months. Intermittent slugging events increasing. Transient pressure excursions exceeded normal operating pressure by 20 percent, no engineering review completed. One support span partially lost seabed support, approximately 4 feet of unsupported span. Two CP anodes depleted. Progressive seabed scour. Similar field subsea flowline rupture from unsupported span vibration, slug flow fatigue, and inhibitor failures. Storm season beginning. Production optimization software installed 8 months ago, no Management of Change package located.",
+      "expect": {
+        "authority_includes": [
+          "API 570"
+        ],
+        "suspected_leads": "fatigue"
+      },
+      "must_contain": [
+        "fatigue"
+      ],
+      "must_not_contain": []
+    },
+    {
+      "id": "T17_system_drift_no_mechanism",
+      "title": "TEST 17 - integrated hub system drift, NO physical damage mechanism (corrosion is a non-finding)",
+      "asset_class": "piping",
+      "transcript": "Deepwater semi-submersible production hub 19 years, 14 subsea wells, oil export gas lift produced-water reinjection subsea boosting. No alarms no leaks no trips production online. 11 unrelated anomalies across different systems dispositioned independently, no common cause investigation. Produced water reinjection header 36-inch carbon steel UT remaining wall above minimum, corrosion rate stable, acceptable. Gas lift riser minor coating damage, no metal loss, no exposed steel. Subsea flowline pressure excursions increasing within design limits. Subsea booster pump vibration increased 18 percent below alarm. Gas compression three surge events. Mooring line utilization increased 52 to 81 percent within allowable. DP collision avoidance events increased 2 to 17. Control room staffing reduced 14 to 9 operators, overtime 72 hours per month. 241 open work orders, 67 overdue. Five transmitters intermittent signal loss. Production increased 27 percent over 24 months, no facility upgrades. 41 MOCs, 17 closed administratively, no field verification. Control software upgraded, vendor tuning modifications, no post-modification interaction study. Storm intensity increasing, higher wave loading, increased vessel and riser motion. ML anomaly detection cross-domain correlation confidence increasing.",
+      "expect": {
+        "consequence_tier_not": [
+          "UNKNOWN"
+        ]
+      },
+      "must_not_contain": [
+        "hic",
+        "co2 corrosion",
+        "hydrogen induced"
+      ],
+      "diagnostic": true
     }
   ]
 }

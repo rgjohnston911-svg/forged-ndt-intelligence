@@ -43,6 +43,10 @@ var MECH_KW = [['crack', 'cracking'], ['corrosion', 'corrosion'], ['pitting', 'p
   ['scc', 'scc'], ['cui', 'cui'], ['metal loss', 'wall_loss'], ['thinning', 'wall_loss']];
 function deriveMechs(lt) { var m = []; for (var i = 0; i < MECH_KW.length; i++) { if (lt.indexOf(MECH_KW[i][0]) >= 0 && m.indexOf(MECH_KW[i][1]) < 0) m.push(MECH_KW[i][1]); } return m; }
 
+function wbContains(text, phrase) {
+  var esc = String(phrase).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('\\b' + esc + '\\b', 'i').test(text);
+}
 function post(handlerMod, body) {
   return Promise.resolve(handlerMod.handler({ httpMethod: 'POST', headers: { 'X-API-Key': 'eval-key' }, body: JSON.stringify(body) }))
     .then(function (r) { return JSON.parse(r.body); });
@@ -82,7 +86,7 @@ async function runCase(c) {
     (conv.primary_hypothesis ? conv.primary_hypothesis.narrative : ''), authCodes.join(' '),
     (con.consequence_basis || con.basis || []).join ? (con.consequence_basis || con.basis || []).join(' ') : ''].join(' || ').toLowerCase();
 
-  return { tier: tier, disp: disp, authCodes: authCodes, grClass: gr.class, reportText: reportText };
+  return { tier: tier, disp: disp, authCodes: authCodes, grClass: gr.class, suspected: fmdBody.suspected_governing_mechanism || [], reportText: reportText };
 }
 
 var data = JSON.parse(fs.readFileSync(path.join(ROOT, 'tests/fixtures/sa-eval-cases.json'), 'utf8'));
@@ -100,7 +104,9 @@ var behavioral = data.behavioral_guard || [];
       if (e.consequence_tier_not && e.consequence_tier_not.indexOf(r.tier) >= 0) fails.push('consequence tier ' + r.tier + ' must NOT be ' + JSON.stringify(e.consequence_tier_not));
       if (e.governing_class && r.grClass !== e.governing_class) fails.push('governing class ' + r.grClass + ' != ' + e.governing_class);
       if (e.disposition && r.disp !== e.disposition) fails.push('disposition ' + r.disp + ' != ' + e.disposition);
-      (c.must_not_contain || []).forEach(function (s) { if (r.reportText.indexOf(s.toLowerCase()) >= 0) fails.push('CONTAMINATION: report contains forbidden "' + s + '"'); });
+      (c.must_contain || []).forEach(function (s) { if (!wbContains(r.reportText, s)) fails.push('MISSING: report should contain "' + s + '"'); });
+      if (e.suspected_leads && (String((r.suspected[0] || '')).toLowerCase() !== e.suspected_leads.toLowerCase())) fails.push('suspected-governing should LEAD with ' + e.suspected_leads + ' (got ' + JSON.stringify(r.suspected) + ')');
+      (c.must_not_contain || []).forEach(function (s) { if (wbContains(r.reportText, s)) fails.push('CONTAMINATION: report contains forbidden "' + s + '"'); });
       behavioral.forEach(function (s) { if (r.reportText.indexOf(s.toLowerCase()) >= 0) fails.push('BEHAVIORAL: report contains "' + s.trim() + '"'); });
     } catch (err) { fails.push('THREW: ' + (err && err.message ? err.message : String(err))); }
     if (fails.length) { failed++; details.push('FAIL  ' + c.id); fails.forEach(function (f) { details.push('        - ' + f); }); }

@@ -149,6 +149,41 @@ function isGlobalDeformation(text) {
 // (non-word char before, non-word char after, or start/end of string).
 // A "word char" is [a-z0-9_]. This kills the "cleaning" -> "leaning" and
 // "blistering" -> "listing"/"list" false positives without requiring regex.
+// ============================================================================
+// DEPLOY434 - DYNAMIC FATIGUE DOMINANCE (TEST 16). When multiple converging
+// dynamic-loading indicators are documented (vibration + slugging / flow-induced
+// + unsupported span + transient pressure + throughput increase), flow/vibration-
+// induced fatigue is the suspected governing mechanism and must LEAD a generic
+// H2S->HIC screening trigger. Counts DISTINCT documented signal categories (facts
+// only - no behavioral inference). Does not invent fatigue: it only re-orders a
+// fatigue mechanism already detected as a screening candidate.
+// ============================================================================
+function dynamicFatigueSignalCount(text) {
+  var cats = [
+    ["vibration", "vibrating", "oscillation"],
+    ["slug", "slugging"],
+    ["flow-induced", "flow induced", "flow assurance"],
+    ["transient", "excursion", "pressure fluctuation", "pressure spike", "pressure excursion"],
+    ["unsupported span", "free span", "free-span", "loss of support", "lost seabed support", "unsupported"],
+    ["cyclic", "cyclic loading"],
+    ["throughput increased", "production increased", "rate increased", "increased flow", "slug flow fatigue"]
+  ];
+  var n = 0;
+  for (var i = 0; i < cats.length; i++) {
+    for (var j = 0; j < cats[i].length; j++) { if (text.indexOf(cats[i][j]) >= 0) { n = n + 1; break; } }
+  }
+  return n;
+}
+function prioritizeFatigue(list, text) {
+  if (!list || list.indexOf("fatigue") < 0) { return list; }
+  if (dynamicFatigueSignalCount(text) >= 2) {
+    var rest = [];
+    for (var i = 0; i < list.length; i++) { if (list[i] !== "fatigue") { rest.push(list[i]); } }
+    return ["fatigue"].concat(rest);
+  }
+  return list;
+}
+
 function hasWordBoundaryMatch(text, keyword) {
   if (!text || !keyword) return false;
   var searchFrom = 0;
@@ -880,7 +915,7 @@ var handler = async function(event) {
     else if (hasCorrosionMode && hasCrackingMode_screeningOnly) {
       governingMode = "CORROSION";
       governingPressure = corrosionPath.failure_pressure;
-      suspectedGoverning = screeningMechanisms.filter(function(x){ return x && x !== 'generic' && x !== 'unknown' && x !== 'crack' && x !== 'cracking'; });
+      suspectedGoverning = prioritizeFatigue(screeningMechanisms.filter(function(x){ return x && x !== 'generic' && x !== 'unknown' && x !== 'crack' && x !== 'cracking'; }), transcript);
       governingBasis = "CONFIRMED governing mechanism: corrosion/metal loss (" + corrosionMechanisms.join(", ") + "), the only measured mechanism. SUSPECTED higher-consequence mechanism pending confirmation: " + screeningMechanisms.join(", ").toUpperCase() + " (cued but not yet observed/measured). The B31G/FFS calc governs on the CONFIRMED mechanism, but disposition is HELD until the suspected mechanism is confirmed or ruled out via the screening gate. Do not read this as \"corrosion is the only risk\".";
       // DEPLOY398 - name the DECISION driver explicitly. The HOLD is driven by the
       // unresolved suspected-crack risk, NOT by remaining wall thickness (which is
@@ -912,7 +947,7 @@ var handler = async function(event) {
     // Only screening-level cracking, no corrosion
     else if (hasCrackingMode_screeningOnly) {
       governingMode = "SCREENING_REQUIRED";
-      suspectedGoverning = screeningMechanisms.filter(function(x){ return x && x !== 'generic' && x !== 'unknown' && x !== 'crack' && x !== 'cracking'; });
+      suspectedGoverning = prioritizeFatigue(screeningMechanisms.filter(function(x){ return x && x !== 'generic' && x !== 'unknown' && x !== 'crack' && x !== 'cracking'; }), transcript);
       governingBasis = "Only unconfirmed cracking mechanism candidates present (" + screeningMechanisms.join(", ").toUpperCase() + "). No confirmed failure mode. Crack-specific NDE required before governing mode can be determined.";
       // DEPLOY398 - the disposition is governed by the unresolved crack-mechanism risk.
       dispositionDriver = "Unresolved " + (suspectedGoverning.length > 0 ? suspectedGoverning.join("/").toUpperCase() : "crack") + " (crack-mechanism) risk pending confirmation. No confirmed failure mode exists yet; the HOLD is governed by the suspected mechanism, which crack-specific NDE must confirm or rule out before disposition can finalize.";
