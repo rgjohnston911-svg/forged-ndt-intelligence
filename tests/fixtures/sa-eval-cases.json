@@ -53,7 +53,9 @@
         "cathodic",
         "anchor drag",
         "ovality"
-      ]
+      ],
+      "baseline_known_fail": true,
+      "baseline_note": "REAC inlet piping misclassified as a vessel (->API 510) because 'reactor effluent air cooler' outscores 'piping' in the keyword tally - the cascade in miniature. EXIT GATE: must go GREEN when Phase 5 (Component->Asset->Authority derivation) + Phase 7 rule 3 (facility/equipment classification cannot override component classification) land, with NO REAC-specific keyword anywhere in the diff. If it needs a REAC keyword to pass, the derivation did not work and it has been whack-a-mole'd - that is a FAIL of the fix."
     },
     {
       "id": "T14_offshore_sour_gas_export",
@@ -95,7 +97,8 @@
         "structural instability",
         "capacity exceeded",
         "cathodic"
-      ]
+      ],
+      "classification_review": "LABEL REVIEW (not junk, not engine debt): FLNG resolves to offshore_platform, which is defensible (a floating LNG unit IS a classed offshore installation, marine/structural side) but misses the LNG-process side. Authority assertion currently passes. Resolve as a completeness/label question alongside T16, NOT lumped with the T19 genuine-misclassification smell."
     },
     {
       "id": "CTRL_clean_documented_vessel",
@@ -141,6 +144,10 @@
       "transcript": "Subsea pipeline tie-in assembly, 18-inch duplex stainless flowline connected to aging carbon steel manifold spool, offshore oil and gas, water depth 420 ft. Multiphase production oil gas produced water CO2 variable H2S sand production. UT localized external corrosion, flowline 0.750 to 0.734, spool 0.625 to 0.588, corrosion rate 0.0025 per year, 15+ year remaining life. PAUT no reportable indications, no cracking. Production increased 35 percent during previous 18 months. Intermittent slugging events increasing. Transient pressure excursions exceeded normal operating pressure by 20 percent, no engineering review completed. One support span partially lost seabed support, approximately 4 feet of unsupported span. Two CP anodes depleted. Progressive seabed scour. Similar field subsea flowline rupture from unsupported span vibration, slug flow fatigue, and inhibitor failures. Storm season beginning. Production optimization software installed 8 months ago, no Management of Change package located.",
       "expect": {
         "authority_includes": [
+          "ASME B31.8"
+        ],
+        "authority_excludes": [
+          "API 510",
           "API 570"
         ],
         "suspected_leads": "fatigue"
@@ -148,7 +155,8 @@
       "must_contain": [
         "fatigue"
       ],
-      "must_not_contain": []
+      "must_not_contain": [],
+      "fixture_correction": "Subsea pipeline tie-in is governed by ASME B31.8 (gas)/B31.4 (liquid) + API 1111/DNV-ST-F101, NOT API 570 (in-service process piping). Expectation corrected; the derived B31.8 was the correct call. Engine NOT changed."
     },
     {
       "id": "T17_system_drift_no_mechanism",
@@ -219,6 +227,35 @@
         "foundation instability",
         "capacity exceeded",
         "capacity already exceeded"
+      ]
+    },
+    {
+      "id": "T22_wind_turbine_software_fleet",
+      "title": "TEST 22 - offshore wind turbine: software/control failure governs, fleet convergence over inspection (no physical defect)",
+      "asset_class": "unknown",
+      "transcript": "Floating offshore wind turbine WT-117, 7 years. Gearbox oil iron elevated 18 percent below alarm trend stable. Partial discharge minor within acceptance. Blade root UT no cracking no delamination. Monopile tilt 0.32 degrees design limit 1.50 acceptable. Splash zone coating degradation 18 percent within maintenance plan. Power prices record highs offline costs 420000 per day. Grid reserve margin critically low. Three sister turbines failed unexpectedly last year root cause never determined. All three failures occurred after software upgrades, WT-117 received the same upgrade. Vendor claims the upgrade unrelated no evidence provided. Anomalous network traffic observed 17 times in the past month investigation incomplete. Blade pitch actuator intermittently reports impossible positions fault self-clears maintenance dismissed as sensor issue. Major North Sea storm forecast 72 hours high cyclic loading. Common factors same software version same pitch controller revision same maintenance contractor no physical defect ever found.",
+      "expect": {
+        "governing_class": "CONTROL_SOFTWARE_FLEET_FAILURE",
+        "governing_statement_contains": [
+          "fleet",
+          "software"
+        ]
+      },
+      "must_not_contain": []
+    },
+    {
+      "id": "T22_furnace_petrochemical_not_offshore",
+      "title": "TEST 22 - ethylene cracker furnace must not be classified/dispositioned as an offshore platform",
+      "asset_class": "pressure_vessel",
+      "transcript": "Large coastal petrochemical complex. Ethylene cracker furnace. Determine if Furnace F-7 should remain in operation until the next scheduled turnaround in 18 months. Tubes. Mixed feed including heavier hydrocarbons. Coking rate increasing every year. Furnace draft sensors periodically drift. Tube metal temperatures remain normal. Senior furnace engineer retired 18 months ago. A similar furnace at another company suffered a catastrophic tube rupture from flow maldistribution from progressive coking; the rupture occurred in a tube that passed inspection 3 months earlier.",
+      "expect": {},
+      "must_not_contain": [
+        "API RP 2A",
+        "offshore platform",
+        "offshore_platform",
+        "jacket",
+        "brace node",
+        "splash zone"
       ]
     }
   ]

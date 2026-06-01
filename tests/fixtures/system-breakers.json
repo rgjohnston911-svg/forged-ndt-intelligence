@@ -1,0 +1,102 @@
+{
+  "version": "1.0",
+  "note": "Stabilization Directive Phase 2 - architecture stress cases. Each case is RAW TRANSCRIPT text exercised through resolve-asset + reality-lock + the full pipeline. Assertions are currently-observable (derived asset_class + anti-contamination). When the three-axis governing-reality model (Phase 3-4) lands, axis-tuple expectations are added here and these become the acceptance gates for the inverted-flow path. behavioral_guard forbids any human-behavior inference.",
+  "behavioral_guard": [
+    "complacency",
+    "negligence",
+    "ego",
+    "fear",
+    "laziness",
+    "carelessness",
+    "incompetence",
+    "willful",
+    "deliberately ignored"
+  ],
+  "cases": [
+    {
+      "id": "BREAKER_A_furnace_process_drift",
+      "title": "A - Ethylene cracker furnace, progressive coking, lost design basis / operational drift. MUST NOT become an offshore platform.",
+      "transcript": "Large coastal petrochemical complex. Ethylene cracker furnace F-7. Determine if the furnace should remain in operation until the next scheduled turnaround in 18 months. Tube ultrasonic readings show no significant wall loss and tube metal temperatures remain normal. Mixed feed including heavier hydrocarbons. Coking rate increasing every year and cleaning frequency has doubled. Furnace draft sensors periodically drift. The senior furnace engineer retired 18 months ago and the original firing-design basis records cannot be located. A similar furnace at another company suffered a catastrophic tube rupture from progressive coking and flow maldistribution; the rupture occurred in a tube that passed inspection three months earlier.",
+      "expect": {
+        "asset_class_in": [
+          "pressure_vessel",
+          "fired_heater"
+        ],
+        "asset_class_not": [
+          "offshore_platform"
+        ]
+      },
+      "must_not_contain": [
+        "API RP 2A",
+        "offshore platform",
+        "offshore_platform",
+        "jacket",
+        "brace node",
+        "splash zone",
+        "structural instability"
+      ],
+      "axis_target_future": {
+        "physical": "ACCEPTABLE",
+        "assurance": "LOST_DESIGN_BASIS",
+        "final_principle_dual_output": true
+      },
+      "final_principle_note": "A is a lost-design-basis case: physically ACCEPTABLE today (no significant wall loss, temps normal) but NOT dispositionable because the firing-design basis records are lost. The dual conclusion is carried by assurance=LOST_DESIGN_BASIS (operational coking drift is a gradual process condition, advisory only). Success criterion 10."
+    },
+    {
+      "id": "BREAKER_B_lng_assurance_failure",
+      "title": "B - LNG storage tank, all physical findings within limits but integrity-assurance basis is gone. MUST NOT invent active damage.",
+      "transcript": "Full-containment LNG storage tank at an export terminal, 11 years in service. Every physical finding is within limits: foundation settlement 12 mm against a 75 mm allowable, shell wall loss 1.8 percent which is below the corrosion-allowance concern threshold, no crack indications on the annular plate, no cold-spot or leak detected on the outer tank. However the original foundation-settlement baseline survey was destroyed in an office move, 11 years of routine inspection records were lost in a database migration, the automated settlement monitoring system has been failed and unrepaired for 18 months, and a regional ground-subsidence advisory was issued for the area but never reviewed against this tank.",
+      "expect": {
+        "asset_class_not": [
+          "offshore_platform"
+        ]
+      },
+      "must_not_contain": [
+        "active corrosion",
+        "active cracking",
+        "confirmed instability",
+        "API RP 2A",
+        "offshore platform",
+        "structural instability"
+      ],
+      "axis_target_future": {
+        "physical": "ACCEPTABLE",
+        "assurance": "UNKNOWN_STATE"
+      }
+    },
+    {
+      "id": "BREAKER_C_software_fleet_failure",
+      "title": "C - Control-software upgrade followed by sister-unit failures. Fleet pattern must be able to govern without inventing material damage.",
+      "transcript": "Onshore wind farm, three turbines of the same model and same pitch-control software version. Following a vendor control-software upgrade rolled out across the fleet, two sister turbines experienced gearbox-bearing failures within six weeks of each other, and a third is now showing the same rising drive-train vibration signature. No coating breakdown, no corrosion, and no tower tilt has been reported on any unit. The common factor across the affected units is the same software revision and the same commissioning contractor. Determine whether the remaining turbines should continue operating on the current software.",
+      "expect": {},
+      "must_not_contain": [
+        "coating governs",
+        "corrosion governs",
+        "tilt governs",
+        "API RP 2A",
+        "offshore platform"
+      ],
+      "axis_target_future": {
+        "operational": "FLEET_PATTERN"
+      }
+    },
+    {
+      "id": "BREAKER_D_vibration_fatigue_convergence",
+      "title": "D - Vibration-induced fatigue with convergent support; UT wall-loss is a non-finding and must NOT be made to govern.",
+      "transcript": "Offshore gas-export piping spool downstream of a reciprocating compressor. Throughput was increased 35 percent eight months ago with no management-of-change review. Field reports document persistent high vibration at the spool, intermittent slugging, transient pressure excursions, an unsupported pipe span where a support clamp has come loose, and a small-bore branch connection that has already cracked once and been re-welded. Ultrasonic thickness readings on the main spool show no significant wall loss. There is trace H2S in the stream.",
+      "expect": {
+        "suspected_leads": "fatigue"
+      },
+      "must_not_contain": [
+        "wall loss governs",
+        "metal loss governs",
+        "corrosion governs"
+      ],
+      "axis_target_future": {
+        "physical": "SUSPECTED",
+        "operational": "CHANGED_UNREASSESSED"
+      },
+      "retired_note": "Retired DEPLOY444 (Phase 6 evidence gate): HIC demoted (re-welded crack + trace H2S = no active cracking), evidenced fatigue leads. Now a hard gate."
+    }
+  ]
+}

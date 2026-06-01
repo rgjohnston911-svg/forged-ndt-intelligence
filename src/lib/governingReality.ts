@@ -149,6 +149,30 @@ export function resolveGoverningReality(input: GoverningRealityInput): Governing
     };
   }
 
+  // 1b. CONTROL-SYSTEM / SOFTWARE FAILURE (fleet-convergent). The strongest evidence
+  //     is FLEET HISTORY, not inspection: a software / controller change followed by
+  //     multiple sister-asset failures (same software/controller), while this asset's
+  //     inspection findings are within limits. The governing mechanism is not physical;
+  //     weak-but-convergent fleet evidence outranks isolated, acceptable inspection
+  //     results (TEST 22). Gated on BOTH a software change AND fleet-convergent failures.
+  var softwareChange = /software (?:upgrade|update|version|change|modification|patch)|control software|control-system software|pitch controller|firmware|vendor tuning/i.test(t);
+  var fleetAfterChange = /(?:three|two|multiple|several|sister|other|fleet)[^.]{0,40}(?:turbine|unit|asset|pump|compressor|line)s?[^.]{0,30}fail|failures?[^.]{0,45}after[^.]{0,20}(?:software|upgrade|update)|same software (?:version|upgrade|revision)|common factors?[^.]{0,70}(?:software|controller|contractor)/i.test(t);
+  if (softwareChange && fleetAfterChange) {
+    provenance.push("transcript: software/controller change + fleet-convergent failures (fact)");
+    if (/anomalous (?:network )?traffic|cyber|network traffic|machine-to-machine/i.test(t)) contributing.push("anomalous network / cyber activity under investigation");
+    if (/(?:impossible|implausible|invalid) position|reports impossible|self-clear/i.test(t)) contributing.push("controller reporting implausible / self-clearing faults");
+    if (/root cause (?:never|not) (?:determined|found)|no physical defect (?:ever )?found/i.test(t)) contributing.push("prior fleet failures had no physical root cause found");
+    if (i.governingFailureMode && nz(i.governingFailureMode) !== "NONE") contributing.push("This asset's inspection findings are within limits and are NOT the governing mechanism");
+    return {
+      class: "CONTROL_SOFTWARE_FLEET_FAILURE",
+      governs: true,
+      statement: "Governing reality: a control-system / software-induced failure mechanism governs - the strongest evidence is FLEET CONVERGENCE (multiple sister assets failed after the same software / controller change), not the inspection findings, which are within limits. The governing risk is software / control behaviour, not a physical defect; weak-but-convergent fleet evidence outranks the isolated, acceptable inspection results. Hold pending a control-system / software investigation - the physical inspection cannot clear this.",
+      disposition_driver: i.dispositionDriver || "control-system / software failure mechanism (fleet-convergent) - not a physical inspection finding",
+      contributing: contributing,
+      provenance: provenance
+    };
+  }
+
   // 2. SYSTEM DRIFT / CONTROL-NETWORK INSTABILITY (no material mechanism).
   //    >= 3 distinct control/network drift signals + no confirmed critical defect ->
   //    the governing reality is loss of the validated operating envelope, NOT a

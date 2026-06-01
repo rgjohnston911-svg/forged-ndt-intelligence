@@ -39,8 +39,12 @@ var handler = async function(event: any): Promise<any> {
           resolved: {
             asset_class: "pressure_vessel",
             asset_type: "pressure_vessel",
-            confidence: 0.1,
-            alternatives: []
+            confidence: 0,
+            alternatives: [],
+            value: "pressure_vessel",
+            evidence: [],
+            source: "default",
+            isDefault: true
           },
           warning: "No text provided — defaulted to pressure_vessel"
         })
@@ -412,6 +416,9 @@ var handler = async function(event: any): Promise<any> {
     // ================================================================
 
     var scores: { [key: string]: { score: number; best_type: string; best_weight: number } } = {};
+    // PHASE 4: record WHICH alias terms actually matched in the transcript, per class.
+    // This is the provenance/evidence for the classification - "no evidence => no confidence".
+    var matchedAliases: { [key: string]: string[] } = {};
 
     // Step 1: Score each alias match
     var alias_keys = Object.keys(ALIASES);
@@ -427,6 +434,8 @@ var handler = async function(event: any): Promise<any> {
           scores[entry.c].best_type = entry.t;
           scores[entry.c].best_weight = entry.w;
         }
+        if (!matchedAliases[entry.c]) { matchedAliases[entry.c] = []; }
+        matchedAliases[entry.c].push(alias);
       }
     }
 
@@ -466,6 +475,19 @@ var handler = async function(event: any): Promise<any> {
       }
     }
 
+    // PHASE 5 / Phase 7 rule 3 - COMPONENT PRECEDENCE: an explicit piping component
+    // governs over a facility/equipment winner. The inspected item is the piping
+    // (-> API 570), not the parent vessel/equipment. General rule keyed on component
+    // vs facility nouns; contains no asset-specific keyword.
+    var __facilityOrEquip = (best_class === "pressure_vessel" || best_class === "heat_exchanger" || best_class === "refinery_process_facility");
+    var __pipingRe = /\b(?:process piping|inlet piping|outlet piping|suction piping|discharge piping|piping|pipe header|process line|transfer line|recycle line|small[- ]bore|dead leg|injection point)\b/;
+    var __componentOverride = false;
+    if (__facilityOrEquip && __pipingRe.test(raw)) {
+      best_class = "process_piping";
+      best_type = "process_piping";
+      __componentOverride = true;
+    }
+
     // Sort alternatives by score descending
     alternatives.sort(function(a, b) { return b.score - a.score; });
 
@@ -488,6 +510,14 @@ var handler = async function(event: any): Promise<any> {
     confidence = Math.min(confidence, 0.98);
     confidence = Math.round(confidence * 100) / 100;
 
+    // PHASE 4: confidence-tagged classification contract { value, confidence, evidence, source, isDefault }.
+    // isDefault === true means NO alias matched and the class fell back to the default; per the directive a
+    // default can NEVER override an explicit finding (enforced in Phase 7 noDestructiveOverride).
+    var __evidence = (matchedAliases[best_class] || []).slice(0, 8);
+    var __isDefault = (best_score === 0);
+    var __source = __isDefault ? "default" : "alias-match";
+    if (__isDefault) { confidence = 0; }  // no evidence => no confidence
+
     return {
       statusCode: 200,
       headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
@@ -496,7 +526,12 @@ var handler = async function(event: any): Promise<any> {
           asset_class: best_class,
           asset_type: best_type,
           confidence: confidence,
-          alternatives: alternatives.slice(0, 5)
+          alternatives: alternatives.slice(0, 5),
+          value: best_class,
+          evidence: __evidence,
+          source: __source,
+          isDefault: __isDefault,
+          component_override: __componentOverride
         }
       })
     };

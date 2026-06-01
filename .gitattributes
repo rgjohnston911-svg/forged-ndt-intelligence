@@ -1,0 +1,13 @@
+# DEPLOY440: normalize line endings repo-wide. The repo was relocated off OneDrive
+# (which had rewritten line endings), leaving the whole tree showing as modified and
+# burying real diffs. text=auto+eol=lf makes git store LF and stop the CRLF/LF churn.
+# After committing this file, run once: git add --renormalize . && git commit -m "normalize line endings"
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.xlsx binary
+*.pptx binary
+*.docx binary

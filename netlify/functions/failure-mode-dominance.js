@@ -1013,6 +1013,34 @@ var handler = async function(event) {
     }
 
     // ====================================================================
+    // PHASE 6 - EVIDENCE GATE (re-rank the SUSPECTED list by direct/indirect
+    // evidence). This does NOT touch the FMD screening weights; it constrains the
+    // OUTPUT so a Tier-2 keyword guess (e.g. HIC off trace H2S + a re-welded crack)
+    // can never outrank an evidenced dynamic-fatigue convergence. A mechanism whose
+    // direct findings are within-limits / repaired / negated drops to the bottom.
+    // Facts only; nothing invented (fatigue is added only when >=2 dynamic-loading
+    // signals are documented).
+    // ====================================================================
+    (function () {
+      var cand = (suspectedGoverning && suspectedGoverning.slice) ? suspectedGoverning.slice() : [];
+      if (dynamicFatigueSignalCount(transcript) >= 2 && cand.indexOf("fatigue") < 0) { cand.push("fatigue"); }
+      if (cand.length < 2) { return; }
+      var BLK = [/\bno\s+(?:significant\s+|active\s+|apparent\s+)?(?:wall\s*loss|metal\s*loss|crack|cracking|corrosion|indication|leak|deformation|settlement)/, /\bwithin\s+(?:design\s+)?(?:limits?|allowable|tolerance)/, /\bbelow\s+(?:the\s+)?(?:concern|allowable|threshold)/, /\bre-?welded\b/, /\b(?:previously\s+)?repaired\b/];
+      var isBlk = false; for (var bi = 0; bi < BLK.length; bi++) { if (BLK[bi].test(transcript)) { isBlk = true; break; } }
+      var DIRECT_CRACK = [/\b(?:ut|paut|tofd|mt|mpi|pt|rt|ae)\b[^.]{0,40}(?:crack|indication|flaw|linear)/, /\bcrack(?:ing)?\s+(?:indication|detected|confirmed|observed|found|located)/, /\bthrough[- ]wall\s+crack/, /\bactive\s+crack\s+growth\b/];
+      var DIRECT_CORR = [/\bmeasured\s+wall\s*loss/, /\b\d+(?:\.\d+)?\s*%\s*(?:wall\s*|metal\s*)?loss/, /\bwall\s*loss\s+of\s+\d/, /\bpit(?:ting)?\s+depth\s+\d/, /\bcorrosion\s+(?:product|scale|confirmed|observed|measured)/, /\bmeasured\s+(?:corrosion\s+)?rate/];
+      var IND_CRACK = [/\bwet\s+h2?s\b/, /\bsour\s+service\b/, /\bppm\s+h2?s\b/, /\bcaustic\b/];
+      var IND_CORR = [/\bsour\b/, /\bh2?s\b/, /\bco2\b/, /\bchloride/, /\bsulfidation/, /\bdew\s*point/, /\bunder\s+insulation/];
+      function fam(m) { m = String(m || "").toLowerCase(); if (/(?:hic|sohic|ssc|scc|crack)/.test(m)) { return "cracking"; } if (/(?:corros|wall|metal|pitting|thinning|erosion|\bmic\b|\bcui\b)/.test(m)) { return "corrosion"; } if (/(?:fatigue|vibration|cyclic)/.test(m)) { return "fatigue"; } return "other"; }
+      function anyTest(res) { for (var i = 0; i < res.length; i++) { if (res[i].test(transcript)) { return true; } } return false; }
+      function lvl(m) { var f = fam(m); if (f === "cracking") { if (anyTest(DIRECT_CRACK) && !isBlk) { return 0; } if (anyTest(IND_CRACK)) { return 1; } return 2; } if (f === "corrosion") { if (anyTest(DIRECT_CORR) && !isBlk) { return 0; } if (anyTest(IND_CORR)) { return 1; } return 2; } if (f === "fatigue") { return (dynamicFatigueSignalCount(transcript) >= 2) ? 1 : 2; } return 2; }
+      var idx = []; for (var ci = 0; ci < cand.length; ci++) { idx.push({ m: cand[ci], r: lvl(cand[ci]), i: ci }); }
+      idx.sort(function (a, b) { if (a.r !== b.r) { return a.r - b.r; } return a.i - b.i; });
+      var out = []; for (var oi = 0; oi < idx.length; oi++) { out.push(idx[oi].m); }
+      suspectedGoverning = out;
+    })();
+
+    // ====================================================================
     // RESPONSE
     // ====================================================================
 

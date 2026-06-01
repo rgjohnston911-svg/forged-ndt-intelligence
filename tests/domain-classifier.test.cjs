@@ -50,6 +50,29 @@ assert(cls("Highway bridge girder, pier cap and abutment bearing inspection; dec
 var unknown = cls("The thing near the area had some surface marks after the weekend.");
 assert(unknown.domain === 'unknown', 'no-signal text -> unknown (got ' + unknown.domain + ')');
 
+// ---- DEPLOY439 (TEST 22): petrochemical furnace must NOT route to offshore ----
+// Bug: the generic word "hydrocarbon" was an offshore_oil_gas keyword, so an
+// ethylene-cracker furnace scored offshore; reality-lock then overrode the correct
+// pressure_vessel/fired_heater asset to "offshore_platform" (API RP 2A, structural-
+// instability), contaminating every downstream engine. Fix: "hydrocarbon" removed
+// from offshore keywords (it is generic to all hydrocarbon processing, not offshore-
+// discriminating); furnace/fired-heater/petrochemical terms route to the SUPPORTED
+// refinery/process domain instead.
+var furnace = "Large coastal petrochemical complex. Ethylene cracker furnace. Determine if Furnace F-7 " +
+  "should remain in operation until the next turnaround in 18 months. Tubes. Mixed feed including heavier " +
+  "hydrocarbons. Coking rate increasing every year. Furnace draft sensors periodically drift. Tube metal " +
+  "temperatures remain normal.";
+var rf = cls(furnace);
+assert(rf.domain !== 'offshore_oil_gas', 'furnace must NOT classify offshore (got ' + rf.domain + ')');
+assert(rf.rawTopDomain !== 'offshore_oil_gas', 'furnace raw top must NOT be offshore (got ' + rf.rawTopDomain + ')');
+assert(rf.domain === 'refinery', 'ethylene cracker furnace -> refinery/process (got ' + rf.domain + ')');
+assert(rf.supported === true, 'furnace must land in a SUPPORTED domain (got supported=' + rf.supported + ')');
+
+// ---- "hydrocarbon" alone no longer implies offshore ----
+var hc = "Mixed feed including heavier hydrocarbons in the process unit.";
+var rhc = cls(hc);
+assert(rhc.domain !== 'offshore_oil_gas', 'bare hydrocarbon must not imply offshore (got ' + rhc.domain + ')');
+
 // ---- Determinism ----
 assert(JSON.stringify(cls(lng)) === JSON.stringify(cls(lng)), 'deterministic');
 

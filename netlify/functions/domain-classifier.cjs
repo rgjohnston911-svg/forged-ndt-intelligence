@@ -23,7 +23,7 @@
 var DOMAIN_KEYWORDS = {
   "offshore_oil_gas": [
     "offshore", "platform", "jacket", "riser", "subsea", "fpso", "wellhead",
-    "brace node", "cellar deck", "hydrocarbon", "boat landing", "jacket leg"
+    "brace node", "cellar deck", "boat landing", "jacket leg", "topside", "splash zone"
   ],
   "pipeline": [
     "pipeline", "free span", "anode", "bracelet anode", "export corridor",
@@ -32,7 +32,14 @@ var DOMAIN_KEYWORDS = {
   "refinery": [
     "refinery", "coker", "fractionator", "prv", "overhead piping", "hot line",
     "pipe rack", "delayed coker", "crude unit", "vacuum unit", "sulfidation",
-    "hydrotreater", "hydrocracker", "alkylation", "reactor effluent", "amine unit", "desalter"
+    "hydrotreater", "hydrocracker", "alkylation", "reactor effluent", "amine unit", "desalter",
+    // DEPLOY439: fired-heater / petrochemical process equipment. A furnace / fired
+    // heater / process heater (incl. ethylene cracker / steam cracker furnaces) is
+    // process pressure equipment and belongs to the SUPPORTED refinery/process domain
+    // (NOT offshore). Factual equipment & process terminology only.
+    "fired heater", "process heater", "furnace", "ethylene cracker", "cracker furnace",
+    "steam cracker", "petrochemical", "coking", "decoking", "convection section",
+    "radiant section", "tube metal temperature"
   ],
   "chemical_process": [
     "chemical plant", "reactor vessel", "solvent", "manifold", "separator",

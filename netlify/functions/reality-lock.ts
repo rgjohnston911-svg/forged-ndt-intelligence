@@ -27,7 +27,7 @@ var domainClassifier = require("./domain-classifier.cjs");
 var DOMAIN_KEYWORDS: { [key: string]: string[] } = {
   "offshore_oil_gas": [
     "offshore", "platform", "jacket", "riser", "subsea", "fpso", "wellhead",
-    "brace node", "cellar deck", "hydrocarbon", "boat landing", "jacket leg"
+    "brace node", "cellar deck", "boat landing", "jacket leg", "topside", "splash zone"
   ],
   "pipeline": [
     "pipeline", "free span", "anode", "bracelet anode", "export corridor",
@@ -227,7 +227,22 @@ function runRealityLock(transcript: string, parsedAssetClass: string, parsedAsse
   var assetOverride: string | null = null;
   var conflict = false;
 
-  if (!assetCompatible && topDomain.score > 0) {
+  // DEPLOY439 - defense-in-depth: a domain-KEYWORD score is weaker evidence than a
+  // direct asset-noun match. resolve-asset identifies the asset from explicit nouns
+  // (e.g. "furnace" -> fired_heater) and reports a confidence. When that confidence is
+  // high (>= 0.7), DO NOT silently overwrite the specific asset with the domain's
+  // generic default asset (which contaminates every downstream engine). Trust the
+  // specific classification and emit an advisory instead. Low-confidence parses can
+  // still be corrected by a domain match as before. Facts only; no behavioral inference.
+  var ASSET_TRUST_THRESHOLD = 0.7;
+  if (!assetCompatible && topDomain.score > 0 && parsedAssetConfidence >= ASSET_TRUST_THRESHOLD) {
+    warnings.push({
+      code: "ASSET_DOMAIN_MISMATCH_ADVISORY",
+      severity: "warning",
+      message: "Detected domain '" + topDomain.domain + "' (keyword score " + topDomain.score + ") does not list parsed asset '" + parsedAssetClass + "' as typical, but the asset was classified at high confidence (" + parsedAssetConfidence + ") from an explicit asset descriptor. The specific asset classification is retained; the domain match is treated as advisory only."
+    });
+    trace.push("Asset-domain mismatch, but parsed asset confidence (" + parsedAssetConfidence + ") >= " + ASSET_TRUST_THRESHOLD + ": retaining specific asset '" + parsedAssetClass + "', NOT overriding to domain default.");
+  } else if (!assetCompatible && topDomain.score > 0) {
     conflict = true;
     assetOverride = suggestAssetOverride(topDomain.domain);
     warnings.push({
@@ -288,9 +303,27 @@ function runRealityLock(transcript: string, parsedAssetClass: string, parsedAsse
     summary = "Domain: " + domainLabel + " (not supported by deterministic engines). AI interpretation will be displayed. Deterministic mechanisms, methods, and code citations are not available for this domain.";
   }
 
+  // PHASE 4: confidence-tagged classification contract for the DOMAIN call
+  // { value, confidence, evidence, source, isDefault }. evidence = the keyword hits that
+  // actually matched; isDefault === true means no keyword matched (score 0) -> no confidence,
+  // and such a default may never override an explicit asset finding (Phase 7).
+  var __domConf = 0;
+  if (topDomain.score >= 15) { __domConf = 0.8; }
+  else if (topDomain.score >= 8) { __domConf = 0.6; }
+  else if (topDomain.score > 0) { __domConf = 0.4; }
+  var __domIsDefault = (topDomain.score === 0);
+  var classification = {
+    value: topDomain.domain,
+    confidence: __domConf,
+    evidence: topDomain.hits || [],
+    source: __domIsDefault ? "default" : "domain-keyword",
+    isDefault: __domIsDefault
+  };
+
   return {
     engine_version: "reality-lock-v1",
     elapsed_ms: Date.now() - startMs,
+    classification: classification,
     detected_domain: topDomain.domain,
     detected_domain_label: domainLabel,
     domain_score: topDomain.score,
