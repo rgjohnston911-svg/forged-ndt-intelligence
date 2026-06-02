@@ -120,6 +120,24 @@ ok(esdDiverge.governingReality.assurance === "UNKNOWN_STATE", "CP4: ESD demand/r
 var sisClean = R.reconcile({ transcript: "Safety Instrumented System SIS-9. All proof tests passed. Independent safety validation completed and documented. No logic changes since commissioning. Trip demand rate stable, protective responses stable. No excursions.", assetClaims: [{ value: "pressure_vessel", confidence: 0.9, kind: "explicit-asset" }] });
 ok(sisClean.governingReality.assurance === "ESTABLISHED", "CP4: clean independently-validated SIS does NOT over-fire (assurance ESTABLISHED, got " + sisClean.governingReality.assurance + ")");
 
+// ---- DEPLOY465: GENERALIZED assurance recognizer (TEST 34 - control loop on a vessel). One
+// recognizer covers safety AND control functions, keyed on function BEHAVIOR not asset class. A
+// vessel that is physically fit but whose automatic CONTROL action is declining against rising
+// human compensation, with no independent control-system validation, is governed by CONTROL-function
+// assurance (physical stays ACCEPTABLE). DEGRADED on a basis gap alone; no over-fire on a validated
+// function. ----
+var ctrlLoop = R.reconcile({ transcript: "Pressure vessel V-401, UT thickness within limits, no corrosion, no cracking, within design limits. An automatic process-control loop regulates synthesis pressure. Three control-strategy revisions implemented, MOC closed. No independent control-system validation found. Automatic control actions decreased 70 percent; operator interventions increased 55 percent; operators now run it manually.", assetClaims: [{ value: "pressure_vessel", confidence: 0.9, kind: "explicit-asset" }] });
+ok(ctrlLoop.governingReality.physical === "ACCEPTABLE", "CONTROL: vessel physically ACCEPTABLE (control function layered on top)");
+ok(ctrlLoop.governingReality.assurance === "UNKNOWN_STATE", "CONTROL: declining auto control + rising manual takeover -> assurance UNKNOWN_STATE governs over clean physical");
+ok(/control-function assurance failure governs/i.test(ctrlLoop.governingStatement) && /ISA 18\.2/i.test(ctrlLoop.governingStatement), "CONTROL: statement names control-function assurance + ISA 18.2 (process control routing)");
+ok(!/corrosion|cracking/i.test(ctrlLoop.governingStatement), "CONTROL: no manufactured physical mechanism");
+// DEGRADED: a stated validation gap alone (no behavioral divergence) -> DEGRADED, not UNKNOWN
+var basisGap = R.reconcile({ transcript: "Safety instrumented function SIF-2. Two logic revisions implemented, MOC closed, no independent safety validation found. Trip demand stable, protective responses stable, no excursions.", assetClaims: [{ value: "functional_safety", confidence: 0.9, kind: "explicit-asset" }] });
+ok(basisGap.governingReality.assurance === "DEGRADED", "C-only (validation gap, no divergence) -> assurance DEGRADED (got " + basisGap.governingReality.assurance + ")");
+// NO over-fire: validated control function with stable behavior stays ESTABLISHED
+var ctrlClean = R.reconcile({ transcript: "Pressure vessel with an automatic control loop. Independent control-system validation completed and documented. No control-strategy changes. Demand stable, automatic action stable. UT within limits, no corrosion.", assetClaims: [{ value: "pressure_vessel", confidence: 0.9, kind: "explicit-asset" }] });
+ok(ctrlClean.governingReality.assurance === "ESTABLISHED", "validated control function + no divergence -> ESTABLISHED (no over-fire)");
+
 fs.rmSync(tmp, { recursive: true, force: true });
 if (fails.length) { console.log('FAIL reconciliation-layer: ' + fails.length); fails.forEach(function (f) { console.log('   - ' + f); }); process.exit(1); }
 console.log('All reconciliation-layer Phases 8+9 checks passed (' + pass + ' assertions: deterministic axis floor for all breakers, FINAL PRINCIPLE end-to-end, Tier-1 evidence/consistency/scope/confidence vetoes, conflict surfacing).');

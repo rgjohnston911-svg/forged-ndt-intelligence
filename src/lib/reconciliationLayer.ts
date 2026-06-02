@@ -84,36 +84,53 @@ function changedUnreassessed(t: string): boolean {
   return (changed && noReassess) || unvalidatedChange;
 }
 
-// ---- ASSURANCE recognizer: SAFETY-FUNCTION INTEGRITY (DEPLOY462 CP4, TEST 29/31/32) ----
-// A protective/safety function (SIS / ESD / relief / interlock / BMS / SIF) whose protective DEMAND
-// is rising while its protective RESPONSE is falling, and/or whose logic changed without independent
-// validation, has UNVERIFIED safety-function assurance: the basis for trusting it still performs its
-// safety function is missing. Falsifiable - a measured demand-vs-response divergence and/or a
-// documented validation gap, not a feeling. The engine RECOGNIZES and ROUTES (functional-safety
-// validation per IEC 61511 / a functional safety engineer + PSM); it does NOT compute SIL or run LOPA.
-// NOTE: a CLOSED MOC is not proof of independent validation.
-function safetyFunctionAsset(t: string): boolean {
-  return /\bsafety[- ]instrumented (?:system|function)\b|\bsis[- ]?\d|\bsis\b|\besd\b|emergency shutdown|burner management|\bbms\b|\bsif\b|\binterlock\b|protective function|trip system|feed isolation|relief (?:valve|system|device)/i.test(t);
+// ---- ASSURANCE recognizer: PROTECTIVE/CONTROL-FUNCTION INTEGRITY (DEPLOY465, generalized; TEST 29/31/33/34) ----
+// ONE recognizer, four costumes. A protective OR control function whose AUTOMATIC ACTION is declining
+// against RISING demand-or-human-compensation (behavioral divergence), and/or whose validation basis is
+// not affirmatively established, has UNVERIFIED assurance. NO-ASSURANCE-DEFAULT (mirror of no-physical-
+// default): a present-but-unvalidated protective/control function is NOT ESTABLISHED - it is to be
+// VERIFIED. Keys on FUNCTION BEHAVIOR (not asset class), so it covers a SIS, an ESD, AND a vessel with a
+// degraded control loop alike. Recognize + cite + escalate (IEC 61511 / ISA 18.2 / PSM) - NEVER compute
+// SIL, run LOPA, or analyze control loops. The manual-takeover / human-compensation signal is the
+// recognizer's EVIDENCE (the assurance bid's basis), never a competing operational bid (it is a symptom
+// of the assurance gap). A closed MOC is not validation. Every signal is read from a STATED fact; an
+// unstated trend is UNKNOWN and its branch does not fire (no fabrication; worst case under-fires).
+function protectiveFunctionKind(t: string): string {  // "SAFETY" | "CONTROL" | "NONE"
+  var safety = /\bsafety[- ]instrumented (?:system|function)\b|emergency shutdown system|emergency shutdown|burner management|\bsis-?\d|\bsif\b|\binterlock\b|trip system|feed isolation|relief (?:valve|system|device)|protective function|safety instrumented/i.test(t);
+  if (safety) { return "SAFETY"; }
+  var control = /\bcontrol (?:loop|strategy|system|narrative|scheme)\b|automatic control|process[- ]control|advanced process control|regulatory control|control[- ]logic strategy/i.test(t);
+  if (control) { return "CONTROL"; }
+  return "NONE";
 }
-function protectiveDemandUp(t: string): boolean {
-  return /(?:excursion|upset|challenge|demand|high[- ]temperature event|over[- ]?temperature|over[- ]?pressure|process upset)[^.]{0,50}(?:increas|\bup\b|rising|rose|more frequent|\d+\s*%)/i.test(t);
+function automaticActionDown(t: string): boolean {  // signal A
+  // subject = an automatic protective/control action; decrease words only (a bare "N%" is NOT a
+  // decrease token - it would falsely match "interventions increased 55%").
+  return /(?:trip|activation|isolation|shutdown|intervention|automatic (?:protective )?action|automatic control|control action|protective action)s?[^.]{0,55}(?:decreas|reduc|\bdown\b|fewer|fell|drop)/i.test(t)
+    || /(?:previously|used to|that previously|events? (?:that )?previously)[^.]{0,75}(?:isolat|trip|shut|activat)[^.]{0,45}now[^.]{0,35}(?:alarm|only|operator[- ]managed|manual)/i.test(t)
+    || /now (?:generate|produce|result in|remain|are)[^.]{0,25}(?:alarms?(?:\s+only)?|operator[- ]managed|manually managed)/i.test(t)
+    || /no (?:esd |trip )?(?:activations?|trips?)[^.]{0,30}(?:in the last|over the (?:last|past))/i.test(t);
 }
-function protectiveResponseDown(t: string): boolean {
-  return /(?:trip|activation|isolation|shutdown|intervention)s?[^.]{0,50}(?:decreas|\bdown\b|reduc|fewer|fell|drop|\d+\s*%)/i.test(t)
-    || /(?:previously|used to|that previously)[^.]{0,70}(?:isolat|trip|shut)[^.]{0,40}now[^.]{0,30}(?:alarm|only)/i.test(t)
-    || /now (?:generate|produce|result in)[^.]{0,20}alarms?(?:\s+only)?/i.test(t);
+function demandOrCompensationUp(t: string): boolean {  // signal B (demand OR human compensation; TEST 34 added compensation)
+  var demand = /(?:excursion|upset|challenge|demand|high[- ]temperature event|over[- ]?temperature|over[- ]?pressure|process upset|critical (?:pressure )?alarm)s?[^.]{0,55}(?:increas|\bup\b|rising|rose|more frequent)/i.test(t);
+  var compensation = /(?:operator intervention|manual (?:action|intervention)|alarm acknowledg|operator[- ]managed)s?[^.]{0,55}(?:increas|\bup\b|rising|rose)/i.test(t)
+    || /(?:run it manually|handle it (?:ourselves|manually)|we (?:run|handle) it manually|operators? (?:now )?(?:manage|handle|run)\b|doesn'?t shut us down|we rarely see automatic)/i.test(t)
+    || /now (?:remain|are) operator[- ]managed/i.test(t);
+  return demand || compensation;
 }
-function missingIndependentValidation(t: string): boolean {
-  var changed = /(?:sis |logic |software |safety |control )?(?:logic |software )?(?:revision|change|update|modification|patch)s?[^.]{0,50}(?:installed|made|implemented|applied|deployed)/i.test(t)
-    || /\d+\s+(?:sis )?(?:logic |software )?(?:revisions?|changes?|updates?)/i.test(t);
-  var noIndep = /independent[^.]{0,40}(?:safety |functional )?validation[^.]{0,40}(?:not (?:found|performed|completed|done|available)|missing|absent|never|could not be located)/i.test(t)
-    || /(?:no|without|lacking)[^.]{0,25}independent[^.]{0,25}(?:safety |functional )?validation/i.test(t);
-  return changed && noIndep;
+function validationBasisUnverified(t: string): boolean {  // signal C (a STATED validation gap)
+  var noIndep = /independent[^.]{0,45}(?:safety |functional |control[- ]system )?validation[^.]{0,45}(?:not (?:found|located|performed|completed|done|available)|missing|absent|never|could not be located)/i.test(t)
+    || /(?:no|without|lacking)[^.]{0,25}independent[^.]{0,30}(?:safety |functional |control[- ]system )?validation/i.test(t);
+  var prePostUnavailable = /(?:differences? between versions?|pre[- ]?(?:and[- ]?)?post[- ]?change comparison|original (?:cause[- ]?(?:and[- ]?)?effect|control narrative))[^.]{0,40}(?:unknown|unavailable|not (?:available|located|found|documented))/i.test(t);
+  return noIndep || prePostUnavailable;
 }
-function safetyFunctionAssuranceUnverified(t: string): boolean {
-  if (!safetyFunctionAsset(t)) { return false; }
-  var divergence = protectiveDemandUp(t) && protectiveResponseDown(t);
-  return divergence || missingIndependentValidation(t);
+// returns { state: "UNKNOWN_STATE" | "DEGRADED" | null, kind } - the assurance bid the contest consumes.
+function assuranceRecognizer(t: string): { state: AssuranceState | null; kind: string } {
+  var kind = protectiveFunctionKind(t);
+  if (kind === "NONE") { return { state: null, kind: kind }; }
+  var divergence = automaticActionDown(t) && demandOrCompensationUp(t);  // A AND B
+  if (divergence) { return { state: "UNKNOWN_STATE", kind: kind }; }       // behavioral evidence of silent degradation
+  if (validationBasisUnverified(t)) { return { state: "DEGRADED", kind: kind }; }  // basis for trust not established
+  return { state: null, kind: kind };  // validated + no divergence -> ESTABLISHED via the normal path
 }
 
 // ---- DETERMINISTIC AXIS FLOOR ----
@@ -154,13 +171,18 @@ export function deriveAxesDeterministic(transcript: string, assetClass?: string)
   // ASSURANCE
   var assurance: AssuranceState; var assEv: string[] = [];
   var kl = knowledgeLossCount(t);
-  var safetyFnUnverified = safetyFunctionAssuranceUnverified(t);
+  var __rec = assuranceRecognizer(t);  // DEPLOY465: protective/control-function integrity (one recognizer, behavior-keyed)
+  var __pfWord = __rec.kind === "CONTROL" ? "control-function" : "safety-function";
   if (designBasisLost(t)) { assurance = "LOST_DESIGN_BASIS"; assEv = ["design basis records lost/destroyed"]; }
-  else if (safetyFnUnverified || kl >= 2) {
+  else if (__rec.state === "UNKNOWN_STATE" || kl >= 2) {
     assurance = "UNKNOWN_STATE";
-    assEv = safetyFnUnverified
-      ? ["safety-function integrity unverified: protective demand-vs-response divergence and/or a logic change without independent validation (a closed MOC is not validation); functional-safety validation per IEC 61511 required - verify the safety function, do not assume continued protection"]
+    assEv = (__rec.state === "UNKNOWN_STATE")
+      ? [__pfWord + " integrity unverified: automatic protective/control action is declining against rising demand or human compensation (behavioral divergence); the validation basis is not affirmatively established (a closed MOC is not validation). Verify the function - do not read falling automatic action as improved reliability."]
       : [kl + " loss-of-knowledge signals (baseline/records/monitoring/unreviewed change)"];
+  }
+  else if (__rec.state === "DEGRADED") {
+    assurance = "DEGRADED";
+    assEv = [__pfWord + " validation basis not affirmatively established (modified without independent revalidation, or no independent validation found; a closed MOC is not validation). Verify the function before trusting it."];
   }
   else if (kl === 1) { assurance = "DEGRADED"; assEv = ["1 loss-of-knowledge signal"]; }
   else { assurance = "ESTABLISHED"; }
@@ -356,11 +378,16 @@ export function reconcile(input: ReconcileInput): Reconciliation {
     gStmt = "A confirmed physical damage mechanism governs" + (finalMechanism ? " (" + finalMechanism + ")" : "") + "; run fitness-for-service per the applicable code.";
   } else if (gov.governingAxis === "ASSURANCE") {
     // assurance governs (single, or operational absorbed as its causal basis)
-    if (safetyFunctionAssuranceUnverified(t)) {
-      // DEPLOY462 CP4: safety-function integrity is the governing reality - name it as such and
-      // route to functional-safety validation. Recognize + escalate; the platform does NOT compute
-      // SIL or run LOPA - those are escalation items for the functional safety engineer / PSM.
-      gStmt = "A safety-function assurance failure governs: the protective function's integrity is NOT established (protective demand-vs-response divergence and/or a logic change without independent validation; a closed MOC is not validation). This is the controlling reality, not a physical damage mechanism (" + describeTuple(tuple) + "). Disposition: continued operation is NOT justified as-is; restrict/hold pending functional-safety validation per IEC 61511 (safety requirement spec, pre/post logic comparison, independent validation, SIL/LOPA verification). Escalate to a functional safety engineer and PSM/MOC authority.";
+    var __recK = assuranceRecognizer(t).kind;
+    if (__recK === "SAFETY" || __recK === "CONTROL") {
+      // DEPLOY465: protective/control-function integrity governs - name the flavor and route citation +
+      // escalation accordingly. Recognize + escalate ONLY; the platform does NOT compute SIL, run LOPA,
+      // or analyze the control loop - those are asks for the named engineer.
+      if (__recK === "CONTROL") {
+        gStmt = "A control-function assurance failure governs: the automatic control function's integrity is NOT established (declining automatic control action against rising demand or human compensation, and/or a control-strategy change without independent validation; a closed MOC is not validation). This is the controlling reality, not a physical damage mechanism (" + describeTuple(tuple) + "). Disposition: continued operation is NOT justified as-is; restrict/hold pending control-system validation (control narrative, pre/post strategy comparison, alarm rationalization per ISA 18.2). Escalate to a process control engineer, process safety, operations, and the MOC authority.";
+      } else {
+        gStmt = "A safety-function assurance failure governs: the protective function's integrity is NOT established (declining automatic protective action against rising demand or human compensation, and/or a logic change without independent validation; a closed MOC is not validation). This is the controlling reality, not a physical damage mechanism (" + describeTuple(tuple) + "). Disposition: continued operation is NOT justified as-is; restrict/hold pending functional-safety validation per IEC 61511 (safety requirement spec, pre/post logic comparison, independent validation; SIL/LOPA verification as an ask to the functional safety engineer). Escalate to a functional safety engineer and PSM/MOC authority.";
+      }
     } else {
       gStmt = "A monitoring/assurance failure governs: " + [assuranceClause, opClause].filter(function (x) { return !!x; }).join("; ")
         + ". The reported state cannot be independently validated (loss of confidence in the basis for continued service); this is the controlling risk, not a physical damage mechanism (" + describeTuple(tuple) + "). Disposition: continue physical operation with elevated, independent monitoring; reassessment/validation and escalation required.";
