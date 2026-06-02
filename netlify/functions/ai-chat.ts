@@ -16,6 +16,21 @@ var supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 var anthropicKey = process.env.ANTHROPIC_API_KEY || "";
 var siteUrl = process.env.URL || process.env.DEPLOY_URL || "https://4dndt.netlify.app";
 
+// DEPLOY469 Tier 1A - auth-guard (top-level require per the contract: a bundling failure 500s the
+// function rather than silently allowing). ai-chat fans out full-tier LLM calls, so it must never
+// run for an anonymous caller and the tier must NEVER be read from the request body.
+var authGuard = require("./auth-guard.cjs");
+var CORS = { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Allow-Methods": "POST, OPTIONS" };
+// Best-effort per-principal volume cap (defense-in-depth ON TOP of auth). In-memory => per warm
+// instance only; auth is the real control. Bounds a single instance's burst from one principal.
+var RL_WINDOW_MS = 60000; var RL_MAX = 30; var __rlHits: Record<string, number[]> = {};
+function rateLimited(key: string): boolean {
+  var now = Date.now();
+  var arr = (__rlHits[key] || []).filter(function (t) { return now - t < RL_WINDOW_MS; });
+  arr.push(now); __rlHits[key] = arr;
+  return arr.length > RL_MAX;
+}
+
 var TIER_HIERARCHY: Record<string, number> = { assistant: 1, pro: 2, platform: 3 };
 
 function hasTier(userTier: string, required: string): boolean {
@@ -206,6 +221,17 @@ exports.handler = async function(event: any) {
     return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
   }
 
+  // DEPLOY469 Tier 1A - verified user/server key only; deny anonymous (kills uncapped anon spend).
+  var auth = await authGuard.verifyAuth(event);
+  if (!auth.ok) { return authGuard.denyResponse(auth, CORS); }
+  // tier is derived server-side from the verified principal, NEVER from body.user_tier. Default to
+  // the cheapest tier; wire profiles.tier here when that column exists. userId from the token.
+  var verifiedTier = "assistant";
+  var verifiedUserId = (auth.user && auth.user.id) ? auth.user.id : null;
+  if (rateLimited(verifiedUserId || auth.principal || "srv")) {
+    return { statusCode: 429, headers: CORS, body: JSON.stringify({ error: "Rate limit exceeded; please slow down." }) };
+  }
+
   try {
     var body = JSON.parse(event.body || "{}");
     var action = body.action || "chat";
@@ -229,8 +255,8 @@ exports.handler = async function(event: any) {
     if (action === "chat") {
       var userMessage = body.message || "";
       var conversationId = body.conversation_id || null;
-      var userTier = body.user_tier || "assistant";
-      var userId = body.user_id || null;
+      var userTier = verifiedTier; // DEPLOY469: server-derived, never body
+      var userId = verifiedUserId; // DEPLOY469: from verified token, never body
 
       if (!userMessage.trim()) {
         return {
@@ -365,7 +391,7 @@ exports.handler = async function(event: any) {
 
     // list_conversations — get user's conversation history
     if (action === "list_conversations") {
-      var userId2 = body.user_id;
+      var userId2 = verifiedUserId; // DEPLOY469: verified token only (no IDOR via body.user_id)
       if (!userId2 || !supabaseUrl || !supabaseKey) {
         return { statusCode: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "Authentication required" }) };
       }
@@ -388,7 +414,7 @@ exports.handler = async function(event: any) {
     // get_conversation — get messages for a conversation
     if (action === "get_conversation") {
       var convId = body.conversation_id;
-      var userId3 = body.user_id;
+      var userId3 = verifiedUserId; // DEPLOY469: verified token only (no IDOR via body.user_id)
       if (!convId || !userId3 || !supabaseUrl || !supabaseKey) {
         return { statusCode: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "conversation_id and user_id required" }) };
       }
@@ -408,8 +434,8 @@ exports.handler = async function(event: any) {
 
     // get_usage — check daily/monthly usage
     if (action === "get_usage") {
-      var userId4 = body.user_id;
-      var userTier3 = body.user_tier || "assistant";
+      var userId4 = verifiedUserId; // DEPLOY469: from verified token
+      var userTier3 = verifiedTier; // DEPLOY469: server-derived, never body
       if (!userId4 || !supabaseUrl || !supabaseKey) {
         return { statusCode: 400, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ error: "Authentication required" }) };
       }

@@ -65,9 +65,15 @@ var EVENT_TYPES = {
   confidence_low: { severity: "warning", title_prefix: "Low Confidence: " }
 };
 
+// DEPLOY469 Tier 1A - auth-guard (top-level require: fail closed)
+var authGuard = require("./auth-guard.cjs");
 export var handler: Handler = async function(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
   if (event.httpMethod !== "POST") return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "POST only" }) };
+  // DEPLOY469 Tier 1A - verified user/server key only; deny anonymous.
+  var __auth = await authGuard.verifyAuth(event);
+  if (!__auth.ok) { return authGuard.denyResponse(__auth, corsHeaders); }
+
 
   try {
     var body = JSON.parse(event.body || "{}");

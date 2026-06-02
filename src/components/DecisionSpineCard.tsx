@@ -117,7 +117,12 @@ export default function DecisionSpineCard(props) {
   async function verify() {
     setVerifying(true);
     try {
-      var resp = await fetch("/api/export-audit-bundle?case_id=" + encodeURIComponent(caseId));
+      // DEPLOY469 Tier 1A - export-audit-bundle is now auth-guarded; attach the session JWT.
+      var __sessV = await supabase.auth.getSession();
+      var __tokV = (__sessV.data && __sessV.data.session && __sessV.data.session.access_token) || "";
+      var resp = await fetch("/api/export-audit-bundle?case_id=" + encodeURIComponent(caseId), {
+        headers: { "Authorization": "Bearer " + __tokV }
+      });
       var json = await resp.json();
       if (!resp.ok || !json.success) {
         setVerification({ ok: false, msg: json.error || "verify failed" });

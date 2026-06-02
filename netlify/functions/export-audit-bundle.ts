@@ -50,8 +50,14 @@ function hashBundle(bundle) {
   return createHash("sha256").update(stableStringify(bundle)).digest("hex");
 }
 
+// DEPLOY469 Tier 1A - auth-guard (top-level require: fail closed)
+var authGuard = require("./auth-guard.cjs");
 export var handler: Handler = async function(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
+  // DEPLOY469 Tier 1A - verified user/server key only; deny anonymous.
+  var __auth = await authGuard.verifyAuth(event);
+  if (!__auth.ok) { return authGuard.denyResponse(__auth, corsHeaders); }
+
 
   try {
     var caseId = null;
