@@ -133,6 +133,19 @@ function assuranceRecognizer(t: string): { state: AssuranceState | null; kind: s
   return { state: null, kind: kind };  // validated + no divergence -> ESTABLISHED via the normal path
 }
 
+// ---- REGULATORY ROUTING recognizer (DEPLOY467 CP4b, TEST 30) ----
+// A STATED regulatory/jurisdictional nonconformance on an otherwise-clean asset: a documented audit
+// finding, an inspection-interval-methodology dispute against the applicable regulatory guidance, or
+// a code-of-record gap. Read from stated facts only. NOT a fourth axis - admissible stated evidence
+// (RAE 3.7) that governs the disposition when it is the only adverse finding: technically fit for
+// service, resolve the regulatory correction, no FFS or mechanism NDE. "no regulatory findings" does
+// not fire (those carry no dispute/correction language).
+function statedRegulatoryNonconformance(t: string): boolean {
+  return /(?:inspection )?interval (?:calculation |methodology )?[^.]{0,60}(?:does not match|do not match|disagree|inconsistent|exceeds the|must (?:be )?(?:dropped|reduced|shortened)|maximum[^.]{0,30}should be)/i.test(t)
+    || /(?:audit|auditor|regulator|provincial|jurisdictional)[^.]{0,90}(?:identified|found|position|requires|determined)[^.]{0,90}(?:interval|methodology|correction|nonconform|does not match|guidance|exceed)/i.test(t)
+    || /(?:does not match|inconsistent with|out of compliance with|nonconform[^.]{0,20}with|not (?:in )?compliance with)[^.]{0,45}(?:regulatory guidance|jurisdictional|code of record|latest[^.]{0,30}guidance)/i.test(t);
+}
+
 // ---- DETERMINISTIC AXIS FLOOR ----
 export interface AxisDerivation extends GoverningTuple {
   evidence: { physical: string[]; assurance: string[]; operational: string[] };
@@ -418,6 +431,16 @@ export function reconcile(input: ReconcileInput): Reconciliation {
     gStmt = "The governing reality cannot be established from the available evidence (" + describeTuple(tuple) + "); HOLD for review.";
   } else {
     gStmt = "No confirmed damage mechanism governs; findings are within limits (" + describeTuple(tuple) + ").";
+  }
+
+  // DEPLOY467 CP4b - REGULATORY ROUTING. All axes non-adverse (the contest would CONTINUE) but a
+  // STATED regulatory/jurisdictional nonconformance exists -> that nonconformance governs the
+  // disposition. Admissible stated evidence surfaced through the authority/jurisdiction layer, NOT a
+  // fourth axis and NOT a physical mechanism. Technically fit for service; resolve the regulatory
+  // correction; no FFS or mechanism NDE.
+  if (disposition === "continue_with_conditions" && statedRegulatoryNonconformance(t)) {
+    gStmt = "Physically fit for service on current findings (" + describeTuple(tuple) + "), but a STATED regulatory/jurisdictional nonconformance governs the disposition: a documented audit finding / inspection-interval-methodology dispute against the applicable regulatory guidance. This is a code/jurisdictional correction, NOT a physical damage mechanism and NOT a fitness-for-service concern. Disposition: technically fit for service to the planned interval; the governing action is to reconcile the inspection-interval methodology with the governing regulatory guidance. No FFS or mechanism NDE is required by this finding.";
+    requiresHumanReview = true;
   }
 
   return {

@@ -146,6 +146,18 @@ ok(t35.governingReality.physical === "ACCEPTABLE", "TEST35: pump physically ACCE
 ok(t35.governingReality.assurance === "UNKNOWN_STATE", "TEST35: auto-control-down + manual-overrides-up divergence -> assurance UNKNOWN_STATE (got " + t35.governingReality.assurance + ")");
 ok(/control-function assurance failure governs/i.test(t35.governingStatement), "TEST35: control-function assurance governs (a pump with a degraded control loop)");
 
+// ---- DEPLOY467 CP4b (TEST 30): physically-clean asset whose only adverse finding is a STATED
+// regulatory/jurisdictional nonconformance (inspection-interval methodology vs Alberta guidance) ->
+// regulatory governs the disposition: fit for service, resolve the regulatory correction, no FFS. ----
+var reg = R.reconcile({ transcript: "Alberta hydrogen recycle piping H2-217. UT minimum thickness 0.428 inch required 0.390, corrosion rate stable, within design limits. No corrosion, no cracking, no leak, no damage mechanism identified. A recent provincial audit identified that the inspection interval calculation method does not match the latest Alberta regulatory guidance; current interval 10 years, provincial auditor position maximum interval should be 5 years, correction required.", assetClaims: [{ value: "process_piping", confidence: 0.9, kind: "explicit-asset" }] });
+ok(/regulatory\/jurisdictional nonconformance governs/i.test(reg.governingStatement), "TEST30: stated regulatory nonconformance governs the disposition");
+ok(/fit for service/i.test(reg.governingStatement) && /no FFS or mechanism NDE/i.test(reg.governingStatement), "TEST30: technically fit for service, no FFS / mechanism NDE");
+ok(!/corrosion|cracking|damage mechanism governs/i.test(reg.governingStatement), "TEST30: no manufactured physical mechanism");
+ok(reg.requiresHumanReview === true, "TEST30: regulatory correction flagged for review");
+// no over-fire: a clean asset with NO regulatory finding stays a clean continue
+var noReg = R.reconcile({ transcript: "Process piping, UT within limits, no corrosion, no cracking, records complete, no regulatory findings, basis verified.", assetClaims: [{ value: "process_piping", confidence: 0.9, kind: "explicit-asset" }] });
+ok(/No confirmed damage mechanism governs/i.test(noReg.governingStatement), "no regulatory finding -> clean continue (regulatory override does not over-fire)");
+
 fs.rmSync(tmp, { recursive: true, force: true });
 if (fails.length) { console.log('FAIL reconciliation-layer: ' + fails.length); fails.forEach(function (f) { console.log('   - ' + f); }); process.exit(1); }
 console.log('All reconciliation-layer Phases 8+9 checks passed (' + pass + ' assertions: deterministic axis floor for all breakers, FINAL PRINCIPLE end-to-end, Tier-1 evidence/consistency/scope/confidence vetoes, conflict surfacing).');
