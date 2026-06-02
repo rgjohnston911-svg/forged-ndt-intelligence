@@ -1108,6 +1108,51 @@ var handler = async function(event) {
     })();
 
     // ====================================================================
+    // DEPLOY459 CP3 commit 3: FMD SUB-PATHS CONSUME THE VERDICT (read-only).
+    // The corrosion/cracking/structural path .active + .severity are gated on the single
+    // mechanism-evidence verdict, so they never render "active HIGH" for an unevidenced
+    // mechanism. NONE -> inactive, no severity. SUSPECTED -> candidate, unconfirmed (no severity
+    // number, screening only). CONFIRMED -> active with severity (unchanged). The governing-mode
+    // gate (DEPLOY452) already evidence-gates the headline; this extends the same single source to
+    // the sub-paths the report renders.
+    (function () {
+      var mev = require("./_mechanism-evidence.cjs").buildMechanismVerdict(transcript);
+      function isCandidate(name) { return mev.candidates.some(function (c) { return c.name === name; }); }
+      // corrosion: confirmed by the verdict OR a measured wall-loss percentage (a direct datum).
+      var corrConfirmed = (mev.confirmed === "corrosion") || (wallLossPercent > 0);
+      if (!corrConfirmed && typeof corrosionPath !== "undefined" && corrosionPath) {
+        corrosionPath.active = false;
+        corrosionPath.severity = isCandidate("corrosion") ? "candidate_unconfirmed" : "none";
+        corrosionPath.failure_pressure = null; corrosionPath.failure_pressure_source = "none";
+        corrosionPath.notes = [isCandidate("corrosion")
+          ? "Corrosion is a service candidate (indirect indicators only); not confirmed by direct evidence - screening, not an active path."
+          : "No direct corrosion evidence in the account; corrosion path inactive."];
+      }
+      // cracking: active only on CONFIRMED (observed) crack evidence. Screening/suspected stays a
+      // candidate (the screening gate still asks for crack NDE) but is NOT an active path/severity.
+      var crackConfirmed = (mev.confirmed === "cracking");
+      if (!crackConfirmed && typeof crackingPath !== "undefined" && crackingPath) {
+        crackingPath.active = false;
+        crackingPath.severity = (isCandidate("cracking") || crackingPath.screening_required) ? "candidate_unconfirmed" : "none";
+        crackingPath.brittle_fracture_risk = false;
+        crackingPath.failure_pressure = null; crackingPath.failure_pressure_source = "none";
+        crackingPath.notes = [(isCandidate("cracking") || crackingPath.screening_required)
+          ? "Cracking is a candidate (service/indirect indicators or screening); not confirmed by direct NDE - screening only, not an active path."
+          : "No direct crack evidence in the account; cracking path inactive."];
+      }
+      // structural: confirmed by the verdict only (DEPLOY452 already neutralizes on downgrade;
+      // this keeps the sub-path aligned to the single source).
+      var structConfirmed = (mev.confirmed === "structural");
+      if (!structConfirmed && typeof structuralPath !== "undefined" && structuralPath && structuralPath.active) {
+        structuralPath.active = false;
+        structuralPath.severity = "none";
+        structuralPath.capacity_loss_state = "none";
+        structuralPath.notes = ["No direct, non-negated structural evidence in the account; structural path inactive."];
+        if (structuralPath.indicators) { structuralPath.indicators.tilt = false; structuralPath.indicators.settlement = false; structuralPath.indicators.buckling = false; structuralPath.indicators.deformation = false; }
+      }
+    })();
+
+    // ====================================================================
     // RESPONSE
     // ====================================================================
 
