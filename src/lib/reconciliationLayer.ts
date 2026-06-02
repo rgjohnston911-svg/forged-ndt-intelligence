@@ -84,6 +84,38 @@ function changedUnreassessed(t: string): boolean {
   return (changed && noReassess) || unvalidatedChange;
 }
 
+// ---- ASSURANCE recognizer: SAFETY-FUNCTION INTEGRITY (DEPLOY462 CP4, TEST 29/31/32) ----
+// A protective/safety function (SIS / ESD / relief / interlock / BMS / SIF) whose protective DEMAND
+// is rising while its protective RESPONSE is falling, and/or whose logic changed without independent
+// validation, has UNVERIFIED safety-function assurance: the basis for trusting it still performs its
+// safety function is missing. Falsifiable - a measured demand-vs-response divergence and/or a
+// documented validation gap, not a feeling. The engine RECOGNIZES and ROUTES (functional-safety
+// validation per IEC 61511 / a functional safety engineer + PSM); it does NOT compute SIL or run LOPA.
+// NOTE: a CLOSED MOC is not proof of independent validation.
+function safetyFunctionAsset(t: string): boolean {
+  return /\bsafety[- ]instrumented (?:system|function)\b|\bsis[- ]?\d|\bsis\b|\besd\b|emergency shutdown|burner management|\bbms\b|\bsif\b|\binterlock\b|protective function|trip system|feed isolation|relief (?:valve|system|device)/i.test(t);
+}
+function protectiveDemandUp(t: string): boolean {
+  return /(?:excursion|upset|challenge|demand|high[- ]temperature event|over[- ]?temperature|over[- ]?pressure|process upset)[^.]{0,50}(?:increas|\bup\b|rising|rose|more frequent|\d+\s*%)/i.test(t);
+}
+function protectiveResponseDown(t: string): boolean {
+  return /(?:trip|activation|isolation|shutdown|intervention)s?[^.]{0,50}(?:decreas|\bdown\b|reduc|fewer|fell|drop|\d+\s*%)/i.test(t)
+    || /(?:previously|used to|that previously)[^.]{0,70}(?:isolat|trip|shut)[^.]{0,40}now[^.]{0,30}(?:alarm|only)/i.test(t)
+    || /now (?:generate|produce|result in)[^.]{0,20}alarms?(?:\s+only)?/i.test(t);
+}
+function missingIndependentValidation(t: string): boolean {
+  var changed = /(?:sis |logic |software |safety |control )?(?:logic |software )?(?:revision|change|update|modification|patch)s?[^.]{0,50}(?:installed|made|implemented|applied|deployed)/i.test(t)
+    || /\d+\s+(?:sis )?(?:logic |software )?(?:revisions?|changes?|updates?)/i.test(t);
+  var noIndep = /independent[^.]{0,40}(?:safety |functional )?validation[^.]{0,40}(?:not (?:found|performed|completed|done|available)|missing|absent|never|could not be located)/i.test(t)
+    || /(?:no|without|lacking)[^.]{0,25}independent[^.]{0,25}(?:safety |functional )?validation/i.test(t);
+  return changed && noIndep;
+}
+function safetyFunctionAssuranceUnverified(t: string): boolean {
+  if (!safetyFunctionAsset(t)) { return false; }
+  var divergence = protectiveDemandUp(t) && protectiveResponseDown(t);
+  return divergence || missingIndependentValidation(t);
+}
+
 // ---- DETERMINISTIC AXIS FLOOR ----
 export interface AxisDerivation extends GoverningTuple {
   evidence: { physical: string[]; assurance: string[]; operational: string[] };
@@ -122,8 +154,14 @@ export function deriveAxesDeterministic(transcript: string, assetClass?: string)
   // ASSURANCE
   var assurance: AssuranceState; var assEv: string[] = [];
   var kl = knowledgeLossCount(t);
+  var safetyFnUnverified = safetyFunctionAssuranceUnverified(t);
   if (designBasisLost(t)) { assurance = "LOST_DESIGN_BASIS"; assEv = ["design basis records lost/destroyed"]; }
-  else if (kl >= 2) { assurance = "UNKNOWN_STATE"; assEv = [kl + " loss-of-knowledge signals (baseline/records/monitoring/unreviewed change)"]; }
+  else if (safetyFnUnverified || kl >= 2) {
+    assurance = "UNKNOWN_STATE";
+    assEv = safetyFnUnverified
+      ? ["safety-function integrity unverified: protective demand-vs-response divergence and/or a logic change without independent validation (a closed MOC is not validation); functional-safety validation per IEC 61511 required - verify the safety function, do not assume continued protection"]
+      : [kl + " loss-of-knowledge signals (baseline/records/monitoring/unreviewed change)"];
+  }
   else if (kl === 1) { assurance = "DEGRADED"; assEv = ["1 loss-of-knowledge signal"]; }
   else { assurance = "ESTABLISHED"; }
 
@@ -318,8 +356,15 @@ export function reconcile(input: ReconcileInput): Reconciliation {
     gStmt = "A confirmed physical damage mechanism governs" + (finalMechanism ? " (" + finalMechanism + ")" : "") + "; run fitness-for-service per the applicable code.";
   } else if (gov.governingAxis === "ASSURANCE") {
     // assurance governs (single, or operational absorbed as its causal basis)
-    gStmt = "A monitoring/assurance failure governs: " + [assuranceClause, opClause].filter(function (x) { return !!x; }).join("; ")
-      + ". The reported state cannot be independently validated (loss of confidence in the basis for continued service); this is the controlling risk, not a physical damage mechanism (" + describeTuple(tuple) + "). Disposition: continue physical operation with elevated, independent monitoring; reassessment/validation and escalation required.";
+    if (safetyFunctionAssuranceUnverified(t)) {
+      // DEPLOY462 CP4: safety-function integrity is the governing reality - name it as such and
+      // route to functional-safety validation. Recognize + escalate; the platform does NOT compute
+      // SIL or run LOPA - those are escalation items for the functional safety engineer / PSM.
+      gStmt = "A safety-function assurance failure governs: the protective function's integrity is NOT established (protective demand-vs-response divergence and/or a logic change without independent validation; a closed MOC is not validation). This is the controlling reality, not a physical damage mechanism (" + describeTuple(tuple) + "). Disposition: continued operation is NOT justified as-is; restrict/hold pending functional-safety validation per IEC 61511 (safety requirement spec, pre/post logic comparison, independent validation, SIL/LOPA verification). Escalate to a functional safety engineer and PSM/MOC authority.";
+    } else {
+      gStmt = "A monitoring/assurance failure governs: " + [assuranceClause, opClause].filter(function (x) { return !!x; }).join("; ")
+        + ". The reported state cannot be independently validated (loss of confidence in the basis for continued service); this is the controlling risk, not a physical damage mechanism (" + describeTuple(tuple) + "). Disposition: continue physical operation with elevated, independent monitoring; reassessment/validation and escalation required.";
+    }
   } else if (gov.governingAxis === "OPERATIONAL" && tuple.operational === "FLEET_PATTERN") {
     gStmt = "A fleet-level pattern governs: " + opClause + ". The controlling risk is systemic, not a single-unit physical defect (" + describeTuple(tuple) + ").";
   } else if (gov.governingAxis === "OPERATIONAL") {

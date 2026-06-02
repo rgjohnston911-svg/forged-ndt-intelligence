@@ -105,6 +105,21 @@ ok(cpC.finalDisposition === "restricted_reassessment_required" && /fleet/i.test(
 var cpFFS = R.reconcile({ transcript: "process piping, measured wall loss of 64 percent, remaining wall 0.12 inch, corrosion product observed", assetClaims: [{ value: "process_piping", confidence: 0.9, kind: "explicit-asset" }] });
 ok(cpFFS.finalDisposition === "fitness_for_service_required", "CP2: confirmed wall loss -> fitness_for_service_required (got " + cpFFS.finalDisposition + ")");
 
+// ---- DEPLOY462 CP4: SAFETY-FUNCTION ASSURANCE RECOGNIZER (TEST 29/31/32). A protective function
+// with protective demand-up/response-down and/or a logic change with no independent validation has
+// UNVERIFIED safety-function assurance -> assurance governs -> verify the safety function. Falsifiable;
+// must NOT over-fire on a clean, independently-validated SIS, nor on a non-safety asset. ----
+var sisDiverge = R.reconcile({ transcript: "Safety Instrumented System SIS-204 protecting furnace feed isolation. Valves stroke within time, no leakage, logic solver self-test passed, last proof test passed. Furnace trips decreased 88 percent. High-temperature excursions increased 34 percent. Events that previously caused automatic feed isolation now generate alarms only. Two SIS logic revisions installed. MOC records closed. Independent safety validation report not found. No corrosion, no cracking, no leak.", assetClaims: [{ value: "pressure_vessel", confidence: 0.9, kind: "explicit-asset" }] });
+ok(sisDiverge.governingReality.assurance === "UNKNOWN_STATE", "CP4: SIS demand/response divergence + missing validation -> assurance UNKNOWN_STATE (got " + sisDiverge.governingReality.assurance + ")");
+ok(sisDiverge.finalDisposition === "restricted_reassessment_required", "CP4: SIS -> assurance governs -> restricted_reassessment_required (got " + sisDiverge.finalDisposition + ")");
+ok(/safety-function assurance failure governs/i.test(sisDiverge.governingStatement) && /IEC 61511/i.test(sisDiverge.governingStatement), "CP4: SIS statement names safety-function assurance + IEC 61511 (verify the safety function)");
+ok(!/corrosion|cracking/i.test(sisDiverge.governingStatement), "CP4: SIS statement does NOT manufacture a physical mechanism");
+var esdDiverge = R.reconcile({ transcript: "Emergency shutdown ESD system. ESD valves no leakage, stroke within spec. ESD trips decreased 92 percent over three years. Process upsets increased 37 percent. Several events that previously would have generated shutdowns now generated only alarms.", assetClaims: [{ value: "offshore_platform", confidence: 0.9, kind: "explicit-asset" }] });
+ok(esdDiverge.governingReality.assurance === "UNKNOWN_STATE", "CP4: ESD demand/response divergence -> assurance UNKNOWN_STATE");
+// NO over-fire: a clean, independently-validated SIS with stable demand/response stays ESTABLISHED
+var sisClean = R.reconcile({ transcript: "Safety Instrumented System SIS-9. All proof tests passed. Independent safety validation completed and documented. No logic changes since commissioning. Trip demand rate stable, protective responses stable. No excursions.", assetClaims: [{ value: "pressure_vessel", confidence: 0.9, kind: "explicit-asset" }] });
+ok(sisClean.governingReality.assurance === "ESTABLISHED", "CP4: clean independently-validated SIS does NOT over-fire (assurance ESTABLISHED, got " + sisClean.governingReality.assurance + ")");
+
 fs.rmSync(tmp, { recursive: true, force: true });
 if (fails.length) { console.log('FAIL reconciliation-layer: ' + fails.length); fails.forEach(function (f) { console.log('   - ' + f); }); process.exit(1); }
 console.log('All reconciliation-layer Phases 8+9 checks passed (' + pass + ' assertions: deterministic axis floor for all breakers, FINAL PRINCIPLE end-to-end, Tier-1 evidence/consistency/scope/confidence vetoes, conflict surfacing).');
