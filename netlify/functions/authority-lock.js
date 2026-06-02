@@ -37,6 +37,12 @@ var handler = async function(event) {
     var hasCracking = body.has_cracking || false;
     var isPressureBoundary = body.is_pressure_boundary !== false;
     var componentDescription = (body.component_description || "").toLowerCase().trim();
+    // DEPLOY458 CP3 commit 2: the SINGLE mechanism-evidence verdict (transcript-only, shared
+    // module). component_description carries the raw transcript (frontend raw_text / eval c.transcript).
+    // ASSET-CLASS locks (API 510 / B31.3 / general API 579 FFS authority) are UNCHANGED and still fire
+    // from the asset/component type. MECHANISM-TRIGGERED locks (Part 9 crack, NACE sour, Part 4/5 metal
+    // loss) now fire ONLY on this evidence verdict - never on inferred has_cracking / sour-from-hydrogen.
+    var mev = require("./_mechanism-evidence.cjs").buildMechanismVerdict(body.component_description || "");
 
     var authorities = [];
     var lockReasons = [];
@@ -263,9 +269,9 @@ var handler = async function(event) {
         lockReasons.push("Liquid/crude service -> ASME B31.4 co-authority");
       }
 
-      if (service.indexOf("sour") >= 0 || service.indexOf("h2s") >= 0 || service.indexOf("hydrogen sulfide") >= 0) {
+      if (mev.sour_service) {
         authorities.push({ code: "NACE MR0175/ISO 15156", title: "Materials for Use in H2S-Containing Environments", role: "material_suitability", locked: true });
-        lockReasons.push("Sour/H2S service -> NACE MR0175/ISO 15156 material authority locked");
+        lockReasons.push("H2S/sour service evidence present -> NACE MR0175/ISO 15156 material authority locked");
       }
 
       authorities.push({ code: "API 579-1/ASME FFS-1", title: "Fitness-For-Service", role: "fitness_for_service", locked: true });
@@ -372,25 +378,23 @@ var handler = async function(event) {
       }
     });
 
-    if (hasCrackingMechanism && isPressureBoundary) {
+    if (mev.confirmed === "cracking" && isPressureBoundary) {
       var hasApi579 = authorities.some(function(a) { return a.code.indexOf("API 579") >= 0; });
       if (!hasApi579) {
         authorities.push({ code: "API 579-1/ASME FFS-1", title: "Fitness-For-Service", role: "fitness_for_service", locked: true });
       }
       supplementalCodes.push({ code: "API 579-1 Part 9", title: "Assessment of Crack-Like Flaws", role: "crack_assessment", locked: true });
-      lockReasons.push("Cracking on pressure boundary -> API 579-1 Part 9 crack assessment required");
+      lockReasons.push("Confirmed crack-like indication (direct evidence: " + mev.confirmed_basis + ") on pressure boundary -> API 579-1 Part 9 crack assessment");
     }
 
-    // SERVICE ENVIRONMENT CHECK: sour/H2S service always requires NACE regardless of asset type
-    var isSourService = service.indexOf("sour") >= 0 || service.indexOf("h2s") >= 0 || service.indexOf("hydrogen sulfide") >= 0;
-
-    if (hasSourCracking || isSourService) {
+    // NACE: H2S-containing environment. Gated on the evidence verdict's negation-aware sour flag -
+    // fires on stated H2S/sour service, NEVER on hydrogen presence ("hydrogen-rich gas" is not sour;
+    // "No H2S present" is not sour). This kills NACE-on-hydrogen (TEST 30/31).
+    if (mev.sour_service) {
       var hasNace = authorities.some(function(a) { return a.code.indexOf("NACE") >= 0 || a.code.indexOf("ISO 15156") >= 0; });
       if (!hasNace) {
         authorities.push({ code: "NACE MR0175/ISO 15156", title: "Materials for Use in H2S-Containing Environments", role: "material_suitability", locked: true });
-        lockReasons.push(hasSourCracking
-          ? "Sour cracking mechanism detected -> NACE MR0175/ISO 15156 locked"
-          : "Sour/H2S service environment -> NACE MR0175/ISO 15156 locked");
+        lockReasons.push("H2S/sour service evidence present -> NACE MR0175/ISO 15156 material authority locked");
       }
     }
 
@@ -401,10 +405,10 @@ var handler = async function(event) {
       triggerB31G = true;
     }
 
-    if (hasCorrosion && isPressureBoundary) {
+    if (mev.confirmed === "corrosion" && isPressureBoundary) {
       supplementalCodes.push({ code: "API 579-1 Part 4", title: "Assessment of General Metal Loss", role: "general_metal_loss", locked: true });
       supplementalCodes.push({ code: "API 579-1 Part 5", title: "Assessment of Local Metal Loss", role: "local_metal_loss", locked: true });
-      lockReasons.push("Corrosion on pressure boundary -> API 579-1 Part 4/5 metal loss assessment");
+      lockReasons.push("Confirmed metal loss (direct evidence: " + mev.confirmed_basis + ") on pressure boundary -> API 579-1 Part 4/5 metal loss assessment");
     }
 
     // RESOLVE STATUS
@@ -596,8 +600,9 @@ var handler = async function(event) {
       all_codes: codeList,
       lock_reasons: lockReasons,
       trigger_b31g: triggerB31G,
-      trigger_crack_assessment: hasCrackingMechanism && isPressureBoundary,
-      trigger_sour_service: hasSourCracking,
+      trigger_crack_assessment: (mev.confirmed === "cracking") && isPressureBoundary,
+      trigger_sour_service: mev.sour_service,
+      mechanism_verdict: mev,
       jurisdiction_mismatch: jurisdictionMismatch,
       jurisdiction_codes: jurisdictionResolved ? jurisdictionResolved.codes : [],
       crosswalk: (function() {

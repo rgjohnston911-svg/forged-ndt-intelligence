@@ -76,11 +76,17 @@ function sourPresent(t) {
   var sents = String(t || "").split(/\.\s+|[;\n]+/);
   for (var i = 0; i < sents.length; i++) {
     var sent = sents[i];
-    var hit = false;
-    for (var j = 0; j < SOUR.length; j++) { if (SOUR[j].test(sent)) { hit = true; break; } }
-    if (!hit) { continue; }
-    if (/\b(?:no|not|without|absent|none|free\s+of|non[- ]sour)\b/i.test(sent)) { continue; }
-    return true;
+    for (var j = 0; j < SOUR.length; j++) {
+      var m = sent.match(SOUR[j]);
+      if (!m) { continue; }
+      // negation must be LOCAL to the H2S mention - check only the comma-clause it sits in, so
+      // "no crack indications" elsewhere in the same sentence does not negate a real H2S mention.
+      var before = sent.slice(0, m.index);
+      var lastComma = before.lastIndexOf(",");
+      var clause = (lastComma >= 0) ? before.slice(lastComma + 1) : before;
+      if (/\b(?:no|not|without|absent|none|free\s+of|non[- ]sour)\b/i.test(clause)) { continue; }
+      return true;
+    }
   }
   return false;
 }
