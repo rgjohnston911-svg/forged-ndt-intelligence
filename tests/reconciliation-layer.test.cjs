@@ -89,6 +89,22 @@ ok(recBids.bids.every(function (b) { return typeof b.rationale === "string" && b
 // CP1 must NOT change disposition: the existing arbiter still decides (contest wires in CP2).
 ok(typeof recBids.finalDisposition === "string" && recBids.finalDisposition.length > 0, "CP1: disposition still produced by existing arbiter (unchanged this checkpoint)");
 
+// ---- DEPLOY456 CP2: runGovernanceContest is the sole arbiter. Multi-adverse axes MERGE,
+// never escalate at the axis layer. The change->assurance causal link is recorded at perception
+// (causedBy) and the contest absorbs the cause, so a monitoring case where a change drove the
+// assurance doubt resolves to ASSURANCE GOVERNS, not a fabricated conflict. ----
+var cpE = R.reconcile({ transcript: byId("BREAKER_E_monitoring_assurance").transcript, assetClaims: [{ value: "instrumentation_monitoring", confidence: 0.9, kind: "explicit-asset" }] });
+var eAssur = cpE.bids.filter(function (b) { return b.axis === "ASSURANCE"; })[0];
+ok(eAssur && eAssur.causedBy === "OPERATIONAL", "CP2: E records change->assurance causal link (assurance.causedBy=OPERATIONAL)");
+ok(/monitoring\/assurance failure governs/i.test(cpE.governingStatement), "CP2: E -> assurance governs via causal merge (not escalate, got: " + cpE.governingStatement.slice(0,50) + ")");
+ok(cpE.finalDisposition === "restricted_reassessment_required", "CP2: E disposition restricted (assurance governs)");
+// FLEET governs by construction now (453 stopgap deleted; contest treats !=STABLE as adverse).
+var cpC = R.reconcile({ transcript: byId("BREAKER_C_software_fleet_failure").transcript, assetClaims: [{ value: "wind_turbine", confidence: 0.9, kind: "explicit-asset" }] });
+ok(cpC.finalDisposition === "restricted_reassessment_required" && /fleet/i.test(cpC.governingStatement), "CP2: FLEET governs via contest, no stopgap needed");
+// Characterized wall loss still -> fitness_for_service (no regression on the physical 90%).
+var cpFFS = R.reconcile({ transcript: "process piping, measured wall loss of 64 percent, remaining wall 0.12 inch, corrosion product observed", assetClaims: [{ value: "process_piping", confidence: 0.9, kind: "explicit-asset" }] });
+ok(cpFFS.finalDisposition === "fitness_for_service_required", "CP2: confirmed wall loss -> fitness_for_service_required (got " + cpFFS.finalDisposition + ")");
+
 fs.rmSync(tmp, { recursive: true, force: true });
 if (fails.length) { console.log('FAIL reconciliation-layer: ' + fails.length); fails.forEach(function (f) { console.log('   - ' + f); }); process.exit(1); }
 console.log('All reconciliation-layer Phases 8+9 checks passed (' + pass + ' assertions: deterministic axis floor for all breakers, FINAL PRINCIPLE end-to-end, Tier-1 evidence/consistency/scope/confidence vetoes, conflict surfacing).');

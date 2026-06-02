@@ -1,50 +1,38 @@
 /**
- * FORGED GOVERNANCE PIPELINE — REFERENCE CONTRACT
- * File: src/lib/governancePipeline.ts  (companion to src/lib/roleAuthority.ts)
+ * FORGED GOVERNANCE CONTEST — CORRECTED CONTRACT (v2)
+ * File: src/lib/governancePipeline.ts  (REPLACE the v1 module wholesale)
  *
- * WHAT THIS IS
- * The explicit three-stage structure for "core does its technical job first,
- * then the situation is evaluated." It encodes the one rule that fixes TEST 24/25:
+ * WHY v2 EXISTS — the CP2 correction.
+ * v1 conflated "multiple adverse axes" with "conflict": §4.2 defined conflict as
+ * directional incompatibility, but runGovernanceContest implemented it as
+ * `adverse.length > 1` (a count). That over-fired on causally-linked, same-direction
+ * cases (TEST 25/E, F, D) and made the contest fail its own golden traces.
  *
- *     Order of COMPUTATION is sequential (physics first, clean).
- *     Order of AUTHORITY is NOT — governance is a peer contest, decided after.
- *     "No physical defect" is an INPUT to governance, never an automatic CONTINUE.
+ * THE FIX, in one idea:
+ *   Among the three axes, EVERY adverse state points the same coarse direction —
+ *   "do not simply continue; investigate." (assurance→VERIFY, operational→REASSESS,
+ *   physical→ASSESS/FFS). None maps to CONTINUE. So two adverse axes can never be
+ *   directionally incompatible. The axis contest therefore NEVER emits
+ *   ESCALATE_CONFLICT — it always resolves adverse axes by MERGE.
  *
- * STAGES
- *   1. Technical evaluation  — existing engines (FMD + non-physical guard, mechanism
- *      catalog, remaining-life, code engines). Clean, isolated, SA never touches it.
- *      Output may legitimately be "no physical defect."
- *   2. Governance contest    — THE NEW CODE BELOW. Physical / Operational / Assurance
- *      axes compete as peers on EVIDENCE, not on running order. Determines what governs.
- *   3. Disposition + RAE      — roleAuthority.ts (roles, conflicts, escalation, hard locks).
+ *   Directional conflict (CONTINUE/FFS vs RESTRICT/STOP) is a ROLE-layer phenomenon
+ *   — the RAE cross-discipline conflict engine (Engineer "Fit For Service" vs Safety
+ *   "Restricted"). ESCALATE_CONFLICT is emitted there and composed ON TOP of the axis
+ *   governing reality by the caller. It does not live in this module.
  *
- * INTEGRATION NOTES FOR THE BUILDING INSTANCE
- *   - Stage 1 and Stage 3 are typed ADAPTERS. Bind `evaluateTechnical` to the real
- *     engine output and `runRoleAuthority` to roleAuthority.ts. Do not reimplement them.
- *   - If the reconciliation layer ALREADY computes a three-axis governing reality, this
- *     module formalizes that contest — FOLD IT IN, do not add a parallel governance path.
- *     One governance authority only. (Guardrail: no parallel disposition paths.)
- *   - This is src/lib TypeScript (like roleAuthority.ts). If any part lands in
- *     netlify/functions/*.js instead, that file must be pure JS: no template literals,
- *     var only, string concat, module.exports.
- *   - No manufactured scores anywhere. The contest ranks by EVIDENCE TIER (an enum),
- *     never a synthesized 0-100 risk/confidence number.
- *
- * THE NO-DEFAULT GUARANTEE (why this fixes the bias)
- *   Physical ACCEPTABLE never produces CONTINUE just because it ran first. CONTINUE is
- *   only reached when (a) nothing adverse bids AND (b) assurance is ESTABLISHED. An
- *   adverse operational or assurance bid GOVERNS over a clean physical pass.
+ *   "Physical-lead" is NOT a rule. Physical governs only when it is the causal
+ *   manifestation (D) or the strongest-evidence concern in a compound — never because
+ *   it is physical. There is no physical default anywhere in this file.
  */
 
 /* ----------------------------------------------------------------------------
- * AXIS STATES (closed enums — these are the three-axis tuple, not new buckets)
+ * AXIS STATES (closed enums — the three-axis tuple)
  * -------------------------------------------------------------------------- */
 
-// DEPLOY455: axis-state enums are IMPORTED from governingAxes.ts (the live, authoritative
-// definitions), not redefined here. One enum source of truth - redefining them locally is the
-// drift this phase exists to kill, and it is why FLEET_PATTERN (live) was missing from the
-// contract's first draft. isAdverse() treats any operational state != STABLE as adverse, so
-// FLEET_PATTERN and any future operational state govern uniformly with no list to maintain.
+// DEPLOY456: axis-state enums IMPORTED from governingAxes.ts (one source of truth, the CP1
+// fix). Redefining them here is the drift this phase kills. OperationalChange (live) is
+// STABLE | CHANGED_UNREASSESSED | FLEET_PATTERN; OUTSIDE_ENVELOPE is a future state - add it to
+// governingAxes when a recognizer needs it. isAdverse() checks != STABLE, so no literal needed.
 import {
   PhysicalCondition as PhysicalState,
   AssuranceState,
@@ -56,240 +44,215 @@ export type { PhysicalState, AssuranceState, OperationalState };
 export type Axis = "PHYSICAL" | "ASSURANCE" | "OPERATIONAL";
 
 /* ----------------------------------------------------------------------------
- * EVIDENCE TIER (provenance, not a score). Ranking is by tier, never a number.
+ * EVIDENCE TIER (provenance, NOT a synthesized risk score)
  * -------------------------------------------------------------------------- */
 
 export type EvidenceTier =
-  | "DIRECT_MEASURED"    // instrument/inspection datum (UT thickness, flow/power)
-  | "DOCUMENTED"         // records (MOC status, cert expiry, maintenance backlog)
-  | "ABSENCE_CONFIRMED"  // a clean exam that affirmatively shows no defect
-  | "NONE";              // no admissible evidence -> the axis cannot bid
+  | "DIRECT_MEASURED" | "DOCUMENTED" | "ABSENCE_CONFIRMED" | "NONE";
 
 const TIER_RANK: Record<EvidenceTier, number> = {
-  DIRECT_MEASURED: 3,
-  DOCUMENTED: 2,
-  ABSENCE_CONFIRMED: 1,
-  NONE: 0,
+  DIRECT_MEASURED: 3, DOCUMENTED: 2, ABSENCE_CONFIRMED: 1, NONE: 0,
 };
 
 /* ----------------------------------------------------------------------------
- * BIDS — each axis submits at most one bid. An axis with only inferred/forbidden
- * inputs (e.g., assumed "production pressure") supplies tier NONE and cannot govern.
+ * (Q1) AXIS BID — with the causal field.
+ *
+ * causedBy is set ONLY on the EFFECT bid, and names the CAUSE axis. Semantics:
+ *   "My adverse state shares a causal root with <causedBy>; I am the effect/
+ *    manifestation, <causedBy> is the cause."
+ * It is set by PERCEPTION (the bid producer), never inferred by the contest.
+ * It is one-directional (effect -> cause); perception sets it on one bid only.
  * -------------------------------------------------------------------------- */
 
 export interface AxisBid {
   axis: Axis;
   state: PhysicalState | AssuranceState | OperationalState;
   tier: EvidenceTier;
-  evidenceRefs: string[]; // pointers to transcript facts / inspection data
-  rationale: string;      // factual, no motive/feeling language
+  evidenceRefs: string[];
+  rationale: string;            // factual; no motive/feeling language
+  causedBy?: Axis;              // set on the EFFECT bid only; names the cause axis
 }
 
-/** A bid is adverse if its state departs from the clean baseline for its axis. */
+/** Adverse = state departs from the clean baseline for its axis. */
 function isAdverse(bid: AxisBid): boolean {
   if (bid.tier === "NONE") return false;
   switch (bid.axis) {
-    case "PHYSICAL":
-      return bid.state === "SUSPECTED" || bid.state === "CONFIRMED_DAMAGE";
-    case "ASSURANCE":
-      return bid.state !== "ESTABLISHED";
-    case "OPERATIONAL":
-      return bid.state !== "STABLE";
+    case "PHYSICAL":    return bid.state === "SUSPECTED" || bid.state === "CONFIRMED_DAMAGE";
+    case "ASSURANCE":   return bid.state !== "ESTABLISHED";
+    case "OPERATIONAL": return bid.state !== "STABLE";
   }
 }
 
 /* ----------------------------------------------------------------------------
- * HARD AUTHORITY — supplied by RAE roles. Safety hazard / code nonconformance /
- * not-fit-for-service gate the disposition regardless of the axis contest.
+ * (Q2) DIRECTION MAP — and why no axis pairing is "incompatible".
+ *
+ * Coarse direction is used ONLY to decide merge-vs-conflict. A non-adverse axis is
+ * CONTINUE; every adverse axis is INVESTIGATE. Two adverse axes are therefore always
+ * INVESTIGATE/INVESTIGATE = SAME direction = MERGE. There is no axis state that maps
+ * to a direction opposing another axis, so the axis contest has no conflict branch.
+ *
+ * (If a future axis state ever mapped to an opposing direction, the conflict branch
+ * would belong here. Today none does — conflict is a role-layer concept.)
  * -------------------------------------------------------------------------- */
 
-export interface HardLock {
-  source: "SAFETY" | "CODE" | "ENGINEER";
-  citation: string;     // e.g. "OSHA 1910.119(l)", "API 579 Level 2"
-  statement: string;    // factual nonconformance / hazard statement
+type Direction = "CONTINUE" | "INVESTIGATE";
+
+function axisDirection(bid: AxisBid): Direction {
+  return isAdverse(bid) ? "INVESTIGATE" : "CONTINUE";
+}
+
+export type DispositionClass =
+  | "CONTINUE"
+  | "REASSESS_OPERATION"     // operational governs
+  | "VERIFY_ASSURANCE"       // assurance governs
+  | "FITNESS_FOR_SERVICE"    // physical governs (suspected -> screening; confirmed -> FFS)
+  | "HOLD_FOR_INPUT"
+  | "ESCALATE_CONFLICT";     // emitted by the ROLE layer, composed on top — not by this contest
+
+/** Per-state disposition for an adverse axis (the fine-grained action). */
+function dispositionForAxisState(bid: AxisBid): DispositionClass {
+  switch (bid.axis) {
+    case "PHYSICAL":    return "FITNESS_FOR_SERVICE";
+    case "ASSURANCE":   return "VERIFY_ASSURANCE";
+    case "OPERATIONAL": return "REASSESS_OPERATION";
+  }
 }
 
 /* ----------------------------------------------------------------------------
- * STAGE 2 OUTPUT
+ * GOVERNANCE RESULT
  * -------------------------------------------------------------------------- */
-
-export type DispositionClass =
-  | "CONTINUE"               // earned: no adverse bid AND assurance established
-  | "REASSESS_OPERATION"     // operational governs (TEST 24)
-  | "VERIFY_ASSURANCE"       // assurance governs (TEST 25)
-  | "FITNESS_FOR_SERVICE"    // physical damage governs
-  | "HOLD_FOR_INPUT"         // basis insufficient to dispose
-  | "ESCALATE_CONFLICT";     // multiple adverse governing concerns
 
 export interface GovernanceResult {
   governingAxis: Axis | "MULTIPLE" | "NONE";
   governingState: AxisBid["state"] | "ACCEPTABLE";
-  disposition: DispositionClass;
-  hardLocked: boolean;
-  governingBids: AxisBid[];  // the bid(s) that drove the result
-  hardLocks: HardLock[];
+  disposition: DispositionClass;             // lead disposition (manifestation / strongest-tier)
+  compound: boolean;                         // true when >1 independent same-direction axis governs
+  governingBids: AxisBid[];                  // manifestation(s) that govern, ordered by evidence tier
+  basisBids: AxisBid[];                      // causes absorbed as basis (render "X, driven by Y")
+  additionalDispositions: DispositionClass[];// compound: the other governing axes' actions (the union)
   escalationRequired: boolean;
+  // Directional ESCALATE_CONFLICT from the role layer is composed by the caller, not here.
 }
 
 /* ----------------------------------------------------------------------------
- * STAGE 2 — THE GOVERNANCE CONTEST (the new logic)
+ * THE CONTEST — merge-only over the axes. No escalate branch.
  * -------------------------------------------------------------------------- */
 
-export function runGovernanceContest(
-  bids: AxisBid[],
-  hardLocks: HardLock[]
-): GovernanceResult {
-  // (0) Hard authority gates first — a safety hazard or code nonconformance
-  //     forces escalation regardless of the axis contest.
-  if (hardLocks.length > 0) {
-    return {
-      governingAxis: "MULTIPLE",
-      governingState: "ACCEPTABLE",
-      disposition: "HOLD_FOR_INPUT",
-      hardLocked: true,
-      governingBids: [],
-      hardLocks: hardLocks,
-      escalationRequired: true,
-    };
-  }
-
+export function runGovernanceContest(bids: AxisBid[]): GovernanceResult {
   var adverse = bids.filter(isAdverse);
 
-  // (1) No adverse bid anywhere. CONTINUE must still be EARNED, not defaulted.
+  // (0) Nothing adverse. CONTINUE must be EARNED (assurance established), else HOLD.
   if (adverse.length === 0) {
     var assurance = bids.find(function (b) { return b.axis === "ASSURANCE"; });
-    var assuranceEstablished =
-      !!assurance && assurance.state === "ESTABLISHED" && assurance.tier !== "NONE";
-
-    if (assuranceEstablished) {
-      // Clean physics + verified basis -> continue is legitimately earned.
+    var established = !!assurance && assurance.state === "ESTABLISHED" && assurance.tier !== "NONE";
+    if (established) {
       return {
-        governingAxis: "PHYSICAL",
-        governingState: "ACCEPTABLE",
-        disposition: "CONTINUE",
-        hardLocked: false,
+        governingAxis: "PHYSICAL", governingState: "ACCEPTABLE", disposition: "CONTINUE",
+        compound: false,
         governingBids: bids.filter(function (b) { return b.axis === "PHYSICAL"; }),
-        hardLocks: [],
-        escalationRequired: false,
+        basisBids: [], additionalDispositions: [], escalationRequired: false,
       };
     }
-
-    // No defect found, but we cannot confirm the basis -> NOT continue.
     return {
-      governingAxis: "ASSURANCE",
-      governingState: "UNKNOWN_STATE",
-      disposition: "HOLD_FOR_INPUT",
-      hardLocked: false,
-      governingBids: assurance ? [assurance] : [],
-      hardLocks: [],
-      escalationRequired: false,
+      governingAxis: "ASSURANCE", governingState: "UNKNOWN_STATE", disposition: "HOLD_FOR_INPUT",
+      compound: false, governingBids: assurance ? [assurance] : [],
+      basisBids: [], additionalDispositions: [], escalationRequired: false,
     };
   }
 
-  // (2) Exactly one adverse bid -> that axis governs. (No physical default:
-  //     an adverse operational/assurance bid governs over a clean physical pass.)
-  if (adverse.length === 1) {
-    var b = adverse[0];
+  // All adverse axes share the INVESTIGATE direction (see axisDirection). They MERGE.
+
+  // (Q3) CAUSAL MERGE: an effect bid (causedBy points at another *adverse* bid) absorbs
+  //      that cause. The cause is removed from the governing set and carried as basis.
+  var absorbedCause: Record<string, boolean> = {};
+  adverse.forEach(function (b) {
+    if (b.causedBy && adverse.some(function (c) { return c.axis === b.causedBy; })) {
+      absorbedCause[b.causedBy] = true;
+    }
+  });
+  var governing = adverse.filter(function (b) { return !absorbedCause[b.axis]; });
+  var basisBids = adverse.filter(function (b) { return absorbedCause[b.axis]; });
+
+  // One manifestation governs (causal merge collapsed to one, or only one adverse axis).
+  if (governing.length === 1) {
+    var g = governing[0];
     return {
-      governingAxis: b.axis,
-      governingState: b.state,
-      disposition: dispositionForAxis(b),
-      hardLocked: false,
-      governingBids: [b],
-      hardLocks: [],
-      escalationRequired: b.axis !== "PHYSICAL", // non-physical governance escalates by default
+      governingAxis: g.axis, governingState: g.state, disposition: dispositionForAxisState(g),
+      compound: false, governingBids: [g],
+      basisBids: basisBids.filter(function (c) { return c.axis === g.causedBy; }),
+      additionalDispositions: [],
+      // Non-physical governing realities default to human-review escalation.
+      escalationRequired: g.axis !== "PHYSICAL",
     };
   }
 
-  // (3) Multiple adverse bids -> multiple governing concerns. Do NOT pick a winner
-  //     by weighting. Surface all and escalate; RAE's conflict engine renders them.
-  var ranked = adverse.slice().sort(function (x, y) {
-    return TIER_RANK[y.tier] - TIER_RANK[x.tier];
+  // (Q4) COMPOUND MERGE: >1 governing axis, all same-direction, no causal link between them.
+  //      ALL govern — none is dropped. No weighting: order is by EVIDENCE TIER for
+  //      presentation only; every governing axis's action is in the disposition union.
+  var ranked = governing.slice().sort(function (x, y) {
+    return TIER_RANK[y.tier] - TIER_RANK[x.tier];   // tie -> stable order; display only, never drops a concern
   });
   return {
     governingAxis: "MULTIPLE",
     governingState: ranked[0].state,
-    disposition: "ESCALATE_CONFLICT",
-    hardLocked: false,
+    disposition: dispositionForAxisState(ranked[0]),                 // lead, by evidence tier
+    compound: true,
     governingBids: ranked,
-    hardLocks: [],
+    basisBids: basisBids,
+    additionalDispositions: ranked.slice(1).map(dispositionForAxisState), // the rest of the union
     escalationRequired: true,
   };
 }
 
-function dispositionForAxis(b: AxisBid): DispositionClass {
-  switch (b.axis) {
-    case "PHYSICAL":
-      return "FITNESS_FOR_SERVICE";
-    case "OPERATIONAL":
-      return "REASSESS_OPERATION";
-    case "ASSURANCE":
-      return "VERIFY_ASSURANCE";
-  }
-}
-
 /* ----------------------------------------------------------------------------
- * STAGE 1 + STAGE 3 ADAPTERS — bind these to existing code, do not reimplement.
+ * (Q5) HOW PERCEPTION RECORDS CAUSALITY  (bid-producer guidance — NOT contest logic)
+ *
+ * causedBy is set in the bid producer (reconciliation / the §3 recognizers), where the
+ * evidence lives. The contest only reads it.
+ *
+ *  - change -> assurance (TEST 25 / E / F): STRUCTURALLY detectable on the deterministic
+ *    floor. When the same unreviewed-change signal that raises the assurance
+ *    loss-of-knowledge count also sets operational = CHANGED_UNREASSESSED, set
+ *      assuranceBid.causedBy = "OPERATIONAL".
+ *    This is also exactly the §3 assurance recognizer's job — build it once.
+ *
+ *  - change -> physical (D): generally NOT establishable on the deterministic floor
+ *    (it is a physics/causal inference). RULE: NEVER fabricate the link.
+ *      * If the LLM hypothesis supplies it (with a basis), honor it:
+ *        physicalBid.causedBy = "OPERATIONAL".
+ *      * If neither floor nor LLM establishes it, leave causedBy UNSET. The two adverse
+ *        axes then COMPOUND-merge (both govern, tier-ordered). This is SAFE and still
+ *        leads with the stronger-evidence axis — for D, physical (DIRECT_MEASURED) leads
+ *        operational (DOCUMENTED), giving "fatigue lead, throughput contributing" with no
+ *        invented link and no escalate.
+ *
+ *  The causal link is an ENHANCEMENT (collapses a compound into a single manifestation,
+ *  cleaner output). Its ABSENCE never produces a conflict and never blocks a result.
  * -------------------------------------------------------------------------- */
 
-export interface TechnicalTruth {
-  physical: AxisBid;          // from the existing FMD/mechanism/remaining-life engines
-  assurance: AxisBid;         // from data-integrity / monitoring evaluation
-  operational: AxisBid;       // from operating-envelope / process evaluation
-  hardLocks: HardLock[];      // safety/code nonconformance surfaced by the engines
-}
-
-export interface PipelineDeps {
-  // STAGE 1: existing technical engines. Must NOT see SA/role context.
-  evaluateTechnical: (input: unknown) => TechnicalTruth;
-  // STAGE 3: roleAuthority.ts — roles, conflicts, escalation, hard-lock application.
-  runRoleAuthority: (input: unknown, gov: GovernanceResult) => unknown;
-}
-
-export interface PipelineResult {
-  technical: TechnicalTruth;
-  governance: GovernanceResult;
-  roleAuthority: unknown; // shape owned by roleAuthority.ts
-}
-
-export function runForgedPipeline(input: unknown, deps: PipelineDeps): PipelineResult {
-  // STAGE 1 — clean technical truth, isolated.
-  var technical = deps.evaluateTechnical(input);
-
-  // STAGE 2 — peer-governance contest over the three axes.
-  var governance = runGovernanceContest(
-    [technical.physical, technical.assurance, technical.operational],
-    technical.hardLocks
-  );
-
-  // STAGE 3 — disposition, roles, conflicts, escalation.
-  var roleAuthority = deps.runRoleAuthority(input, governance);
-
-  return { technical: technical, governance: governance, roleAuthority: roleAuthority };
-}
-
 /* ----------------------------------------------------------------------------
- * WORKED TRACES (the cases that were breaking) — keep as golden tests.
+ * WORKED TRACES (frozen golden) — verify CP2 against these.
  *
- * TEST 24 — Qatar LNG compressor, machine healthy, production +11% / flow +2% / power +6%
- *   physical:    ACCEPTABLE,           ABSENCE_CONFIRMED  (clean exam, no defect)
- *   assurance:   ESTABLISHED,          DOCUMENTED
- *   operational: CHANGED_UNREASSESSED, DIRECT_MEASURED    (the 11/2/6% deviation)
- *   -> one adverse bid (operational) GOVERNS -> REASSESS_OPERATION + escalate.
- *   NOT "continue", NOT manufactured corrosion.
+ * TEST 25 / BREAKER_E (monitoring):
+ *   physical ACCEPTABLE/ABSENCE_CONFIRMED (non-adverse)
+ *   assurance UNKNOWN_STATE/DOCUMENTED, causedBy=OPERATIONAL
+ *   operational CHANGED_UNREASSESSED/DOCUMENTED
+ *   -> causal merge absorbs OPERATIONAL -> ASSURANCE governs -> VERIFY_ASSURANCE,
+ *      basis = the change. (not ESCALATE_CONFLICT) ✓
  *
- * TEST 25 — monitoring/instrumentation system, no degradation evidence
- *   physical:    ACCEPTABLE,    ABSENCE_CONFIRMED
- *   assurance:   UNKNOWN_STATE, DOCUMENTED  (unvalidated algorithm / patch lag)
- *   operational: STABLE,        DOCUMENTED
- *   -> one adverse bid (assurance) GOVERNS -> VERIFY_ASSURANCE.
- *   "Monitoring assurance failure", no invented physical mechanism.
+ * BREAKER_F (flare-gas trust): same shape as E -> VERIFY_ASSURANCE. ✓
  *
- * Normal physical case — characterized wall loss
- *   physical:    CONFIRMED_DAMAGE, DIRECT_MEASURED (UT)
- *   -> physical GOVERNS -> FITNESS_FOR_SERVICE. The 90% the platform was always good at.
+ * BREAKER_D (vibration fatigue):
+ *   physical SUSPECTED/DIRECT_MEASURED  operational CHANGED/DOCUMENTED  assurance ESTABLISHED
+ *   - with causedBy (LLM): physical absorbs operational -> PHYSICAL governs -> FFS, fatigue lead. ✓
+ *   - without causedBy (floor): compound, tier-ranked -> PHYSICAL leads (DIRECT_MEASURED > DOCUMENTED)
+ *     -> FFS lead + REASSESS_OPERATION in the union. Still fatigue lead, safe. ✓
  *
- * Healthy + verified — clean exam, basis confirmed
- *   physical ACCEPTABLE/ABSENCE_CONFIRMED, assurance ESTABLISHED, operational STABLE
- *   -> CONTINUE, earned (not defaulted).
+ * BREAKER_A / B / C (single adverse): one axis governs. ✓
+ *
+ * Characterized wall loss: physical CONFIRMED_DAMAGE -> FITNESS_FOR_SERVICE. ✓ (no regression)
+ *
+ * ENGINEER (FFS) vs SAFETY (Restricted): a ROLE conflict — emitted by the RAE
+ *   cross-discipline conflict engine, composed on top as ESCALATE_CONFLICT. The axis
+ *   contest does not produce it. ✓
  * -------------------------------------------------------------------------- */

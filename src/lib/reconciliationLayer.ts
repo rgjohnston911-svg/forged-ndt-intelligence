@@ -17,7 +17,7 @@ import {
   isPhysicallyAcceptableButNotDispositionable, describeTuple
 } from "./governingAxes";
 import { classifyMechanismEvidence } from "./evidenceGate";
-import { AxisBid, EvidenceTier } from "./governancePipeline";
+import { AxisBid, EvidenceTier, runGovernanceContest } from "./governancePipeline";
 import { deriveAuthority, checkAuthorityConsistency } from "./authorityDerivation";
 import { Claim, reduceClaims, ConflictRecord } from "./noDestructiveOverride";
 
@@ -185,11 +185,23 @@ function operationalTier(state: OperationalChange): EvidenceTier {
   return state === "STABLE" ? "ABSENCE_CONFIRMED" : "DOCUMENTED";
 }
 function buildBids(tuple: GoverningTuple, ev: { physical: string[]; assurance: string[]; operational: string[] }): AxisBid[] {
+  // CP2 (Q5): record the change->assurance causal link at PERCEPTION. When an operating/process/
+  // software change made the operation adverse AND the assurance basis is doubted via loss-of-
+  // knowledge signals (UNKNOWN_STATE/DEGRADED - the change is among those signals), the change is
+  // the BASIS of the assurance doubt -> tag the assurance (effect) bid causedBy OPERATIONAL
+  // (cause). The contest merges operational into assurance. NOT set for LOST_DESIGN_BASIS
+  // (records loss, not the change) - that assurance concern stands on its own.
+  var assuranceCausedByChange = (tuple.operational !== "STABLE")
+    && (tuple.assurance === "UNKNOWN_STATE" || tuple.assurance === "DEGRADED");
+  var assuranceBid: AxisBid = {
+    axis: "ASSURANCE", state: tuple.assurance, tier: assuranceTier(tuple.assurance),
+    evidenceRefs: ev.assurance.slice(), rationale: ev.assurance.join("; ") || "no loss-of-knowledge signals detected"
+  };
+  if (assuranceCausedByChange) { assuranceBid.causedBy = "OPERATIONAL"; }
   return [
     { axis: "PHYSICAL", state: tuple.physical, tier: physicalTier(tuple.physical, ev.physical),
       evidenceRefs: ev.physical.slice(), rationale: ev.physical.join("; ") || "no physical evidence in the account" },
-    { axis: "ASSURANCE", state: tuple.assurance, tier: assuranceTier(tuple.assurance),
-      evidenceRefs: ev.assurance.slice(), rationale: ev.assurance.join("; ") || "no loss-of-knowledge signals detected" },
+    assuranceBid,
     { axis: "OPERATIONAL", state: tuple.operational, tier: operationalTier(tuple.operational),
       evidenceRefs: ev.operational.slice(), rationale: ev.operational.join("; ") || "no operating/process/software change detected" }
   ];
@@ -254,27 +266,27 @@ export function reconcile(input: ReconcileInput): Reconciliation {
   if (physical === "CONFIRMED_DAMAGE") { finalMechanism = det.evidence.physical[0] || "confirmed damage"; }
   else if (physical === "SUSPECTED") { finalMechanism = (det.evidence.physical[0] || "suspected mechanism") + " (suspected)"; }
 
-  // ---- DISPOSITION (function of the tuple) ----
+  // ---- DISPOSITION: the GOVERNANCE CONTEST is the sole arbiter (DEPLOY456 CP2) ----
+  // reconciliation = perception (the bids). runGovernanceContest = judgment. The enumerated
+  // predicates (dualHold / assuranceGoverns) and the DEPLOY453 FLEET stopgap are DELETED:
+  // isAdverse() treats any operational state != STABLE as adverse, so FLEET_PATTERN governs by
+  // construction with no list to maintain. Directional ESCALATE_CONFLICT is a role-layer concern
+  // (RAE), composed on top by the caller - the axis contest is merge-only.
   var tuple: GoverningTuple = { physical: physical, assurance: assurance, operational: operational };
-  var dualHold = isPhysicallyAcceptableButNotDispositionable(tuple);
-  var assuranceGoverns = (physical !== "CONFIRMED_DAMAGE") && (assurance === "UNKNOWN_STATE" || assurance === "LOST_DESIGN_BASIS");
+  var __bids = buildBids(tuple, det.evidence);
+  var gov = runGovernanceContest(__bids);
+  // Map the contest DispositionClass -> the legacy disposition vocabulary the report/tests use.
+  // Physical lead distinguishes CONFIRMED (FFS) from SUSPECTED (monitor) by the governing state.
   var disposition: string;
+  if (gov.disposition === "CONTINUE") { disposition = "continue_with_conditions"; }
+  else if (gov.disposition === "HOLD_FOR_INPUT") { disposition = "hold_for_review"; }
+  else if (gov.disposition === "FITNESS_FOR_SERVICE") {
+    disposition = (gov.governingState === "CONFIRMED_DAMAGE") ? "fitness_for_service_required" : "monitor_and_inspect";
+  }
+  else { disposition = "restricted_reassessment_required"; } // VERIFY_ASSURANCE / REASSESS_OPERATION / compound
+  if (gov.escalationRequired) { requiresHumanReview = true; }
+  // Tier-1 scope refusal overrides the contest (an out-of-scope asset is never dispositioned here).
   if (vetoes.length && vetoes[0].type === "scope") { disposition = "refer_out_of_scope"; }
-  else if (physical === "CONFIRMED_DAMAGE") { disposition = "fitness_for_service_required"; }
-  else if (assuranceGoverns) { disposition = "restricted_reassessment_required"; requiresHumanReview = true; }
-  else if (dualHold) { disposition = "restricted_reassessment_required"; }
-  // DEPLOY453 (FLEET_PATTERN stopgap) - a fleet-wide pattern (common change + failures
-  // across sister units) is an adverse operational reality that GOVERNS over a clean
-  // physical pass. The governing-statement block already says "a fleet-level pattern
-  // governs"; without this branch the disposition fell through to continue_with_conditions,
-  // contradicting its own statement. Placed to mirror the statement ordering (after dualHold,
-  // before SUSPECTED). NOTE: this is a hand-maintained enumeration patch; the governance
-  // contest (governancePipeline.ts) deletes it by construction - an adverse operational bid
-  // governs uniformly there, so FLEET_PATTERN needs no special-casing once the contest lands.
-  else if (operational === "FLEET_PATTERN") { disposition = "restricted_reassessment_required"; requiresHumanReview = true; }
-  else if (physical === "SUSPECTED") { disposition = "monitor_and_inspect"; }
-  else if (physical === "UNKNOWN") { disposition = "hold_for_review"; }
-  else { disposition = "continue_with_conditions"; }
 
   // ---- TIER-1: hard confidence floor ----
   var agg = (typeof input.aggregateConfidence === "number") ? input.aggregateConfidence : (hypOk ? (Number(hyp.asset && hyp.asset.confidence) || 0.7) : 0.7);
@@ -299,20 +311,36 @@ export function reconcile(input: ReconcileInput): Reconciliation {
   var opClause = (tuple.operational === "FLEET_PATTERN")
     ? "a fleet-wide pattern (common change with failures across sister units) governs the risk"
     : (tuple.operational === "CHANGED_UNREASSESSED") ? "an operating/process/software change was made without reassessment" : "";
+  var assurancePresent = (tuple.assurance !== "ESTABLISHED");
   if (vetoes.length && vetoes[0].type === "scope") {
     gStmt = "Out of deterministic scope: " + vetoes[0].reason;
-  } else if (tuple.physical === "CONFIRMED_DAMAGE") {
+  } else if (gov.governingAxis === "PHYSICAL" && tuple.physical === "CONFIRMED_DAMAGE") {
     gStmt = "A confirmed physical damage mechanism governs" + (finalMechanism ? " (" + finalMechanism + ")" : "") + "; run fitness-for-service per the applicable code.";
-  } else if (assuranceGoverns) {
+  } else if (gov.governingAxis === "ASSURANCE") {
+    // assurance governs (single, or operational absorbed as its causal basis)
     gStmt = "A monitoring/assurance failure governs: " + [assuranceClause, opClause].filter(function (x) { return !!x; }).join("; ")
       + ". The reported state cannot be independently validated (loss of confidence in the basis for continued service); this is the controlling risk, not a physical damage mechanism (" + describeTuple(tuple) + "). Disposition: continue physical operation with elevated, independent monitoring; reassessment/validation and escalation required.";
-  } else if (dualHold) {
+  } else if (gov.governingAxis === "OPERATIONAL" && tuple.operational === "FLEET_PATTERN") {
+    gStmt = "A fleet-level pattern governs: " + opClause + ". The controlling risk is systemic, not a single-unit physical defect (" + describeTuple(tuple) + ").";
+  } else if (gov.governingAxis === "OPERATIONAL") {
+    gStmt = "The asset is physically acceptable on current findings, but it is NOT dispositionable: " + opClause
+      + ". The governing reality is an operating/process change not yet reassessed (" + describeTuple(tuple) + "), not a physical damage mechanism. Disposition: restricted - reassessment required before continued service can be affirmed.";
+  } else if (gov.governingAxis === "MULTIPLE") {
+    // compound: >1 same-direction concern governs (no causal link collapsed them). Name them all,
+    // and if assurance is among them keep the monitoring/assurance framing so a monitoring-trust
+    // case still reads as assurance-governed alongside any suspected physical signal.
+    var compoundParts: string[] = [];
+    if (tuple.physical === "SUSPECTED" || tuple.physical === "CONFIRMED_DAMAGE") { compoundParts.push("a " + (tuple.physical === "CONFIRMED_DAMAGE" ? "confirmed" : "suspected") + " physical mechanism" + (finalMechanism ? " (" + finalMechanism + ")" : "")); }
+    if (assuranceClause) { compoundParts.push(assuranceClause); }
+    if (opClause) { compoundParts.push(opClause); }
+    gStmt = "Multiple same-direction concerns govern (compound): " + compoundParts.join("; ") + ". "
+      + (assurancePresent ? "A monitoring/assurance failure governs alongside the physical signal; the reported state cannot be independently validated. " : "")
+      + "No single confirmed physical mechanism is established (" + describeTuple(tuple) + "). Disposition: restricted - reassessment/validation required; all governing concerns must be resolved.";
+  } else if (gov.disposition === "HOLD_FOR_INPUT") {
     gStmt = "The asset is physically acceptable on current findings, but it is NOT dispositionable: "
       + [assuranceClause, opClause].filter(function (x) { return !!x; }).join("; ")
       + ". The governing reality is loss of confidence in the basis for continued service (" + describeTuple(tuple) + "), not a physical damage mechanism. Disposition: restricted - reassessment/validation required before continued service can be affirmed.";
-  } else if (tuple.operational === "FLEET_PATTERN") {
-    gStmt = "A fleet-level pattern governs: " + opClause + ". The controlling risk is systemic, not a single-unit physical defect (" + describeTuple(tuple) + ").";
-  } else if (tuple.physical === "SUSPECTED") {
+  } else if (gov.governingAxis === "PHYSICAL" && tuple.physical === "SUSPECTED") {
     gStmt = "A suspected mechanism governs pending confirmation" + (finalMechanism ? " (" + finalMechanism + ")" : "") + (opClause ? "; " + opClause : "") + " (" + describeTuple(tuple) + "). Monitoring/inspection required; not yet a confirmed-damage disposition.";
   } else if (tuple.physical === "UNKNOWN") {
     gStmt = "The governing reality cannot be established from the available evidence (" + describeTuple(tuple) + "); HOLD for review.";
@@ -327,13 +355,13 @@ export function reconcile(input: ReconcileInput): Reconciliation {
     governingReality: tuple,
     governingLabel: describeTuple(tuple),
     governingStatement: gStmt,
-    physicallyAcceptableNotDispositionable: dualHold,
+    physicallyAcceptableNotDispositionable: isPhysicallyAcceptableButNotDispositionable(tuple),
     finalMechanism: finalMechanism,
     finalDisposition: disposition,
     conflicts: conflicts,
     vetoes: vetoes,
     confidenceAdjustment: conflicts.length ? -0.15 * conflicts.length : 0,
     requiresHumanReview: requiresHumanReview,
-    bids: buildBids(tuple, det.evidence)
+    bids: __bids
   };
 }
