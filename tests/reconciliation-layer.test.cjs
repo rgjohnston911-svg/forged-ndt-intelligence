@@ -75,6 +75,20 @@ ok(recFleet.governingReality.operational === 'FLEET_PATTERN', 'FLEET stopgap: op
 ok(recFleet.finalDisposition === 'restricted_reassessment_required', 'FLEET stopgap: disposition governs (restricted_reassessment_required), NOT continue (got ' + recFleet.finalDisposition + ')');
 ok(/fleet/i.test(recFleet.governingStatement), 'FLEET stopgap: statement and disposition agree (statement names fleet)');
 
+// ---- DEPLOY455 CP1: reconcile emits three well-formed AxisBids (perception layer). Tuple
+// unchanged; bids carry the same axis states + a provenance tier (not a score). ----
+var recBids = R.reconcile({ transcript: byId("BREAKER_E_monitoring_assurance").transcript, assetClaims: [{ value: "instrumentation_monitoring", confidence: 0.9, kind: "explicit-asset" }] });
+ok(Array.isArray(recBids.bids) && recBids.bids.length === 3, "CP1: exactly three bids emitted (got " + (recBids.bids ? recBids.bids.length : "none") + ")");
+var axesSeen = recBids.bids.map(function (b) { return b.axis; }).sort().join(",");
+ok(axesSeen === "ASSURANCE,OPERATIONAL,PHYSICAL", "CP1: one bid per axis (" + axesSeen + ")");
+var validTiers = { DIRECT_MEASURED: 1, DOCUMENTED: 1, ABSENCE_CONFIRMED: 1, NONE: 1 };
+ok(recBids.bids.every(function (b) { return validTiers[b.tier] === 1; }), "CP1: every bid tier is a valid EvidenceTier");
+var physBid = recBids.bids.filter(function (b) { return b.axis === "PHYSICAL"; })[0];
+ok(physBid && physBid.state === recBids.governingReality.physical, "CP1: physical bid state matches the tuple (perception is consistent)");
+ok(recBids.bids.every(function (b) { return typeof b.rationale === "string" && b.rationale.length > 0 && Array.isArray(b.evidenceRefs); }), "CP1: every bid has a rationale + evidenceRefs");
+// CP1 must NOT change disposition: the existing arbiter still decides (contest wires in CP2).
+ok(typeof recBids.finalDisposition === "string" && recBids.finalDisposition.length > 0, "CP1: disposition still produced by existing arbiter (unchanged this checkpoint)");
+
 fs.rmSync(tmp, { recursive: true, force: true });
 if (fails.length) { console.log('FAIL reconciliation-layer: ' + fails.length); fails.forEach(function (f) { console.log('   - ' + f); }); process.exit(1); }
 console.log('All reconciliation-layer Phases 8+9 checks passed (' + pass + ' assertions: deterministic axis floor for all breakers, FINAL PRINCIPLE end-to-end, Tier-1 evidence/consistency/scope/confidence vetoes, conflict surfacing).');

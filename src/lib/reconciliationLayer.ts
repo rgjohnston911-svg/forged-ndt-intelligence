@@ -17,6 +17,7 @@ import {
   isPhysicallyAcceptableButNotDispositionable, describeTuple
 } from "./governingAxes";
 import { classifyMechanismEvidence } from "./evidenceGate";
+import { AxisBid, EvidenceTier } from "./governancePipeline";
 import { deriveAuthority, checkAuthorityConsistency } from "./authorityDerivation";
 import { Claim, reduceClaims, ConflictRecord } from "./noDestructiveOverride";
 
@@ -158,9 +159,41 @@ export interface Reconciliation {
   vetoes: Veto[];
   confidenceAdjustment: number;
   requiresHumanReview: boolean;
+  // DEPLOY455 CP1 - perception output: the three axes as AxisBids for the governance contest.
+  // Emitted now; the contest becomes the sole arbiter in CP2. Disposition above is unchanged here.
+  bids: AxisBid[];
 }
 
 var CONFIDENCE_FLOOR = 0.60;
+
+// DEPLOY455 CP1 - BID PRODUCER. Map each axis state + its evidence to an AxisBid. The tier is
+// PROVENANCE (how do we know), never a score: DIRECT_MEASURED (instrument/inspection datum),
+// DOCUMENTED (a recorded signal), ABSENCE_CONFIRMED (an affirmative clean/no-change finding),
+// NONE (no admissible evidence -> the axis cannot bid). reconciliation = perception only.
+function physicalTier(state: PhysicalCondition, refs: string[]): EvidenceTier {
+  if (state === "CONFIRMED_DAMAGE") { return "DIRECT_MEASURED"; }
+  if (state === "SUSPECTED") { return "DOCUMENTED"; }
+  if (state === "ACCEPTABLE") { return refs.length > 0 ? "ABSENCE_CONFIRMED" : "NONE"; }
+  return "NONE"; // UNKNOWN - not examined / insufficient
+}
+function assuranceTier(state: AssuranceState): EvidenceTier {
+  // ESTABLISHED is inferred from the ABSENCE of loss-of-knowledge signals; the adverse states
+  // each carry a documented signal (lost basis / records / monitoring / unreviewed change).
+  return state === "ESTABLISHED" ? "ABSENCE_CONFIRMED" : "DOCUMENTED";
+}
+function operationalTier(state: OperationalChange): EvidenceTier {
+  return state === "STABLE" ? "ABSENCE_CONFIRMED" : "DOCUMENTED";
+}
+function buildBids(tuple: GoverningTuple, ev: { physical: string[]; assurance: string[]; operational: string[] }): AxisBid[] {
+  return [
+    { axis: "PHYSICAL", state: tuple.physical, tier: physicalTier(tuple.physical, ev.physical),
+      evidenceRefs: ev.physical.slice(), rationale: ev.physical.join("; ") || "no physical evidence in the account" },
+    { axis: "ASSURANCE", state: tuple.assurance, tier: assuranceTier(tuple.assurance),
+      evidenceRefs: ev.assurance.slice(), rationale: ev.assurance.join("; ") || "no loss-of-knowledge signals detected" },
+    { axis: "OPERATIONAL", state: tuple.operational, tier: operationalTier(tuple.operational),
+      evidenceRefs: ev.operational.slice(), rationale: ev.operational.join("; ") || "no operating/process/software change detected" }
+  ];
+}
 
 export function reconcile(input: ReconcileInput): Reconciliation {
   var t = String(input.transcript || "");
@@ -300,6 +333,7 @@ export function reconcile(input: ReconcileInput): Reconciliation {
     conflicts: conflicts,
     vetoes: vetoes,
     confidenceAdjustment: conflicts.length ? -0.15 * conflicts.length : 0,
-    requiresHumanReview: requiresHumanReview
+    requiresHumanReview: requiresHumanReview,
+    bids: buildBids(tuple, det.evidence)
   };
 }
