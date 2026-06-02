@@ -844,8 +844,17 @@ var handler = async function(event) {
     var isEvidencedEnough = function(m) {
       var st = (m.reality_state || "").toLowerCase();
       if (st === "confirmed" || st === "probable" || st === "possible") return true;
+      // DEPLOY468 §1.3/§1.4: an "unverified" mechanism earns a full evidence ledger /
+      // mechanism-specific NDE plan ONLY if it has a real OBSERVATION BASIS. A physics-potential-
+      // only phantom (observation_basis false - no indirect indicator, score at the noise floor)
+      // does NOT repopulate a crack-NDE plan or a mechanism ledger on a clean asset (the TEST 36
+      // phantom Mechanical Fatigue at 0.10). When the governing reality is assurance, the
+      // evidence-sufficiency check is keyed to the validation artifacts, not crack methods. Gate
+      // on BASIS, never on keyword: a genuine suspected mechanism (real indirect indicator ->
+      // observation_basis true) still earns its screening ledger.
+      if (m.observation_basis !== true) return false;
       var sc = (typeof m.reality_score === "number") ? m.reality_score : null;
-      if (sc === null) return true; // no score recorded -> do not suppress (conservative)
+      if (sc === null) return true; // basis present but no score recorded -> conservative, keep
       return sc >= EVIDENCE_LEDGER_SCORE_FLOOR;
     };
 

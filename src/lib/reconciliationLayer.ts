@@ -114,7 +114,12 @@ function demandOrCompensationUp(t: string): boolean {  // signal B (demand OR hu
   var demand = /(?:excursion|upset|challenge|demand|high[- ]temperature event|over[- ]?temperature|over[- ]?pressure|process upset|critical (?:pressure )?alarm)s?[^.]{0,55}(?:increas|\bup\b|rising|rose|more frequent)/i.test(t);
   var compensation = /(?:operator intervention|manual (?:action|intervention|override)|alarm acknowledg|operator[- ]managed)s?[^.]{0,55}(?:increas|\bup\b|rising|rose)/i.test(t)
     || /(?:run it manually|handle it (?:ourselves|manually)|we (?:run|handle|keep) it (?:manually|in manual)|keep it in manual|in manual most of the time|manage it manually|operators? (?:now )?(?:manage|handle|run)\b|doesn'?t shut us down|we rarely see automatic)/i.test(t)
-    || /now (?:remain|are) operator[- ]managed/i.test(t);
+    || /now (?:remain|are) operator[- ]managed/i.test(t)
+    // DEPLOY468 §3: "manual <thing> adjustments/interventions increased" and "manage/operate ...
+    // manually" - the hidden-protection-layer compensation signal (TEST 36: manual choke
+    // adjustments increased; "we manage the chokes manually"). Stated facts only.
+    || /manual[- ]?\w*\s+(?:adjustment|intervention|action|override|input|operation|correction)s?[^.]{0,40}(?:increas|\bup\b|rising|rose|more frequent)/i.test(t)
+    || /(?:manage|managing|manages|operat\w+|run\w*|handl\w+)\s+(?:the\s+)?[^.]{0,30}\b(?:manually|by hand|in manual)\b/i.test(t);
   return demand || compensation;
 }
 function validationBasisUnverified(t: string): boolean {  // signal C (a STATED validation gap)
@@ -222,6 +227,8 @@ export interface Reconciliation {
   finalAsset: string;
   finalAuthority: string | null;
   authorityCodes: string[];
+  // DEPLOY468 §2 - physical asset-class codes demoted to REFERENCE when assurance governs the reality.
+  referenceCodes: string[];
   governingReality: GoverningTuple;
   governingLabel: string;
   governingStatement: string;
@@ -257,7 +264,7 @@ function assuranceTier(state: AssuranceState): EvidenceTier {
 function operationalTier(state: OperationalChange): EvidenceTier {
   return state === "STABLE" ? "ABSENCE_CONFIRMED" : "DOCUMENTED";
 }
-function buildBids(tuple: GoverningTuple, ev: { physical: string[]; assurance: string[]; operational: string[] }): AxisBid[] {
+function buildBids(tuple: GoverningTuple, ev: { physical: string[]; assurance: string[]; operational: string[] }, t?: string): AxisBid[] {
   // CP2 (Q5): record the change->assurance causal link at PERCEPTION. When an operating/process/
   // software change made the operation adverse AND the assurance basis is doubted via loss-of-
   // knowledge signals (UNKNOWN_STATE/DEGRADED - the change is among those signals), the change is
@@ -271,6 +278,21 @@ function buildBids(tuple: GoverningTuple, ev: { physical: string[]; assurance: s
     evidenceRefs: ev.assurance.slice(), rationale: ev.assurance.join("; ") || "no loss-of-knowledge signals detected"
   };
   if (assuranceCausedByChange) { assuranceBid.causedBy = "OPERATIONAL"; }
+  // DEPLOY468 §4 - COMPOUND-MERGE CAUSALITY. When the physical axis is SUSPECTED *solely via
+  // dynamic-loading signals* (slugging / oscillations) AND the assurance axis is adverse from a
+  // protective/control function, the causal chain is: control degradation (ROOT) -> automatic
+  // control abandoned -> slugging/oscillations rose -> dynamic loading (DOWNSTREAM). The dynamic
+  // loading is NOT a co-equal governing peer; it is a forward-risk consequence of the assurance
+  // root. Tag assurance as the surviving manifestation (causedBy PHYSICAL -> the physical bid is
+  // absorbed/leveled beneath assurance as basis), so ASSURANCE governs alone and the disposition is
+  // the assurance disposition (restricted / validation required), not averaged down to monitor by a
+  // co-equal suspected-physical. The dynamic-loading signal is KEPT (carried as basis / stated in
+  // the governing statement as forward-risk), never suppressed - it has a real slugging basis.
+  var __physDynamicLoading = (tuple.physical === "SUSPECTED")
+    && ev.physical.some(function (e) { return /dynamic-loading/i.test(e); });
+  var __assuranceFromFunction = (tuple.assurance === "UNKNOWN_STATE" || tuple.assurance === "DEGRADED")
+    && (typeof t === "string") && protectiveFunctionKind(t) !== "NONE";
+  if (__physDynamicLoading && __assuranceFromFunction) { assuranceBid.causedBy = "PHYSICAL"; }
   return [
     { axis: "PHYSICAL", state: tuple.physical, tier: physicalTier(tuple.physical, ev.physical),
       evidenceRefs: ev.physical.slice(), rationale: ev.physical.join("; ") || "no physical evidence in the account" },
@@ -346,7 +368,7 @@ export function reconcile(input: ReconcileInput): Reconciliation {
   // construction with no list to maintain. Directional ESCALATE_CONFLICT is a role-layer concern
   // (RAE), composed on top by the caller - the axis contest is merge-only.
   var tuple: GoverningTuple = { physical: physical, assurance: assurance, operational: operational };
-  var __bids = buildBids(tuple, det.evidence);
+  var __bids = buildBids(tuple, det.evidence, t);
   var gov = runGovernanceContest(__bids);
   // Map the contest DispositionClass -> the legacy disposition vocabulary the report/tests use.
   // Physical lead distinguishes CONFIRMED (FFS) from SUSPECTED (monitor) by the governing state.
@@ -401,6 +423,21 @@ export function reconcile(input: ReconcileInput): Reconciliation {
       } else {
         gStmt = "A safety-function assurance failure governs: the protective function's integrity is NOT established (declining automatic protective action against rising demand or human compensation, and/or a logic change without independent validation; a closed MOC is not validation). This is the controlling reality, not a physical damage mechanism (" + describeTuple(tuple) + "). Disposition: continued operation is NOT justified as-is; restrict/hold pending functional-safety validation per IEC 61511 (safety requirement spec, pre/post logic comparison, independent validation; SIL/LOPA verification as an ask to the functional safety engineer). Escalate to a functional safety engineer and PSM/MOC authority.";
       }
+      // DEPLOY468 §3 - STATE the protection-layer answers the assignment asks for (output-wording
+      // sharpening of the existing recognizer; NOT a new engine, NOT a new state). Each sentence is
+      // gated on a STATED behavioral signal - no fabrication, no hardcoded figures.
+      if (automaticActionDown(t) && demandOrCompensationUp(t)) {
+        gStmt += " Operators have become a hidden protection layer: process stability now depends on increased manual operator intervention while automatic protective/control action has declined - the declining automatic action must NOT be read as improved reliability.";
+      }
+      if (/\b(?:permissive|bypass|inhibit|override|forced|defeat)/i.test(t) && validationBasisUnverified(t)) {
+        gStmt += " The independent protection layer is degraded: protective-function bypass/permissive/override activity is present and the logic/strategy changes have not been independently validated (a closed MOC is not validation).";
+      }
+      // §4 - the suspected dynamic-loading signal is a DOWNSTREAM forward-risk consequence of the
+      // control degradation (slugging/oscillations rose as automatic control was abandoned), not an
+      // independent governing concern - kept, leveled beneath the assurance root.
+      if (tuple.physical === "SUSPECTED" && finalMechanism && /dynamic/i.test(finalMechanism)) {
+        gStmt += " A suspected dynamic-loading signal (from increased slugging / pressure oscillations) is a downstream forward-risk consequence of the control degradation, not an independent governing concern.";
+      }
     } else {
       gStmt = "A monitoring/assurance failure governs: " + [assuranceClause, opClause].filter(function (x) { return !!x; }).join("; ")
         + ". The reported state cannot be independently validated (loss of confidence in the basis for continued service); this is the controlling risk, not a physical damage mechanism (" + describeTuple(tuple) + "). Disposition: continue physical operation with elevated, independent monitoring; reassessment/validation and escalation required.";
@@ -443,10 +480,37 @@ export function reconcile(input: ReconcileInput): Reconciliation {
     requiresHumanReview = true;
   }
 
+  // DEPLOY468 §2 - AUTHORITY FOLLOWS THE GOVERNING REALITY. deriveAuthority() keys off the asset
+  // CLASS; when the contest determines ASSURANCE governs, the governing citation + escalation
+  // authority is the assurance authority (recognizer-flavor routed), and the physical asset-class
+  // codes (B31.8 / API 579 / etc.) drop to REFERENCE - kept, but not governing. Conditional on the
+  // governing reality: a PHYSICAL governing axis is untouched (physical codes stay governing). This
+  // also neutralizes a multi-asset / asset-class misclassification for authority purposes - the
+  // governing reality drives the authority, not the asset-class guess. Cite + escalate only; the
+  // platform never computes SIL or runs LOPA - those are asks for the named engineer.
+  var finalAuthority: string | null = derived.primary;
+  var authorityCodes: string[] = derived.codes;
+  var referenceCodes: string[] = [];
+  if (gov.governingAxis === "ASSURANCE") {
+    var __recKind = assuranceRecognizer(t).kind;
+    referenceCodes = derived.codes;  // physical asset-class codes -> reference only
+    if (__recKind === "SAFETY") {
+      finalAuthority = "IEC 61511 (functional safety)";
+      authorityCodes = ["IEC 61511", "IEC 61508", "ISA 84", "OSHA PSM (29 CFR 1910.119)"];
+    } else if (__recKind === "CONTROL") {
+      finalAuthority = "ISA 18.2 / OSHA PSM";
+      authorityCodes = ["ISA 18.2", "OSHA PSM (29 CFR 1910.119)", "MOC (PSM element 29 CFR 1910.119(l))"];
+    } else {
+      finalAuthority = "OSHA PSM / MOC (assurance)";
+      authorityCodes = ["OSHA PSM (29 CFR 1910.119)", "MOC (PSM element 29 CFR 1910.119(l))"];
+    }
+  }
+
   return {
     finalAsset: finalAsset,
-    finalAuthority: derived.primary,
-    authorityCodes: derived.codes,
+    finalAuthority: finalAuthority,
+    authorityCodes: authorityCodes,
+    referenceCodes: referenceCodes,
     governingReality: tuple,
     governingLabel: describeTuple(tuple),
     governingStatement: gStmt,

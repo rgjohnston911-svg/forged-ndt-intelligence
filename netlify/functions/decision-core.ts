@@ -4730,10 +4730,18 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
     monitoringUrgency = "Routine interval";
   }
 
-  // DEPLOY461 CP3 commit 5: final backstop - with NO confirmed/suspected/visible damage, the
-  // failure_mode must not assert an active physical mechanism. The governing reality governs.
+  // DEPLOY461 CP3 commit 5 (extended DEPLOY468 \u00a71.2): final backstop - with NO
+  // confirmed/suspected/visible damage, the failure_mode must not assert an active physical
+  // mechanism (rupture / release / structural failure). The governing reality governs. The
+  // consequence TIER is untouched here - a degraded protection layer on a high-consequence asset
+  // is genuinely high consequence (kept); only the fabricated physical failure-MODE is neutralized.
+  // This gate cannot fire for any asset with real damage evidence (the 20 physical golden cases),
+  // so it only strips a manufactured rupture from an evidence-free account (TEST 36).
   if (degradationCertainty === "UNVERIFIED" && !hasDamageEvidence && !hasAnyVisibleDamage) {
-    var MANUFACTURED_ACTIVE = ["crack_propagation_pressure_breach", "structural_pressure_cascade", "fire_pressure_cascade"];
+    var MANUFACTURED_ACTIVE = ["crack_propagation_pressure_breach", "structural_pressure_cascade",
+      "fire_pressure_cascade", "pressure_boundary_failure", "structural_failure",
+      "heated_fluid_release", "hot_fluid_release", "hot_hydrocarbon_release",
+      "support_failure_cascade", "support_degradation"];
     if (MANUFACTURED_ACTIVE.indexOf(failMode) !== -1) { failMode = "no_confirmed_mechanism"; }
   }
 

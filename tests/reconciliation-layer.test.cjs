@@ -158,6 +158,29 @@ ok(reg.requiresHumanReview === true, "TEST30: regulatory correction flagged for 
 var noReg = R.reconcile({ transcript: "Process piping, UT within limits, no corrosion, no cracking, records complete, no regulatory findings, basis verified.", assetClaims: [{ value: "process_piping", confidence: 0.9, kind: "explicit-asset" }] });
 ok(/No confirmed damage mechanism governs/i.test(noReg.governingStatement), "no regulatory finding -> clean continue (regulatory override does not over-fire)");
 
+// ---- DEPLOY468 (TEST 36): subsea+platform+ESD system, physically clean, but automatic slug control
+// declining while manual choke intervention rises (behavioral divergence) + ESD permissive bypass up +
+// no independent functional-safety validation -> safety-function assurance UNKNOWN_STATE GOVERNS. The
+// suspected dynamic-loading (slugging) is leveled beneath the control root as forward-risk (causal
+// merge), so disposition is RESTRICTED (not monitor). Authority follows the governing reality:
+// IEC 61511 / ISA 84 / PSM govern; the physical asset-class code (API RP 2A) drops to reference. ----
+var t36 = R.reconcile({ transcript: "Deepwater Gulf of Mexico offshore production platform, United States, with subsea flowline, riser, topsides separator and a platform ESD / interlock system. ROV visual: no external damage, no free spans, no coating failure, no pipeline movement. Topsides UT above minimum thickness, no metal loss, no CUI, no SCC. Separator internal acceptable, no cracking, no pitting. Within design limits, no pressure excursions, no leak. Slugging events increased 52 percent, riser base pressure oscillations increased 44 percent, separator high-level alarms increased 61 percent. Operator manual choke adjustments increased 119 percent. Automatic slug-control actions decreased 58 percent. ESD permissive bypass duration increased 64 percent. Operators state the wells are stable if we manage the chokes manually and we bypass the permissive during startup. Three control-strategy changes and two ESD permissive logic changes implemented, all MOCs closed, original cause-and-effect matrix not available, independent functional safety validation not found. No corrosion, no cracking, no leak, no confirmed active damage mechanism, no equipment degradation identified.", assetClaims: [{ value: "offshore_platform", confidence: 0.9, kind: "explicit-asset" }] });
+ok(t36.governingReality.assurance === "UNKNOWN_STATE", "TEST36: auto-control-down + manual-intervention-up divergence -> assurance UNKNOWN_STATE (got " + t36.governingReality.assurance + ")");
+ok(t36.finalDisposition === "restricted_reassessment_required", "TEST36: assurance governs the root -> RESTRICTED, not monitor (got " + t36.finalDisposition + ")");
+ok(/safety-function assurance failure governs/i.test(t36.governingStatement), "TEST36: safety-function assurance governs");
+ok(/hidden protection layer/i.test(t36.governingStatement), "TEST36: states the hidden-protection-layer answer (manual intervention up, automatic action down)");
+ok(/independent protection layer is degraded/i.test(t36.governingStatement), "TEST36: states the degraded-independent-protection-layer answer (bypass/permissive unvalidated)");
+ok(/downstream forward-risk consequence/i.test(t36.governingStatement), "TEST36: dynamic-loading leveled beneath as a forward-risk consequence (kept, not suppressed)");
+ok(!/\b(?:MIC|HIC|SOHIC)\b|microbiolog/i.test(t36.governingStatement), "TEST36: no fabricated MIC/HIC in the governing statement");
+ok(/IEC 61511/.test(String(t36.finalAuthority)) && t36.authorityCodes.indexOf("IEC 61511") >= 0 && t36.authorityCodes.indexOf("ISA 84") >= 0, "TEST36: authority follows reality -> IEC 61511 / ISA 84 govern (got " + t36.finalAuthority + ")");
+ok(t36.referenceCodes.length > 0 && t36.authorityCodes.indexOf("API RP 2A") < 0, "TEST36: physical asset-class code (API RP 2A) demoted to reference, not governing");
+var t36AssuranceBid = t36.bids.filter(function (b) { return b.axis === "ASSURANCE"; })[0];
+ok(t36AssuranceBid && t36AssuranceBid.causedBy === "PHYSICAL", "TEST36: causal merge - assurance is the surviving manifestation, dynamic-loading absorbed beneath it");
+// §2 NO over-fire: a genuinely PHYSICAL-governed case keeps physical authority (codes not rerouted).
+var physAuth = R.reconcile({ transcript: "Process piping sour service. UT shows 42% wall loss, active metal loss and pitting confirmed; corrosion documented.", assetClaims: [{ value: "process_piping", confidence: 0.9, kind: "explicit-asset" }] });
+ok(physAuth.governingReality.physical === "CONFIRMED_DAMAGE", "phys-authority case: confirmed physical damage");
+ok(!/IEC 61511/.test(String(physAuth.finalAuthority)) && physAuth.referenceCodes.length === 0, "physical governing reality -> authority stays physical, no reference demotion (§2 conditional, no over-fire)");
+
 fs.rmSync(tmp, { recursive: true, force: true });
 if (fails.length) { console.log('FAIL reconciliation-layer: ' + fails.length); fails.forEach(function (f) { console.log('   - ' + f); }); process.exit(1); }
 console.log('All reconciliation-layer Phases 8+9 checks passed (' + pass + ' assertions: deterministic axis floor for all breakers, FINAL PRINCIPLE end-to-end, Tier-1 evidence/consistency/scope/confidence vetoes, conflict surfacing).');

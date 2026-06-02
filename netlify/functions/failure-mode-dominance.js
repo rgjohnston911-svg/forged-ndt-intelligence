@@ -1150,6 +1150,34 @@ var handler = async function(event) {
         structuralPath.notes = ["No direct, non-negated structural evidence in the account; structural path inactive."];
         if (structuralPath.indicators) { structuralPath.indicators.tilt = false; structuralPath.indicators.settlement = false; structuralPath.indicators.buckling = false; structuralPath.indicators.deformation = false; }
       }
+
+      // ----------------------------------------------------------------
+      // DEPLOY468 \u00a71.1 - INTERACTION / SYNERGY VERDICT GATE (the fabrication fix).
+      // The interaction block above (MIC+HIC, CUI+fatigue, erosion+SCC, compound/cascade/parallel)
+      // enumerated API-571 interaction pairs off the PASSED-IN mechanism list and hard-coded the
+      // word "confirmed" - so an upstream KB that injected mic/hic on a clean subsea asset printed
+      // "MIC + confirmed HIC" with no corrosion, no H2S, no microbiological data. An interaction is
+      // a CONFIRMED multi-mechanism claim: it may be asserted only when >= 2 mechanism families are
+      // CONFIRMED by THIS SAME verdict the headline already reads. No confirmed mechanisms -> the
+      // block emits nothing; "confirmed" never appears unverified. Single-family claims
+      // (STRUCTURAL_PRIMARY) and the honest screening interaction
+      // (CORROSION_CONFIRMED_CRACKING_SCREENING - corrosion confirmed, cracking explicitly
+      // unconfirmed) are exempt. Gate on verdict, never on keyword.
+      // Per-FAMILY confirmation (classifyFamily, not the single dominant mev.confirmed): a genuine
+      // corrosion+cracking case confirms BOTH families even though the verdict names one as
+      // dominant. Corrosion is also confirmed by a measured wall-loss datum.
+      var __ME = require("./_mechanism-evidence.cjs");
+      var __corrFamConfirmed = (__ME.classifyFamily("corrosion", transcript).level === "CONFIRMED") || (wallLossPercent > 0);
+      var __crackFamConfirmed = (__ME.classifyFamily("cracking", transcript).level === "CONFIRMED");
+      var __structFamConfirmed = (__ME.classifyFamily("structural", transcript).level === "CONFIRMED");
+      var __confirmedFamilies = (__corrFamConfirmed ? 1 : 0) + (__crackFamConfirmed ? 1 : 0) + (__structFamConfirmed ? 1 : 0);
+      var __multiMechInteraction = (interactionType === "COMPOUND_DRIVER" || interactionType === "SYNERGY" ||
+        interactionType === "CASCADE" || interactionType === "PARALLEL");
+      if (__multiMechInteraction && __confirmedFamilies < 2) {
+        interactionFlag = false;
+        interactionType = "none";
+        interactionDetail = "";
+      }
     })();
 
     // ====================================================================
