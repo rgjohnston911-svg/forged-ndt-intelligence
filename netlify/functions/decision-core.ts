@@ -4653,7 +4653,11 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   }
   if (!failPhysics) failPhysics = "Damage progression reduces integrity below safe operating threshold.";
 
-  if (physics.stress.cyclic_loading && physics.stress.stress_concentration_present && physics.energy.stored_energy_significant && !isStructuralAssetType) {
+  // DEPLOY461 CP3 commit 5: do NOT manufacture a crack-propagation failure MODE from cyclic-loading
+  // PHYSICS POTENTIAL alone. failure_mode derives from CONFIRMED/SUSPECTED damage - on a clean asset
+  // (degradationCertainty UNVERIFIED, no evidence) the governing reality (assurance/operational/
+  // regulatory) governs, not a fabricated crack_propagation_pressure_breach.
+  if (physics.stress.cyclic_loading && physics.stress.stress_concentration_present && physics.energy.stored_energy_significant && !isStructuralAssetType && degradationCertainty !== "UNVERIFIED") {
     var pmIsCorrosionType = damage.primary && (damage.primary.id.indexOf("corrosion") !== -1 || damage.primary.id.indexOf("pitting") !== -1 || damage.primary.id === "co2_corrosion" || damage.primary.id === "cui" || damage.primary.id === "erosion");
     if (!pmIsCorrosionType && (failPhysics.indexOf("wall thinning") !== -1 || failPhysics.indexOf("Damage progression") !== -1)) {
       failPhysics = "Cyclic pressure loading drives fatigue crack initiation at stress concentrations (weld toes, nozzles, geometric transitions). Crack propagates per Paris Law until critical size is reached. Failure mode: pressure boundary breach via crack-through (leak-before-break if ductile, catastrophic burst if insufficient toughness). Corrosion may accelerate initiation but crack propagation is the dominant failure path.";
@@ -4724,6 +4728,13 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   } else {
     damageTrajectory = "No significant threshold indicators. Damage state appears stable under current conditions.";
     monitoringUrgency = "Routine interval";
+  }
+
+  // DEPLOY461 CP3 commit 5: final backstop - with NO confirmed/suspected/visible damage, the
+  // failure_mode must not assert an active physical mechanism. The governing reality governs.
+  if (degradationCertainty === "UNVERIFIED" && !hasDamageEvidence && !hasAnyVisibleDamage) {
+    var MANUFACTURED_ACTIVE = ["crack_propagation_pressure_breach", "structural_pressure_cascade", "fire_pressure_cascade"];
+    if (MANUFACTURED_ACTIVE.indexOf(failMode) !== -1) { failMode = "no_confirmed_mechanism"; }
   }
 
   return {
