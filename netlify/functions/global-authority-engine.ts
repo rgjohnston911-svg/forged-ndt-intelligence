@@ -456,7 +456,11 @@ const LOCATION_PATTERNS: { pattern: RegExp; key: string; region?: string }[] = [
   { pattern: /\bnetherlands|dutch|holland\b/i, key: "netherlands" },
   { pattern: /\bpoland|polish\b/i, key: "poland" },
   { pattern: /\bindonesia|indonesian|java\s*sea\b/i, key: "indonesia" },
-  { pattern: /\bmexico|mexican|pemex\b/i, key: "mexico" },
+  // DEPLOY466 - word-boundary-safe Mexico tagger. The old /\bmexico.../ matched the "Mexico" inside
+  // "Gulf of Mexico" (US offshore) and "New Mexico" (US state), wrongly flipping a US asset to Mexico.
+  // Negative lookbehinds exclude "gulf of " and "new " so a genuine Mexico (Pemex, offshore Mexico)
+  // still tags while US Gulf-of-Mexico / New Mexico stay US. (The US/BSEE overlay path is unchanged.)
+  { pattern: /(?<!gulf\s+of\s+)(?<!new\s+)\bmexico\b|\bmexican\b|\bpemex\b/i, key: "mexico" },
   { pattern: /\bnigeria|nigerian\b/i, key: "nigeria" },
   { pattern: /\begypt|egyptian\b/i, key: "egypt" },
   { pattern: /\bkazakhstan|kazakh\b/i, key: "kazakhstan" },
