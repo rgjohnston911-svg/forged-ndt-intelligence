@@ -112,8 +112,8 @@ function automaticActionDown(t: string): boolean {  // signal A
 }
 function demandOrCompensationUp(t: string): boolean {  // signal B (demand OR human compensation; TEST 34 added compensation)
   var demand = /(?:excursion|upset|challenge|demand|high[- ]temperature event|over[- ]?temperature|over[- ]?pressure|process upset|critical (?:pressure )?alarm)s?[^.]{0,55}(?:increas|\bup\b|rising|rose|more frequent)/i.test(t);
-  var compensation = /(?:operator intervention|manual (?:action|intervention)|alarm acknowledg|operator[- ]managed)s?[^.]{0,55}(?:increas|\bup\b|rising|rose)/i.test(t)
-    || /(?:run it manually|handle it (?:ourselves|manually)|we (?:run|handle) it manually|operators? (?:now )?(?:manage|handle|run)\b|doesn'?t shut us down|we rarely see automatic)/i.test(t)
+  var compensation = /(?:operator intervention|manual (?:action|intervention|override)|alarm acknowledg|operator[- ]managed)s?[^.]{0,55}(?:increas|\bup\b|rising|rose)/i.test(t)
+    || /(?:run it manually|handle it (?:ourselves|manually)|we (?:run|handle|keep) it (?:manually|in manual)|keep it in manual|in manual most of the time|manage it manually|operators? (?:now )?(?:manage|handle|run)\b|doesn'?t shut us down|we rarely see automatic)/i.test(t)
     || /now (?:remain|are) operator[- ]managed/i.test(t);
   return demand || compensation;
 }

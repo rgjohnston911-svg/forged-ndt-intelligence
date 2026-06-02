@@ -138,6 +138,14 @@ ok(basisGap.governingReality.assurance === "DEGRADED", "C-only (validation gap, 
 var ctrlClean = R.reconcile({ transcript: "Pressure vessel with an automatic control loop. Independent control-system validation completed and documented. No control-strategy changes. Demand stable, automatic action stable. UT within limits, no corrosion.", assetClaims: [{ value: "pressure_vessel", confidence: 0.9, kind: "explicit-asset" }] });
 ok(ctrlClean.governingReality.assurance === "ESTABLISHED", "validated control function + no divergence -> ESTABLISHED (no over-fire)");
 
+// ---- DEPLOY465 (TEST 35): pump kept in manual after unvalidated control-logic changes. Physically
+// fit; automatic control declining while manual OVERRIDES rise = behavioral divergence -> control-
+// function assurance UNKNOWN_STATE governs. "keep it in manual" / "manual overrides increased" are B. ----
+var t35 = R.reconcile({ transcript: "Produced Water Reinjection Pump P-204A. Vibration 0.16 ips acceptable, alignment within tolerance, borescope impeller good no cavitation, no corrosion, within design limits. Automatic control mode utilization decreased 63 percent. Operator manual overrides increased 142 percent. Operators state we keep it in manual most of the time, automatic mode causes instability. Three control logic modifications implemented, MOCs closed, previous versions not available, independent validation not found. No active damage mechanism identified.", assetClaims: [{ value: "pressure_vessel", confidence: 0.9, kind: "explicit-asset" }] });
+ok(t35.governingReality.physical === "ACCEPTABLE", "TEST35: pump physically ACCEPTABLE");
+ok(t35.governingReality.assurance === "UNKNOWN_STATE", "TEST35: auto-control-down + manual-overrides-up divergence -> assurance UNKNOWN_STATE (got " + t35.governingReality.assurance + ")");
+ok(/control-function assurance failure governs/i.test(t35.governingStatement), "TEST35: control-function assurance governs (a pump with a degraded control loop)");
+
 fs.rmSync(tmp, { recursive: true, force: true });
 if (fails.length) { console.log('FAIL reconciliation-layer: ' + fails.length); fails.forEach(function (f) { console.log('   - ' + f); }); process.exit(1); }
 console.log('All reconciliation-layer Phases 8+9 checks passed (' + pass + ' assertions: deterministic axis floor for all breakers, FINAL PRINCIPLE end-to-end, Tier-1 evidence/consistency/scope/confidence vetoes, conflict surfacing).');
