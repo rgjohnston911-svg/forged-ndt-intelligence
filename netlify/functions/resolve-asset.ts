@@ -317,6 +317,16 @@ var handler = async function(event: any): Promise<any> {
       "timber trestle": { c: "rail_bridge", w: 10, t: "timber_trestle" },
 
       // --- DAM ---
+      // DEPLOY464 - FUNCTIONAL_SAFETY declared-identity aliases. Full phrases only (the matcher is
+      // substring-based, so bare acronyms SIS/ESD/SIF are forbidden - "basis" contains "sis"). These
+      // name the ASSET (a protective function), not an incidental component, and outweigh component/
+      // context matches so a declared safety function is not misread as a vessel/bridge.
+      "emergency shutdown system": { c: "functional_safety", w: 16, t: "esd_system" },
+      "safety instrumented system": { c: "functional_safety", w: 16, t: "sis" },
+      "safety instrumented function": { c: "functional_safety", w: 16, t: "sif" },
+      "burner management system": { c: "functional_safety", w: 15, t: "bms" },
+      "high integrity pressure protection": { c: "functional_safety", w: 15, t: "hipps" },
+      "logic solver": { c: "functional_safety", w: 12, t: "logic_solver" },
       "dam": { c: "bridge_concrete", w: 8, t: "dam" },
       "spillway": { c: "bridge_concrete", w: 8, t: "dam_spillway" },
       "lock": { c: "bridge_concrete", w: 5, t: "navigation_lock" },

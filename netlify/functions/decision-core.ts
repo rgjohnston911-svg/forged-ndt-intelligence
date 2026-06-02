@@ -6476,6 +6476,7 @@ var handler: Handler = async function(event: HandlerEvent) {
       "offshore_platform",
       "heat_exchanger",
       "boiler",
+      "functional_safety",
       "unknown"
     ];
     // DEPLOY358 - Asset class base-domain normalization for the SUPPORTED_DOMAINS gate.

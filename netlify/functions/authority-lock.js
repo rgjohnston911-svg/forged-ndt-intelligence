@@ -179,6 +179,18 @@ var handler = async function(event) {
       lockReasons.push("Offshore asset -> BSEE/USCG regulatory overlay applied");
     }
 
+    // DEPLOY464 - FUNCTIONAL SAFETY asset class. A protective function (SIS / ESD / SIF / BMS / HIPPS)
+    // is governed by FUNCTIONAL-SAFETY authority, not pressure-boundary FFS. Locking IEC 61511 makes
+    // the class in-matrix so it passes the Asset Identity Gate and routes correctly (instead of
+    // mis-routing to API 510 / AASHTO). CITE + ESCALATE ONLY: the platform names IEC 61511 / ISA 84 /
+    // OSHA PSM and escalates to a functional safety engineer; it does NOT compute SIL or run LOPA.
+    if (asset === "functional_safety") {
+      authorities.push({ code: "IEC 61511", title: "Functional Safety - Safety Instrumented Systems for the Process Industry Sector", role: "primary_inspection", locked: true });
+      authorities.push({ code: "ISA 84 (ANSI/ISA 61511)", title: "Safety Instrumented Systems for the Process Industries", role: "primary_construction", locked: true });
+      supplementalCodes.push({ code: "OSHA PSM 29 CFR 1910.119", title: "Process Safety Management of Highly Hazardous Chemicals (incl. Management of Change)", role: "regulatory_overlay", locked: true });
+      lockReasons.push("Functional-safety asset (protective function) -> IEC 61511 / ISA 84 functional-safety authority + OSHA PSM. Recognize and escalate to a functional safety engineer; the platform cites these - it does not compute SIL or run LOPA.");
+    }
+
     // ============================================================
     // SPECIALTY DOMAIN OVERRIDES (v1.2)
     // These domains have unique primary authorities that take
