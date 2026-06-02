@@ -835,6 +835,20 @@ var handler = async function(event) {
     // and emits a ledger entry. "confirmed" mechanisms are excluded from
     // the ledger (already confirmed) but included in the inspection plan.
 
+    // DEPLOY460 CP3 commit 4: a mechanism earns a full evidence ledger / mechanism-specific NDE
+    // plan ONLY if it is genuinely evidenced - confirmed, or a candidate with a non-trivial reality
+    // score / standing. A phantom at ~0.05 with no basis does NOT get a TOFD/MT/crack-sizing plan
+    // (the TEST 31/32 fatigue-ledger leak). Universal, asset-agnostic - consumes decision-core's own
+    // per-mechanism evidence assessment rather than re-deriving.
+    var EVIDENCE_LEDGER_SCORE_FLOOR = 0.10;
+    var isEvidencedEnough = function(m) {
+      var st = (m.reality_state || "").toLowerCase();
+      if (st === "confirmed" || st === "probable" || st === "possible") return true;
+      var sc = (typeof m.reality_score === "number") ? m.reality_score : null;
+      if (sc === null) return true; // no score recorded -> do not suppress (conservative)
+      return sc >= EVIDENCE_LEDGER_SCORE_FLOOR;
+    };
+
     var buildRequiredEvidenceLedger = function(mechanisms) {
       var ledger = [];
       if (!mechanisms || !mechanisms.length) return ledger;
@@ -843,6 +857,7 @@ var handler = async function(event) {
         if (!lm || !lm.id) continue;
         var lstate = (lm.reality_state || "").toLowerCase();
         if (lstate === "confirmed") continue; // already confirmed, no evidence needed
+        if (!isEvidencedEnough(lm)) continue; // phantom (no evidence / score ~0) -> no full ledger
         var contract = MECHANISM_EVIDENCE_CONTRACT[lm.id];
         if (!contract) continue;
         ledger.push({
@@ -872,6 +887,8 @@ var handler = async function(event) {
       for (var pi = 0; pi < mechanisms.length; pi++) {
         var pm = mechanisms[pi];
         if (!pm || !pm.id) continue;
+        // confirmed mechanisms keep their severity-quantification NDE; unevidenced phantoms get no plan.
+        if ((pm.reality_state || "").toLowerCase() !== "confirmed" && !isEvidencedEnough(pm)) continue;
         var mmap = MECHANISM_METHOD_MAP[pm.id];
         if (!mmap) continue;
         plan.push({
