@@ -6535,6 +6535,56 @@ var handler: Handler = async function(event: HandlerEvent) {
       };
     }
 
+    // ============================================================================
+    // DEPLOY463 - ASSET IDENTITY GATE (authority-mappability). The cascade-root fix for
+    // TEST 31/32/33: an asset that passed the SUPPORTED_DOMAINS gate but whose classified
+    // class cannot be mapped to a GOVERNING PRIMARY AUTHORITY is not confidently identified -
+    // producing a report on it poisons authority, consequence, and the mechanism enumeration
+    // (ESD-7 -> bridge_concrete -> AASHTO + a corrosion wall). Promote the Authority Lock's
+    // EXISTING determination (status != LOCKED == no governing primary authority) into a hard
+    // front-of-decision HALT: nothing downstream runs, no authority/mechanism/consequence is
+    // asserted. Reuses the Authority Lock's signal - does not re-derive a matrix. Halts on
+    // UNCERTAINTY (no mappable authority), never on keywords. When authority_lock is absent
+    // (e.g. the offline harness passes null), this does NOT fire, so engine-level tests are
+    // unaffected; the live pipeline always supplies it.
+    var __authLock = body.authority_lock;
+    if (__authLock && typeof __authLock.status === "string" && __authLock.status !== "LOCKED") {
+      var elapsedMsAID = Date.now() - startMs;
+      return {
+        statusCode: 200,
+        headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          decision_core: {
+            engine_version: "physics-first-decision-core-v2.12.2",
+            elapsed_ms: elapsedMsAID,
+            domain_not_supported: true,
+            asset_identity_unresolved: true,
+            authority_lock_status: __authLock.status,
+            asset_class_received: assetClass,
+            asset_class_original: asset.asset_class || "unknown",
+            supported_domains: SUPPORTED_DOMAINS,
+            refusal_reason: "Asset identity not confidently established: the classified asset class '" + assetClass + "' could not be mapped to a governing primary authority (Authority Lock status: " + __authLock.status + "). No authority, mechanism, consequence, disposition, or inspection analysis is produced on an asset whose governing authority cannot be assigned. Resolve the asset classification before assessment. This is a fail-safe identity HOLD, not a system failure.",
+            physical_reality: null,
+            damage_reality: null,
+            consequence_reality: null,
+            authority_reality: null,
+            inspection_reality: null,
+            physics_computations: null,
+            reality_confidence: null,
+            decision_reality: {
+              disposition: "asset_identity_unresolved",
+              disposition_basis: "Authority Lock status '" + __authLock.status + "' - no governing primary authority for class '" + assetClass + "'. The engine holds rather than assert authority/mechanisms on an unconfirmed asset identity.",
+              gates: [{ gate: "asset_identity_gate", result: "HELD", reason: "Authority Lock status " + __authLock.status + " (no mappable governing authority for class " + assetClass + ")", required_action: "Confirm/resolve the asset classification to a class with a mapped governing authority before assessment." }],
+              guided_recovery: [],
+              phased_strategy: [],
+              hard_locks: [],
+              decision_trace: ["ASSET IDENTITY GATE HELD: authority_lock.status=" + __authLock.status + " for asset_class=" + assetClass]
+            }
+          }
+        })
+      };
+    }
+
     var physics = resolvePhysicalReality(transcript, events, numVals, confirmedFlags, assetClass);
     var damage = resolveDamageReality(physics, confirmedFlags, transcript, evidenceProvenance);
 
