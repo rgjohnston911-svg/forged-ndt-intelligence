@@ -422,9 +422,12 @@ function assess_metal_loss(input) {
 }
 
 // ── MAIN HANDLER ───────────────────────────────────────────────────────────
+var authGuard = require("./auth-guard.cjs"); // DEPLOY471
 var handler = async function(event, context) {
   // POST-only handler
   if (event.httpMethod !== "POST") {
+
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, { "Content-Type": "application/json" }); } // DEPLOY471
     return {
       statusCode: 405,
       body: JSON.stringify({ error: "Method not allowed. Use POST." })

@@ -36,7 +36,9 @@ var SYSTEM_PROMPT = "You are the observation layer for a universal NDT intellige
   + "\"measurements\": {}, "
   + "\"signal_notes\": {}}";
 
+var authGuard = require("./auth-guard.cjs"); // DEPLOY471
 export var handler: Handler = async function(event) {
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, { "Content-Type": "application/json" }); } // DEPLOY471
   try {
     var body = JSON.parse(event.body || "{}");
     var caseId = body.case_id;

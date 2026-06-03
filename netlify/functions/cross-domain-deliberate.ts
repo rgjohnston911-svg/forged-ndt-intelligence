@@ -150,7 +150,7 @@ async function invokeBackground(
   // actually takes, so this await does not block on the deliberation.
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-API-Key": process.env.NDT_API_KEY || "" }, // DEPLOY471: forward server key to guarded background fn
     body: JSON.stringify({ deliberation_id, anomaly_id, org_id }),
   });
   if (!res.ok && res.status !== 202) {
@@ -249,7 +249,9 @@ export async function handleTriggerRequest(
   });
 }
 
+var authGuard = require("./auth-guard.cjs"); // DEPLOY471
 export const handler: Handler = async (event) => {
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, corsHeaders); } // DEPLOY471
   const supabaseUrl = process.env.SUPABASE_URL || "";
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   if (!supabaseUrl || !supabaseKey) {

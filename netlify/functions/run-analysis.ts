@@ -22,7 +22,9 @@ var supabase = createClient(supabaseUrl, supabaseKey);
 
 var siteUrl = process.env.URL || "";
 
+var authGuard = require("./auth-guard.cjs"); // DEPLOY471
 export var handler: Handler = async function(event) {
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, { "Content-Type": "application/json" }); } // DEPLOY471
   try {
     var body = JSON.parse(event.body || "{}");
     var caseId = body.case_id;
@@ -50,7 +52,7 @@ export var handler: Handler = async function(event) {
     try {
       var obsResp = await fetch(siteUrl + "/.netlify/functions/observation-layer", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-API-Key": process.env.NDT_API_KEY || "" }, // DEPLOY471: forward server key to guarded internal layer
         body: JSON.stringify({ case_id: caseId })
       });
       var obsJson = await obsResp.json();
@@ -67,7 +69,7 @@ export var handler: Handler = async function(event) {
     try {
       var reasonResp = await fetch(siteUrl + "/.netlify/functions/reasoning-layer", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-API-Key": process.env.NDT_API_KEY || "" }, // DEPLOY471: forward server key to guarded internal layer
         body: JSON.stringify({ case_id: caseId })
       });
       var reasonJson = await reasonResp.json();
@@ -84,7 +86,7 @@ export var handler: Handler = async function(event) {
     try {
       var truthResp = await fetch(siteUrl + "/.netlify/functions/truth-engine", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-API-Key": process.env.NDT_API_KEY || "" }, // DEPLOY471: forward server key to guarded internal layer
         body: JSON.stringify({ case_id: caseId })
       });
       var truthJson = await truthResp.json();

@@ -545,12 +545,15 @@ function planReassessment(inp) {
 // MAIN HANDLER
 // ============================================================
 
+var authGuard = require("./auth-guard.cjs"); // DEPLOY471
 var handler: Handler = async function(event, context) {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 200, headers: corsHeaders, body: JSON.stringify({ ok: true }) };
   }
 
   if (event.httpMethod !== "POST") {
+
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, corsHeaders); } // DEPLOY471
     return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "POST only" }) };
   }
 

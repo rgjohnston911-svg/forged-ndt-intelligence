@@ -137,7 +137,7 @@ async function callFormulaEngine(formulaCode, inputs, body) {
   try {
     var resp = await fetch(baseUrl + "/api/formula-intelligence-core", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-API-Key": process.env.NDT_API_KEY || "" }, // DEPLOY471: forward server key
       body: JSON.stringify(payload)
     });
     var data = await resp.json();

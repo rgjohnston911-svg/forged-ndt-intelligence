@@ -749,6 +749,7 @@ function runDiagnosis(body: any): any {
 }
 
 // ── HANDLER ────────────────────────────────────────────────────────────
+var authGuard = require("./auth-guard.cjs"); // DEPLOY471
 var handler: Handler = async function(event) {
   var headers = {
     "Content-Type": "application/json",
@@ -758,6 +759,8 @@ var handler: Handler = async function(event) {
   };
 
   if (event.httpMethod === "OPTIONS") {
+
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, { "Content-Type": "application/json" }); } // DEPLOY471
     return { statusCode: 204, headers: headers, body: "" };
   }
 

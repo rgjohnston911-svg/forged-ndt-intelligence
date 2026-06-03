@@ -837,7 +837,9 @@ function plan_inspection(inputs) {
 // ═════════════════════════════════════════════════════════════════════════════
 // MAIN HANDLER
 // ═════════════════════════════════════════════════════════════════════════════
+var authGuard = require("./auth-guard.cjs"); // DEPLOY471
 var handler = async function(event, context) {
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, { "Content-Type": "application/json" }); } // DEPLOY471
   var body_str = event.body || "{}";
   var body = body_str ? JSON.parse(body_str) : {};
   var action = body.action || "get_registry";

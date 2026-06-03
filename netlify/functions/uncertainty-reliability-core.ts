@@ -193,7 +193,7 @@ async function callEngine(engineName, payload) {
   var url = baseUrl + "/.netlify/functions/" + engineName;
   var response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-API-Key": process.env.NDT_API_KEY || "" }, // DEPLOY471: forward server key
     body: JSON.stringify(payload)
   });
   var data = await response.json();

@@ -78,9 +78,12 @@ var QUERY_PRESETS = {
 // ============================================================
 // HANDLER (ROUTER)
 // ============================================================
+var authGuard = require("./auth-guard.cjs"); // DEPLOY471
 export var handler: Handler = async function(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: corsHeaders, body: "" };
   if (event.httpMethod !== "POST") return errResp(405, "POST only");
+
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, corsHeaders); } // DEPLOY471
 
   try {
     var body = JSON.parse(event.body || "{}");

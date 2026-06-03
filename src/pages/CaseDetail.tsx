@@ -192,9 +192,11 @@ export default function CaseDetail() {
     if (!id) return;
     setAnalyzing(true);
     try {
+      var __s = await supabase.auth.getSession(); // DEPLOY471: attach JWT to guarded run-analysis
+      var __t = (__s.data && __s.data.session && __s.data.session.access_token) || "";
       var resp = await fetch("/api/run-analysis", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + __t },
         body: JSON.stringify({ case_id: id })
       });
       await resp.json();
@@ -259,9 +261,11 @@ export default function CaseDetail() {
     if (!id) return;
     setRunningAuthority(true);
     try {
+      var __s2 = await supabase.auth.getSession(); // DEPLOY471: attach JWT to guarded run-authority
+      var __t2 = (__s2.data && __s2.data.session && __s2.data.session.access_token) || "";
       var resp = await fetch("/api/run-authority", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + __t2 },
         body: JSON.stringify({ case_id: id })
       });
       await resp.json();

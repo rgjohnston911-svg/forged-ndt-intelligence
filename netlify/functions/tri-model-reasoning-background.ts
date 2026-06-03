@@ -247,7 +247,7 @@ function callClaude(systemPrompt, userMessage) {
 function callEngine(enginePath, payload) {
   return fetch(siteUrl + "/.netlify/functions/" + enginePath, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-API-Key": process.env.NDT_API_KEY || "" }, // DEPLOY471: forward server key
     body: JSON.stringify(payload)
   }).then(function(r) { return r.json(); }).catch(function(err) {
     return { engine_call_error: String(err), engine: enginePath };

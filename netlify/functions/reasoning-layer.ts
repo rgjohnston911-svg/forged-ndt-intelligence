@@ -46,7 +46,9 @@ var SYSTEM_PROMPT = "You are the causal reasoning layer for the FORGED NDT Intel
   + "\"confidence\": 0.0, "
   + "\"teaching_note\": \"one key physics insight a Level 2 inspector should learn from this case\"}";
 
+var authGuard = require("./auth-guard.cjs"); // DEPLOY471
 export var handler: Handler = async function(event) {
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, { "Content-Type": "application/json" }); } // DEPLOY471
   try {
     var body = JSON.parse(event.body || "{}");
     var caseId = body.case_id;

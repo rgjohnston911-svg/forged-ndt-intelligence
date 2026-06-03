@@ -8,13 +8,16 @@
  */
 
 import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase"; // DEPLOY471
 
 var API_BASE = "/api/escalation-workflow";
 
-function post(body) {
+async function post(body) {
+  var __s = await supabase.auth.getSession(); // DEPLOY471: attach JWT to guarded endpoint
+  var __t = (__s.data && __s.data.session && __s.data.session.access_token) || "";
   return fetch(API_BASE, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + __t },
     body: JSON.stringify(body)
   }).then(function(r) { return r.json(); });
 }

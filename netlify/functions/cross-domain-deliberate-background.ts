@@ -221,8 +221,11 @@ async function markRowFailed(
   }
 }
 
+var authGuard = require("./auth-guard.cjs"); // DEPLOY471
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
+
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, corsHeaders); } // DEPLOY471
     return json(405, { error: "method_not_allowed" });
   }
 

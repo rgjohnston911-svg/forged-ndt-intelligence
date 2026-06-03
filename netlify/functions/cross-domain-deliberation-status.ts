@@ -114,7 +114,9 @@ export async function handleStatusRequest(
   });
 }
 
+var authGuard = require("./auth-guard.cjs"); // DEPLOY471
 export const handler: Handler = async (event) => {
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, corsHeaders); } // DEPLOY471
   const supabaseUrl = process.env.SUPABASE_URL || "";
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   if (!supabaseUrl || !supabaseKey) {

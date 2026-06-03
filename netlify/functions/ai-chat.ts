@@ -113,7 +113,7 @@ async function callEngine(engineName: string, params: any): Promise<any> {
   try {
     var response = await fetch(siteUrl + "/api/" + engineName, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-API-Key": process.env.NDT_API_KEY || "" }, // DEPLOY471: forward server key to guarded engine
       body: JSON.stringify(params)
     });
     if (!response.ok) {

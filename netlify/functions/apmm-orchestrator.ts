@@ -304,7 +304,7 @@ async function callSubEngine(engineNumber, inputs, siteUrl) {
   try {
     var response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-API-Key": process.env.NDT_API_KEY || "" }, // DEPLOY471: forward server key
       body: JSON.stringify({ action: "run_engine", engine_number: String(engineNumber), inputs: inputs })
     });
     var data = await response.json();

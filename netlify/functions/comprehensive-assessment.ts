@@ -131,7 +131,7 @@ async function callEngine(enginePath: string, payload: any): Promise<any> {
     // Use dynamic import for node-fetch if needed, or native fetch
     var response = await fetch(fullUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-API-Key": process.env.NDT_API_KEY || "" }, // DEPLOY471: forward server key to guarded engine
       body: JSON.stringify(payload)
     });
 
@@ -959,6 +959,7 @@ async function runFullAssessment(body: any, scope: string): Promise<any> {
 }
 
 // ── HANDLER ────────────────────────────────────────────────────────────
+var authGuard = require("./auth-guard.cjs"); // DEPLOY471
 var handler: Handler = async function(event) {
   var headers = {
     "Content-Type": "application/json",
@@ -968,6 +969,8 @@ var handler: Handler = async function(event) {
   };
 
   if (event.httpMethod === "OPTIONS") {
+
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, { "Content-Type": "application/json" }); } // DEPLOY471
     return { statusCode: 204, headers: headers, body: "" };
   }
 
