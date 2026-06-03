@@ -4321,6 +4321,12 @@ function resolveDamageReality(physics: any, flags: any, transcript: string, prov
 // ============================================================================
 function resolveConsequenceReality(physics: any, damage: any, assetClass: string, transcript: string, flags: any) {
   var lt = transcript.toLowerCase();
+  // DEPLOY470 Tier 2A - an UNMANNED / NUI / unoccupied asset must NOT be read as crew-occupied.
+  // (The bug: hasWord() is substring, so "unmanned" matched "manned" and "unoccupied" matched
+  // "occupied" -> fabricated CRITICAL / FATAL on standard offshore vocabulary.) This flag suppresses
+  // only CREW-occupancy elevation; an external receptor (downwind population) still elevates.
+  var unmanned = hasWordBoundary(lt, "unmanned") || hasWordBoundary(lt, "unoccupied")
+    || /\bnui\b/i.test(lt) || /normally unmanned|not normally manned|not manned|no personnel on board|zero personnel/i.test(lt);
   var fl = flags || {};
   var tier: string = "MEDIUM";
   var basis: string[] = [];
@@ -4331,8 +4337,15 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   var requirements: string[] = [];
 
   var critKw = ["decompression chamber", "hyperbaric", "dive system", "diving bell", "life support", "human occupancy", "manned", "personnel basket", "escape capsule", "breathing air", "double lock", "saturation div", "recompression", "treatment chamber", "man-rated"];
+  var CREW_OCC_KW = { "manned": true, "human occupancy": true, "personnel basket": true, "escape capsule": true, "man-rated": true };
   for (var ci = 0; ci < critKw.length; ci++) {
-    if (hasWord(lt, critKw[ci])) { tier = "CRITICAL"; basis.push("PHYSICS: Human occupancy (" + critKw[ci] + ")"); humanImpact = "FATAL -- human occupancy during operation"; humanImpactSet = true; break; }
+    // "manned" must be word-bounded (so "unmanned" does not match); the deliberate stems
+    // ("saturation div", "recompression", ...) stay substring matches. Crew-occupancy keywords
+    // are skipped on an UNMANNED asset; inherent life-support hardware (hyperbaric/dive/chamber)
+    // still elevates regardless.
+    var hit = (critKw[ci] === "manned") ? hasWordBoundary(lt, "manned") : hasWord(lt, critKw[ci]);
+    if (hit && CREW_OCC_KW[critKw[ci]] && unmanned) { continue; }
+    if (hit) { tier = "CRITICAL"; basis.push("PHYSICS: Human occupancy (" + critKw[ci] + ")"); humanImpact = "FATAL -- human occupancy during operation"; humanImpactSet = true; break; }
   }
   if (physics.energy.stored_energy_significant) {
     if (tier !== "CRITICAL") tier = "HIGH";
@@ -4478,10 +4491,15 @@ function resolveConsequenceReality(physics: any, damage: any, assetClass: string
   var hazardPathway = !!physics.chemical.h2s_present || !!physics.chemical.caustic_present ||
     hasWord(lt, "toxic") || !!physics.energy.stored_energy_significant || flammableContext ||
     (opTempF !== null && opTempF >= 400);
-  var receptorExposure = hasWord(lt, "occupied") || hasWord(lt, "manned") ||
-    hasWord(lt, "populated") || hasWord(lt, "population") || hasWord(lt, "downwind") ||
-    hasWord(lt, "residential") || hasWord(lt, "public exposure") || hasWord(lt, "control building") ||
-    hasWord(lt, "occupied control room") || hasWord(lt, "occupied building") || hasWord(lt, "occupied structure");
+  // DEPLOY470 Tier 2A - boundary-match the occupancy terms ("unoccupied" must not match "occupied",
+  // "unmanned" must not match "manned"), and separate CREW occupancy (suppressed on an unmanned
+  // asset) from an EXTERNAL receptor like a downwind population (which elevates regardless).
+  var crewOccupancy = hasWordBoundary(lt, "occupied") || hasWordBoundary(lt, "manned") ||
+    hasWordBoundary(lt, "control building") || hasWordBoundary(lt, "occupied control room") ||
+    hasWordBoundary(lt, "occupied building") || hasWordBoundary(lt, "occupied structure");
+  var externalReceptor = hasWordBoundary(lt, "populated") || hasWordBoundary(lt, "population") ||
+    hasWordBoundary(lt, "downwind") || hasWordBoundary(lt, "residential") || hasWord(lt, "public exposure");
+  var receptorExposure = (crewOccupancy && !unmanned) || externalReceptor;
   if (hazardPathway && receptorExposure) {
     tier = "CRITICAL";
     basis.push("CONSEQUENCE AMPLIFIER (collateral): hazardous release pathway with occupied/populated receptor exposure (e.g. occupied control room, downwind population) -- life-safety controlling. A small defect can GOVERN through consequence amplification, independent of remaining wall thickness.");

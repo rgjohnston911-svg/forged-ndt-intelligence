@@ -81,6 +81,21 @@ var CONFIDENT_GO = { go: 1, conditional_go: 1 };
   check('offshore sour gas -> CRITICAL', (await conseq('Offshore fixed production platform gas compression and export system 1420 psi wet gas CO2 trace H2S. Wall loss 16 percent.')) === 'CRITICAL');
   check('offshore benign seawater -> NOT CRITICAL', (await conseq('Offshore platform seawater lift caisson structural support no hydrocarbon general coating wear.')) !== 'CRITICAL');
 
+  // DEPLOY470 Tier 2A - 'unmanned'/'unoccupied'/NUI must NOT fabricate FATAL human-occupancy
+  // (the hasWord substring bug matched 'manned' inside 'unmanned'). A genuinely manned asset still escalates.
+  function conseqHI(transcript) {
+    var ev = { httpMethod: 'POST', headers: { 'X-API-Key': 'gate-server-key' }, body: JSON.stringify({
+      transcript: transcript, parsed: { numeric_values: {} }, asset: { asset_class: 'offshore_platform', confidence: 0.85 },
+      confirmed_flags: {}, reality_lock: null, evidence_provenance: null, authority_lock: null, sa_responses: [] }) };
+    return handler(ev).then(function (res) { var b = JSON.parse(res.body); var dc = b.decision_core || b; var c = dc.consequence_reality || {}; return { tier: c.consequence_tier, hi: (c.human_impact || '') }; });
+  }
+  var nui = await conseqHI('Normally unmanned installation, subsea tieback, no personnel on board. Topsides piping UT within limits, no corrosion.');
+  check('unmanned NUI -> no fabricated FATAL human-occupancy', nui.hi.indexOf('FATAL -- human occupancy') === -1);
+  var unocc = await conseqHI('Unoccupied wellhead structure, no corrosion, within limits.');
+  check('unoccupied structure -> no fabricated FATAL human-occupancy', unocc.hi.indexOf('FATAL -- human occupancy') === -1);
+  var manned = await conseqHI('Manned production platform with living quarters, 40 personnel on board, high pressure separator stored energy.');
+  check('manned platform -> still CRITICAL + FATAL human occupancy', manned.tier === 'CRITICAL' && manned.hi.indexOf('FATAL') !== -1);
+
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log('\nDECISION-CORE HOLD GATE: ' + pass + ' / ' + total + ' invariants held');
   if (pass !== total) { process.exit(1); }

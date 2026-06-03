@@ -1163,17 +1163,24 @@ var handler = async function(event) {
       // (STRUCTURAL_PRIMARY) and the honest screening interaction
       // (CORROSION_CONFIRMED_CRACKING_SCREENING - corrosion confirmed, cracking explicitly
       // unconfirmed) are exempt. Gate on verdict, never on keyword.
-      // Per-FAMILY confirmation (classifyFamily, not the single dominant mev.confirmed): a genuine
-      // corrosion+cracking case confirms BOTH families even though the verdict names one as
-      // dominant. Corrosion is also confirmed by a measured wall-loss datum.
-      var __ME = require("./_mechanism-evidence.cjs");
-      var __corrFamConfirmed = (__ME.classifyFamily("corrosion", transcript).level === "CONFIRMED") || (wallLossPercent > 0);
-      var __crackFamConfirmed = (__ME.classifyFamily("cracking", transcript).level === "CONFIRMED");
-      var __structFamConfirmed = (__ME.classifyFamily("structural", transcript).level === "CONFIRMED");
-      var __confirmedFamilies = (__corrFamConfirmed ? 1 : 0) + (__crackFamConfirmed ? 1 : 0) + (__structFamConfirmed ? 1 : 0);
+      // DEPLOY470 Tier 2B - gate the interaction on FMD's OWN per-family REAL evidence, NOT a second,
+      // stricter matcher. classifyFamily's DIRECT regexes were narrower than FMD's observed-state
+      // vocabulary ("crack present", "crack verified", "fracture surface") and could not see fatigue
+      // at all, so the DEPLOY468 gate wrongly suppressed genuine CUI+fatigue / MIC+HIC / erosion+SCC
+      // interactions on real multi-mechanism cases. Use the engine's own determinations:
+      //   corrosion = verdict-confirmed OR a measured wall-loss datum (NOT a passed-in/injected
+      //               mechanism name, so an upstream-injected "mic" alone cannot re-assert a fake leg),
+      //   cracking  = FMD's transcript-grounded observed-crack state (rich vocabulary, includes fatigue),
+      //   structural= FMD's non-finding-gated structural indicators.
+      // An interaction is a multi-mechanism claim -> require >= 2 families with REAL evidence; < 2 -> drop.
+      // (TEST 36 stays suppressed: injected mic/hic on a clean transcript -> 0 real families.)
+      var __corrReal = corrConfirmed;               // mev.confirmed === "corrosion" || wallLossPercent > 0
+      var __crackReal = hasCrackingMode_observed;   // FMD's own observed-crack inference (covers fatigue)
+      var __structReal = (typeof hasStructuralMode !== "undefined") ? hasStructuralMode : structConfirmed;
+      var __realFamilies = (__corrReal ? 1 : 0) + (__crackReal ? 1 : 0) + (__structReal ? 1 : 0);
       var __multiMechInteraction = (interactionType === "COMPOUND_DRIVER" || interactionType === "SYNERGY" ||
         interactionType === "CASCADE" || interactionType === "PARALLEL");
-      if (__multiMechInteraction && __confirmedFamilies < 2) {
+      if (__multiMechInteraction && __realFamilies < 2) {
         interactionFlag = false;
         interactionType = "none";
         interactionDetail = "";

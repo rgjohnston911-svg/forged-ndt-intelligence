@@ -22,7 +22,7 @@ function ok(c, m) { if (c) { pass++; } else { fails.push(m); } }
 
 function fmd(body) {
   return Promise.resolve(FMD.handler({ httpMethod: 'POST', headers: { 'X-API-Key': 'k' }, body: JSON.stringify(body) }))
-    .then(function (r) { var b = JSON.parse(r.body); return { c: b.corrosion_path || {}, k: b.cracking_path || {}, s: b.structural_path || {}, mode: b.governing_failure_mode }; });
+    .then(function (r) { var b = JSON.parse(r.body); return { c: b.corrosion_path || {}, k: b.cracking_path || {}, s: b.structural_path || {}, mode: b.governing_failure_mode, flag: b.interaction_flag, itype: b.interaction_type }; });
 }
 
 (async function () {
@@ -43,6 +43,18 @@ function fmd(body) {
   // Real crack -> cracking path active (no regression)
   var crack = await fmd({ transcript: 'PAUT detected crack-like linear indication, through-wall crack confirmed', damage_mechanisms: ['crack'], has_cracking: true, wall_loss_percent: 0, asset_class: 'pressure_vessel' });
   ok(crack.k.active === true, 'real crack -> cracking path active (got ' + crack.k.active + ')');
+
+  // DEPLOY470 Tier 2B - the interaction/synergy gate consumes FMD's OWN observed per-family states
+  // (not a second, stricter classifyFamily matcher that missed "crack present/verified" and fatigue).
+  // Genuine multi-mechanism interactions are RESTORED; the TEST 36 injected-but-unobserved phantom stays dropped.
+  var iPhantom = await fmd({ transcript: 'subsea production system, no corrosion, no cracking, no leak, no damage mechanism, within design limits', damage_mechanisms: ['mic', 'hic'], has_cracking: true, cracking_confirmed: true, wall_loss_percent: 0, asset_class: 'offshore_platform' });
+  ok(iPhantom.flag === false && iPhantom.itype === 'none', 'TEST36 phantom: injected mic/hic on a clean transcript -> NO interaction (0 real families)');
+  var iCuiFat = await fmd({ transcript: 'WFMT found a fatigue crack at the weld toe, crack present and verified. Measured wall loss 30% under insulation, CUI active.', damage_mechanisms: ['cui', 'fatigue'], has_cracking: true, cracking_confirmed: true, wall_loss_percent: 30, asset_class: 'process_piping' });
+  ok(iCuiFat.flag === true && iCuiFat.itype === 'CASCADE', 'CUI+fatigue (crack verified) -> CASCADE restored (fatigue is visible via FMD observed-crack state)');
+  var iMicHic = await fmd({ transcript: 'External UT 38% wall loss, active metal loss and pitting. HIC blistering observed, crack verified, fracture surface present. Sour service H2S 200ppm. MIC colonies identified.', damage_mechanisms: ['mic', 'hic'], has_cracking: true, cracking_confirmed: true, wall_loss_percent: 38, asset_class: 'process_piping' });
+  ok(iMicHic.flag === true && iMicHic.itype === 'SYNERGY', 'MIC+HIC (HIC observed + measured loss) -> SYNERGY restored (2 real families)');
+  var iEroScc = await fmd({ transcript: 'Erosion-corrosion thinning measured 25% wall loss. SCC visible cracking present, branching, cracking verified by replica.', damage_mechanisms: ['erosion', 'scc'], has_cracking: true, cracking_confirmed: true, wall_loss_percent: 25, asset_class: 'process_piping' });
+  ok(iEroScc.flag === true && iEroScc.itype === 'SYNERGY', 'erosion+SCC (cracking verified + measured loss) -> SYNERGY restored');
 
   fs.rmSync(tmp, { recursive: true, force: true });
   if (fails.length) { console.log('FAIL fmd-subpath-verdict-gate: ' + fails.length); fails.forEach(function (f) { console.log('   - ' + f); }); process.exit(1); }
