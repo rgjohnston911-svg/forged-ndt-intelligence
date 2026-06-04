@@ -871,6 +871,14 @@ var handler = async function(event) {
     // DETERMINE GOVERNING FAILURE MODE (v1.3 -- screening-aware)
     // ====================================================================
 
+    // #135 - reuse the DEPLOY459 sub-path verdict gate at the GOVERNING layer. The corrosion
+    // governing branches below must key on CONFIRMED corrosion (verdict OR a measured wall-loss
+    // datum), NOT the loose hasCorrosionMode (which counts INFERRED sour-service mechanisms).
+    // Computed once here so the governing block AND the DEPLOY452 compulsion gate (CORROSION leg)
+    // share the SAME gate the sub-path uses - killing the sub-path-vs-governing divergence.
+    var __mev135 = require("./_mechanism-evidence.cjs").buildMechanismVerdict(transcript);
+    var corrConfirmed = (__mev135.confirmed === "corrosion") || (wallLossPercent > 0);
+
     var governingMode = "NONE";
     var governingPressure = null;
     var governingBasis = "";
@@ -932,10 +940,15 @@ var handler = async function(event) {
           governingMode = "CRACKING";
           governingPressure = crackingPath.failure_pressure;
           governingBasis = "Confirmed cracking failure pressure (" + crackingPath.failure_pressure + " psi) < corrosion failure pressure (" + corrosionPath.failure_pressure + " psi)";
-        } else {
+        } else if (corrConfirmed) {
           governingMode = "CORROSION";
           governingPressure = corrosionPath.failure_pressure;
           governingBasis = "Corrosion failure pressure (" + corrosionPath.failure_pressure + " psi) <= confirmed cracking failure pressure (" + crackingPath.failure_pressure + " psi)";
+        } else {
+          // #135: corrosion not verdict-confirmed (inferred only) -> confirmed cracking governs.
+          governingMode = "CRACKING";
+          governingPressure = crackingPath.failure_pressure;
+          governingBasis = "Confirmed cracking governs; corrosion is inferred only (not verdict-confirmed and no measured wall loss).";
         }
       } else if (crackingPath.brittle_fracture_risk) {
         governingMode = "CRACKING";
@@ -947,7 +960,10 @@ var handler = async function(event) {
       }
     }
     // v1.3 KEY CHANGE: corrosion active + cracking SCREENING ONLY -> govern on corrosion
-    else if (hasCorrosionMode && hasCrackingMode_screeningOnly) {
+    // #135: require corrConfirmed (verdict/measured loss). Inferred-only corrosion + screening
+    // cracking falls through to the SCREENING_REQUIRED branch below - which preserves the
+    // suspected HIC/SSC screening output WITHOUT asserting "confirmed corrosion".
+    else if (corrConfirmed && hasCrackingMode_screeningOnly) {
       governingMode = "CORROSION";
       governingPressure = corrosionPath.failure_pressure;
       suspectedGoverning = prioritizeFatigue(screeningMechanisms.filter(function(x){ return x && x !== 'generic' && x !== 'unknown' && x !== 'crack' && x !== 'cracking'; }), transcript);
@@ -973,8 +989,8 @@ var handler = async function(event) {
       governingPressure = crackingPath.failure_pressure;
       governingBasis = "Confirmed cracking is the sole active failure mode";
     }
-    // Only corrosion
-    else if (hasCorrosionMode) {
+    // Only corrosion (#135: confirmed corrosion only; inferred-only falls through to screening/NONE)
+    else if (corrConfirmed) {
       governingMode = "CORROSION";
       governingPressure = corrosionPath.failure_pressure;
       governingBasis = "Corrosion/metal loss is the sole active failure mode";
@@ -1059,7 +1075,7 @@ var handler = async function(event) {
       var DIRECT_CRACK = /\b(?:ut|paut|tofd|mt|mpi|pt|rt|ae)\b[^.]{0,40}(?:crack|indication|flaw|linear)|crack(?:ing)?\s+(?:indication|detected|confirmed|observed|found|located)|through-wall crack|active crack growth|fracture\s+(?:observed|confirmed|found)/i;
       var DIRECT_STRUCT = /settlement[^.]{0,40}(?:exceed|beyond|above)\s+(?:the\s+)?allowable|differential settlement|buckl(?:ed|ing)|failed support|yielded|out-of-plumb\s+\d|measured\s+(?:deformation|distortion|tilt|out-of-round)|collapse|progressive\s+(?:movement|tilt|distortion)/i;
       var evidenced = false;
-      if (governingMode === "CORROSION") { evidenced = clausePositive(DIRECT_CORR); }
+      if (governingMode === "CORROSION") { evidenced = corrConfirmed; } // #135: verdict gate, not the clause/keyword matcher (removes a keyword gate)
       else if (governingMode === "CRACKING") { evidenced = clausePositive(DIRECT_CRACK); }
       else if (governingMode === "STRUCTURAL_INSTABILITY") { evidenced = clausePositive(DIRECT_STRUCT); }
       else if (governingMode === "COMPOUND") { evidenced = clausePositive(DIRECT_CORR) || clausePositive(DIRECT_CRACK); }
