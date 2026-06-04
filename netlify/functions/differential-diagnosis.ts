@@ -759,10 +759,10 @@ var handler: Handler = async function(event) {
   };
 
   if (event.httpMethod === "OPTIONS") {
-
-  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, { "Content-Type": "application/json" }); } // DEPLOY471
     return { statusCode: 204, headers: headers, body: "" };
   }
+  // DEPLOY473 fix: guard AFTER the OPTIONS block (was trapped inside it -> never ran for POST)
+  var __a = await authGuard.verifyAuth(event); if (!__a.ok) { return authGuard.denyResponse(__a, { "Content-Type": "application/json" }); }
 
   try {
     var body: any = {};

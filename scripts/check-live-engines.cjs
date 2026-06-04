@@ -32,5 +32,12 @@ var noKey=[]; files.forEach(function(f){var c=content[f];
   }});
 // (forward-key is advisory: list, do not hard-fail, to avoid false positives on anthropic-only callers)
 if(noKey.length){console.log('WARN forward-key: internal-fetching function(s) without X-API-Key (review):\n  '+noKey.join(', '));}
+// (c) SRC IMPORT REACHABILITY (DEPLOY473): no src/ file may import a netlify/functions/<name>
+// that is not a deployed (live) function. tsc -b compiles src/**/__tests__/*.ts, so a test importing
+// an archived engine fails the build - this catches that class the gate-suite scan (tests/*.test.cjs) misses.
+(function(){
+  var srcImports=[]; (function w(d){fs.readdirSync(d,{withFileTypes:true}).forEach(function(e){var pth=path.join(d,e.name);if(e.isDirectory())w(pth);else if(/\.tsx?$/.test(e.name)){var c=fs.readFileSync(pth,'utf8');var re=/(?:from|import\()\s*["\x27][^"\x27]*netlify\/functions\/([a-z0-9_-]+)["\x27]/g;var m;while((m=re.exec(c))){var n=m[1];if(n&&!nameSet[n])srcImports.push(pth.replace(/^src./,'src/')+' -> '+n);}}});})('src');
+  if(srcImports.length){console.log('FAIL src-import: src/ imports a non-deployed (archived) function:\n  '+srcImports.join('\n  '));fail=1;}
+})();
 if(fail){process.exit(1);}
 console.log('check-live-engines: OK - '+Object.keys(live).length+' reachable functions, no orphan deployed.');
