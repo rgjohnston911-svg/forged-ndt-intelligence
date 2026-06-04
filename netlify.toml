@@ -38,11 +38,6 @@
   status = 200
 
 [[redirects]]
-  from = "/system-check.html"
-  to = "/system-check.html"
-  status = 200
-
-[[redirects]]
   from = "/landing.html"
   to = "/landing.html"
   status = 200
