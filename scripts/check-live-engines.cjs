@@ -19,7 +19,7 @@ function edge(c,n){return new RegExp("(?:require\\(|from )[\"']\\./"+esc(n)+"(?:
 var edges={}; Object.keys(content).forEach(function(f){var c=content[f];var r=[];names.forEach(function(n){if(n!==base(f)&&edge(c,n))r.push(n);});edges[base(f)]=r;});
 function root(n,c){return new RegExp("(?:/\\.netlify/functions/|/api/)"+esc(n)+"(?![\\w-])").test(c)||new RegExp("call(?:API|Engine)\\(\\s*[\"']"+esc(n)+"[\"']").test(c);}
 var roots={}; names.forEach(function(n){if(root(n,src)||root(n,pub)||root(n,toml))roots[n]=1;});
-['formula-engine','method-capability','universal-code-authority','differential-diagnosis','physics-sufficiency-engine','comprehensive-assessment','nde-image-analysis','ai-chat'].forEach(function(n){if(nameSet[n])roots[n]=1;});
+['formula-engine','method-capability','universal-code-authority','differential-diagnosis','physics-sufficiency-engine','comprehensive-assessment','nde-image-analysis','ai-chat','live-code-authority','weld-acceptance-authority'].forEach(function(n){if(nameSet[n])roots[n]=1;});
 var live={},st=Object.keys(roots); while(st.length){var n=st.pop();if(live[n])continue;live[n]=1;(edges[n]||[]).forEach(function(m){if(!live[m])st.push(m);});}
 var unreachable=names.filter(function(n){return !live[n];});
 var fail=0;

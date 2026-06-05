@@ -41,6 +41,7 @@ fleet-triage
 future-state-forecaster
 global-authority-engine
 inspector-adjudication
+live-code-authority
 llm-proxy
 material-authority
 nde-image-analysis
@@ -85,3 +86,4 @@ universal-code-authority
 unknown-state
 verify-audit-chain
 voice-grammar-bridge
+weld-acceptance-authority
