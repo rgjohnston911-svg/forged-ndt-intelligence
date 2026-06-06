@@ -1539,7 +1539,16 @@ function checkEvidenceSufficiency(evidence) {
 // ================================================================
 
 function routeCode(context) {
-  if (context.code_key) return context.code_key;
+  if (context.code_key) {
+    // DEPLOY476: normalize incoming key ("AWS_D1_1", "AWS D1.1", "aws-d1.1")
+    // to the lowercase CODE_LIBRARY key ("aws_d1_1") so edition/tables/scope resolve
+    // instead of falling through to code_name=key, edition="unknown".
+    var __raw = String(context.code_key);
+    var __norm = __raw.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    if (CODE_LIBRARY[__norm]) return __norm;
+    if (CODE_LIBRARY[__raw]) return __raw;
+    return __norm;
+  }
 
   var application = (context.application || "").toLowerCase();
   var material = (context.material || "").toLowerCase();
